@@ -2639,3 +2639,30 @@ Stage Summary:
 - 50400 combo themes + 9 presets = 50409 total themes
 - Range incremental: completed skip + ongoing recheck + cross-source dedup
 - Code pushed to https://github.com/u4399com-beep/heis.git (commit de417dc)
+
+---
+Task ID: proxy-probe-rules
+Agent: US proxy probe + rewrite disabled rules
+Task: Re-probe 26 disabled rules with US proxy, rewrite configs
+
+Work Log:
+- Probed all 26 disabled sites with US proxy (107.173.152.164:8080) + direct
+- Results:
+  - REACHABLE (direct 200): jhsssd hodei uukanshu biqu5200 biquge5200(http) biquwx(http) biqugse(http) wanbenshenzhan xiaoshuodaquan 8kana
+  - CF CHALLENGE (403): pilishuwu hetushu dongliuxiaoshuo (engine=auto can solve)
+  - GEO-BLOCKED (403): libahao2 (need proxy)
+  - HARD 403: guichuideng shucong daweixs dafengdagengren
+  - DOMAIN FOR SALE: biqugse biquwx (4.cn)
+  - UNREACHABLE: ibiquwx ibiquges xbiqubao duokanbiqu zhongwenzw 123duw biquge5200
+  - NON-BIQUEGE: 8kana (Vue/Phalcon), xiaoshuodaquan (BaoTa not configured)
+- Deep probed reachable sites: extracted real item selectors
+  - jhsssd: .item > dl > dt (span author + a name/bookUrl) + dd intro + .image img cover
+  - hodei: .item > dl > dt (span author + a name/bookUrl) + .image img cover
+  - uukanshu: .bookbox > .bookinfo > h4.bookname a + .author + .cat a (latest chapter)
+  - biqu5200: dl > dd h3 a (name/bookUrl) + dt img (cover)
+- Fixed+enabled 5 rules (jhsssd hodei pilishuwu hetushu dongliuxiaoshuo)
+  with correct selectors + engine=auto for CF sites
+- Test result: all 5 FAILED (engine timeout/selector mismatch/CF not solved in test mode)
+- Re-disabled 5 failures, keeping 27 enabled 24/24 pass (100%)
+- Final: 53 rules (27 enabled + 26 disabled)
+- Pushed to GitHub
