@@ -2748,3 +2748,26 @@ Work Log:
 
 最终: 53条规则(34启用+19禁用), 32/32测试通过(100%)
 质量门: lint 0/0, tsc 0
+
+---
+Task ID: 8kana-breakthrough
+Agent: 8kana SSR突破 + 123duw/libahao2 尝试
+Task: 突破8kana Vue SPA + 尝试123duw/libahao2
+
+Work Log:
+- 8kana.com 突破!
+  发现: .html扩展名返回SSR数据(Vue SPA的非SPA模式), 无扩展返回Vue SPA壳
+  URL: /www/bookclass/serial/1-101.html (固定分类页, 无{page}占位符)
+  选择器: #SerialBook li / img(alt=书名) / a(href=书链) / img(original=封面)
+  engine=http+uaMode=desktop (SSR直接可用, 无需浏览器引擎)
+  测试: count=12 (如果神仙不务正业/代号Ⅵ/从凛开始等)
+  
+- 123duw.com: SSL证书过期+HTTP 301→HTTPS+HTTPS 403
+  engine=auto/http/browser均502超时, 保持禁用
+  (Mac Chrome可访问是因为Chrome不严格检查过期证书+可能有缓存的CF cookie)
+
+- libahao2.com: engine=browser返回384字节地区拦截页
+  当前服务器IP非北京移动, 无法访问, 保持禁用
+
+最终: 53条(35启用+18禁用), 32/32通过(100%)
+质量门: lint 0/0, tsc 0
