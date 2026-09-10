@@ -336,16 +336,19 @@ export function cleanContentHtml(raw: string, cfgOverride?: Partial<CleanConfig>
 // (www\.)?[a-z0-9-]+\.(com|net|…)(\/\S*)? 会把正文里【带 scheme 的合法 URL 文本】
 // 一并啃掉 —— "访问https://example.com/book看正文"被剥成"访问https://看正文",
 // <a href="https://…"> 的 href 属性同理受损。方案(取最小): 跑广告正则前先把
-// "https?://…" 完整 URL 区段掩码成 \u0000N\u0000 占位符, 正则跑完原样还原。
+// "https?://…" 完整 URL 区段掩码成 \uE000N\uE001 占位符, 正则跑完原样还原。
 // 覆盖面: 正文行内 URL / <a href> 属性值 / 引号或括号上下文中的完整 URL;
 // 裸域名灌水(www.xxx.com 无 scheme, 广告常态)不受保护, 照常剥除。
 // 占位符损坏容忍: 若某条广告正则恰好吃掉占位符一半(如含 \d 的模式), 还原失败
-// 的残留 \u0000 序列由末尾 scrub 兜底清掉, 不留控制字符进库
+// 的残留 \uE000\uE001 序列由末尾 scrub 兜底清掉, 不留控制字符进库
+// R8-18: 占位符从 \u0000 改为 \uE000/\uE001(Unicode Private Use Area) —— \u0000(NUL)
+// 可能源站二进制污染出现, 与占位符冲突导致 URL 还原失败; PUA 区段(0xE000~0xF8FF)
+// 在合法源文本中几乎不出现, 冲突概率极低
 function removeAdLines(text: string, patterns: string[]): string {
   const urls: string[] = []
   let out = text.replace(/https?:\/\/[^\s"'<>]+/gi, (m) => {
     urls.push(m)
-    return `\u0000${urls.length - 1}\u0000`
+    return `\uE000${urls.length - 1}\uE001`
   })
   for (const p of patterns) {
     if (!p) continue
@@ -360,8 +363,8 @@ function removeAdLines(text: string, patterns: string[]): string {
     } catch { /* 无效正则跳过 */ }
   }
   // 还原被保护的 URL(良构占位符), 再清掉还原失败的控制字符残留
-  out = out.replace(/\u0000(\d+)\u0000/g, (_, i) => urls[Number(i)] ?? '')
-  out = out.replace(/\u0000\d*/g, '')
+  out = out.replace(/\uE000(\d+)\uE001/g, (_, i) => urls[Number(i)] ?? '')
+  out = out.replace(/\uE000\d*\uE001?/g, '')
   return out
 }
 

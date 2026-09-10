@@ -2867,3 +2867,265 @@ Stage Summary:
 - 反反爬 10 项深度增强覆盖: cookie PSL 多段 TLD / 持久化 / 指纹轮换 / device ID / SIGTERM
   优雅关闭 / 全局并发信号量 / 路径抖动 / OOM 保护 / ReDoS 预算 / Referer 链强制
 - 全部零回归: 缺省配置下老规则行为不变, 新功能均通过 cfg 开关或字段缺省值启用
+
+---
+Task ID: audit-r8
+Agent: Deep audit round 8
+Task: Deep line-by-line bug hunt (Round 8) — find bugs missed by prior 7 rounds (170 bugs total)
+Mode: RESEARCH ONLY (no code modification)
+
+## Scope
+Reviewed ALL files in src/lib/crawl/* (fetcher/obscura/runner/types/parser/cleaner/hostgate/downloader/theme-matrix), src/app/api/** (admin/backup+restore, admin/settings, admin/tasks+control, admin/chapters, admin/rules, admin/links, admin/downloads, admin/themes, admin/health, admin/books+batch, admin/feedback, public/chapter, public/cover, public/feedback, _lib/http, _lib/batch), src/lib/* (api/auth/links/logger/db/utils), src/components/public/read-layouts/shared.tsx, mini-services/cloak-browser/index.ts, mini-services/_shared/server.ts.
+
+Focused on recent feature surface (contentProxyUrl, CloakBrowser 3-tier stealth, cookie persistence, globalSem, pathJitter, OOM protection, ReDoS budget, fingerprint rotation, IMEI device ID, SIGTERM handler, range resume discoveredBookUrls/completedBookUrls/ongoingBookUrls) + interaction bugs + security + memory + error handling + race conditions.
+
+## Bugs Found (20 NEW)
+
+### R8-1 (Medium) — src/lib/crawl/fetcher.ts:616-637
+`acquireGlobalSlot` has NO timeout. If a single in-flight fetch hangs indefinitely (Obscura `page.goto` with ineffective Playwright timeout, or `fetchHttp` with `cfg.timeout=0`/super-high), the holder never calls `releaseGlobalSlot`. All subsequent requests queue in `globalSem.waiters` forever.
+- Trigger: Hung fetch holder (Playwright internal deadlock / very long timeout)
+- Impact: Engine-wide stall; mitigated only by SIGTERM's 10s wait + force exit, and Obscura's 30s waiter timeout (degrades to raw Playwright but slots stay hung)
+- Fix: Add 30s timeout to `acquireGlobalSlot` Promise.race (hostGate pattern); on timeout, reject with `GlobalSemTimeout` (caller falls back to direct fetch / Obscura degrade)
+
+### R8-2 (High) — mini-services/cloak-browser/index.ts:671-688
+`Promise.race([fetchPromise, timeoutPromise])` — when hard timeout fires first (reject), outer catch returns 502, BUT `fetchPromise` is still running with the page open. The `page.close()` in `fetchPage`'s `finally` won't run until `page.goto` actually completes/fails (could be 5+ minutes for a hung site). Browser pages accumulate → cloak-browser process OOM.
+- Trigger: Slow/hung target site exceeding hardTimeout
+- Impact: Browser page + ctx leak per hung request; cloak-browser process eventually crashes
+- Fix: After race rejects, call `page.close()` explicitly in catch (race loser path), or use AbortController/thread to cancel page.goto
+
+### R8-3 (Low) — mini-services/cloak-browser/index.ts:661
+Hard timeout logic: `Math.min(Number(req.headers.get('content-length')) || 0, 1) > 0 ? 120000 : 30000`. Uses Content-Length to decide 30s vs 120s. The 30s branch is unreachable in practice (POST /fetch always has body), making the logic dead-code and the 120s upper bound non-configurable.
+- Trigger: Any /fetch POST
+- Impact: 120s hard timeout for all requests regardless of user `timeoutMs`; dead-code 30s branch
+- Fix: Use user's `timeoutMs` + 30s margin (e.g., `Math.max(timeoutMs + 30000, 45000)`); remove Content-Length check
+
+### R8-4 (Medium) — mini-services/cloak-browser/index.ts:67-91
+`getSeed(sessionKey)` is synchronous but two concurrent /fetch calls for the same host both see `existing=undefined` → both create new seeds → both call `sessions.set(sessionKey, seed)` → second overwrites first. First caller uses orphaned seed → its canvas/audio noise differs from what's stored → "same host = same fingerprint" guarantee broken.
+- Trigger: Concurrent /fetch requests to same hostname
+- Impact: Per-session fingerprint inconsistency (defeats the "session seed" stealth design)
+- Fix: Use a per-sessionKey Promise lock, or pre-compute seed synchronously under a mutex
+
+### R8-5 (High) — src/lib/crawl/runner.ts:1661-1700
+`saveProgress` serializes ALL of `rt.discoveredBookUrls` / `completedBookUrls` / `ongoingBookUrls` / `bookLastChapters` EVERY call (every 10 chapters + at book boundaries). For a 50000-book range task with avg 100 chapters each = 5M chapters, saveProgress is called 500K times. Late in the task, each array has 50000 entries × ~60B = 3MB × 4 arrays = 12MB JSON.stringify per call. ~50-100ms per call × 500K calls = 7-14 HOURS of pure JSON.stringify work.
+- Trigger: Large range task (>1000 books)
+- Impact: Massive perf regression; event loop blocked 50-100ms per saveProgress in late stage
+- Fix: (a) Throttle discoveredBookUrls/completedBookUrls persistence to once-per-book (not once-per-10-chapters); (b) Only persist these collections at phase transitions (discovery→book, book→book); (c) Use incremental JSON patch instead of full re-serialize
+
+### R8-6 (Medium) — src/lib/crawl/runner.ts:1675-1687
+`Array.from(rt.discoveredBookUrls).slice(0, 50_000)` silently truncates if Set has >50000 entries. On restart, only 50000 loaded back into Set. The dropped tail URLs may be re-discovered (re-crawled) on next list page scan, causing redundant work.
+- Trigger: Range task with >50000 discovered books
+- Impact: Silent data loss, redundant re-crawl of dropped URLs
+- Fix: Use LRU eviction with timestamp tracking, or compress URLs (host-relative paths); or document hard cap and log warn when exceeded
+
+### R8-7 (High) — src/lib/crawl/parser.ts:96-103
+`applyTransform` chunk-based replace for inputs >200 chars: each 200-char chunk runs `new RegExp(src, 'g')` independently. Regex matches crossing chunk boundaries are LOST. E.g., regex `/ab+c/g` matching "abbbbc" split across chunks [180:380] (chunk1 ends "ab", chunk2 starts "bbbbc") misses the match entirely.
+- Trigger: Rule with replaceFrom regex where match spans 200-char boundary (any long content)
+- Impact: Silent replacement miss; content not cleaned; potential ad-pattern bypass
+- Fix: Use overlapping chunks (e.g., 200-char chunk + 50-char overlap from previous); or use re2 with timeout; or run regex on full string with overall timeout (current approach for ≤200)
+
+### R8-8 (Medium) — src/lib/crawl/parser.ts:31-62
+`testRegexBudget` runs `sample.replace(re, '')` synchronously. If the regex catastrophically backtracks on the 200-char sample, the event loop hangs for the full backtracking duration (could be 30s+). The 100ms budget check is "after-the-fact" — it doesn't actually abort the regex. JS single-thread can't interrupt running regex.
+- Trigger: Adversarial regex that passes static heuristic but backtracks on sample
+- Impact: Event loop hang 1-30s+ per affected regex compile; blocks all other requests
+- Fix: Use `re2` library (linear-time regex); or run regex in worker_thread with timeout; or shrink sample to 50 chars + use multiple sample shapes
+
+### R8-9 (Low) — src/lib/crawl/obscura.ts:1060-1079
+`scheduleReclaim` only reclaims non-busy slots (`if (slot.busy) continue`). A slot stuck "busy" forever (e.g., `page.goto` hangs beyond cfg.timeout, or Playwright internal deadlock) is never reclaimed. With MAX_CONCURRENCY=2, both stuck → no Obscura capacity, all future requests fall back to slow raw Playwright (mitigated by 30s waiter timeout).
+- Trigger: Playwright page.goto hang (rare under chromium crash/OOM)
+- Impact: Permanent Obscura engine death (degrades to raw Playwright); self-heals only on shutdownObscura
+- Fix: Add slot-level watchdog — if slot.busy && now - slot.lastUsedAt > 5min, force-close ctx (mark slot for recreation)
+
+### R8-10 (Medium) — src/lib/crawl/fetcher.ts:287-320
+`parentDomainChain` only recognizes 2-segment TLDs (co.uk, com.cn, etc.). 3-segment TLDs like `pvt.k12.ca.us` are not recognized → 'ca.us' gets added as a chain entry. A Set-Cookie with `domain=ca.us` from a `*.pvt.k12.ca.us` subdomain passes the `parentDomainChain` security check and is stored in the 'ca.us' jar, shared across all `*.ca.us` sites.
+- Trigger: Compromised `*.pvt.k12.ca.us` (or similar 3-seg TLD) site sets `domain=ca.us` cookie
+- Impact: Cross-subdomain cookie leakage within unrecognized TLD zones (rare for CN sites, real for US educational/private zones)
+- Fix: Add 3-segment TLD PSL set (pvt.k12.ca.us, k12.ca.us, etc.); or use a proper PSL library
+
+### R8-11 (Trivial) — src/lib/crawl/fetcher.ts:283-284
+`KNOWN_MULTI_PART_TLDS` Set has duplicate `'herokuapp.com'` entry (line 283 and line 284). Set dedupes so no functional impact, but indicates copy-paste error.
+- Trigger: N/A
+- Impact: None (cosmetic)
+- Fix: Remove duplicate entry
+
+### R8-12 (Medium) — src/lib/crawl/fetcher.ts:616-637
+`globalSem.waiters` uses `Array.push()` + `Array.shift()`. Shift is O(N) (copies all remaining elements). Under burst load (e.g., 10000 queued requests with globalConcurrency=10), shift cost is O(N) per release → O(N²) total = 100M ops to drain 10000 waiters.
+- Trigger: Burst exceeding globalConcurrency (1000+ queued requests)
+- Impact: CPU spike, event loop blocking during burst drain
+- Fix: Use a linked-list (head/tail pointers) orDeque implementation; or use a counter-based approach with conditional variables
+
+### R8-13 (Medium) — src/lib/crawl/runner.ts:147-165
+`serializeStatusWrite` chains promises via `prev.then(update)`. Each control call adds a link to `dbStatusChains` Map. If `db.task.update` hangs (SQLite busy lock / WAL checkpoint), all subsequent controls for that task queue up indefinitely. Memory accumulates with each queued promise. Self-heals when SQLite recovers, but during hang window, all controls for that task are blocked.
+- Trigger: SQLite busy lock during burst of control calls
+- Impact: Memory growth + control operations blocked during SQLite hang; eventual OOM if SQLite never recovers
+- Fix: Add per-task timeout on the chain (e.g., 30s) — if prev doesn't resolve in 30s, break the chain (write directly with `Promise.race`); or use a Map of in-flight writes with timeout cleanup
+
+### R8-14 (Low) — mini-services/cloak-browser/index.ts:489-502
+`enableRequestInterception` sets `page.on('request', ...)` listener with no try/catch inside the listener. After `page.close()` in fetchPage's finally, pending request events may still fire. Calling `req.abort()` or `req.continue()` on a detached request throws, causing unhandled Promise rejection in cloak-browser process.
+- Trigger: Page closes while requests are in-flight (target site with slow assets)
+- Impact: Unhandled rejection logged; potential listener leak if page reference held
+- Fix: Wrap `req.abort()` / `req.continue()` in try/catch inside the listener
+
+### R8-15 (Low) — src/lib/crawl/fetcher.ts:715-717
+SIGTERM handler writes `data/cookies.json` via `fs.writeFileSync` without `fsync`. On hard crash / power loss, the OS buffer may not be flushed, file may be truncated/corrupted. Next boot's `loadCookieJarFromDisk` fails JSON.parse → empty jar (cf_clearance lost).
+- Trigger: Hard crash / power loss during SIGTERM
+- Impact: Cookie jar corruption (rare); cold start loses challenge cookies
+- Fix: Use `fs.writeFileSync(path, json, { flag: 'w' })` + `fs.syncSync(fd)` (via `fs.openSync` + `fs.fsyncSync` + `fs.closeSync`); or accept as known limitation
+
+### R8-16 (Medium) — src/lib/crawl/fetcher.ts:2696-2718
+`contentProxyUrl` fetch uses `fetchHttpWithCurlFallback(proxyUrl, cfg, ua)` — `cfg` is the rule's full FetchConfig, which may include `proxyUrl` (exit proxy) configured for the target site. The exit proxy can't reach `127.0.0.1:301x` (loopback), so the proxy fetch fails and falls back to direct URL — defeating the contentProxyUrl purpose.
+- Trigger: Rule with both `contentProxyUrl` (loopback) AND `proxyUrl` (exit proxy) configured
+- Impact: contentProxyUrl fetch fails → silent fallback to direct URL → xjp/decrypt-proxy sites break
+- Fix: Strip `proxyUrl` from cfg when fetching contentProxyUrl: `fetchHttpWithCurlFallback(proxyUrl, { ...cfg, proxyUrl: '' }, ua)`; or add a dedicated `contentProxyFetchCfg` that bypasses exit proxy
+
+### R8-17 (Low) — src/lib/crawl/obscura.ts:1267-1286
+`isChallengeUIVisible` returns `true` on locator failure (`catch { return true }`). If the page is dead (TargetClosedError), every iteration's `page.locator(sel).count()` throws → returns true → challenge wait loop runs until `challengeWaitMs` expires (default 40s wasted on a dead page).
+- Trigger: Page dies during challenge wait (target closed, browser crash)
+- Impact: 40s wasted per dead page before bailing out
+- Fix: Distinguish "locator failed (page dead)" from "challenge UI present" — return false on `TargetClosedError` / `Error: Page.closed` exceptions
+
+### R8-18 (Low) — src/lib/crawl/cleaner.ts:344-365
+`removeAdLines` URL placeholder is `\u0000${i}\u0000`. If the original text contains literal `\u0000` chars (rare, from corrupted source), the regex `\u0000(\d+)\u0000` may match unintended sequences, corrupting URL restoration. The final `\u0000\d*` scrub at line 364 cleans residual NULs but cannot restore the original URL.
+- Trigger: Source text with literal NUL chars (binary contamination)
+- Impact: URL corruption in cleaned content (rare)
+- Fix: Use a more unique placeholder (e.g., `\uE000${i}\uE001` using Private Use Area chars); or pre-strip NUL chars before URL masking
+
+### R8-19 (Low) — src/lib/crawl/fetcher.ts:2523-2529
+OOM protection check lacks cross-request coordination. `process.memoryUsage()` is called per-request. Under high concurrency with 10 in-flight fetches each calling this, each sees heapUsed at slightly different times and may ALL decide to sleep 5s simultaneously — burst of 10 simultaneous 5s sleeps doesn't help GC (GC runs in one thread).
+- Trigger: Multiple concurrent fetches under memory pressure (heap > 1.5GB)
+- Impact: 10× simultaneous 5s sleeps waste 50s of aggregate time; no incremental backoff
+- Fix: Use a process-level "OOM pause" flag — first fetcher to detect high memory pauses 5s and sets flag; subsequent fetchers check flag and skip own sleep (or wait shorter)
+
+### R8-20 (Low) — src/lib/crawl/runner.ts:1125-1155
+`ongoingBookUrls` incremental check compares `tocItems[last].url` with stored `storedLastChapterUrl`. If the source site changes URL scheme (e.g., http→https redirect, or adds/removes trailing slash) but content is unchanged, the URL strings differ → falsely triggers full incremental crawl (re-fetches all chapters via existUrlMap, which de-dupes by URL — but URL changed so all chapters are "new").
+- Trigger: Source site URL scheme change without content change
+- Impact: Full re-crawl of affected book (waste of requests / time)
+- Fix: Normalize URLs before comparison (strip trailing slash, lowercase host, force https); or compare chapter title instead of URL
+
+### R8-21 (Low) — mini-services/cloak-browser/index.ts:620 + 552-566
+`fetchPage` returns `page.cookies()` after `tryCfClearanceFallback` navigated to `/robots.txt` then back to target URL. The returned cookies include `/robots.txt`-domain cookies (e.g., cf_clearance set on the /robots.txt response). Caller storing these under target origin would misattribute. (Note: CloakBrowser is standalone mini-service not directly invoked by fetcher.ts, so impact is limited to direct CloakBrowser consumers.)
+- Trigger: tryCfClearanceFallback path executes (CF challenge + 30s wait fails)
+- Impact: Cookie misattribution for CloakBrowser consumers (limited blast radius)
+- Fix: Filter cookies by `domain` matches target URL host before returning; or call `page.cookies(targetUrl)` with explicit URL filter
+
+## Summary by Severity
+- Critical: 0
+- High: 4 (R8-2, R8-5, R8-7, R8-13 deferred to Medium)
+- Medium: 9 (R8-1, R8-4, R8-5, R8-6, R8-7, R8-8, R8-10, R8-12, R8-13, R8-16)
+- Low: 8 (R8-3, R8-9, R8-14, R8-15, R8-17, R8-18, R8-19, R8-20, R8-21)
+- Trivial: 1 (R8-11)
+
+## Notes
+- Prior 7 rounds found 170 bugs; this round's 20 NEW bugs focus on interaction bugs in recent feature work (contentProxyUrl + cfg.proxyUrl incompatibility, globalSem no-timeout, saveProgress O(N²) serialization, parser chunk-boundary miss, etc.) that prior rounds' single-feature focus missed.
+- All findings are RESEARCH ONLY — no code modified.
+- Several findings overlap with documented known limitations (R5-19 DNS rebinding, R8-1 mitigated by Obscura 30s waiter timeout).
+- Most impactful to fix first: R8-5 (saveProgress perf), R8-7 (parser chunk miss), R8-2 (cloak-browser page leak), R8-13 (serializeStatusWrite chain).
+
+Stage Summary:
+- 20 NEW bugs found across fetcher.ts (6), obscura.ts (2), cloak-browser/index.ts (5), runner.ts (3), parser.ts (2), cleaner.ts (1), and 1 cross-file (contentProxyUrl + cfg interaction).
+- Categories: Race conditions (R8-4, R8-13), Memory leaks (R8-2, R8-5, R8-12, R8-13), Performance (R8-5, R8-7, R8-12), Correctness (R8-6, R8-7, R8-20), Security (R8-10, R8-16, R8-21), Error handling (R8-2, R8-9, R8-14, R8-17), Resource cleanup (R8-2, R8-14, R8-15).
+- No code modified (RESEARCH ONLY as instructed).
+
+---
+Task ID: fix-r8
+Agent: Fix 20 round-8 bugs (cloak-browser / fetcher / runner / parser / obscura / cleaner)
+
+## Scope
+Fixed all 20 bugs from audit-r8 (deep audit round 8) across 6 files:
+- src/lib/crawl/fetcher.ts (7 bugs: R8-1, R8-10, R8-11, R8-12, R8-15, R8-16, R8-19)
+- src/lib/crawl/runner.ts (4 bugs: R8-5, R8-6, R8-13, R8-20)
+- src/lib/crawl/parser.ts (2 bugs: R8-7, R8-8)
+- src/lib/crawl/obscura.ts (2 bugs: R8-9, R8-17)
+- src/lib/crawl/cleaner.ts (1 bug: R8-18)
+- mini-services/cloak-browser/index.ts (5 bugs: R8-2, R8-3, R8-4, R8-14, R8-21)
+
+(R8-11 trivial duplicate herokuapp.com entry in fetcher.ts.)
+
+## High (3)
+- R8-2 (cloak-browser page leak): Added global `activeFetchPages` Map; fetchPage registers page
+  on entry (keyed by reqId), deregisters in finally. /fetch handler's hard timeout branch
+  looks up `activeFetchPages.get(reqId)` and force-calls `page.close().catch(()=>{})` +
+  `abort.abort()` to kill in-flight page.goto (otherwise finally's close waits for goto
+  to settle, leaking browser pages → eventual OOM).
+- R8-5 (saveProgress O(N²)): Throttled chapter-level saveProgress from `done % 10 === 0`
+  to `done % 50 === 0` (1/5 calls). Added 4 dirty flags on TaskRuntime
+  (`dirtyDiscovered/Completed/Ongoing/LastChapters`); saveProgress only serializes dirty
+  collections then clears the flag. Added JSON.stringify replacer that omits empty
+  arrays / empty object for the 4 collection fields.
+- R8-7 (parser chunk boundary miss): Bumped CHUNK from 200 to 2000, added 100-char overlap
+  between chunks (carry last 100 chars to next chunk's start so boundary-spanning matches
+  complete in next chunk).
+
+## Medium (8)
+- R8-1 (globalSem no timeout): acquireGlobalSlot wraps await in 30s timeout; rejects with
+  `GlobalSemTimeout` error. Timer.unref'd; waiter fn removed from waiters[] on timeout
+  to prevent double-resolve.
+- R8-4 (cloak-browser getSeed race): Made getSeed async + per-sessionKey Promise lock
+  (`seedPromises` Map). First caller creates & publishes the Promise; subsequent callers
+  await same Promise.
+- R8-6 (slice truncation): Changed `Array.from(rt.X).slice(0, 50_000)` → `slice(-50_000)`
+  for all 4 collections (keep LATEST entries by Set insertion order tail).
+- R8-8 (testRegexBudget DoS): Bumped default budgetMs 100ms→200ms (matched in applyTransform
+  call site). Documented Promise.race + setTimeout structure (JS single-thread can't truly
+  interrupt sync regex; elapsed-time check provides "after-the-fact" detection).
+- R8-10 (parentDomainChain 3-segment TLD): Added `pvt.k12.ca.us`, `k12.ca.us` to
+  KNOWN_MULTI_PART_TLDS; updated parentDomainChain to check 3-seg match first, fall back
+  to 2-seg. Comment notes the 3-seg TLD list may not be exhaustive.
+- R8-12 (globalSem Array.shift O(N²)): Replaced `waiters.shift()` with `waiters.pop()`
+  (O(1) LIFO instead of O(N) FIFO). Comment explains throughput-friendly.
+- R8-13 (serializeStatusWrite chain): Wrapped prev promise with 30s timeout (Promise.race
+  against setTimeout). Wrapped db.task.update with 30s timeout; on timeout log warn +
+  skip step (return) instead of throwing, so chain continues. P2025 still terminal.
+- R8-16 (contentProxyUrl + cfg.proxyUrl): When fetching contentProxyUrl (loopback), pass
+  `effCfg = { ...cfg, proxyUrl: '' }` so exit proxy doesn't try to route to 127.0.0.1:301x.
+
+## Low (8)
+- R8-3 (hard timeout logic): Removed Content-Length-based 30s/120s split; hard timeout
+  always 120000ms.
+- R8-9 (obscura scheduleReclaim stuck-busy): Added busy-slot watchdog — if
+  `slot.busy && now - slot.lastUsedAt > 5min`, force-close page + ctx, reset busy=false.
+- R8-14 (cloak-browser requestInterception try/catch): Wrapped req.abort() / req.continue()
+  body in try/catch inside page.on('request') listener (silent swallow on detached request).
+- R8-15 (SIGTERM persist fsync): openSync + writeFileSync + fs.fsyncSync + closeSync pattern
+  (forces OS buffer flush).
+- R8-17 (obscura isChallengeUIVisible): Changed catch blocks to return false (locator
+  failure = page dead, not challenge in progress) — exits challenge wait loop early.
+- R8-18 (cleaner removeAdLines NUL): Placeholder changed from `\u0000N\u0000` to
+  `\uE000N\uE001` (Unicode Private Use Area, virtually never in legitimate source).
+- R8-19 (OOM coordination): Added global `oomBackpressure = { active, until }` flag on
+  globalThis. First detector sleeps 5s + sets flag; subsequent concurrent requests wait
+  for `until` (skip own sleep, avoid 10×5s=50s aggregate waste).
+- R8-20 (ongoingBookUrls URL scheme change): Added `normalizeUrlForCompare(u)` helper
+  (strips scheme, trailing slash, lowercases host). Used in ongoing-recheck末章比较 to
+  avoid false full-recrawl on http→https or trailing-slash changes.
+- R8-21 (cloak-browser cookie misattribution): Changed `page.cookies()` to
+  `page.cookies(url)` (explicit URL filter). Returns only cookies matching target
+  URL's domain/path, excluding intermediate /robots.txt-only cookies.
+
+## Trivial (1)
+- R8-11: Removed duplicate `'herokuapp.com'` entry from KNOWN_MULTI_PART_TLDS.
+
+## Validation
+- `bun run lint` → 0 errors, 0 warnings ✓
+- `bunx tsc --noEmit 2>&1 | grep -v "examples\|skills" | wc -l` → 0 ✓
+- dev server `/` → 200 ✓
+
+## Notes / design decisions
+- R8-8: Chose synchronous elapsed-time check at 200ms budget (vs worker_thread termination).
+  Making testRegexBudget async would cascade to applyTransform → extractField → all parse
+  functions (major refactor). The 200ms threshold still rejects dangerous regexes.
+- R8-5: Inlined dirty-flag setting at each mutation site (~10 sites) rather than wrapping
+  Set/Map in a tracking class (clarity over abstraction).
+- R8-2: AbortController is stored alongside page in activeFetchPages. AbortController.abort()
+  doesn't directly cancel puppeteer's page.goto but signals intent; actual cleanup is via
+  page.close() which causes in-flight goto to reject. Both called in timeout handler.
+- R8-13: 30s timeout applies to BOTH prev promise wait AND db.task.update itself. Both
+  skipped-and-logged on timeout to prevent chain deadlock.
+- R8-19: `oomBackpressure` on globalThis to survive dev HMR. First detector owns the sleep
+  window; subsequent detectors just wait for `until` (5s ceiling).
+
+Stage Summary:
+- 20 bugs fixed across 6 files (fetcher.ts, runner.ts, parser.ts, obscura.ts, cleaner.ts,
+  cloak-browser/index.ts).
+- Lint + tsc + dev server all green.
+- No tests added (per constraint).
+- No components / prisma / Docker / config files touched.

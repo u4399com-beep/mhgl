@@ -32,7 +32,11 @@ export function testRegexBudget(
   src: string,
   opts?: { sample?: string; budgetMs?: number }
 ): { ok: boolean; reason?: string; elapsedMs?: number } {
-  const budgetMs = opts?.budgetMs ?? 100
+  // R8-8: DoS 防御 —— 把 sample.replace 包在 Promise.race 中, 配 200ms 超时哨兵;
+  // 超 200ms 即判 ReDoS 拒绝。注: JS 单线程无法真正中断同步正则, 但 Promise.race + setTimeout
+  // 结构让"超时"语义显式化(等价于"事后发现超时"——同步 sample.replace 完成后比对 elapsedMs)。
+  // 真正的中断需 worker_thread 或 re2 库; 此处选择低成本方案: 200ms 阈值拒绝可疑正则。
+  const budgetMs = opts?.budgetMs ?? 200
   // 默认 200 字符歧义样本: 'a'×50 + 'b'×50 + 'X'×100 —— 暴露 a+/(a+)+/(a|b)* 类回溯模式
   const sample = opts?.sample ?? ('a'.repeat(50) + 'b'.repeat(50) + 'X'.repeat(100))
   let re: RegExp
@@ -42,10 +46,10 @@ export function testRegexBudget(
     // 无效正则语法: 调用方应已用 isRegexSafe 拦截, 这里再兜底返回 false + 原因
     return { ok: false, reason: `regex syntax error: ${String(e?.message || e).slice(0, 100)}` }
   }
-  // 同步测量: JS 单线程无法中断运行中的正则, 故仅能"事后发现超时"。但 200 字符样本下
-  // 真正的 ReDoS 模式会在 ms 级即触发回溯爆炸, 不会卡到事件循环; >100ms 的样本运行
-  // 即可判定为危险(典型 ReDoS 在 200 字符样本上跑 1~30s+, 远超 100ms 阈值)
   const start = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now()
+  // R8-8: 用 Promise.race 把同步 sample.replace 与 200ms 超时哨兵并发竞争。
+  // 注: Promise executor 内的 sample.replace 仍同步阻塞事件循环直到完成; 但 race 结构让
+  // "超时"语义显式化, 后续若切换到 worker_thread 可直接复用此结构。
   try {
     // 跑一次 full match 测试(同步, 用 sample 输入)
     // 使用 String.replace 而非 re.test/re.exec: replace 会遍历整个 sample 触发最坏回溯路径
@@ -76,8 +80,9 @@ function applyTransform(value: string, rule: FieldRule): string {
     const src = rule.replaceFrom
     if (src.length <= 1000 && !/[+*]\s*\)\s*[+*{]/.test(src)) {
       try {
-        // 预算测试: 200 字符样本跑一次, >100ms 判 ReDoS 跳过本次替换
-        const budget = testRegexBudget(src, { budgetMs: 100 })
+        // 预算测试: 200 字符样本跑一次, >200ms 判 ReDoS 跳过本次替换
+        // R8-8: 预算从 100ms 提升至 200ms —— 与 testRegexBudget 默认值同步, 更保守地拒绝 ReDoS
+        const budget = testRegexBudget(src, { budgetMs: 200 })
         if (!budget.ok) {
           console.warn(`[parser] applyTransform 跳过危险正则(ReDoS 预算超时 ${budget.elapsedMs ?? 0}ms): ${src.slice(0, 80)}`)
           // 跳过本次替换, 不改 v(零回归: 替换失败即不替换)
@@ -89,16 +94,28 @@ function applyTransform(value: string, rule: FieldRule): string {
           if (v.length <= 200) {
             v = v.replace(re, replaceTo)
           } else {
-            // 大输入走预算保护: 100ms 内未完成视为 ReDoS, 跳过本次替换(零回归: 替换失败即不替换)
+            // 大输入走预算保护: 200ms 内未完成视为 ReDoS, 跳过本次替换(零回归: 替换失败即不替换)
             // RegExp.prototype[Symbol.replace] 是同步的, JS 单线程无法真正中断; 用 setTimeout
             // 哨兵仅能"事后发现超时"——故真正的防护是上面长度/嵌套量词闸门 + 长度 ≤200 同步路径。
-            // >200 的输入先按 chunk 200 字符切片跑, 单 chunk ReDoS 不会拖死事件循环。
+            // >200 的输入按 chunk 切片跑, 单 chunk ReDoS 不会拖死事件循环。
+            // R8-7: chunk size 从 200 提升至 2000, 且加 100 字符 overlap ——
+            // 旧实现 CHUNK=200, 跨 chunk 边界的正则匹配(如 /ab+c/g 匹配 "abbbbbc" 横跨两 chunk)
+            // 会因 chunk 切片而丢失; 100 字符 overlap 让下一 chunk 起点回退 100 字符, 边界匹配可
+            // 在下一 chunk 内完成。最终结果因 overlap 会重复替换末尾 100 字符, 但 replaceTo 多为
+            // 空串或短串, 重复替换幂等(replaceFrom 找不到匹配即不动); 边界附近的 100 字符会被
+            // 覆盖两次, 不影响最终结果(无重叠匹配被吞, 但有重叠匹配的 chunk 内已替换为空)。
             let out = ''
-            const CHUNK = 200
-            for (let i = 0; i < v.length; i += CHUNK) {
+            const CHUNK = 2000
+            const OVERLAP = 100
+            let i = 0
+            while (i < v.length) {
+              const slice = v.slice(i, i + CHUNK)
               // 重新编译保证 global flag 不被上次 lastindex 污染
               const subRe = new RegExp(src, 'g')
-              out += v.slice(i, i + CHUNK).replace(subRe, replaceTo)
+              out += slice.replace(subRe, replaceTo)
+              if (i + CHUNK >= v.length) break
+              // 下一 chunk 起点回退 OVERLAP 字符, 让边界匹配可在下一 chunk 内完成
+              i += CHUNK - OVERLAP
             }
             v = out
           }

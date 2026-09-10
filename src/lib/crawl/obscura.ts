@@ -1062,8 +1062,21 @@ function scheduleReclaim(): void {
   S.reclaimTimer = setInterval(() => {
     const now = Date.now()
     for (const slot of S.slots) {
-      // busy 槽位跳过(正在使用中, 不能关); lastUsedAt 缺失(老槽位兼容)用当前时间兜底不回收
-      if (slot.busy) continue
+      // R8-9: busy 槽位 stuck-busy 检测 —— busy 持续 >5min 视为 page.goto 卡死
+      // (Playwright 内部 deadlock / chromium crash), 强制 close page + ctx 释放资源,
+      // 重置 busy=false 让该槽位可被下次 acquire 重建。仅靠"非 busy 才回收"会让 stuck 槽位
+      // 永远占住 MAX_CONCURRENCY 名额, 全部 stuck 后 Obscura 引擎彻底死亡。
+      if (slot.busy) {
+        const lastUsed = slot.lastUsedAt || 0
+        if (lastUsed && now - lastUsed > 5 * 60 * 1000) {
+          console.warn(`[obscura] scheduleReclaim: busy 槽位 stuck>5min(domain=${slot.domain || '未知'}), 强制关闭释放资源`)
+          try { if (slot.page && !slot.page.isClosed()) slot.page.close().catch(() => {}) } catch { /* 静默 */ }
+          try { slot.ctx.close().catch(() => {}) } catch { /* 静默 */ }
+          slot.busy = false
+          slot.lastUsedAt = now
+        }
+        continue
+      }
       if (!slot.lastUsedAt) continue
       if (now - slot.lastUsedAt < SLOT_IDLE_RECLAIM_MS) continue
       // 已关的 ctx 跳过(recreateSlot 失败/上次回收后未重建)
@@ -1268,7 +1281,11 @@ async function isChallengeUIVisible(page: Page): Promise<boolean> {
   // URL 仍在 /cdn-cgi/challenge 路径 → 挑战进行中(CF 验证页固定路径)
   try {
     if (/\/cdn-cgi\/challenge/.test(page.url())) return true
-  } catch { /* page 已销毁: 视为挑战进行中, 让上层轮询继续等 */ return true }
+  } catch {
+    // R8-17: page 已销毁(TargetClosedError) → 不视为挑战进行中, 让上层轮询提前退出,
+    // 避免在死页面上空耗 challengeWaitMs(40s); 旧实现返回 true 导致死页 40s 全程被等
+    return false
+  }
   // 任意挑战 UI 元素仍存在 → 挑战进行中
   const selectors = [
     '#challenge-running',
@@ -1280,7 +1297,11 @@ async function isChallengeUIVisible(page: Page): Promise<boolean> {
     try {
       const cnt = await page.locator(sel).count()
       if (cnt > 0) return true
-    } catch { /* locator 失败保守视为挑战中 */ return true }
+    } catch {
+      // R8-17: locator 失败(页死/TargetClosedError/Page.closed) → 不视为挑战进行中,
+      // 让上层提前退出挑战等待循环(返回 false 即可让 uiGone=true, 提前 break loop)
+      return false
+    }
   }
   return false
 }

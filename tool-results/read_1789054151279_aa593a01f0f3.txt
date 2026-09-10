@@ -1,0 +1,932 @@
+     1→// ============================================================
+     2→// 解析引擎 — CSS选择器(cheerio) / XPath(@xmldom+xpath) / 正则 三合一
+     3→// 支持: 字段提取、列表项遍历、翻页合并、URL绝对化
+     4→// JSON模式: 纯JSON API站(SPA壳无SSR) — 响应体JSON.parse后按点路径取值;
+     5→//           itemSelector.expression 指向数组路径对每项跑 fields;
+     6→//           const 常量模板用 {字段名}/{index}/{q.参数} 占位符合成URL
+     7→// ============================================================
+     8→import * as cheerio from 'cheerio'
+     9→import { DOMParser } from '@xmldom/xmldom'
+    10→import xpath from 'xpath'
+    11→import { type FieldRule, type PageRule, type TocItem, type ParsedBook, type ParsedContent } from './types'
+    12→import { fetchPage } from './fetcher'
+    13→
+    14→// ---------------- 后处理 ----------------
+    15→/**
+    16→ * feat-cloak-anticrawler I: ReDoS 预算测试 —— 编译正则后用 200 字符样本跑一次,
+    17→ * 超过 budgetMs(默认 100ms) 即判定为危险正则, 调用方应拒绝该规则或跳过该次替换。
+    18→ *
+    19→ * 设计:
+    20→ *  - 200 字符样本足够暴露"嵌套量词+歧义字符"型灾难性回溯(典型 ReDoS 输入在 30~50 字符即挂死)
+    21→ *  - 同步测量 performance.now() 起止, 单次测试上限 budgetMs; 超时即返回 false(危险)
+    22→ *  - 测试样本默认混合"歧义字符序列"(如 'a'×50 + 'b'×50 + 'X'×100),
+    23→ *    覆盖 a+ / a-star / (a+)+ 三种典型 ReDoS 模式触发场景
+    24→ *  - 失败原因返回字符串(供调用方日志/审计); 测试 OK 返回 true
+    25→ *
+    26→ * 使用场景:
+    27→ *  - applyTransform 替换前预算测试(运行时防御, 失败跳过本次替换零回归)
+    28→ *  - API 保存入口(POST/PUT /api/admin/rules)调用此函数拒绝危险正则(save-time 防御)
+    29→ *  - 既独立又互不依赖: 运行时与保存期双层防线, 任一未拦截时另一层兜底
+    30→ */
+    31→export function testRegexBudget(
+    32→  src: string,
+    33→  opts?: { sample?: string; budgetMs?: number }
+    34→): { ok: boolean; reason?: string; elapsedMs?: number } {
+    35→  const budgetMs = opts?.budgetMs ?? 100
+    36→  // 默认 200 字符歧义样本: 'a'×50 + 'b'×50 + 'X'×100 —— 暴露 a+/(a+)+/(a|b)* 类回溯模式
+    37→  const sample = opts?.sample ?? ('a'.repeat(50) + 'b'.repeat(50) + 'X'.repeat(100))
+    38→  let re: RegExp
+    39→  try {
+    40→    re = new RegExp(src, 'g')
+    41→  } catch (e: any) {
+    42→    // 无效正则语法: 调用方应已用 isRegexSafe 拦截, 这里再兜底返回 false + 原因
+    43→    return { ok: false, reason: `regex syntax error: ${String(e?.message || e).slice(0, 100)}` }
+    44→  }
+    45→  // 同步测量: JS 单线程无法中断运行中的正则, 故仅能"事后发现超时"。但 200 字符样本下
+    46→  // 真正的 ReDoS 模式会在 ms 级即触发回溯爆炸, 不会卡到事件循环; >100ms 的样本运行
+    47→  // 即可判定为危险(典型 ReDoS 在 200 字符样本上跑 1~30s+, 远超 100ms 阈值)
+    48→  const start = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now()
+    49→  try {
+    50→    // 跑一次 full match 测试(同步, 用 sample 输入)
+    51→    // 使用 String.replace 而非 re.test/re.exec: replace 会遍历整个 sample 触发最坏回溯路径
+    52→    sample.replace(re, '')
+    53→  } catch (e: any) {
+    54→    return { ok: false, reason: `regex execution threw: ${String(e?.message || e).slice(0, 100)}` }
+    55→  }
+    56→  const end = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now()
+    57→  const elapsedMs = end - start
+    58→  if (elapsedMs > budgetMs) {
+    59→    return { ok: false, reason: `regex ReDoS suspected: ${elapsedMs.toFixed(0)}ms > ${budgetMs}ms budget on 200-char sample`, elapsedMs }
+    60→  }
+    61→  return { ok: true, elapsedMs }
+    62→}
+    63→
+    64→function applyTransform(value: string, rule: FieldRule): string {
+    65→  let v = value ?? ''
+    66→  if (rule.stripTags) v = v.replace(/<[^>]+>/g, '')
+    67→  if (rule.replaceFrom !== undefined && rule.replaceFrom !== '') {
+    68→    // R4-19: ReDoS 防御 —— 用户配置的 replaceFrom 正则可能含灾难性回溯模式。
+    69→    // 1) 长度上限 1000 字符(safeStr 已限制, 这里再硬保险)
+    70→    // 2) 嵌套量词闸门(同 cleaner.removeAdLines): 命中"量词+右括号+量词"形态跳过
+    71→    // 3) 执行预算: 100ms timeout via Promise.race + AbortSignal
+    72→    //    优于直接调用 v.replace(re, ...) 在 ReDoS 模式下卡死事件循环 30s+
+    73→    // feat-cloak-anticrawler I: 4) 编译后预算测试 testRegexBudget(200 字符样本, 100ms 预算)
+    74→    //    —— 在使用前先验证正则不会爆炸, 失败即跳过本次替换(零回归: 替换失败即不替换)。
+    75→    //    与嵌套量词闸门双重防线: 闸门识别已知形态, 预算测试识别未知形态。
+    76→    const src = rule.replaceFrom
+    77→    if (src.length <= 1000 && !/[+*]\s*\)\s*[+*{]/.test(src)) {
+    78→      try {
+    79→        // 预算测试: 200 字符样本跑一次, >100ms 判 ReDoS 跳过本次替换
+    80→        const budget = testRegexBudget(src, { budgetMs: 100 })
+    81→        if (!budget.ok) {
+    82→          console.warn(`[parser] applyTransform 跳过危险正则(ReDoS 预算超时 ${budget.elapsedMs ?? 0}ms): ${src.slice(0, 80)}`)
+    83→          // 跳过本次替换, 不改 v(零回归: 替换失败即不替换)
+    84→          // 但 stripTags/index 等后续步骤照常执行
+    85→        } else {
+    86→          const re = new RegExp(src, 'g')
+    87→          const replaceTo = rule.replaceTo ?? ''
+    88→          // 同步路径优先: 短输入(<200 字符)直接跑—— ReDoS 在小输入上时间有界(≤ 数十 ms)
+    89→          if (v.length <= 200) {
+    90→            v = v.replace(re, replaceTo)
+    91→          } else {
+    92→            // 大输入走预算保护: 100ms 内未完成视为 ReDoS, 跳过本次替换(零回归: 替换失败即不替换)
+    93→            // RegExp.prototype[Symbol.replace] 是同步的, JS 单线程无法真正中断; 用 setTimeout
+    94→            // 哨兵仅能"事后发现超时"——故真正的防护是上面长度/嵌套量词闸门 + 长度 ≤200 同步路径。
+    95→            // >200 的输入先按 chunk 200 字符切片跑, 单 chunk ReDoS 不会拖死事件循环。
+    96→            let out = ''
+    97→            const CHUNK = 200
+    98→            for (let i = 0; i < v.length; i += CHUNK) {
+    99→              // 重新编译保证 global flag 不被上次 lastindex 污染
+   100→              const subRe = new RegExp(src, 'g')
+   101→              out += v.slice(i, i + CHUNK).replace(subRe, replaceTo)
+   102→            }
+   103→            v = out
+   104→          }
+   105→        }
+   106→      } catch { /* 无效正则忽略 */ }
+   107→    }
+   108→  }
+   109→  if (rule.index !== undefined && rule.index !== null) {
+   110→    const parts = v.split(/[，,]/).map((s) => s.trim()).filter(Boolean)
+   111→    v = parts[rule.index] ?? ''
+   112→  }
+   113→  return v.trim()
+   114→}
+   115→
+   116→// ---------------- CSS (cheerio) ----------------
+   117→/** 选择器容错执行: 数字开头 id(如 #123box, HTML 合法但 CSS 非法标识符)等非法选择器
+   118→ *  自动降级为属性选择器重试, 避免单条规则静默失效 */
+   119→function cssSelect($: cheerio.CheerioAPI, scope: any, expression: string): any {
+   120→  const run = (expr: string) => (scope && (scope as any).find ? (scope as any).find(expr) : $(expr))
+   121→  try {
+   122→    const el = run(expression)
+   123→    if (el && el.length > 0) return el
+   124→  } catch { /* 非法选择器 */ }
+   125→  try {
+   126→    const fixed = expression.replace(/#(\d[\w-]*)/g, '[id="$1"]')
+   127→    if (fixed !== expression) return run(fixed)
+   128→  } catch { /* ignore */ }
+   129→  return null
+   130→}
+   131→
+   132→function cssExtract($: cheerio.CheerioAPI, scope: any, rule: FieldRule): string {
+   133→  const el = cssSelect($, scope, rule.expression)
+   134→  if (!el || el.length === 0) return ''
+   135→  const first = el.first()
+   136→  const attr = rule.attr || 'text'
+   137→  switch (attr) {
+   138→    case 'text': return first.text()
+   139→    case 'html': return first.html() || ''
+   140→    case 'href': return first.attr('href') || ''
+   141→    case 'src': return first.attr('src') || ''
+   142→    default: return first.attr(attr) || ''
+   143→  }
+   144→}
+   145→
+   146→function cssExtractAll($: cheerio.CheerioAPI, scope: any, rule: FieldRule): any[] {
+   147→  const el = cssSelect($, scope, rule.expression)
+   148→  return el ? el.toArray() : []
+   149→}
+   150→
+   151→// ---------------- XPath (@xmldom + xpath) ----------------
+   152→import { XMLSerializer } from '@xmldom/xmldom'
+   153→
+   154→function htmlToDoc(html: string): any {
+   155→  try {
+   156→    // HTML → cheerio 规范化 → XML 序列化 → xmldom 解析
+   157→    // (xmldom 0.9 的 text/html 模式与 xpath 包不兼容, 必须走 text/xml)
+   158→    const pre = cheerio.load(html)
+   159→    let xml = (pre as any).xml()
+   160→    // 命名实体 → 数字实体(XML不识别 &nbsp; 等常见 HTML 实体)
+   161→    xml = xml
+   162→      .replace(/&nbsp;/g, '&#160;')
+   163→      .replace(/&mdash;/g, '&#8212;')
+   164→      .replace(/&ndash;/g, '&#8211;')
+   165→      .replace(/&ldquo;/g, '&#8220;')
+   166→      .replace(/&rdquo;/g, '&#8221;')
+   167→      .replace(/&lsquo;/g, '&#8216;')
+   168→      .replace(/&rsquo;/g, '&#8217;')
+   169→      .replace(/&hellip;/g, '&#8230;')
+   170→      .replace(/&middot;/g, '&#183;')
+   171→      .replace(/&copy;/g, '&#169;')
+   172→      .replace(/&reg;/g, '&#174;')
+   173→      .replace(/&trade;/g, '&#8482;')
+   174→      .replace(/&times;/g, '&#215;')
+   175→      .replace(/&divide;/g, '&#247;')
+   176→      .replace(/&laquo;/g, '&#171;')
+   177→      .replace(/&raquo;/g, '&#187;')
+   178→      .replace(/&deg;/g, '&#176;')
+   179→      .replace(/&euro;/g, '&#8364;')
+   180→      .replace(/&pound;/g, '&#163;')
+   181→      .replace(/&yen;/g, '&#165;')
+   182→    const doc = new DOMParser({ onError: () => {} } as any).parseFromString(xml, 'text/xml')
+   183→    return doc
+   184→  } catch {
+   185→    return null
+   186→  }
+   187→}
+   188→
+   189→function getDoc(html: string): any {
+   190→  if (!html) return null
+   191→  return htmlToDoc(html)
+   192→}
+   193→
+   194→/** 序列化节点为html */
+   195→function nodeHtml(node: any): string {
+   196→  try { return new XMLSerializer().serializeToString(node) } catch { return '' }
+   197→}
+   198→
+   199→/** 节点内部html(不含外层标签) */
+   200→function nodeInnerHtml(node: any): string {
+   201→  try {
+   202→    const parts: string[] = []
+   203→    let child = node.firstChild
+   204→    while (child) {
+   205→      parts.push(new XMLSerializer().serializeToString(child))
+   206→      child = child.nextSibling
+   207→    }
+   208→    return parts.join('')
+   209→  } catch { return node.textContent || '' }
+   210→}
+   211→
+   212→function nodeAttr(node: any, name: string): string {
+   213→  if (!node) return ''
+   214→  if (name === 'text') return node.textContent || ''
+   215→  if (name === 'html') return nodeInnerHtml(node)
+   216→  if (node.nodeType === 2) return node.value || node.nodeValue || '' // 属性节点本身
+   217→  return node.getAttribute?.(name) || node.getAttributeNode?.(name)?.value || ''
+   218→}
+   219→
+   220→function xpathExtract(doc: any, rule: FieldRule): string {
+   221→  if (!doc) return ''
+   222→  try {
+   223→    const res: any[] = (xpath as any).select(rule.expression, doc)
+   224→    if (!res || res.length === 0) return ''
+   225→    const first = res[0]
+   226→    if (typeof first === 'string' || typeof first === 'number') return String(first)
+   227→    return nodeAttr(first, rule.attr || 'text')
+   228→  } catch {
+   229→    return ''
+   230→  }
+   231→}
+   232→
+   233→function xpathExtractNodes(doc: any, expression: string): any[] {
+   234→  if (!doc) return []
+   235→  try {
+   236→    const res = (xpath as any).select(expression, doc)
+   237→    return Array.isArray(res) ? res.filter((n: any) => n && typeof n !== 'string') : []
+   238→  } catch {
+   239→    return []
+   240→  }
+   241→}
+   242→
+   243→function xpathAttr(node: any, name: string): string {
+   244→  return nodeAttr(node, name)
+   245→}
+   246→
+   247→// ---------------- 正则 ----------------
+   248→function regexExtract(html: string, rule: FieldRule): string {
+   249→  try {
+   250→    const flags = rule.flags || 'gis'
+   251→    const re = new RegExp(rule.expression, flags)
+   252→    const m = re.exec(html)
+   253→    if (!m) return ''
+   254→    const group = rule.attr && /^\d+$/.test(rule.attr) ? parseInt(rule.attr) : (m.length > 1 ? 1 : 0)
+   255→    return m[group] ?? m[0] ?? ''
+   256→  } catch { return '' }
+   257→}
+   258→
+   259→function regexExtractAll(html: string, rule: FieldRule): string[] {
+   260→  try {
+   261→    const flags = rule.flags || 'gi'
+   262→    const re = new RegExp(rule.expression, flags)
+   263→    const group = rule.attr && /^\d+$/.test(rule.attr) ? parseInt(rule.attr) : (re.source.includes('(') ? 1 : 0)
+   264→    const out: string[] = []
+   265→    let m: RegExpExecArray | null
+   266→    let guard = 0
+   267→    while ((m = re.exec(html)) && guard++ < 5000) {
+   268→      out.push(m[group] ?? m[0])
+   269→      if (m.index === re.lastIndex) re.lastIndex++
+   270→    }
+   271→    return out
+   272→  } catch { return [] }
+   273→}
+   274→
+   275→// ---------------- JSON 纯API站模式 ----------------
+   276→/** 响应体 → JSON值: 非对象/数组开头或解析失败返回 undefined(由调用方决定空结果) */
+   277→export function parseJsonBody(html: string): unknown | undefined {
+   278→  if (!html) return undefined
+   279→  const s = html.trim()
+   280→  if (!s || (s[0] !== '{' && s[0] !== '[')) return undefined
+   281→  try {
+   282→    return JSON.parse(s)
+   283→  } catch {
+   284→    return undefined
+   285→  }
+   286→}
+   287→
+   288→/** JSON 点路径取值(语法契约见 types.ts FieldRule 注释):
+   289→ *  a.b.c 逐层; 数字段=数组下标(0基); 空路径/./$=根本身; `[]`装饰剔除;
+   290→ *  首段为空(根数组 `.0.title`)按根处理; 数组上非数字段/标量上继续取路径 → undefined;
+   291→ *  cc-c 扩展(加法语义, 既有路径零回归): 段内方括号算子 `[n]`=数组下标(≡数字段),
+   292→ *  `[k=v]`=按元素属性值过滤数组(k=v 可 & 连写多条件, 值按 String 宽松比较),
+   293→ *  段 `*`=数组递归展平(数组的数组→元素平面, 如番茄 chapterListWithVolume) */
+   294→export function jsonGet(root: unknown, path: string): unknown {
+   295→  if (root === null || root === undefined) return undefined
+   296→  let cur: unknown = root
+   297→  const raw = (path || '').trim()
+   298→  if (!raw || raw === '.' || raw === '$') return cur
+   299→  for (const seg0 of raw.split('.')) {
+   300→    const seg = seg0.replace(/\[\]/g, '').trim()
+   301→    if (seg === '' || seg === '$') continue // 根数组前导空段(`.0.title`)
+   302→    if (cur === null || cur === undefined) return undefined
+   303→    const { name, ops } = splitJsonSeg(seg)
+   304→    if (name === '*' && Array.isArray(cur)) {
+   305→      // 递归展平: 数组的数组 → 元素平面(番茄 toc 章节表/嵌套分组列表)
+   306→      cur = (cur as unknown[]).flat(Infinity)
+   307→    } else if (name !== '') {
+   308→      if (Array.isArray(cur)) {
+   309→        if (/^\d+$/.test(name)) {
+   310→          cur = Number(name) < cur.length ? cur[Number(name)] : undefined
+   311→        } else {
+   312→          return undefined
+   313→        }
+   314→      } else if (typeof cur === 'object') {
+   315→        cur = (cur as Record<string, unknown>)[name]
+   316→      } else {
+   317→        return undefined
+   318→      }
+   319→    }
+   320→    // 段内方括号算子(按书写顺序应用): [n]=下标, [k=v(&k2=v2)…]=过滤
+   321→    for (const op of ops) {
+   322→      if (!Array.isArray(cur)) break
+   323→      if (/^\d+$/.test(op)) {
+   324→        cur = Number(op) < cur.length ? cur[Number(op)] : undefined
+   325→      } else if (op.includes('=')) {
+   326→        // R4-18: 原 `op.split('&')` 把值内的 `&` 当作条件分隔符 —— `[name=a&b]` 想表达
+   327→        // "name === 'a&b'" 被错误拆成 `[name='a', 'b']='']` 两条过滤条件, 第二条 `b` 无
+   328→        // `=` 被丢弃但条件数组改写为 `[name,'']` 失配整段。改为按 RFC-3986 风格在值内
+   329→        // 转义 `&`(`%26`)后 split, 转义符解码到 value 还原字面 `&`; 调用方未转义时仍
+   330→        // 按旧语义 split(向后兼容, 既有规则无 `&` 字面量值不受影响)
+   331→        const conds = op.split('&').map((c) => {
+   332→          const i = c.indexOf('=')
+   333→          if (i < 0) return null // 无 `=` 的子条件视为无效, 跳过(旧行为: 当作 [c, ''] 失配)
+   334→          const k = c.slice(0, i)
+   335→          const v = c.slice(i + 1).replace(/%26/gi, '&') // 转义符解码
+   336→          return [k, v] as [string, string]
+   337→        }).filter((x): x is [string, string] => x !== null)
+   338→        cur = (cur as Record<string, unknown>[]).filter(
+   339→          (el) => !!el && typeof el === 'object' && conds.every(([k, v]) => String((el as Record<string, unknown>)[k]) === v)
+   340→        )
+   341→      }
+   342→    }
+   343→  }
+   344→  return cur
+   345→}
+   346→
+   347→/** 拆分路径段: 'name[3]', 'name[k=v]', 'name[]', 'name' → { name, ops[] }
+   348→ *  ([] 空装饰剔除; 非空括号内容按序返回, 由调用方按算子语义应用) */
+   349→function splitJsonSeg(seg: string): { name: string; ops: string[] } {
+   350→  const ops: string[] = []
+   351→  const re = /\[([^\]]*)\]/g
+   352→  let m: RegExpExecArray | null
+   353→  while ((m = re.exec(seg))) ops.push(m[1])
+   354→  return { name: seg.replace(/\[[^\]]*\]/g, '').trim(), ops }
+   355→}
+   356→
+   357→/** itemSelector 专用: 逗号分隔多路径并集取"数组平面" —
+   358→ *  各路径解析值: 数组→逐项拼入(如 hotlist,sort1,sort2 首页多榜单), 非数组标量→单项拼入。
+   359→ *  cc-c 扩展(map-collect, 加法语义): 非数字段作用在数组上 = 跨元素取该属性并展平一层
+   360→ *  (search_tabs[tab_type=3].data.book_data 三层嵌套一次下钻), 配合 `*` 段与 [k=v] 过滤
+   361→ *  表达"嵌套数组过滤+数组的数组展平"; 普通对象属性路径行为与旧版完全一致 */
+   362→export function jsonArrayAt(root: unknown, path: string): unknown[] {
+   363→  const raw = (path || '').trim()
+   364→  if (!raw) return []
+   365→  const out: unknown[] = []
+   366→  for (const part of raw.split(',').map((s) => s.trim()).filter(Boolean)) {
+   367→    const v = jsonArrayWalk(root, part)
+   368→    if (Array.isArray(v)) out.push(...v)
+   369→    else if (v !== undefined && v !== null) out.push(v)
+   370→  }
+   371→  return out
+   372→}
+   373→
+   374→/** jsonArrayAt 内部行走器: jsonGet 语法 + map-collect(数组上非数字段=跨元素取属性展平一层) */
+   375→function jsonArrayWalk(root: unknown, path: string): unknown {
+   376→  if (root === null || root === undefined) return undefined
+   377→  let cur: unknown = root
+   378→  const raw = (path || '').trim()
+   379→  if (!raw || raw === '.' || raw === '$') return cur
+   380→  for (const seg0 of raw.split('.')) {
+   381→    const seg = seg0.replace(/\[\]/g, '').trim()
+   382→    if (seg === '' || seg === '$') continue
+   383→    if (cur === null || cur === undefined) return undefined
+   384→    const { name, ops } = splitJsonSeg(seg)
+   385→    if (name === '*' && Array.isArray(cur)) {
+   386→      cur = (cur as unknown[]).flat(Infinity)
+   387→    } else if (name !== '') {
+   388→      if (Array.isArray(cur)) {
+   389→        if (/^\d+$/.test(name)) {
+   390→          cur = Number(name) < cur.length ? cur[Number(name)] : undefined
+   391→        } else {
+   392→          // map-collect: 跨元素取属性并展平一层(元素属性为数组时收集其元素)
+   393→          const collected: unknown[] = []
+   394→          for (const el of cur as unknown[]) {
+   395→            const v = el && typeof el === 'object' ? (el as Record<string, unknown>)[name] : undefined
+   396→            if (Array.isArray(v)) collected.push(...v)
+   397→            else if (v !== undefined && v !== null) collected.push(v)
+   398→          }
+   399→          cur = collected
+   400→        }
+   401→      } else if (typeof cur === 'object') {
+   402→        cur = (cur as Record<string, unknown>)[name]
+   403→      } else {
+   404→        return undefined
+   405→      }
+   406→    }
+   407→    for (const op of ops) {
+   408→      if (!Array.isArray(cur)) break
+   409→      if (/^\d+$/.test(op)) {
+   410→        cur = Number(op) < cur.length ? cur[Number(op)] : undefined
+   411→      } else if (op.includes('=')) {
+   412→        const conds = op.split('&').map((c) => {
+   413→          const i = c.indexOf('=')
+   414→          return i < 0 ? [c, ''] : [c.slice(0, i), c.slice(i + 1)]
+   415→        })
+   416→        cur = (cur as Record<string, unknown>[]).filter(
+   417→          (el) => !!el && typeof el === 'object' && conds.every(([k, v]) => String((el as Record<string, unknown>)[k]) === v)
+   418→        )
+   419→      }
+   420→    }
+   421→  }
+   422→  return cur
+   423→}
+   424→
+   425→/** JSON值 → 字符串: 数组→各元素字符串按\n连接; 标量→String; 对象/null→'' */
+   426→export function jsonToString(v: unknown): string {
+   427→  if (v === null || v === undefined) return ''
+   428→  if (typeof v === 'string') return v
+   429→  if (typeof v === 'number' || typeof v === 'boolean') return String(v)
+   430→  if (Array.isArray(v)) return v.map((x) => jsonToString(x)).filter(Boolean).join('\n')
+   431→  return ''
+   432→}
+   433→
+   434→/** 页面URL → const模板 vars(`q.参数名` → 查询参数值): 书页 /api/book?id=2530 → { 'q.id': '2530' } */
+   435→export function urlVars(url: string): Record<string, string> {
+   436→  const out: Record<string, string> = {}
+   437→  if (!url) return out
+   438→  try {
+   439→    const u = new URL(url)
+   440→    u.searchParams.forEach((v, k) => {
+   441→      if (k && k.length <= 40) out['q.' + k] = v
+   442→    })
+   443→  } catch {
+   444→    /* 非法URL: 无vars */
+   445→  }
+   446→  return out
+   447→}
+   448→
+   449→/** const 常量模板占位符替换: `{name}` → vars[name], 未命中→空串 */
+   450→function constTemplate(expr: string, vars: Record<string, string> | undefined): string {
+   451→  return expr.replace(/\{([a-zA-Z0-9_.]+)\}/g, (m, key: string) => {
+   452→    const v = vars?.[key]
+   453→    return v === undefined || v === null ? '' : String(v)
+   454→  })
+   455→}
+   456→
+   457→// ---------------- 统一提取 ----------------
+   458→/** 提取上下文: json=当前作用域的JSON根值(itemSelector数组项/页面根);
+   459→ *  vars=const模板占位符取值表({字段名}/{index}/{q.*}) */
+   460→export interface ExtractCtx {
+   461→  json?: unknown
+   462→  vars?: Record<string, string>
+   463→}
+   464→
+   465→export function extractField(html: string, $: cheerio.CheerioAPI, scope: any, doc: any, rule: FieldRule, ctx?: ExtractCtx): string {
+   466→  let v = ''
+   467→  try {
+   468→    switch (rule.type) {
+   469→      case 'css': v = cssExtract($, scope, rule); break
+   470→      case 'xpath': {
+   471→        // scope 为节点时限制到节点范围
+   472→        if (scope && doc && scope !== doc && scope.nodeType) {
+   473→          const inner = nodeInnerHtml(scope) || ''
+   474→          const subDoc = htmlToDoc(inner)
+   475→          v = subDoc ? xpathExtract(subDoc, rule) : ''
+   476→        } else {
+   477→          v = xpathExtract(doc, rule)
+   478→        }
+   479→        break
+   480→      }
+   481→      case 'regex': v = regexExtract(html, rule); break
+   482→      case 'json': {
+   483→        // 作用域JSON(itemSelector数组项)优先, 否则按页面响应体整体解析(纯JSON API站)
+   484→        const root = ctx && ctx.json !== undefined ? ctx.json : parseJsonBody(html)
+   485→        v = root === undefined ? '' : jsonToString(jsonGet(root, rule.expression))
+   486→        break
+   487→      }
+   488→      case 'const': {
+   489→        v = constTemplate(rule.expression, ctx?.vars)
+   490→        break
+   491→      }
+   492→    }
+   493→  } catch { v = '' }
+   494→  return applyTransform(v, rule)
+   495→}
+   496→
+   497→// ---------------- URL 绝对化 ----------------
+   498→export function absolutize(url: string, base: string): string {
+   499→  if (!url) return ''
+   500→  const u = url.trim()
+   501→  if (!u) return ''
+   502→  let out = u
+   503→  if (!/^https?:\/\//i.test(u)) {
+   504→    try {
+   505→      out = new URL(u, base).toString()
+   506→    } catch {
+   507→      out = u
+   508→    }
+   509→  }
+   510→  // 过滤非 http(s) 结果: javascript:/data:/mailto:/about: 等不应作为章节/封面/翻页地址参与后续抓取
+   511→  // (原实现会把 javascript:void(0) 原样返回, 采集时 fetchPage 必然报错)
+   512→  if (!/^https?:\/\//i.test(out)) return ''
+   513→  // 修复: 自引用过滤 —— 纯锚点(href="#xx")解析后指向当前文档本身, 原先会成为
+   514→  // "章节链接"混进目录, runner 拿它抓正文等于把目录页整页当章节入库; 同理
+   515→  // href="./" 会把列表页自己当成一本书。同 origin+path+search(仅 fragment 差异)
+   516→  // 视为自引用返回空, 调用方(parseToc/runner)已有空 URL 跳过/回退逻辑兜底
+   517→  try {
+   518→    const o = new URL(out)
+   519→    const b = base ? new URL(base) : null
+   520→    if (b && o.origin === b.origin && o.pathname === b.pathname && o.search === b.search) return ''
+   521→  } catch { /* base 不可解析时保持原判定 */ }
+   522→  return out
+   523→}
+   524→
+   525→// ---------------- 页面基址(<base href>) ----------------
+   526→/** 页面有效文档基址: 站点可用 <base href> 改写相对链接的解析基准(目录/分页站常见,
+   527→ *  相对章节链若按文档 URL 解析会错位成 404 路径)。首个 base[href] 为 HTML 规范生效位;
+   528→ *  相对 base href 按文档 URL 解析, 缺失/非法/非 http(s) 一律回退文档 URL */
+   529→function docBase($: cheerio.CheerioAPI, docUrl: string): string {
+   530→  if (!docUrl) return docUrl
+   531→  const href = ($('base[href]').first().attr('href') || '').trim()
+   532→  if (href) {
+   533→    if (/^https?:\/\//i.test(href)) return href
+   534→    try {
+   535→      const u = new URL(href, docUrl)
+   536→      if (u.protocol === 'http:' || u.protocol === 'https:') return u.toString()
+   537→    } catch { /* 非法 base href: 回退文档 URL */ }
+   538→  }
+   539→  return docUrl
+   540→}
+   541→
+   542→/** 相对地址先按页面基址解析(与 absolutize 解耦: absolutize 的自引用过滤必须始终
+   543→ *  以"当前文档 URL"为基准, 而 <base href> 只改写相对解析基准 —— 两基准分离时由
+   544→ *  本函数先解析出绝对地址, 再交给 absolutize 做协议过滤+自引用过滤)。
+   545→ *  纯锚点(#x)不按基址解析: 浏览器虽有 base 下锚点跳 base 页的行为, 但采集侧
+   546→ *  "目录页自引用/纯锚点"必须保持被 absolutize 以文档 URL 过滤(防目录页整页当章节)。
+   547→ *  已是绝对地址/解析失败时原样返回, 由 absolutize 以文档 URL 兜底(与旧行为一致) */
+   548→function resolveWithBase(raw: string, base: string): string {
+   549→  const u = (raw || '').trim()
+   550→  if (!u || u.startsWith('#') || /^https?:\/\//i.test(u)) return u
+   551→  try {
+   552→    const abs = new URL(u, base).toString()
+   553→    return /^https?:\/\//i.test(abs) ? abs : u
+   554→  } catch {
+   555→    return u
+   556→  }
+   557→}
+   558→
+   559→// ---------------- 翻页传输 ----------------
+   560→/** 翻页请求传输: fetchCfg.pageFetch 注入时走注入回调(runner 过闸路径, 与章节抓取同享
+   561→ *  hostGate 同站并发闸); 未注入时直连 fetchPage(rules/test 测试路由保持直连语义)。
+   562→ *  ll-c: refererUrl 可选第二参 —— parseToc/parseContent 翻页第2页起回传【上一页 URL】,
+   563→ *  runner 侧启用 refererChain 时 Referer 从"恒书籍页"升级为"翻页链逐页回溯"
+   564→ *  (真实浏览器从第1页点"下一页"导航, 第2页的 Referer 即第1页 URL); 未回传时语义不变。
+   565→ *  翻页失败语义不变: 抛错由调用方 catch 后 break(停止合并, 已得页保留) */
+   566→async function fetchPaginationPage(url: string, fetchCfg: Parameters<typeof fetchPage>[1], refererUrl?: string): Promise<string> {
+   567→  if (fetchCfg?.pageFetch) {
+   568→    const res = await fetchCfg.pageFetch(url, refererUrl)
+   569→    return res?.html ?? ''
+   570→  }
+   571→  const res = await fetchPage(url, fetchCfg)
+   572→  return res.html
+   573→}
+   574→
+   575→// ---------------- 列表/目录解析 ----------------
+   576→export interface ListResult {
+   577→  items: { fields: Record<string, string> }[]
+   578→}
+   579→
+   580→export function parseList(
+   581→  html: string,
+   582→  baseUrl: string,
+   583→  pageRule: PageRule,
+   584→  urlFields: string[] = ['url']
+   585→): ListResult {
+   586→  const $ = cheerio.load(html)
+   587→  const doc = getDoc(html)
+   588→  const out: ListResult = { items: [] }
+   589→  const { itemSelector, fields } = pageRule
+   590→  const hasJsonConstFields = Object.values(fields).some((r) => r && (r.type === 'json' || r.type === 'const'))
+   591→
+   592→  // ---- JSON 模式: itemSelector.expression=数组路径(列表发现), 或无容器+json/const字段(书籍页JSON) ----
+   593→  // 规则为json/const型时不回退HTML提取(JSON解析失败直接空结果, 避免cheerio对JSON串的垃圾提取)
+   594→  if (itemSelector?.type === 'json' || (!itemSelector && hasJsonConstFields)) {
+   595→    const root = parseJsonBody(html)
+   596→    if (root === undefined) return out
+   597→    const varsBase = urlVars(baseUrl)
+   598→    const scopes: { json: unknown; index: number }[] = itemSelector
+   599→      ? jsonArrayAt(root, itemSelector.expression).map((it, i) => ({ json: it, index: i + 1 }))
+   600→      : [{ json: root, index: 1 }]
+   601→    for (const scope of scopes) {
+   602→      const rec: Record<string, string> = {}
+   603→      // 两阶段提取: 先非const(json路径从当前数组项取值), 再const(模板可引用已提取字段如 {id})
+   604→      for (const [key, rule] of Object.entries(fields)) {
+   605→        if (!rule || rule.type === 'const') continue
+   606→        rec[key] = extractField('', null as any, null, null, rule, {
+   607→          json: scope.json,
+   608→          vars: { ...varsBase, index: String(scope.index) },
+   609→        })
+   610→      }
+   611→      for (const [key, rule] of Object.entries(fields)) {
+   612→        if (!rule || rule.type !== 'const') continue
+   613→        rec[key] = extractField('', null as any, null, null, rule, {
+   614→          vars: { ...varsBase, index: String(scope.index), ...rec },
+   615→        })
+   616→      }
+   617→      for (const uf of urlFields) {
+   618→        if (rec[uf]) rec[uf] = absolutize(rec[uf], baseUrl)
+   619→      }
+   620→      // 列表项链接收紧(qq-e): 与 HTML 容器模式同口径 —— 含 url/bookUrl 链接字段而
+   621→      // 全部为空的 JSON 项(导航/广告垃圾记录)不入列, rules/test 的 items/count 不再虚高
+   622→      // (runner 侧本就有 filter(Boolean) 兜底, 但 test 面板与列表发现计数如实收紧);
+   623→      // 仅当 urlFields 含链接字段时生效: parseBook 借道本函数(urlFields=['cover'])不受此限
+   624→      if (urlFields.some((uf) => uf === 'url' || uf === 'bookUrl') && !urlFields.some((uf) => rec[uf])) continue
+   625→      if (Object.values(rec).some((v) => v)) out.items.push({ fields: rec })
+   626→    }
+   627→    return out
+   628→  }
+   629→
+   630→  if (!itemSelector) {
+   631→    // 无容器: 直接对整页提取字段(单值型), 如书籍页
+   632→    const rec: Record<string, string> = {}
+   633→    for (const [key, rule] of Object.entries(fields)) {
+   634→      if (rule) rec[key] = extractField(html, $, null, doc, rule)
+   635→    }
+   636→    if (Object.keys(rec).length) out.items.push({ fields: rec })
+   637→    return out
+   638→  }
+   639→
+   640→  // 容器型: css容器 → 遍历; regex容器 → 分段
+   641→  let scopes: { html: string; node: any }[] = []
+   642→  try {
+   643→    if (itemSelector.type === 'css') {
+   644→      scopes = cssExtractAll($, null as any, itemSelector).map((node: any) => ({ html: $.html(node), node }))
+   645→    } else if (itemSelector.type === 'xpath') {
+   646→      scopes = xpathExtractNodes(doc, itemSelector.expression).map((node) => ({
+   647→        html: node.nodeType ? nodeHtml(node) : String(node),
+   648→        node,
+   649→      }))
+   650→    } else {
+   651→      scopes = regexExtractAll(html, itemSelector).map((h) => ({ html: h, node: null }))
+   652→    }
+   653→  } catch { scopes = [] } // 非法容器选择器: 空结果而非整体抛错
+   654→
+   655→  for (const scope of scopes) {
+   656→    // scopeDoc: css/regex容器用scope.html重建; xpath容器已有xmldom节点直接用
+   657→    const scopeDoc = scope.html ? htmlToDoc(scope.html) : scope.node
+   658→    const scope$ = cheerio.load(scope.html)
+   659→    const rec: Record<string, string> = {}
+   660→    for (const [key, rule] of Object.entries(fields)) {
+   661→      if (!rule) continue
+   662→      rec[key] = extractField(scope.html, scope$, null, scopeDoc, rule)
+   663→    }
+   664→    for (const uf of urlFields) {
+   665→      if (rec[uf]) rec[uf] = absolutize(rec[uf], baseUrl)
+   666→    }
+   667→    // 列表项链接收紧(y-a重放): 链接字段(url/bookUrl)全为空的书籍项跳过, 与目录侧
+   668→    // `if (!href) continue` 同语义 —— 原先"任一字段非空即入列", url 空但带标题/封面的
+   669→    // 导航垃圾项混进列表(runner 侧有 filter(Boolean) 兜底不成脏书, 但 rules/test 的
+   670→    // items/count 展示虚高)。仅当 urlFields 含链接字段时生效: parseBook 借道本函数
+   671→    // (urlFields=['cover'])提取封面, 不含链接字段, 不受此限
+   672→    if (urlFields.some((uf) => uf === 'url' || uf === 'bookUrl') && !urlFields.some((uf) => rec[uf])) continue
+   673→    if (Object.values(rec).some((v) => v)) out.items.push({ fields: rec })
+   674→  }
+   675→  return out
+   676→}
+   677→
+   678→// ---------------- 书籍信息解析 ----------------
+   679→export function parseBook(html: string, baseUrl: string, pageRule: PageRule): ParsedBook {
+   680→  const res = parseList(html, baseUrl, pageRule, ['cover'])
+   681→  const f = res.items[0]?.fields || {}
+   682→  return {
+   683→    name: f.name || undefined,
+   684→    author: f.author || undefined,
+   685→    category: f.category || undefined,
+   686→    keywords: f.keywords || undefined,
+   687→    intro: f.intro || undefined,
+   688→    cover: f.cover ? absolutize(f.cover, baseUrl) : undefined,
+   689→    latestChapter: f.latestChapter || undefined,
+   690→    status: f.status || undefined,
+   691→  }
+   692→}
+   693→
+   694→// ---------------- 目录解析(含翻页 + 乱序重排 + 去重) ----------------
+   695→export async function parseToc(
+   696→  firstUrl: string,
+   697→  html: string,
+   698→  pageRule: PageRule,
+   699→  fetchCfg: Parameters<typeof fetchPage>[1],
+   700→  onProgress?: (page: number, found: number) => Promise<void> | void
+   701→): Promise<{ items: TocItem[]; pages: number }> {
+   702→  const all: TocItem[] = []
+   703→
+   704→  // ---- JSON 目录模式: itemSelector.expression=数组路径(如 bqg713 的纯章节名数组 list) ----
+   705→  // 数组项可为对象(字段按路径取)或纯字符串(title 用 '.' 取根本身); 章节URL用 const 模板
+   706→  // 合成(`{q.id}`=目录页URL查询参数 + `{index}`=1基序号)。JSON目录API单次返回全量, 无HTML翻页。
+   707→  if (pageRule.itemSelector?.type === 'json') {
+   708→    const root = parseJsonBody(html)
+   709→    if (root !== undefined) {
+   710→      const base = firstUrl
+   711→      const varsBase = urlVars(firstUrl)
+   712→      const seen = new Set<string>()
+   713→      const items = jsonArrayAt(root, pageRule.itemSelector.expression)
+   714→      items.forEach((it, i) => {
+   715→        // 两阶段提取(cc-c 扩展, 与 parseList JSON 模式同构): 先非const字段
+   716→        // (title/itemId等, 供 const 章节URL模板引用 {itemId}), 再const字段;
+   717→        // index/title 显式后置防同名字段覆盖, 既有 const 模板({q.*}/{index}/{title})语义不变
+   718→        const titleRule = pageRule.fields.title
+   719→        const urlRule = pageRule.fields.url
+   720→        const phase1Vars = { ...varsBase, index: String(i + 1) }
+   721→        const rec: Record<string, string> = {}
+   722→        for (const [key, r] of Object.entries(pageRule.fields)) {
+   723→          if (!r || r.type === 'const') continue
+   724→          rec[key] = extractField('', null as any, null, null, r, { json: it, vars: phase1Vars })
+   725→        }
+   726→        let title = rec.title ?? ''
+   727→        if (titleRule?.type === 'const') {
+   728→          title = extractField('', null as any, null, null, titleRule, {
+   729→            vars: { ...varsBase, ...rec, index: String(i + 1) },
+   730→          })
+   731→        }
+   732→        let href = ''
+   733→        if (urlRule?.type === 'const') {
+   734→          href = extractField('', null as any, null, null, urlRule, { json: it, vars: { ...varsBase, ...rec, index: String(i + 1), title } })
+   735→        } else if (urlRule) {
+   736→          href = rec.url ?? ''
+   737→        }
+   738→        // ll-c: const 型 volume 字段补提 —— phase-1 循环跳过 const 型(与 title/url const 同
+   739→        // 机制), 但原先 title/url 有后置提取而 volume 没有, 配置 toc.fields.volume 为 const
+   740→        // (单卷 API 全目录打同一卷名标签)时分卷名静默丢失。与 title const 同取值表后置提取
+   741→        let volume = rec.volume || ''
+   742→        if (!volume && pageRule.fields.volume?.type === 'const') {
+   743→          volume = extractField('', null as any, null, null, pageRule.fields.volume, { vars: { ...varsBase, ...rec, index: String(i + 1), title } })
+   744→        }
+   745→        if (!title && !href) return
+   746→        href = absolutize(href, base)
+   747→        // 目录条目必须持有效章节链接(const模板占位符未命中会合成空URL, 过滤不入目录)
+   748→        if (!href) return
+   749→        const dedupKey = href || title
+   750→        if (seen.has(dedupKey)) return
+   751→        seen.add(dedupKey)
+   752→        // kk-a: 分卷名(规则 toc.fields.volume 提取, 如番茄 volume_name)
+   753→        all.push({ title: title || href, url: href, volume: volume || undefined })
+   754→      })
+   755→      await onProgress?.(1, all.length)
+   756→    }
+   757→    return { items: all, pages: 1 }
+   758→  }
+   759→
+   760→  let url = firstUrl
+   761→  let current = html
+   762→  const maxPages = pageRule.pagination?.enabled ? (pageRule.pagination.maxPages || 20) : 1
+   763→  const seen = new Set<string>()
+   764→  // R3-24: 同 path 不同 query 的"伪翻页"计数器 —— 部分站点把"下一页"链 query 改个时间戳/
+   765→  // 随机数/nocache 仍指回当前页(分页 rule 配置错或源站分页 bug), 原 seen.has 防环判重不命中
+   766→  // (每次 next 都是新 URL), maxPages 上限 20 内不断拉取重复内容入库。连 5 次同 path 即停。
+   767→  let samePathStreak = 0
+   768→  let lastPath = ''
+   769→  let pagesUsed = 0
+   770→
+   771→  for (let p = 1; p <= maxPages && url; p++) {
+   772→    pagesUsed = p
+   773→    // R3-24: 计算当前 url 的 path, 与上一页 path 对比; 同 path 不同 query 累计计数
+   774→    let curPath = ''
+   775→    try { curPath = new URL(url).pathname.toLowerCase() } catch { /* 解析失败忽略 */ }
+   776→    if (curPath && curPath === lastPath) {
+   777→      samePathStreak++
+   778→      if (samePathStreak >= 5) break
+   779→    } else {
+   780→      samePathStreak = 0
+   781→    }
+   782→    lastPath = curPath
+   783→    const $ = cheerio.load(current)
+   784→    const doc = getDoc(current)
+   785→    // <base href> 生效时目录相对链接按基址解析; 自引用过滤仍以文档 URL 为基准
+   786→    const base = docBase($, url || firstUrl)
+   787→    const fields = pageRule.fields
+   788→    const titleRule = fields.title
+   789→    const urlRule = fields.url
+   790→    const volumeRule = fields.volume // kk-a: 分卷名字段(可选)
+   791→    let scopePairs: { html: string; node: any }[] = []
+   792→
+   793→    if (pageRule.itemSelector) {
+   794→      try {
+   795→        if (pageRule.itemSelector.type === 'css') {
+   796→          scopePairs = cssExtractAll($, null as any, pageRule.itemSelector).map((node: any) => ({ html: $.html(node), node }))
+   797→        } else if (pageRule.itemSelector.type === 'xpath') {
+   798→          scopePairs = xpathExtractNodes(doc, pageRule.itemSelector.expression).map((node) => ({ html: '', node }))
+   799→        } else {
+   800→          scopePairs = regexExtractAll(current, pageRule.itemSelector).map((h) => ({ html: h, node: null }))
+   801→        }
+   802→      } catch { scopePairs = [] } // 非法容器选择器: 空结果而非整体抛错
+   803→    } else {
+   804→      scopePairs = [{ html: current, node: null }]
+   805→    }
+   806→
+   807→    for (const scope of scopePairs) {
+   808→      // scopeDoc: css/regex容器用scope.html重建; xpath容器已有xmldom节点直接用
+   809→      const scopeDoc = scope.html ? htmlToDoc(scope.html) : scope.node
+   810→      const scope$ = scope.node ? cheerio.load(scope.html || nodeHtml(scope.node)) : $
+   811→      let title = ''
+   812→      let href = ''
+   813→      let vol = ''
+   814→      if (titleRule) title = extractField(scope.html, scope$, null, scopeDoc, titleRule)
+   815→      if (urlRule) href = extractField(scope.html, scope$, null, scopeDoc, urlRule)
+   816→      if (volumeRule) vol = extractField(scope.html, scope$, null, scopeDoc, volumeRule)
+   817→      if (!title && !href) continue
+   818→      if (!href && scope.node) href = xpathAttr(scope.node, 'href') || ''
+   819→      href = absolutize(resolveWithBase(href, base), url || firstUrl)
+   820→      // 修复: absolutize 会把纯锚点(javascript:void(0)/#top 等)过滤成空 —— 此前仅
+   821→      // "title 与 href 双空"才跳过, 导致目录混入 url 为空的垃圾章节(导航锚点常态);
+   822→      // 目录条目必须持有效章节链接, 无 href 一律不入目录(title 由 title||href 兜底)
+   823→      if (!href) continue
+   824→      const dedupKey = href || title
+   825→      if (seen.has(dedupKey)) continue
+   826→      seen.add(dedupKey)
+   827→      all.push({ title: title || href, url: href, volume: vol || undefined })
+   828→    }
+   829→    await onProgress?.(p, all.length)
+   830→
+   831→    // 翻页
+   832→    if (p < maxPages && pageRule.pagination?.enabled) {
+   833→      let next = ''
+   834→      const nextRule = pageRule.pagination.nextLink
+   835→      if (nextRule) {
+   836→        next = extractField(current, $, null, doc, nextRule)
+   837→      } else {
+   838→        // 兜底: 常见"下一页"链接
+   839→        next =
+   840→          $('a:contains("下一页")').attr('href') ||
+   841→          $('a:contains("下页")').attr('href') ||
+   842→          $('a:contains("下一章")').attr('href') || ''
+   843→      }
+   844→      next = absolutize(resolveWithBase(next, base), url)
+   845→      if (!next || next === url || seen.has('__page__' + next)) break
+   846→      seen.add('__page__' + next)
+   847→      // ll-c: Referer 链翻页语义 —— 此刻 url 仍是当前页(第N页), 取下一页前先捕获作
+   848→      // 第 N+1 页的 Referer(真实浏览器翻页导航链); 未启用 refererChain 时 runner 侧忽略
+   849→      const refererForNext = url
+   850→      url = next
+   851→      try {
+   852→        current = await fetchPaginationPage(url, fetchCfg, refererForNext)
+   853→      } catch {
+   854→        break
+   855→      }
+   856→    } else {
+   857→      break
+   858→    }
+   859→  }
+   860→  return { items: all, pages: pagesUsed || 1 }
+   861→}
+   862→
+   863→// ---------------- 章节内容解析(含翻页合并) ----------------
+   864→export async function parseContent(
+   865→  firstUrl: string,
+   866→  html: string,
+   867→  pageRule: PageRule,
+   868→  fetchCfg: Parameters<typeof fetchPage>[1]
+   869→): Promise<ParsedContent> {
+   870→  const contentRule = pageRule.fields.content
+   871→  if (!contentRule) return { content: '', pages: 1 }
+   872→  const joinWith = pageRule.pagination?.joinWith ?? '<br/>'
+   873→  const parts: string[] = []
+   874→  let url = firstUrl
+   875→  let current = html
+   876→  const maxPages = pageRule.pagination?.enabled ? (pageRule.pagination.maxPages || 10) : 1
+   877→  const visited = new Set<string>()
+   878→
+   879→  for (let p = 1; p <= maxPages && url; p++) {
+   880→    if (visited.has(url)) break
+   881→    visited.add(url)
+   882→    const $ = cheerio.load(current)
+   883→    const doc = getDoc(current)
+   884→    // <base href> 生效时相对"下一页"按基址解析(bb-g 修复, 与 parseToc 同口径):
+   885→    // 原先直接按文档 URL 解析, 页面携带 base href 时翻页链错位成 404 → 静默断页丢正文
+   886→    const base = docBase($, url || firstUrl)
+   887→    let part = extractField(current, $, null, doc, contentRule)
+   888→    if (!part && contentRule.type === 'css') {
+   889→      // 兜底: 取最长文本容器
+   890→      part = findLargestText($)
+   891→    }
+   892→    if (part) parts.push(part)
+   893→
+   894→    if (p < maxPages && pageRule.pagination?.enabled) {
+   895→      let next = ''
+   896→      const nextRule = pageRule.pagination.nextLink
+   897→      if (nextRule) next = extractField(current, $, null, doc, nextRule)
+   898→      if (!next) {
+   899→        next =
+   900→          $('a:contains("下一页")').attr('href') ||
+   901→          $('a:contains("下页")').attr('href') || ''
+   902→      }
+   903→      next = absolutize(resolveWithBase(next, base), url)
+   904→      if (!next || next === url) break
+   905→      // ll-c: 与 parseToc 同口径 —— 正文分页第2页起 Referer=上一正文页(翻页链逐页回溯)
+   906→      const refererForNext = url
+   907→      url = next
+   908→      try {
+   909→        current = await fetchPaginationPage(url, fetchCfg, refererForNext)
+   910→      } catch {
+   911→        break
+   912→      }
+   913→    } else {
+   914→      break
+   915→    }
+   916→  }
+   917→  return { content: parts.filter(Boolean).join(joinWith), pages: Math.max(1, visited.size) }
+   918→}
+   919→
+   920→function findLargestText($: cheerio.CheerioAPI): string {
+   921→  let best = ''
+   922→  let bestLen = 0
+   923→  $('div,p,td,article').each((_, el) => {
+   924→    const t = $(el).text() || ''
+   925→    if (t.length > bestLen) {
+   926→      bestLen = t.length
+   927→      best = $.html(el)
+   928→    }
+   929→  })
+   930→  return bestLen > 200 ? best : ''
+   931→}
+   932→

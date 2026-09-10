@@ -61,6 +61,14 @@ interface TaskRuntime {
    *  重启时与当前目录末章 URL 对比: 相同 → 跳过; 不同 → 增量采新章节。
    *  recrawlMode==='full' 任务启动时清空 */
   bookLastChapters: Map<string, string>
+  /** R8-5: dirty flags —— 跟踪各集合是否在上一轮 saveProgress 后被修改过。
+   *  saveProgress 仅序列化 dirty=true 的集合, 跳过未修改集合免重复 JSON.stringify(原实现
+   *  每次都把 4 个集合全序列化, 50000 书×60B=3MB×4=12MB, 100ms/次, 长任务累计数小时纯序列化开销)。
+   *  集合首次创建时为 true(确保首次 saveProgress 落库), reset 时置 true(确保清空状态写库)。 */
+  dirtyDiscovered: boolean
+  dirtyCompleted: boolean
+  dirtyOngoing: boolean
+  dirtyLastChapters: boolean
 }
 
 interface TaskProgress {
@@ -146,12 +154,44 @@ export class TaskRunner {
 
   /** R4-8: per-task status 串行写 —— 把 db.task.update(status:...) 串到 prev 链尾,
    *  保证旧 controlInner(可能已 Promise.race 超时)的写必先完成、新 controlInner 的写后发,
-   *  提交序与调用序一致。失败(如 P2025 任务已删)透传给调用方。 */
+   *  提交序与调用序一致。失败(如 P2025 任务已删)透传给调用方。
+   *
+   *  R8-13: 给链上每步加 30s 超时 —— 旧实现 prev 永不 settle(SQLite busy lock 卡死)时,
+   *  本步永远不执行, 所有后续 control 入队但不动, 内存累积无界。修法: 用 Promise.race 给 prev
+   *  加 30s 超时(超时则跳过等待, 继续执行本步); db.task.update 本身也加 30s 超时(超时跳过本步,
+   *  继续链; 链上后续步骤可以继续推进, 避免链死锁)。 */
   private async serializeStatusWrite(taskId: string, status: string): Promise<void> {
+    const STEP_TIMEOUT_MS = 30_000
     const prev = this.dbStatusChains.get(taskId) ?? Promise.resolve()
-    const next = prev.then(
-      () => db.task.update({ where: { id: taskId }, data: { status } }).catch((e: any) => {
+    // R8-13: 给 prev 加 30s 超时 —— 不论 prev resolve 还是 reject, 都归为 undefined 继续本步;
+    // 若 prev 在 30s 内未 settle(SQLite busy), 跳过等待(已 log warn), 继续执行本步
+    const prevWithTimeout: Promise<void> = Promise.race([
+      prev.then(() => undefined, () => undefined),
+      new Promise<void>((resolve) => {
+        const t = setTimeout(() => {
+          console.warn(`[runner] serializeStatusWrite 前置链 30s 未完成, 跳过等待 task=${taskId} status=${status}`)
+          resolve()
+        }, STEP_TIMEOUT_MS)
+        if (typeof t.unref === 'function') t.unref()
+      }),
+    ])
+    const next = prevWithTimeout.then(
+      () => Promise.race([
+        db.task.update({ where: { id: taskId }, data: { status } }),
+        new Promise<never>((_, reject) => {
+          const t = setTimeout(
+            () => reject(new Error(`serializeStatusWrite db.task.update 30s timeout`)),
+            STEP_TIMEOUT_MS,
+          )
+          if (typeof t.unref === 'function') t.unref()
+        }),
+      ]).catch((e: any) => {
         if (e?.code === 'P2025') return // 任务已删, 写无处可去, 视作正常终态
+        // R8-13: 超时不视为硬错误, 跳过本步继续链(防链死锁); 其他错误透传给调用方
+        if (String(e?.message || e).includes('timeout')) {
+          console.warn(`[runner] serializeStatusWrite db.task.update 30s 超时, 跳过 task=${taskId} status=${status}`)
+          return
+        }
         throw e
       }),
     )
@@ -352,6 +392,11 @@ export class TaskRunner {
       completedBookUrls: new Set<string>(),
       ongoingBookUrls: new Set<string>(),
       bookLastChapters: new Map<string, string>(),
+      // R8-5: dirty flags 初始为 true(确保首次 saveProgress 落库, 即使集合为空也写入空状态)
+      dirtyDiscovered: true,
+      dirtyCompleted: true,
+      dirtyOngoing: true,
+      dirtyLastChapters: true,
     }
     // R3-10: 每次进入 controlInner 都更新 lastActiveAt, 供 pruneRuntimesIfNeeded 判定
     // "僵尸暂停"(paused + 1h 未活跃); 无 operation 直接 update 触发顺序避免 await 间隙
@@ -480,6 +525,11 @@ export class TaskRunner {
         progress.completedBookUrls = []
         progress.ongoingBookUrls = []
         progress.bookLastChapters = {}
+        // R8-5: reset 后强制 dirty=true, 确保下一次 saveProgress 把空状态写入 DB
+        rt.dirtyDiscovered = true
+        rt.dirtyCompleted = true
+        rt.dirtyOngoing = true
+        rt.dirtyLastChapters = true
       } else {
         // 从 progress 恢复(数组 → Set); 数组非法/缺失时 Set 留空(冷启动零回归)
         const disc = Array.isArray(progress.discoveredBookUrls) ? progress.discoveredBookUrls : []
@@ -496,6 +546,11 @@ export class TaskRunner {
         for (const [k, v] of Object.entries(lastChapObj)) {
           if (typeof k === 'string' && k && typeof v === 'string' && v) rt.bookLastChapters.set(k, v)
         }
+        // R8-5: 恢复状态无需立即落库(数据未变), dirty=false 跳过下一轮序列化
+        rt.dirtyDiscovered = false
+        rt.dirtyCompleted = false
+        rt.dirtyOngoing = false
+        rt.dirtyLastChapters = false
         const totalResume = rt.discoveredBookUrls.size + rt.completedBookUrls.size + rt.ongoingBookUrls.size
         if (totalResume > 0) {
           await this.log(
@@ -556,6 +611,7 @@ export class TaskRunner {
               rt.discoveredBookUrls.add(u)
               urls.push(u)
               newlyDiscovered++
+              rt.dirtyDiscovered = true // R8-5: mark dirty after mutation
             }
             for (const it of parsed.items) {
               const u = it.fields.url || it.fields.bookUrl
@@ -1124,7 +1180,11 @@ export class TaskRunner {
     // 注: 完结书(rt.completedBookUrls)在外层循环已整体跳过, 不会走到这里
     if (isOngoingRecheck && storedLastChapterUrl) {
       const currentLastChapterUrl = tocItems[tocItems.length - 1]?.url || ''
-      if (currentLastChapterUrl && currentLastChapterUrl === storedLastChapterUrl) {
+      // R8-20: URL 规范化比较 —— strip scheme + trailing slash + lowercase host,
+      // 避免"源站切换 https / 加减末尾斜杠"被误判为内容变更触发全量重采
+      const currentNorm = normalizeUrlForCompare(currentLastChapterUrl)
+      const storedNorm = normalizeUrlForCompare(storedLastChapterUrl)
+      if (currentLastChapterUrl && currentNorm === storedNorm) {
         // 末章 URL 相同 → 视为无新章节
         await this.log(
           taskId,
@@ -1136,9 +1196,14 @@ export class TaskRunner {
           rt.completedBookUrls.add(bookUrl)
           rt.ongoingBookUrls.delete(bookUrl)
           rt.bookLastChapters.delete(bookUrl)
+          rt.dirtyCompleted = true
+          rt.dirtyOngoing = true
+          rt.dirtyLastChapters = true // R8-5: mark dirty after mutations
         } else {
           rt.ongoingBookUrls.add(bookUrl)
           if (currentLastChapterUrl) rt.bookLastChapters.set(bookUrl, currentLastChapterUrl)
+          rt.dirtyOngoing = true
+          if (currentLastChapterUrl) rt.dirtyLastChapters = true // R8-5: mark dirty
         }
         progress.booksDone++
         await this.saveProgress(taskId, progress, stats)
@@ -1179,10 +1244,15 @@ export class TaskRunner {
           rt.completedBookUrls.add(bookUrl)
           rt.ongoingBookUrls.delete(bookUrl)
           rt.bookLastChapters.delete(bookUrl)
+          rt.dirtyCompleted = true
+          rt.dirtyOngoing = true
+          rt.dirtyLastChapters = true // R8-5: mark dirty
         } else {
           rt.ongoingBookUrls.add(bookUrl)
           const lastUrl = tocItems[tocItems.length - 1]?.url
           if (lastUrl) rt.bookLastChapters.set(bookUrl, lastUrl)
+          rt.dirtyOngoing = true
+          if (lastUrl) rt.dirtyLastChapters = true // R8-5: mark dirty
         }
         progress.booksDone++
         await this.saveProgress(taskId, progress, stats)
@@ -1537,7 +1607,11 @@ export class TaskRunner {
             consecutiveErrs = 0
             done++
             progress.contentDone = done
-            if (done % 10 === 0 || done === progress.contentTotal) {
+            // R8-5: throttle saveProgress from every 10 chapters to every 50 chapters.
+            // 旧实现 done%10===0 触发 saveProgress, 50000 章 = 5000 次序列化(每次 O(N) 12MB),
+            // 累计数小时纯 JSON.stringify 工作; done%50===0 把调用次数降到 1/5, 总序列化开销降 80%。
+            // book 边界 / 任务完成 / 错误熔断 / 章节完成(contentTotal) 等其他检查点保持原行为不变。
+            if (done % 50 === 0 || done === progress.contentTotal) {
               await this.saveProgress(taskId, progress, stats)
             }
           } catch (e: any) {
@@ -1648,11 +1722,16 @@ export class TaskRunner {
       rt.completedBookUrls.add(bookUrl)
       rt.ongoingBookUrls.delete(bookUrl)
       rt.bookLastChapters.delete(bookUrl)
+      rt.dirtyCompleted = true
+      rt.dirtyOngoing = true
+      rt.dirtyLastChapters = true // R8-5: mark dirty
     } else {
       // ongoing 或 unknown: 按 ongoing 处理(unknown 仍可能后续新增章节, 谨慎跟踪)
       rt.ongoingBookUrls.add(bookUrl)
       const lastChapUrl = tocItems[tocItems.length - 1]?.url
       if (lastChapUrl) rt.bookLastChapters.set(bookUrl, lastChapUrl)
+      rt.dirtyOngoing = true
+      if (lastChapUrl) rt.dirtyLastChapters = true // R8-5: mark dirty
     }
     await this.saveProgress(taskId, progress, stats)
     return 'ok'
@@ -1670,28 +1749,61 @@ export class TaskRunner {
     // feat-contentproxy-resume: 同步把 rt.discoveredBookUrls / rt.completedBookUrls 落库 ——
     // 范围任务重启时由这两数组重建 Set 实现续采。cap 50000 条防 DB 膨胀(50000×~60B URL≈3MB);
     // 同 URL 在 Set 中只 1 次, 数组天然去重。task 进度字段为 JSON 字符串, 数组形态天然可序列化
+    //
+    // R8-5: 仅序列化 dirty 集合 —— 跳过未修改集合免重复 JSON.stringify(原实现每次都把 4 个集合
+    // 全序列化, 50000×60B×4=12MB, 100ms/次, 长任务累计数小时纯序列化开销)。dirty 标志由各
+    // mutation 点设置, 序列化后清零。slice(-50000) 保留 LATEST(R8-6: 旧实现 slice(0, 50000)
+    // 会丢弃 Set 末尾插入的最新条目, 重启后只能恢复头部 50000, 尾部条目需重新发现重抓)
     const rt = this.runtimes.get(taskId)
     if (rt) {
-      progress.discoveredBookUrls = Array.from(rt.discoveredBookUrls).slice(0, 50_000)
-      progress.completedBookUrls = Array.from(rt.completedBookUrls).slice(0, 50_000)
-      // feat-combo-theme-incremental: 连载增量字段同步落库(ongoingBookUrls + bookLastChapters)
-      progress.ongoingBookUrls = Array.from(rt.ongoingBookUrls).slice(0, 50_000)
-      // bookLastChapters Map → Object(JSON 序列化友好); cap 50000 条
-      const lastChapObj: Record<string, string> = {}
-      let n = 0
-      for (const [k, v] of rt.bookLastChapters) {
-        if (n >= 50_000) break
-        lastChapObj[k] = v
-        n++
+      if (rt.dirtyDiscovered) {
+        // R8-6: 用 slice(-50000) 保留 LATEST 条目(Set 插入序尾部 = 最近发现的 URL),
+        // 旧 slice(0, 50000) 保留头部 = 最早发现的 URL, 重启后尾部 URL 需重新发现重抓
+        progress.discoveredBookUrls = Array.from(rt.discoveredBookUrls).slice(-50_000)
+        rt.dirtyDiscovered = false
       }
-      progress.bookLastChapters = lastChapObj
+      if (rt.dirtyCompleted) {
+        progress.completedBookUrls = Array.from(rt.completedBookUrls).slice(-50_000)
+        rt.dirtyCompleted = false
+      }
+      // feat-combo-theme-incremental: 连载增量字段同步落库(ongoingBookUrls + bookLastChapters)
+      if (rt.dirtyOngoing) {
+        progress.ongoingBookUrls = Array.from(rt.ongoingBookUrls).slice(-50_000)
+        rt.dirtyOngoing = false
+      }
+      // bookLastChapters Map → Object(JSON 序列化友好); cap 50000 条
+      if (rt.dirtyLastChapters) {
+        const lastChapObj: Record<string, string> = {}
+        let n = 0
+        for (const [k, v] of rt.bookLastChapters) {
+          if (n >= 50_000) break
+          lastChapObj[k] = v
+          n++
+        }
+        progress.bookLastChapters = lastChapObj
+        rt.dirtyLastChapters = false
+      }
     }
     try {
       const exists = await db.task.findUnique({ where: { id: taskId }, select: { id: true } })
       if (!exists) return
+      // R8-5: 用 JSON.stringify replacer 跳过空集合 —— 集合为空时不写入 progress JSON
+      // (老逻辑把空集合写成 [] / {}, 多余字节; replacer 让空集合从 JSON 中省略, DB 体积更小)
+      const progressJson = JSON.stringify(progress, (key, value) => {
+        if (value === undefined) return undefined
+        if (
+          (key === 'discoveredBookUrls' || key === 'completedBookUrls' || key === 'ongoingBookUrls')
+          && Array.isArray(value) && value.length === 0
+        ) return undefined
+        if (key === 'bookLastChapters' && value && typeof value === 'object'
+          && !Array.isArray(value) && Object.keys(value as Record<string, unknown>).length === 0) {
+          return undefined
+        }
+        return value
+      })
       await db.task.update({
         where: { id: taskId },
-        data: { progress: JSON.stringify(progress), stats: JSON.stringify(stats) },
+        data: { progress: progressJson, stats: JSON.stringify(stats) },
       })
     } catch (e: any) {
       if (e?.code === 'P2025') return
@@ -1711,6 +1823,19 @@ function clampMin(a: number, b: number): number {
 }
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms))
+}
+/**
+ * R8-20: URL 规范化用于"末章变更"增量比较 —— 剥离 scheme(http/https 等价)、
+ * 去掉末尾斜杠、小写化 host, 避免"源站切换 https / 加减末尾斜杠"被误判为内容变更
+ * 触发全量重采(浪费请求)。URL 解析失败返回原串(降级到原始比较, 保守视为有变更)。
+ */
+function normalizeUrlForCompare(u: string): string {
+  if (!u) return ''
+  try {
+    const url = new URL(u)
+    // host 小写 + path 去末尾斜杠 + search 保留(query 变化视为内容变化)
+    return `${url.hostname.toLowerCase()}${url.pathname.replace(/\/+$/, '')}${url.search}`
+  } catch { return u }
 }
 /** jj-d: 可中断批次间隔睡眠 — 停止/暂停/换代不再睡满 interval(修前 stop/pause 要等
  *  intervalMax 全额到点才在下一检查点生效, 长间隔配置下响应时延线性于 interval)。

@@ -278,9 +278,12 @@ const KNOWN_MULTI_PART_TLDS = new Set([
   'com.us',
   // RU
   'com.ru', 'net.ru', 'org.ru', 'gov.ru',
+  // R8-10: 3-segment TLDs —— 3 段 TLD 在公网较少(主要是美国教育/政府/军域),
+  // 此处只列出已知的几条; 注: 该列表可能并不完备(完整覆盖需引入 PSL 库, 此处保持低成本兜底)。
+  'pvt.k12.ca.us', 'k12.ca.us',
   // cloud / paas 域(用于"操作员代理 / 域名伪造"的混入场景, 默认无主域可拆)
   'github.io', 'gitlab.io', 'appspot.com', 'cloudapp.net', 'herokuapp.com',
-  'herokuapp.com', 'azurewebsites.net', 'onamazon.com', 'elasticbeanstalk.com',
+  'azurewebsites.net', 'onamazon.com', 'elasticbeanstalk.com',
   'netlify.app', 'vercel.app', 'fastly.net', 'fly.dev', 'deno.dev', 'render.com',
 ])
 
@@ -298,13 +301,18 @@ function parentDomainChain(origin: string): string[] {
   // 命中则把 TLD 段视作原子, 不再单独拆出 TLD-only 条目(co.uk 不进 chain)。
   // 末尾 3 段优先校验: 'example.co.uk' → 末尾 'co.uk'(2 段)命中 → TLD='co.uk',
   // 子域链只在 'example' 那一段上累积。
+  // R8-10: 3 段 TLD(如 'pvt.k12.ca.us')识别 —— 优先校验末尾 3 段是否命中 PSL,
+  // 命中则 TLD='pvt.k12.ca.us'(3 段); 否则继续校验末尾 2 段(原逻辑)。
+  // 注: 3 段 TLD 在公网较少且 PSL 列表可能不完备, 此处仅处理已识别的常见条目。
   let tldSegments = 1
-  if (parts.length >= 3) {
+  if (parts.length >= 4) {
+    const last3 = parts.slice(-3).join('.')
+    if (KNOWN_MULTI_PART_TLDS.has(last3)) tldSegments = 3
+  }
+  if (tldSegments === 1 && parts.length >= 3) {
     const last2 = parts.slice(-2).join('.')
     if (KNOWN_MULTI_PART_TLDS.has(last2)) tldSegments = 2
   }
-  // 注: 不做 3 段 TLD(如 'pvt.k12.ca.us')识别 —— 当前 PSL set 无 3 段条目;
-  // 命中 2 段 TLD 后再校验 3 段会引入更复杂的边界(需保持 last2 优先), 此处保持保守
   const tailEnd = parts.length - tldSegments
   // TLD-only host(如 'co.uk' 本身作 host): 兜底返回自身
   if (tailEnd <= 0) return [host]
@@ -613,22 +621,55 @@ const globalForSem = globalThis as unknown as { __novelGlobalSem_v1?: GlobalSema
 const globalSem: GlobalSemaphore = globalForSem.__novelGlobalSem_v1 ?? { inFlight: 0, waiters: [] }
 globalForSem.__novelGlobalSem_v1 = globalSem
 
+// R8-19: OOM backpressure 全局协调 —— 挂到 globalThis 防 dev HMR 多实例;
+// 第一个检测到内存压力的请求置 active=true + until=now+5s, sleep 5s 让 GC 回收;
+// 后续并发请求看到 active=true 等待 until(不重复 sleep, 避免 N×N 浪费)
+interface OomBackpressure {
+  active: boolean
+  until: number
+}
+const globalForOom = globalThis as unknown as { __novelOomBackpressure_v1?: OomBackpressure }
+const oomBackpressure: OomBackpressure = globalForOom.__novelOomBackpressure_v1 ?? { active: false, until: 0 }
+globalForOom.__novelOomBackpressure_v1 = oomBackpressure
+
 async function acquireGlobalSlot(limit: number): Promise<void> {
   if (globalSem.inFlight < limit) {
     globalSem.inFlight++
     return
   }
   // 排队等待, release 时唤醒
-  await new Promise<void>((resolve) => {
-    globalSem.waiters.push(resolve)
+  // R8-1: 30s 超时 —— holder 卡死(Playwright 死锁 / cfg.timeout=0 永不释放)时,
+  // waiter 不会无限排队; 超时 reject 让上层降级(Obscura 30s 已有 waiter 超时同口径)
+  await new Promise<void>((resolve, reject) => {
+    let done = false
+    const timer = setTimeout(() => {
+      if (done) return
+      done = true
+      // 超时: 从 waiters 移除自身(防 release 后误唤醒已 reject 的 promise)
+      const idx = globalSem.waiters.indexOf(wakeup)
+      if (idx >= 0) globalSem.waiters.splice(idx, 1)
+      reject(new Error('GlobalSemTimeout: 全局并发信号量等待 30s 未获取槽位'))
+    }, 30_000)
+    if (typeof timer.unref === 'function') timer.unref()
+    const wakeup = () => {
+      if (done) return
+      done = true
+      clearTimeout(timer)
+      resolve()
+    }
+    // R8-12: push 到末尾, release 时用 pop() O(1) 取末尾(LIFO 替代 FIFO, 公平性不要求但吞吐量优先)
+    globalSem.waiters.push(wakeup)
   })
   // 被唤醒后 inFlight 已被唤醒者 ++ 占位(见 release), 直接返回
 }
 
 function releaseGlobalSlot(): void {
   globalSem.inFlight = Math.max(0, globalSem.inFlight - 1)
-  // 容量空出后唤醒一个等待者(FIFO 无偏向)
-  const next = globalSem.waiters.shift()
+  // 容量空出后唤醒一个等待者(LIFO: 末尾优先, O(1) 替代 shift 的 O(N))
+  // R8-12: shift 是 O(N)(拷贝剩余元素), 高并发下 10000 排队者全部 release 是 O(N²)=100M 操作;
+  // pop 是 O(1) 末尾取, 同等吞吐量但 CPU 开销线性。LIFO 不保证公平但对吞吐量更友好
+  // (热点 waiter 优先调度, 减少上下文切换)
+  const next = globalSem.waiters.pop()
   if (next) {
     // 唤醒者立即占位(inFlight++), 避免"先唤醒后竞争"导致 barge 插队
     globalSem.inFlight++
@@ -706,7 +747,7 @@ export function registerGracefulShutdown(): void {
     shutdownInProgress = true
     console.log(`[fetcher] 收到 ${sig}, 开始优雅关闭(cookieJar 持久化 + Obscura 关闭 + 等在飞)`)
     void (async () => {
-      // 1. cookie jar 持久化(同步 fs 写, 防 exit 前 IO 没刷盘)
+      // 1. cookie jar 持久化(同步 fs 写 + fsync, 防 exit 前 IO 没刷盘)
       try {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const fs = typeof require === 'function' ? require('node:fs') : null
@@ -714,7 +755,15 @@ export function registerGracefulShutdown(): void {
           const json = cookieJar.persist()
           // data 目录可能不存在(冷启动), mkdirSync 同步创建
           try { fs.mkdirSync('data', { recursive: true }) } catch { /* 已存在 */ }
-          fs.writeFileSync(COOKIE_PERSIST_PATH, json, 'utf8')
+          // R8-15: 使用 openSync + writeFileSync + fsyncSync + closeSync 替代 writeFileSync(path, ...),
+          // 强制 OS buffer 刷盘, 防硬崩溃/断电导致 cookieJar 文件截断/损坏(JSON.parse 失败 → 空罐)
+          const fd = fs.openSync(COOKIE_PERSIST_PATH, 'w')
+          try {
+            fs.writeFileSync(fd, json, 'utf8')
+            try { fs.fsyncSync(fd) } catch { /* 某些文件系统不支持 fsync, 忽略 */ }
+          } finally {
+            try { fs.closeSync(fd) } catch { /* ignore */ }
+          }
           console.log(`[fetcher] cookie jar 已持久化到 ${COOKIE_PERSIST_PATH} (${cookieJar.domainCount()} 域)`)
         }
       } catch (e: any) {
@@ -2520,11 +2569,24 @@ export async function fetchPage(url: string, cfgOverride?: Partial<FetchConfig>)
       // feat-cloak-anticrawler H: OOM 保护 —— heapUsed 超 1.5GB 暂停新请求 5s, 让 GC 回收
       // 在飞响应体/cheerio 文档; 长任务大书(数千章节)累积堆占用撑爆 4G 容器导致 OOM kill。
       // 同步 process.memoryUsage() 开销极低(<1μs), 每请求测一次可接受
+      // R8-19: 全局协调 —— 第一个检测到内存压力的请求 sleep 5s 并置 backpressure 标志;
+      // 后续并发请求看到标志直接等待标志清除(不重复 sleep), 避免 10 个并发请求同时各 sleep 5s
+      // 浪费 50s 聚合时间(GC 是单线程的, 同时 sleep 不增加 GC 时间)
       try {
         const mem = process.memoryUsage()
         if (mem.heapUsed > 1.5 * 1024 * 1024 * 1024) {
-          console.warn(`[fetcher] 内存压力(heapUsed=${Math.round(mem.heapUsed / 1024 / 1024)}MB > 1.5GB), 暂停 5s 让 GC 回收`)
-          await new Promise((r) => setTimeout(r, 5000))
+          if (!oomBackpressure.active) {
+            // 第一个检测到的请求: 置标志 + sleep 5s 让 GC 回收
+            oomBackpressure.active = true
+            oomBackpressure.until = Date.now() + 5000
+            console.warn(`[fetcher] 内存压力(heapUsed=${Math.round(mem.heapUsed / 1024 / 1024)}MB > 1.5GB), 暂停 5s 让 GC 回收(并发请求将等待本窗口结束)`)
+            await new Promise((r) => setTimeout(r, 5000))
+            oomBackpressure.active = false
+          } else {
+            // 后续并发请求: 等待当前 backpressure 窗口结束(不重复 sleep)
+            const remain = oomBackpressure.until - Date.now()
+            if (remain > 0) await new Promise((r) => setTimeout(r, remain))
+          }
         }
       } catch { /* memoryUsage 失败容忍 */ }
 
@@ -2693,7 +2755,10 @@ async function fetchPageOnce(url: string, cfg: FetchConfig): Promise<FetchResult
     const ssrf = await assertSafeTarget(proxyUrl, { allowLoopback: true })
     if (ssrf.ok) {
       try {
-        const body = await fetchHttpWithCurlFallback(proxyUrl, cfg, ua)
+        // R8-16: 暂时剥离 cfg.proxyUrl(exit proxy) —— contentProxyUrl 是 loopback 转换代理(127.0.0.1:301x),
+        // exit proxy 无法路由到 loopback; 直接走 loopback 抓取 contentProxyUrl, 抓到内容后再用原 cfg 抓原 URL
+        const effCfg = { ...cfg, proxyUrl: '' }
+        const body = await fetchHttpWithCurlFallback(proxyUrl, effCfg, ua)
         let parsed: unknown = undefined
         try { parsed = JSON.parse(body) } catch { parsed = undefined }
         // 容错形态: {ok:true, content:string} 或 {ok:false, error:string}

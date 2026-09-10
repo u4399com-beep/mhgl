@@ -63,31 +63,60 @@ interface SessionSeed {
 }
 
 const sessions = new Map<string, SessionSeed>()
+// R8-4: per-sessionKey seed creation Promise 锁 —— 并发 /fetch 调用时第一个创建者占锁,
+// 后续 caller await 同一 Promise, 避免两 caller 都看不到 existing → 都创建新 seed → 第二覆盖第一
+const seedPromises = new Map<string, Promise<SessionSeed>>()
 
-/** 取/创建会话种子: 同 URL host 复用种子, 维持会话内指纹一致性 */
-function getSeed(sessionKey: string): SessionSeed {
+/** 取/创建会话种子: 同 URL host 复用种子, 维持会话内指纹一致性。
+ *  R8-4: 改为 async + Promise 锁 —— 第一个 caller 创建种子并写入 Promise Map, 后续 caller
+ *  await 同一 Promise, 保证并发同 host 请求拿到同一 SessionSeed(防"指纹漂移"被探针识别)。 */
+async function getSeed(sessionKey: string): Promise<SessionSeed> {
+  // 快路径: 已有未过期 seed 直接返回(99% 命中)
   const existing = sessions.get(sessionKey)
-  // 30 分钟过期: 同 host 长任务下定期轮换种子, 防长期指纹跟踪
   if (existing && Date.now() - existing.createdAt < 30 * 60 * 1000) return existing
-  // 用 crypto 生成 15 位 IMEI-like device ID(用于 navigator.userAgentData + cookie)
-  const buf = new Uint8Array(8)
-  for (let i = 0; i < 8; i++) buf[i] = Math.floor(Math.random() * 256)
-  // IMEI 格式: 15 位数字(0-9), 前缀 86(中国区段)
-  let deviceId = '86'
-  for (let i = 0; i < 13; i++) deviceId += String(buf[i % buf.length] % 10)
-  const seed: SessionSeed = {
-    canvasNoise: Math.floor(Math.random() * 1_000_000_000),
-    audioNoise: Math.floor(Math.random() * 1_000_000_000),
-    deviceId,
-    createdAt: Date.now(),
+  // 慢路径: 检查是否有 in-flight Promise; 有则 await, 没有则创建并占锁
+  const inflight = seedPromises.get(sessionKey)
+  if (inflight) {
+    try {
+      return await inflight
+    } catch {
+      // in-flight 失败(罕见): 删除条目, 下方继续走创建路径
+      seedPromises.delete(sessionKey)
+    }
   }
-  // LRU 防泄漏: 上限 200 会话
-  if (sessions.size > 200) {
-    const firstKey = sessions.keys().next().value
-    if (firstKey) sessions.delete(firstKey)
+  // 创建新 seed 的 Promise(executor 同步运行, 占锁写 Map)
+  const p = (async () => {
+    // 二次查 sessions(可能在 await 间隙已被其他 caller 写入)
+    const cur = sessions.get(sessionKey)
+    if (cur && Date.now() - cur.createdAt < 30 * 60 * 1000) return cur
+    // 用 crypto 生成 15 位 IMEI-like device ID(用于 navigator.userAgentData + cookie)
+    const buf = new Uint8Array(8)
+    for (let i = 0; i < 8; i++) buf[i] = Math.floor(Math.random() * 256)
+    // IMEI 格式: 15 位数字(0-9), 前缀 86(中国区段)
+    let deviceId = '86'
+    for (let i = 0; i < 13; i++) deviceId += String(buf[i % buf.length] % 10)
+    const seed: SessionSeed = {
+      canvasNoise: Math.floor(Math.random() * 1_000_000_000),
+      audioNoise: Math.floor(Math.random() * 1_000_000_000),
+      deviceId,
+      createdAt: Date.now(),
+    }
+    // LRU 防泄漏: 上限 200 会话
+    if (sessions.size > 200) {
+      const firstKey = sessions.keys().next().value
+      if (firstKey) sessions.delete(firstKey)
+    }
+    sessions.set(sessionKey, seed)
+    return seed
+  })()
+  seedPromises.set(sessionKey, p)
+  try {
+    return await p
+  } finally {
+    // 创建完成后清除 in-flight 锁, 让后续 caller 走快路径(查 sessions 命中)
+    // 用 setTimeout(0) 避免立即清掉导致并发 caller 仍走慢路径
+    setTimeout(() => seedPromises.delete(sessionKey), 100)
   }
-  sessions.set(sessionKey, seed)
-  return seed
 }
 
 /** 从 URL 提取 host 作为 session key */
@@ -490,15 +519,19 @@ async function enableRequestInterception(page: any): Promise<void> {
     page.on('request', (req: any) => {
       const url = req.url() || ''
       const type = req.resourceType()
-      // 屏蔽已知 tracking pixel / ad 网络; 图片/img/css/js 不阻断
-      if (BLOCKED_REQUEST_PATTERNS.some((p) => p.test(url))) {
-        return req.abort()
-      }
-      // 屏蔽 beacon 信标(type=ping)
-      if (type === 'ping' || type === 'beacon') {
-        return req.abort()
-      }
-      return req.continue()
+      // R8-14: page.close() 后 pending request 事件可能仍触发, req.abort()/req.continue()
+      // 在 detached request 上抛错 → unhandled rejection。把 abort/continue 包 try/catch
+      try {
+        // 屏蔽已知 tracking pixel / ad 网络; 图片/img/css/js 不阻断
+        if (BLOCKED_REQUEST_PATTERNS.some((p) => p.test(url))) {
+          return req.abort()
+        }
+        // 屏蔽 beacon 信标(type=ping)
+        if (type === 'ping' || type === 'beacon') {
+          return req.abort()
+        }
+        return req.continue()
+      } catch { /* R8-14: detached request 上的 abort/continue 抛错, 静默吞掉防 unhandled rejection */ }
     })
   } catch (e) { /* 容忍: 失败则原样放行所有请求 */ }
 }
@@ -567,14 +600,23 @@ async function tryCfClearanceFallback(page: any, targetUrl: string, timeoutMs: n
 
 // ---------- 主抓取流程 ----------
 
-async function fetchPage(url: string, tier: StealthTier, timeoutMs: number): Promise<FetchResult> {
+// R8-2: 全局注册表 —— 记录每个 in-flight 请求的 page 引用, 供 hard timeout 时强制关闭。
+// 旧实现 Promise.race 让 timeoutPromise 抢先 reject, 但 fetchPromise 仍持有 page 引用,
+// page.goto 卡死时 page.close() 在 fetchPage 的 finally 中要等 goto 完成才执行, 浏览器页累积
+// 最终 OOM。修法: 在 fetchPage 入口把 page 写入 Map, /fetch 的 timeout 分支显式调 page.close()
+// 强制中断 goto(同时 await 的 goto 会 reject, fetchPage finally 再 close 是 no-op)。
+const activeFetchPages = new Map<string, { page: any; abort: AbortController }>()
+
+async function fetchPage(url: string, tier: StealthTier, timeoutMs: number, reqId: string): Promise<FetchResult> {
   const b = await ensureBrowser()
   const page = await b.newPage()
+  const abort = new AbortController()
+  activeFetchPages.set(reqId, { page, abort })
   await page.setViewport({ width: 1920, height: 1080 })
   await page.setUserAgent(DEFAULT_UA)
 
   const sessionKey = sessionKeyOf(url)
-  const seed = getSeed(sessionKey)
+  const seed = await getSeed(sessionKey)
 
   // 标准档+: CDP UA override + stealth 脚本注入
   if (tier === 'standard' || tier === 'maximum') {
@@ -617,12 +659,22 @@ async function fetchPage(url: string, tier: StealthTier, timeoutMs: number): Pro
       html = await page.content().catch(() => html)
     }
 
-    const cookies = await page.cookies()
+    // R8-21: cookies 用显式 URL 过滤 —— tryCfClearanceFallback 走过 /robots.txt (同 origin),
+    // page.cookies() 无参返回所有域的 cookies, 但若 /robots.txt 响应设置了非目标域 cookie,
+    // 调用方按目标 origin 存储会误归。显式传 targetUrl 让 puppeteer 仅返回匹配该 URL 的 cookies
+    let cookies: any[]
+    try {
+      cookies = await page.cookies(url)
+    } catch {
+      // 显式 URL 过滤失败兜底: 全量取(原行为)
+      cookies = await page.cookies().catch(() => [])
+    }
     return { ok: html.length > 100, html, status, finalUrl, cookies: cookies as unknown as Array<Record<string, unknown>>, tier }
   } catch (e: any) {
     const html = await page.content().catch(() => '')
     return { ok: false, html, status, finalUrl, cookies: [], tier }
   } finally {
+    activeFetchPages.delete(reqId)
     await page.close().catch(() => {})
   }
 }
@@ -658,19 +710,33 @@ createBridgeServer({
       if (inFlight >= MAX_CONCURRENT) return json({ ok: false, error: '并发已满' }, 503)
       inFlight++
       // 硬超时包装: fetchPage 可能因浏览器 hang 而永不返回, 用 Promise.race 保证 inFlight 释放
-      const hardTimeout = Math.min(Number(req.headers.get('content-length')) || 0, 1) > 0 ? 120000 : 30000
+      // R8-3: hard timeout 固定 120s —— 旧实现按 Content-Length 决定 30s/120s, 但 /fetch POST
+      // 永远有 body, 30s 分支是死代码且不可配置; 统一 120s 与 fetchPage 内 timeoutMs 上限对齐
+      const hardTimeout = 120000
+      // R8-2: 生成 reqId 用于 activeFetchPages 注册 —— timeout 时通过 reqId 查找并强制 close page
+      const reqId = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
       const fetchPromise = (async () => {
         const body: any = await req.json()
         const url = String(body?.url || '')
         if (!url || !/^https?:\/\//.test(url)) return { ok: false, error: 'url required' } as any
         const tier: StealthTier = body?.tier === 'standard' || body?.tier === 'maximum' ? body.tier : 'lite'
         const timeoutMs = Math.min(Number(body?.timeoutMs) || 30000, 120000)
-        return await fetchPage(url, tier, timeoutMs)
+        return await fetchPage(url, tier, timeoutMs, reqId)
       })()
       try {
         const result = await Promise.race([
           fetchPromise,
-          new Promise<any>((_, reject) => setTimeout(() => reject(new Error('fetch hard timeout')), hardTimeout)),
+          new Promise<any>((_, reject) => setTimeout(() => {
+            // R8-2: timeout 时显式 close page + abort, 防 hung page 泄漏 ——
+            // fetchPage 的 finally 要等 page.goto 完成才执行, hung site 下 goto 卡死数分钟,
+            // 浏览器页累积最终 OOM。这里强制 close 让 goto 立即 reject, finally 顺带执行清理
+            const entry = activeFetchPages.get(reqId)
+            if (entry) {
+              try { entry.abort.abort() } catch { /* 已 abort, 忽略 */ }
+              try { entry.page.close().catch(() => {}) } catch { /* page 已关, 忽略 */ }
+            }
+            reject(new Error('fetch hard timeout'))
+          }, hardTimeout)),
         ])
         if (result.error) return json({ ok: false, error: result.error }, 400)
         return json({
@@ -682,6 +748,12 @@ createBridgeServer({
           tier: result.tier,
         })
       } catch (e: any) {
+        // R8-2 兜底: timeout 已处理 page close, 这里再查一次防漏(极端情况下 timeout 回调
+        // 还未执行就抛出 race reject, 或 fetchPromise 已 reject 但 page 仍在 activeFetchPages)
+        const entry = activeFetchPages.get(reqId)
+        if (entry) {
+          try { entry.page.close().catch(() => {}) } catch { /* ignore */ }
+        }
         return json({ ok: false, error: String(e?.message || e).slice(0, 300) }, 502)
       } finally {
         inFlight = Math.max(0, inFlight - 1)

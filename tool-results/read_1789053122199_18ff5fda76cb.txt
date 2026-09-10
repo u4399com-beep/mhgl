@@ -1,0 +1,948 @@
+     1→// ============================================================
+     2→// 小说采集系统 — 核心类型定义
+     3→// 规则同时支持 CSS选择器 / XPath / 正则表达式 / JSON点路径(json) / 常量模板(const)
+     4→// (json/const 适配纯JSON API站: SPA壳+hash路由无SSR, 页面即JSON响应)
+     5→// ============================================================
+     6→
+     7→/**
+     8→ * 字段提取规则
+     9→ *
+    10→ * JSON 站点(json/const 类型)专用语法约定(与 parser.ts 实现严格对齐):
+    11→ *
+    12→ * type='json': expression 为 JSON 点路径, 从响应体(JSON.parse 后)取值 ——
+    13→ *   - 点分逐层: `a.b.c` → data.a.b.c; 数字段=数组下标(0基): `items.0.title`
+    14→ *   - 空路径或 `.` → 当前根值本身(数组项为纯字符串时用, 如纯章节名数组)
+    15→ *   - `[]` 为装饰可剔: `hotlist[].id` ≡ `hotlist.id`
+    16→ *   - 首段为空按根处理: 根数组取 `.0.title` ≡ `[0].title`
+    17→ *   - 取值结果: 数组→各元素转字符串按\n连接; 标量→String; null/undefined/对象→''
+    18→ *   - cc-c 扩展(加法语义, 既有路径零回归):
+    19→ *     `[n]` 段内方括号下标: `tabs[0].title` ≡ `tabs.0.title`
+    20→ *     `[k=v]` 过滤算子: `search_tabs[tab_type=3]` 保留元素属性值(可 & 连写多条件,
+    21→ *           值按 String 宽松比较, 数字/字符串通吃); 非数组值上为无操作
+    22→ *     `*` 段: 数组递归展平(数组的数组→元素平面): `chapterListWithVolume.*` → 章节数组
+    23→ *
+    24→ * type='const': expression 为常量模板字符串, `{name}` 占位符替换后作为字段值 ——
+    25→ *   - `{字段名}`  → 同一作用域已提取的同名字段值(列表项/书籍页字段, 如 `{id}`)
+    26→ *   - `{index}`   → 1基序号(列表项/目录数组项遍历时; 章节API chapterid=下标+1 场景直接可用)
+    27→ *   - `{q.参数名}` → 当前页面 URL 的查询参数(如书页URL /api/book?id=2530 → `{q.id}`)
+    28→ *   - 未命中的占位符替换为空串; 后处理(replaceFrom/stripTags等)照常生效
+    29→ *   - 典型: bookUrl=`https://x/api/book?id={id}`; 章节URL=`https://x/api/chapter?id={q.id}&chapterid={index}`
+    30→ *
+    31→ * itemSelector.type='json' 时 expression 指向"数组路径": 支持逗号分隔多路径并集
+    32→ * (`hotlist,sort1,uplist` → 各数组顺序拼接, 适配首页多榜单API), 对数组每项跑 fields 提取。
+    33→ * cc-c 扩展: 数组路径另支持 map-collect(非数字段作用在数组上=跨元素取该属性并展平一层,
+    34→ * 三层嵌套一次下钻: `search_tabs[tab_type=3].data.book_data`)与 `*` 递归展平段
+    35→ * (数组的数组→章节平面: `chapterListWithVolume.*`), 语法与 jsonGet 同一契约。
+    36→ */
+    37→export interface FieldRule {
+    38→  /** 提取方式 (json/const 语法见接口头注释) */
+    39→  type: 'css' | 'xpath' | 'regex' | 'json' | 'const'
+    40→  /** css: 选择器 | xpath: 表达式 | regex: 正则 | json: JSON点路径 | const: 常量模板 */
+    41→  expression: string
+    42→  /** css/xpath: 取值方式 text/html/href/src/属性名; regex: 捕获组序号; json/const: 无意义 */
+    43→  attr?: string
+    44→  /** regex 使用标志 (默认 gis) */
+    45→  flags?: string
+    46→  /** 后处理: 是否剔除HTML标签 */
+    47→  stripTags?: boolean
+    48→  /** 后处理: 替换规则 源→目标 (支持正则) */
+    49→  replaceFrom?: string
+    50→  replaceTo?: string
+    51→  /** 后处理: 截取第N项(逗号分隔结果) */
+    52→  index?: number
+    53→}
+    54→
+    55→/** 列表项提取的字段集 */
+    56→export interface PageFields {
+    57→  [key: string]: FieldRule | undefined
+    58→}
+    59→
+    60→/** 页面级规则(列表页/书籍页/目录页/内容页) */
+    61→export interface PageRule {
+    62→  /** 是否启用该段 */
+    63→  enabled: boolean
+    64→  /** 列表页专用: 列表地址模板, 支持 {page} 占位符;
+    65→   *  cc-c 另支持 {offset:N}(= 第p页偏移量(p-1)*N, 适配番茄聚合API的 offset=(page-1)*10 分页) */
+    66→  urlTemplate?: string
+    67→  /** 列表项容器规则(列表页/目录页), 从中再提取字段 */
+    68→  itemSelector?: FieldRule
+    69→  /** 字段规则 */
+    70→  fields: PageFields
+    71→  /** 目录页专用: 目录在独立页面时, 从书籍页提取"目录页链接" */
+    72→  tocLink?: FieldRule
+    73→  /** 详情页/内容页翻页规则(预留分页设置): 从当前页提取"下一页"链接 */
+    74→  pagination?: {
+    75→    enabled: boolean
+    76→    /** 下一页链接规则, 若未配置则尝试 a:contains("下一页") */
+    77→    nextLink?: FieldRule
+    78→    /** 最大合并页数, 防止死循环 */
+    79→    maxPages: number
+    80→    /** 合并分隔符(内容页用) */
+    81→    joinWith?: string
+    82→  }
+    83→}
+    84→
+    85→/** 反反爬抓取配置 */
+    86→export interface FetchConfig {
+    87→  /** auto: HTTP失败自动切浏览器渲染; http: 纯HTTP; browser: 强制浏览器 */
+    88→  engine: 'auto' | 'http' | 'browser'
+    89→  /** ua: rotate 每次随机UA | fixed 固定随机一次 | custom 自定义UA |
+    90→   *  mobile 移动UA子集(池内 iPhone/iPad/Android, 同域钉扎) |
+    91→   *  desktop 桌面UA子集(池内 Windows/Mac/Linux, 同域钉扎)。
+    92→   *  mobile/desktop 两档会按所选 UA 自动配套完整浏览器指纹头组
+    93→   *  (sec-ch-ua/sec-ch-ua-mobile/sec-ch-ua-platform/Sec-Fetch-*, ff-b),
+    94→   *  rotate/fixed/custom 亦按实际命中的 UA 自动推导(移动 UA 配移动平台指纹) */
+    95→  uaMode: 'rotate' | 'fixed' | 'custom' | 'mobile' | 'desktop'
+    96→  /** uaMode=fixed 时使用 pool 内随机, =custom 时使用 customUa */
+    97→  customUa?: string
+    98→  /** 附加请求头 */
+    99→  headers?: Record<string, string>
+   100→  /** Cookie 字符串 (k=v; k2=v2) */
+   101→  cookies?: string
+   102→  /** 是否自动跟随 Set-Cookie */
+   103→  autoCookie?: boolean
+   104→  /** 是否携带 Referer (自动为站点首页) */
+   105→  referer?: boolean
+   106→  /** Referer 链伪造(ff-b): 开启后各请求优先携带"来源页"Referer 而非站点首页 origin——
+   107→   *  目录页带书籍页 Referer、章节页带目录页 Referer、翻页带当前页 Referer
+   108→   *  (很多站校验 Referer 同域/同链路, 固定 origin 的裸 Referer 本身是爬虫指纹)。
+   109→   *  来源页由 runner/parser 运行时经 refererUrl 逐请求注入; 未注入时回退 origin(零回归) */
+   110→  refererChain?: boolean
+   111→  /** 当前请求的来源页 URL(refererChain 启用时作 Referer; 运行时逐请求注入, 同 pageFetch
+   112→   *  属运行时项 —— sanitizeFetchConfig 白名单不透传, 规则 JSON 同名键自然丢弃) */
+   113→  refererUrl?: string
+   114→  /** 超时 ms */
+   115→  timeout: number
+   116→  /** 失败重试次数 */
+   117→  retries: number
+   118→  /** 浏览器渲染等待选择器(可选) */
+   119→  waitSelector?: string
+   120→  /** 浏览器渲染等待 ms */
+   121→  waitMs?: number
+   122→  /** 浏览器渲染后需要点击以展开懒加载内容的选择器(如"点击展开全部目录");
+   123→   *  页面无该元素时静默跳过, 适配 AJAX 预取+点击注入型目录站 */
+   124→  clickSelector?: string
+   125→  /** 触发浏览器渲染的状态码 */
+   126→  browserFallbackStatus?: number[]
+   127→  /** 同站并发闸门(hostGate)在飞上限, 缺省 3; 1~10 钳制(sanitizeFetchConfig 同步);
+   128→   *  同 host 连续失败自动降额(最低1)/连续成功回升(不超过此基准) */
+   129→  hostGateLimit?: number
+   130→  /** feat-cloak-anticrawler F: 同站并发闸门上限(per-host)——hostGateLimit 的语义别名,
+   131→   *  与 globalConcurrency 配对出现; sanitizeFetchConfig 同步处理。effectiveHostGateLimit
+   132→   * 优先取本字段, 缺失时回退 hostGateLimit(零回归: 老规则不带本字段仍走原口径) */
+   133→  hostGateConcurrency?: number
+   134→  /** feat-cloak-anticrawler F: 全局并发上限(total, 跨 host 共享)缺省 10; 1~50 钳制。
+   135→   *  runner 已有 hostGate(per-host 限流), 但无全局上限——多任务并行 + 多镜像 host 时
+   136→   *  在飞请求数可线性增长至撑爆内存/OOM kill。fetcher.ts 内置全局信号量, 每次 fetchPage
+   137→   *  入口 acquire 一票, 出口 release; 满则排队等待(同 hostGate 信号量语义)。
+   138→   *  注: 与 hostGate 独立生效——本字段管"全局总在飞", hostGateConcurrency 管"同站并飞" */
+   139→  globalConcurrency?: number
+   140→  /** feat-cloak-anticrawler G: 路径抖动 —— 启用后 fetcher 跨"不同 URL path"切换时
+   141→   *  插入 100~500ms 随机延迟, 击败"按 URL 路径模式检测爬虫"(如 /chapter/N.html 顺序访问
+   142→   *  pattern)。runner 已有"批次内随机洗牌章节顺序"语义, 本字段在引擎层补"路径切换抖动",
+   143→   *  让相邻请求路径切换不再是"瞬时无延迟"(真实用户翻页有阅读时间间隔)。零回归: 缺省 false
+   144→   *  时无任何延迟注入, 老规则行为不变 */
+   145→  pathJitter?: boolean
+   146→  /** 翻页请求传输回调(可选, 运行时注入): parseToc/parseContent 内部"下一页"抓取的传输实现。
+   147→   *  runner 注入过闸版 gateFetch(翻页请求与章节抓取同享同站并发闸, aa-f 已知边界闭环);
+   148→   *  未注入时 parser 直连 fetchPage —— rules/test 测试路由保持直连语义不变。
+   149→   *  注: 仅运行时注入项, sanitizeFetchConfig 白名单不透传(函数无法 JSON 序列化,
+   150→   *  规则 JSON 中的同名键会被白名单自然丢弃, 无注入面) */
+   151→  /** 翻页请求注入回调(bb-d, 运行时项): runner 侧过闸抓取。ll-c 扩展可选第二参 refererUrl
+   152→   *  —— parseToc/parseContent 翻页第2页起回传上一页 URL, 启用 refererChain 的调用方可把
+   153→   *  Referer 从"恒书籍页"升级为"翻页链逐页回溯"(真实浏览器翻页导航语义) */
+   154→  pageFetch?: (url: string, refererUrl?: string) => Promise<{ html: string }>
+   155→  /** 通用 token 预取钩子(bb-d): 请求前先从 tokenUrl 预取动态 token 再注入请求。
+   156→   *  面向"可预取 token"形态(会话级/短时级); 按章变化的加密参数型(如 bqg713 AES)
+   157→   *  不属此形态, 需站点专属解密或外置转换代理(tokenUrl 可用 {url} 占位符对接) */
+   158→  /** 预取地址: 响应体含 token 的任意端点(通常 JSON API); 支持 {url} 占位符=
+   159→   *  当前请求 URL 的 encodeURIComponent(外部转换代理形态) */
+   160→  tokenUrl?: string
+   161→  /** 提取表达式: 'regex:' 前缀=正则(取第一捕获组, 无捕获组取全匹配), 否则按 JSON 点路径
+   162→   *  (语法同 parser.jsonGet, 如 'data.token') */
+   163→  tokenPattern?: string
+   164→  /** 注入方式: 'url'=替换请求 URL 中 {token}/%7Btoken%7D 占位符(无占位符时追加
+   165→   *  ?token=/&token= 查询参数); 'header'=注入请求头 tokenHeaderName(默认 X-Token) */
+   166→  tokenInjection?: 'url' | 'header'
+   167→  /** tokenInjection='header' 时的请求头名, 缺省 X-Token */
+   168→  tokenHeaderName?: string
+   169→  /** 内容代理 URL(如 xjp-proxy /content?u={url}): 配置后, content 段的 fetch 不走原始 URL,
+   170→   *  而是请求 contentProxyUrl(替换 {url} 为原始章节 URL 的 encodeURIComponent), 代理返回
+   171→   *  JSON {ok:true, content:string} 或 {ok:false, error:string}, 引擎直接用该 content 作为 HTML
+   172→   *  传给 parser, 不再 fetch 原始站点。适用于 var c / AES 加密等需服务端解密的站点
+   173→   *  (xjp-proxy/deqixs-proxy 等)。代理响应体为纯文本(以 \n 分段), 引擎把每行 wrap 成 <p>
+   174→   *  传给 parser(content 字段可设 const 类型直接拿全文)。代理失败/响应非法时降级直连原 URL
+   175→   *  (零回归兜底)。loopback(127.0.0.1:301x 等)经 assertSafeTarget({allowLoopback:true}) 放行 */
+   176→  contentProxyUrl?: string
+   177→  /** 出口代理池(dd-a, 反反爬核心): 逗号分隔多条代理, 如
+   178→   *  "http://u:p@host:port,http://host2:port2"; 多条时每请求随机轮换(与 UA 池同款
+   179→   *  random 模式, 分布可测试验证); 失败按池逐条重试, 全部失败降级直连重试一次。
+   180→   *  目标为回环地址(localhost/127.x/::1)时自动豁免直连(本地 mock/token 代理
+   181→   *  tokenUrl 经代理转发会出不去)。支持矩阵(fetcher.ts 代理池段实测记录):
+   182→   *  bun 运行时 fetch 仅 http/https(socks5 落 curl 链); node 运行时(next dev/prod
+   183→   *  实测以 node 运行)fetch 静默忽略 proxy → 代理尝试直接走 curl 链(-x 全形态);
+   184→   *  裸 Playwright per-context 全形态/Obscura 路径不支持(配置代理时自动改走裸 Playwright) */
+   185→  proxyUrl?: string
+   186→  /** 镜像域名自动故障切换(dd-b): 逗号分隔域名列表(可选带端口), 顺序=优先级, 如
+   187→   *  "apibi.cc,apiqu.cc,apige.cc"。语义: URL 自身 host + 本列表全部视为同一镜像组,
+   188→   *  请求失败且错误为网络层/超时/403/5xx 时按组序重写 host 重试(从下一镜像起, 至多组大小次);
+   189→   *  404/2xx/3xx 不触发(404=资源不存在换镜像无意义, 存档裁定)。重写后 URL 走完整
+   190→   *  fetch 流程(代理池/回环豁免/UA/Cookie 逻辑照常), token 预取 {url} 占位符自动拿到
+   191→   *  重写后 URL → 逐章 token 天然按镜像域重签; 镜像重试在 transport 层不经 hostGate 闸门 */
+   192→  mirrorDomains?: string
+   193→  /** 代理轮换策略(feat-round-8: Feature B3):
+   194→   *  - 'round-robin' (缺省): 按池顺序轮换, 分布均匀, 与既有 fetchHttpWithCurlFallback 的
+   195→   *    Fisher-Yates 洗牌相近(实际仍按 useCount 取池中未失败条目顺序选);
+   196→   *  - 'random': 每次从可用池中随机选一条(原 pickProxyFor 行为);
+   197→   *  - 'least-used': 跟踪每条代理 useCount, 选使用次数最少的(平摊负载, 适合长任务);
+   198→   *  失败冷却: 任一代理超时/连接错误时打 failed 标记 + 30s 冷却, 轮换时跳过冷却中的代理;
+   199→   *  冷却过期后自动恢复参与轮换(无需手动重置)。运行时状态(useCount/failedUntil)
+   200→   *  在 fetcher.ts 进程级 Map 持久, 不进规则 JSON(sanitize 白名单不透传) */
+   201→  proxyRotationStrategy?: 'round-robin' | 'random' | 'least-used'
+   202→  /** 请求抖动(feat-round-8: Feature B1): 0~N ms 的随机抖动叠加在 runner 批次间隔上,
+   203→   *  让请求节奏更不规则, 防简单 rate-pattern 检测。runner 在每批 gateFetch 前 sleep
+   204→   *  jitterMs(随机 0~jitterMs); 缺省 0=关闭(零回归); 引擎层不直接消费此字段,
+   205→   *  由 runner 读 cfg.fetch.jitterMs 在批次循环前 sleep */
+   206→  jitterMs?: number
+   207→  /** 采集传输模式(hh-c, 第三方抓取工具接入): 'native'(缺省)=既有引擎链路(bun
+   208→   *  fetch/curl/Obscura 全家桶, 零回归); 'scrapling-static'=经 scrapling-bridge 静态
+   209→   *  传输(curl_cffi TLS 指纹伪装+浏览器头组); 'scrapling-stealthy'=经 scrapling-bridge
+   210→   *  隐身浏览器(patchright 反检测+CF 挑战自动求解); 'scrapling-playwright'=经
+   211→   *  scrapling-bridge 裸 Playwright chromium JS 渲染。
+   212→   *  scrapling-* 语义: 整次抓取交本机桥服务代发, 目标侧响应(含 4xx/5xx)如实返回 ——
+   213→   *  token 预取/autoCookie/Cookie 挑战重试/浏览器升级链等 native 专有步骤跳过(隐身能力
+   214→   *  由桥内 Scrapling Fetcher 自身承担); 桥不可达或桥内异常时降级既有 native 链一次。
+   215→   *  引擎侧对非法值(非白名单枚举)一律回退 native(sanitize 白名单枚举校验 + fetcher
+   216→   *  scraplingModeOf 双重防线); 与 mirrorDomains 组合时逐镜像 host 各走一次桥分流 */
+   217→  fetchMode?: string
+   218→  /** scrapling 桥地址(fetchMode=scrapling-* 时生效), 缺省 http://127.0.0.1:3012
+   219→   *  (可用环境变量 SCRAPLING_BRIDGE_URL 改全局缺省); 桥服务见 mini-services/scrapling-bridge */
+   220→  scraplingBridgeUrl?: string
+   221→}
+   222→
+   223→/** 内容清洗配置 */
+   224→export interface CleanConfig {
+   225→  /** 移除的css选择器列表 */
+   226→  removeSelectors: string[]
+   227→  /** 移除的广告正则(逐行匹配) */
+   228→  adPatterns: string[]
+   229→  /** 白名单标签, 其余标签剥掉保留文本 */
+   230→  whitelist: string[]
+   231→  /** 规范段落: 空段落合并/缩进清理 */
+   232→  normalize: boolean
+   233→  /** 转换为纯文本(去掉所有标签只留换行) */
+   234→  plainText: boolean
+   235→}
+   236→
+   237→/** 完整规则配置 */
+   238→export interface RuleConfig {
+   239→  list: PageRule   // 列表页采集(发现书籍)
+   240→  book: PageRule   // 书籍信息页(书名/作者/分类/关键词/简介/封面)
+   241→  toc: PageRule    // 章节目录页(预留分页设置)
+   242→  content: PageRule // 章节内容页(预留分页设置)
+   243→  fetch: FetchConfig
+   244→  clean: CleanConfig
+   245→}
+   246→
+   247→/** 目录项 */
+   248→export interface TocItem {
+   249→  title: string
+   250→  url: string
+   251→  /** 分卷名(kk-a): 规则 toc.fields.volume 提取(如番茄 API volume_name); 重排/落库/UI 分组用 */
+   252→  volume?: string
+   253→}
+   254→
+   255→/** 书籍解析结果 */
+   256→export interface ParsedBook {
+   257→  name?: string
+   258→  author?: string
+   259→  category?: string
+   260→  keywords?: string
+   261→  intro?: string
+   262→  cover?: string
+   263→  latestChapter?: string
+   264→  status?: string
+   265→}
+   266→
+   267→/** 章节内容解析结果 */
+   268→export interface ParsedContent {
+   269→  content: string
+   270→  pages: number
+   271→}
+   272→
+   273→export const DEFAULT_FETCH_CONFIG: FetchConfig = {
+   274→  engine: 'auto',
+   275→  uaMode: 'rotate',
+   276→  autoCookie: true,
+   277→  referer: true,
+   278→  timeout: 20000,
+   279→  retries: 2,
+   280→  waitMs: 800,
+   281→  browserFallbackStatus: [403, 412, 429, 503],
+   282→  hostGateLimit: 3,
+   283→  // feat-cloak-anticrawler F: 全局并发上限缺省 10(per-host 已由 hostGateLimit=3 限流,
+   284→  // 跨 host 多任务并行需总量上限防 OOM); hostGateConcurrency 与 hostGateLimit 同值 3,
+   285→  // 通过 effectiveHostGateLimit 优先取本字段, 缺失回退 hostGateLimit 实现向后兼容)
+   286→  hostGateConcurrency: 3,
+   287→  globalConcurrency: 10,
+   288→}
+   289→
+   290→export const DEFAULT_CLEAN_CONFIG: CleanConfig = {
+   291→  removeSelectors: ['script', 'style', 'iframe', 'ins', 'noscript', '.adsbygoogle', '.ad', '#ad'],
+   292→  adPatterns: [
+   293→    '(www\\.)?[a-z0-9-]+\\.(com|net|cc|org|info|top|xyz|vip|site)(\\/\\S*)?',
+   294→    '本章未完.*?点击下一页继续阅读',
+   295→    '请记住本书.*?域名',
+   296→    '最新章节请到.*?查看',
+   297→    '[（(]?完?本[网站站][）)]?',
+   298→    '一秒记住.*?免费读',
+   299→  ],
+   300→  whitelist: ['p', 'br', 'b', 'strong', 'em', 'i', 'u', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'],
+   301→  normalize: true,
+   302→  plainText: false,
+   303→}
+   304→
+   305→export function defaultRuleConfig(): RuleConfig {
+   306→  return {
+   307→    list: { enabled: true, urlTemplate: '', fields: {}, itemSelector: undefined },
+   308→    book: { enabled: true, fields: {} },
+   309→    toc: {
+   310→      enabled: true,
+   311→      fields: {},
+   312→      pagination: { enabled: false, maxPages: 20, joinWith: '' },
+   313→    },
+   314→    content: {
+   315→      enabled: true,
+   316→      fields: {},
+   317→      pagination: { enabled: false, maxPages: 10, joinWith: '<br/>' },
+   318→    },
+   319→    fetch: { ...DEFAULT_FETCH_CONFIG },
+   320→    clean: JSON.parse(JSON.stringify(DEFAULT_CLEAN_CONFIG)),
+   321→  }
+   322→}
+   323→
+   324→export function parseRuleConfig(raw: string | null | undefined): RuleConfig {
+   325→  const base = defaultRuleConfig()
+   326→  if (!raw) return base
+   327→  try {
+   328→    const cfg = JSON.parse(raw)
+   329→    // 防脏数据: JSON 根不是纯对象(数组/数字/字符串)时直接回退默认配置,
+   330→    // 避免展开数组把 "0"/"1" 数字索引键扩散进结果对象
+   331→    if (!cfg || typeof cfg !== 'object' || Array.isArray(cfg)) return base
+   332→    // 深消毒: 各段逐字段白名单重建(脏 JSON 序列化残留/字符串数字/未知键全部剔除),
+   333→    // 与实采 fetcher/解析器期望的形状严格对齐 —— 浅合并会让 cfg.fetch 里的未知键
+   334→    // (如运行时对象误存)与脏类型直通引擎
+   335→    const sFetch = sanitizeFetchConfig(cfg.fetch)
+   336→    const sClean = sanitizeCleanConfig(cfg.clean)
+   337→    const sList = sanitizePageRule(cfg.list)
+   338→    const sBook = sanitizePageRule(cfg.book)
+   339→    const sToc = sanitizePageRule(cfg.toc)
+   340→    const sContent = sanitizePageRule(cfg.content)
+   341→    return {
+   342→      ...base,
+   343→      fetch: { ...base.fetch, ...sFetch },
+   344→      clean: sClean ?? base.clean,
+   345→      list: sList ?? base.list,
+   346→      book: sBook ?? base.book,
+   347→      toc: sToc ?? base.toc,
+   348→      content: sContent ?? base.content,
+   349→    }
+   350→  } catch {
+   351→    return base
+   352→  }
+   353→}
+   354→
+   355→// ============================================================
+   356→// 深消毒(白名单重建): 任务/规则数据经 JSON.parse 后类型不可信 —— 脏值
+   357→// (字符串数字 "3"/signal 引用序列化残留/数组根/超长串)曾造成 retries 按
+   358→// 字符串拼接("3"+1="31" 次)、fetch 参数 TypeError 等真实缺陷。此处以
+   359→// "逐字段白名单+钳制"重建, 未知键全部丢弃, 供 runner 实采链路与
+   360→// rules/test 测试路由共用
+   361→// ============================================================
+   362→
+   363→/** 安全数字: 非数字/NaN/Infinity 返回 undefined; 字符串数字("20000")按 Number 转换 */
+   364→function safeNum(v: unknown, min: number, max: number): number | undefined {
+   365→  const n = typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' ? Number(v) : NaN
+   366→  if (!Number.isFinite(n)) return undefined
+   367→  return Math.min(max, Math.max(min, Math.round(n)))
+   368→}
+   369→
+   370→/** 安全布尔: 仅接受真布尔(防 "false" 字符串恒真) */
+   371→function safeBool(v: unknown): boolean | undefined {
+   372→  return typeof v === 'boolean' ? v : undefined
+   373→}
+   374→
+   375→/** 安全字符串: 非字符串丢弃, 钳长度 */
+   376→function safeStr(v: unknown, max: number): string | undefined {
+   377→  if (typeof v !== 'string') return undefined
+   378→  const s = v.slice(0, max)
+   379→  return s
+   380→}
+   381→
+   382→/**
+   383→ * 单行头值安全化(ee-d): 剥除 CR/LF/NUL 等控制字符 —— 防护面:
+   384→ * ① 请求头/UA/Cookie 注入拼接(HTTP 请求走私/断链) ② 入库规则被测试路由/引擎双出口消费,
+   385→ * 修复必须在 sanitize 层而非仅 fetch 构造层(defense in depth, bb 轮 fetch 层修复的补全面)。
+   386→ * 保留空格化语义: CR/LF 置空而非丢弃前后文(与 bb 轮 fetch 层同口径), NUL 直接剥除。
+   387→ */
+   388→function safeSingleLine(v: string): string {
+   389→  return v.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '').replace(/\r\n?|\n/g, ' ')
+   390→}
+   391→
+   392→/** HTTP 头键安全化(ee-d): 仅保留 RFC 7230 token 字符, 非法键返回 undefined(丢弃)
+   393→ *  R4-22: 同时拒收 HTTP smuggling 向量头(host/content-length/transfer-encoding/
+   394→ *  connection/upgrade/te/trailer/expect)——这些头由运行时/代理统一管理, 用户配置注入
+   395→ *  会引发请求走私/分块解析混淆/连接复用串味。仅放行真正应用层自定义头
+   396→ *  R5-15: 追加 via / x-forwarded-* / x-real-ip / forwarded / x-original-url /
+   397→ *  x-rewrite-url / x-cluster-client-ip —— 这些是 Caddy(见 Caddyfile)/反代/WAF 写入的
+   398→ *  代理识别头, 上游服务可能据此做 IP 鉴权; 引擎再发同名头会与代理头冲突或绕过 IP 鉴权 */
+   399→const HEADER_KEY_DENYLIST = new Set([
+   400→  'host', 'content-length', 'transfer-encoding', 'connection', 'upgrade',
+   401→  'te', 'trailer', 'expect', 'keep-alive', 'proxy-connection', 'proxy-authorization',
+   402→  'proxy-authenticate', 'front-end-https', 'x-http-method-override',
+   403→  // R5-15: 代理识别/转发链头
+   404→  'via', 'forwarded',
+   405→  'x-forwarded-for', 'x-forwarded-host', 'x-forwarded-proto', 'x-forwarded-port',
+   406→  'x-forwarded-server', 'x-real-ip', 'x-original-url', 'x-rewrite-url',
+   407→  'x-cluster-client-ip',
+   408→])
+   409→function safeHeaderKey(v: string): string | undefined {
+   410→  const s = v.replace(/[^!#$%&'*+\-.^_`|~0-9A-Za-z]/g, '')
+   411→  if (s.length === 0) return undefined
+   412→  // R4-22: 拒收 smuggling 向量头(大小写不敏感)
+   413→  if (HEADER_KEY_DENYLIST.has(s.toLowerCase())) return undefined
+   414→  return s
+   415→}
+   416→
+   417→/** 安全字符串数组: 过滤非字符串项, 钳项数与单项长度 */
+   418→function safeStrArr(v: unknown, maxItems: number, maxLen: number): string[] | undefined {
+   419→  if (!Array.isArray(v)) return undefined
+   420→  const out = v
+   421→    .filter((x): x is string => typeof x === 'string')
+   422→    .slice(0, maxItems)
+   423→    .map((x) => x.slice(0, maxLen))
+   424→  return out
+   425→}
+   426→
+   427→/** FieldRule 消毒: type 白名单/表达式/属性/后处理参数逐字段重建 */
+   428→export function sanitizeFieldRule(v: unknown): FieldRule | undefined {
+   429→  if (!v || typeof v !== 'object' || Array.isArray(v)) return undefined
+   430→  const r = v as Record<string, unknown>
+   431→  const type = r.type
+   432→  if (type !== 'css' && type !== 'xpath' && type !== 'regex' && type !== 'json' && type !== 'const') return undefined
+   433→  const expression = safeStr(r.expression, 1000)
+   434→  if (expression === undefined || !expression.trim()) return undefined
+   435→  const out: FieldRule = { type, expression }
+   436→  const attr = safeStr(r.attr, 100)
+   437→  if (attr !== undefined) out.attr = attr
+   438→  const flags = safeStr(r.flags, 10)
+   439→  if (flags !== undefined) out.flags = flags
+   440→  const replaceFrom = safeStr(r.replaceFrom, 1000)
+   441→  if (replaceFrom !== undefined) out.replaceFrom = replaceFrom
+   442→  const replaceTo = safeStr(r.replaceTo, 1000)
+   443→  if (replaceTo !== undefined) out.replaceTo = replaceTo
+   444→  const stripTags = safeBool(r.stripTags)
+   445→  if (stripTags !== undefined) out.stripTags = stripTags
+   446→  const index = safeNum(r.index, 0, 100)
+   447→  if (index !== undefined) out.index = index
+   448→  return out
+   449→}
+   450→
+   451→/** PageRule 消毒: 四段页面规则(itemSelector/tocLink/fields/pagination)白名单重建 */
+   452→export function sanitizePageRule(v: unknown): PageRule | undefined {
+   453→  if (!v || typeof v !== 'object' || Array.isArray(v)) return undefined
+   454→  const r = v as Record<string, unknown>
+   455→  const enabled = safeBool(r.enabled)
+   456→  const out: PageRule = { enabled: enabled ?? true, fields: {} }
+   457→  const urlTemplate = safeStr(r.urlTemplate, 1000)
+   458→  if (urlTemplate !== undefined) out.urlTemplate = urlTemplate
+   459→  const itemSelector = sanitizeFieldRule(r.itemSelector)
+   460→  if (itemSelector) out.itemSelector = itemSelector
+   461→  const tocLink = sanitizeFieldRule(r.tocLink)
+   462→  if (tocLink) out.tocLink = tocLink
+   463→  if (r.fields && typeof r.fields === 'object' && !Array.isArray(r.fields)) {
+   464→    const src = r.fields as Record<string, unknown>
+   465→    const fields: PageFields = {}
+   466→    let n = 0
+   467→    for (const [k, fr] of Object.entries(src)) {
+   468→      if (n >= 16) break // 字段数上限(正常规则 ≤8 字段)
+   469→      const sanitized = sanitizeFieldRule(fr)
+   470→      if (sanitized) { fields[k.slice(0, 40)] = sanitized; n++ }
+   471→    }
+   472→    out.fields = fields
+   473→  }
+   474→  if (r.pagination && typeof r.pagination === 'object' && !Array.isArray(r.pagination)) {
+   475→    const p = r.pagination as Record<string, unknown>
+   476→    const nextLink = sanitizeFieldRule(p.nextLink)
+   477→    out.pagination = {
+   478→      enabled: safeBool(p.enabled) ?? false,
+   479→      maxPages: safeNum(p.maxPages, 1, 500) ?? 20,
+   480→      joinWith: safeStr(p.joinWith, 200) ?? '',
+   481→      ...(nextLink ? { nextLink } : {}),
+   482→    }
+   483→  }
+   484→  return out
+   485→}
+   486→
+   487→/** FetchConfig 消毒: 引擎/UA模式白名单 + 数值钳制(字符串数字转真数字) */
+   488→export function sanitizeFetchConfig(v: unknown): Partial<FetchConfig> {
+   489→  const out: Partial<FetchConfig> = {}
+   490→  if (!v || typeof v !== 'object' || Array.isArray(v)) return out
+   491→  const r = v as Record<string, unknown>
+   492→  if (r.engine === 'auto' || r.engine === 'http' || r.engine === 'browser') out.engine = r.engine
+   493→  if (
+   494→    r.uaMode === 'rotate' || r.uaMode === 'fixed' || r.uaMode === 'custom' ||
+   495→    r.uaMode === 'mobile' || r.uaMode === 'desktop'
+   496→  ) out.uaMode = r.uaMode
+   497→  const customUaRaw = safeStr(r.customUa, 300)
+   498→  if (customUaRaw !== undefined) {
+   499→    const customUa = safeSingleLine(customUaRaw)
+   500→    if (customUa) out.customUa = customUa
+   501→  }
+   502→  if (r.headers && typeof r.headers === 'object' && !Array.isArray(r.headers)) {
+   503→    const src = r.headers as Record<string, unknown>
+   504→    const headers: Record<string, string> = {}
+   505→    let n = 0
+   506→    for (const [k, val] of Object.entries(src)) {
+   507→      if (n >= 30) break
+   508→      const key = safeHeaderKey(k.slice(0, 100))
+   509→      const s = safeStr(val, 1000)
+   510→      if (key && s !== undefined) {
+   511→        const value = safeSingleLine(s)
+   512→        if (value) { headers[key] = value; n++ }
+   513→      }
+   514→    }
+   515→    if (n > 0) out.headers = headers
+   516→  }
+   517→  const cookiesRaw = safeStr(r.cookies, 4000)
+   518→  if (cookiesRaw !== undefined) {
+   519→    const cookies = safeSingleLine(cookiesRaw)
+   520→    if (cookies) out.cookies = cookies
+   521→  }
+   522→  const autoCookie = safeBool(r.autoCookie)
+   523→  if (autoCookie !== undefined) out.autoCookie = autoCookie
+   524→  const referer = safeBool(r.referer)
+   525→  if (referer !== undefined) out.referer = referer
+   526→  // Referer 链伪造(ff-b): 规则级开关可序列化入库; refererUrl 为运行时逐请求注入项
+   527→  // (同 pageFetch 口径)刻意不进白名单
+   528→  const refererChain = safeBool(r.refererChain)
+   529→  if (refererChain !== undefined) out.refererChain = refererChain
+   530→  const timeout = safeNum(r.timeout, 1000, 120_000)
+   531→  if (timeout !== undefined) out.timeout = timeout
+   532→  const retries = safeNum(r.retries, 0, 5)
+   533→  if (retries !== undefined) out.retries = retries
+   534→  const waitSelector = safeStr(r.waitSelector, 300)
+   535→  if (waitSelector !== undefined) out.waitSelector = waitSelector
+   536→  const waitMs = safeNum(r.waitMs, 0, 60_000)
+   537→  if (waitMs !== undefined) out.waitMs = waitMs
+   538→  const clickSelector = safeStr(r.clickSelector, 300)
+   539→  if (clickSelector !== undefined) out.clickSelector = clickSelector
+   540→  if (Array.isArray(r.browserFallbackStatus)) {
+   541→    const statuses = r.browserFallbackStatus
+   542→      .map((x) => safeNum(x, 100, 599))
+   543→      .filter((x): x is number => x !== undefined)
+   544→      .slice(0, 10)
+   545→    if (statuses.length) out.browserFallbackStatus = statuses
+   546→  }
+   547→  // hostGate 同站并发闸门上限: 1~10 钳制(与 hostgate.clampLimit 口径一致),
+   548→  // parseRuleConfig 经 base.fetch 合并缺省 3
+   549→  const hostGateLimit = safeNum(r.hostGateLimit, 1, 10)
+   550→  if (hostGateLimit !== undefined) out.hostGateLimit = hostGateLimit
+   551→  // feat-cloak-anticrawler F: hostGateConcurrency 是 hostGateLimit 的语义别名, 同口径钳制
+   552→  // (1~10); effectiveHostGateLimit 优先取本字段, 缺失回退 hostGateLimit
+   553→  const hostGateConcurrency = safeNum(r.hostGateConcurrency, 1, 10)
+   554→  if (hostGateConcurrency !== undefined) out.hostGateConcurrency = hostGateConcurrency
+   555→  // feat-cloak-anticrawler F: globalConcurrency 全局并发上限, 1~50 钳制(过小会拖慢采集,
+   556→  // 过大失去限流意义); parseRuleConfig 经 base.fetch 合并缺省 10
+   557→  const globalConcurrency = safeNum(r.globalConcurrency, 1, 50)
+   558→  if (globalConcurrency !== undefined) out.globalConcurrency = globalConcurrency
+   559→  // feat-cloak-anticrawler G: pathJitter 布尔开关(safeBool 同口径, 仅真布尔接受)
+   560→  const pathJitter = safeBool(r.pathJitter)
+   561→  if (pathJitter !== undefined) out.pathJitter = pathJitter
+   562→  // 通用 token 预取钩子(bb-d): 白名单同步(字符串钳长/枚举白名单), 非法类型丢弃。
+   563→  // pageFetch 为运行时注入项刻意不进白名单(函数不可 JSON 序列化, 规则 JSON 同名键自然丢弃)
+   564→  const tokenUrl = safeStr(r.tokenUrl, 1000)
+   565→  if (tokenUrl !== undefined) out.tokenUrl = tokenUrl
+   566→  const tokenPattern = safeStr(r.tokenPattern, 300)
+   567→  if (tokenPattern !== undefined) out.tokenPattern = tokenPattern
+   568→  if (r.tokenInjection === 'url' || r.tokenInjection === 'header') out.tokenInjection = r.tokenInjection
+   569→  const tokenHeaderName = safeStr(r.tokenHeaderName, 100)
+   570→  if (tokenHeaderName !== undefined) out.tokenHeaderName = tokenHeaderName
+   571→  // 内容代理 URL(feat-contentproxy-resume): 钳长 500(代理 URL 含查询参数足够) +
+   572→  // 单行化(防 CR/LF 注入), 非法形态整字段丢弃。运行时仅 http(s) 形态经 assertSafeTarget
+   573→  // 放行(loopback 允许, 与 tokenUrl 同口径), 含 {url} 占位符由 fetcher.split('{url}')
+   574→  // .join(enc) 全量替换(prefetchToken 同款实现)
+   575→  const contentProxyUrlRaw = safeStr(r.contentProxyUrl, 500)
+   576→  if (contentProxyUrlRaw !== undefined) {
+   577→    const contentProxyUrl = safeSingleLine(contentProxyUrlRaw)
+   578→    if (contentProxyUrl && /^https?:\/\/\S+$/i.test(contentProxyUrl)) out.contentProxyUrl = contentProxyUrl
+   579→  }
+   580→  // 出口代理池(dd-a): 钳长 2000(多条列表形态) + 逐条 scheme 白名单校验
+   581→  // (http/https/socks5(h)/socks4(a) + host:port 形态, 与 fetcher.parseProxyPool 同口径);
+   582→  // 合法条目去空去重上限 10 条后回写, 全部非法则整字段丢弃
+   583→  const proxyUrl = safeStr(r.proxyUrl, 2000)
+   584→  if (proxyUrl !== undefined) {
+   585→    const valid: string[] = []
+   586→    const seen = new Set<string>()
+   587→    for (const raw of proxyUrl.split(',')) {
+   588→      const s = raw.trim()
+   589→      if (!s || seen.has(s) || !isValidProxySpec(s) || valid.length >= 10) continue
+   590→      seen.add(s)
+   591→      valid.push(s)
+   592→    }
+   593→    if (valid.length) out.proxyUrl = valid.join(',')
+   594→  }
+   595→  // 镜像域名组(dd-b): 钳长 2000(多条列表形态) + 逐条域名校验(host[:port] 形态, 不带
+   596→  // scheme/path, 单条 ≤500) + 去空去重(大小写不敏感, 统一小写)上限 10 条后回写,
+   597→  // 全部非法则整字段丢弃 —— 口径对齐 proxyUrl 惯例
+   598→  const mirrorDomains = safeStr(r.mirrorDomains, 2000)
+   599→  if (mirrorDomains !== undefined) {
+   600→    const valid: string[] = []
+   601→    const seen = new Set<string>()
+   602→    for (const raw of mirrorDomains.split(',')) {
+   603→      const s = raw.trim().toLowerCase()
+   604→      if (!s || seen.has(s) || !isValidMirrorHost(s) || valid.length >= 10) continue
+   605→      seen.add(s)
+   606→      valid.push(s)
+   607→    }
+   608→    if (valid.length) out.mirrorDomains = valid.join(',')
+   609→  }
+   610→  // feat-round-8: Feature B3 — 代理轮换策略白名单
+   611→  if (
+   612→    r.proxyRotationStrategy === 'round-robin' ||
+   613→    r.proxyRotationStrategy === 'random' ||
+   614→    r.proxyRotationStrategy === 'least-used'
+   615→  ) out.proxyRotationStrategy = r.proxyRotationStrategy
+   616→  // feat-round-8: Feature B1 — 请求抖动 0~30000ms 钳制(超过 30s 抖动已是离谱配置,
+   617→  // 上限防止误填 60000 当分钟值跑; 钳到 30s 仍允许极端慢站手工配)
+   618→  const jitterMs = safeNum(r.jitterMs, 0, 30_000)
+   619→  if (jitterMs !== undefined) out.jitterMs = jitterMs
+   620→  // 采集传输模式(hh-c): 枚举白名单校验 —— 非法值丢弃(undefined = 回退 native 链零回归);
+   621→  // 'native' 显式接受(语义等价缺省)。scraplingBridgeUrl: safeStr 钳长 + http(s) URL 形态
+   622→  // 校验 + 单行化(防 CR/LF 注入), 非法形态整字段丢弃
+   623→  if (
+   624→    r.fetchMode === 'native' || r.fetchMode === 'scrapling-static' ||
+   625→    r.fetchMode === 'scrapling-stealthy' || r.fetchMode === 'scrapling-playwright'
+   626→  ) out.fetchMode = r.fetchMode
+   627→  const scraplingBridgeUrlRaw = safeStr(r.scraplingBridgeUrl, 300)
+   628→  if (scraplingBridgeUrlRaw !== undefined) {
+   629→    const scraplingBridgeUrl = safeSingleLine(scraplingBridgeUrlRaw)
+   630→    if (scraplingBridgeUrl && /^https?:\/\/\S+$/i.test(scraplingBridgeUrl)) out.scraplingBridgeUrl = scraplingBridgeUrl
+   631→  }
+   632→  return out
+   633→}
+   634→
+   635→/** 镜像条目形态校验(types.ts 消毒与 fetcher.ts 运行时组解析共用口径, 改动需同步):
+   636→ *  无 scheme/无 path/无空白的 host[:port] 形态(host 标签字母数字连字符, 允许纯数字 IP
+   637→ *  如 127.0.0.1 与 localhost), 单条 ≤500 字符; 不支持 IPv6 字面量(冒号与端口定界冲突, 列表形态固有) */
+   638→export function isValidMirrorHost(s: string): boolean {
+   639→  return s.length <= 500 && /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*(:\d{1,5})?$/.test(s)
+   640→}
+   641→
+   642→// ============================================================
+   643→// regex 安全校验(gg-a): 规则侧正则有四个引擎直编入口 ——
+   644→//   ① FieldRule.expression(type='regex', parser.regexExtract/regexExtractAll)
+   645→//   ② FieldRule.replaceFrom(任意 type 的后处理, parser.applyTransform)
+   646→//   ③ FetchConfig.tokenPattern 的 'regex:' 形态(fetcher.extractToken)
+   647→//   ④ CleanConfig.adPatterns(cleaner.removeAdLines)
+   648→// 双面问题: (a)非法正则被引擎 try/catch 静默忽略 = 静默失效面(规则保存成功但永不生效);
+   649→// (b)灾难型嵌套量词((a+)+ 类)可挂住单线程事件循环(test 路由 90s 护栏只 race 不中断在途正则)。
+   650→// 本校验供 API 保存入口(POST/PUT /api/admin/rules)拒绝非法/危险正则(400 指明字段与原因),
+   651→// 是入口防线; 引擎侧 try/catch 静默忽略语义保留(运行时韧性兜底, 双层防线)。
+   652→// 零误伤要求: 规则库全部存量规则的正则字段必须全数通过(verify-gg-a-regex 实证)
+   653→// ============================================================
+   654→
+   655→export interface RegexSafetyResult {
+   656→  ok: boolean
+   657→  reason?: string
+   658→}
+   659→
+   660→/** 无界量词(+ 号、星号、{n,} 开区间)识别: 返回量词长度(含懒惰标记 ?), 非量词返回 0 */
+   661→function unboundedQuantifierLen(p: string, i: number): number {
+   662→  const c = p[i]
+   663→  if (c === '+' || c === '*') return p[i + 1] === '?' ? 2 : 1
+   664→  if (c === '{') {
+   665→    const m = /^\{(\d+),(\d*)\}/.exec(p.slice(i))
+   666→    if (m && m[2] === '') return m[0].length + (p[i + m[0].length] === '?' ? 1 : 0)
+   667→  }
+   668→  return 0
+   669→}
+   670→
+   671→/** 跳过一个正则原子(转义序列/字符类/嵌套组/单字符), 返回原子结束下标(不含其量词) */
+   672→function skipRegexAtom(p: string, i: number, end: number): number {
+   673→  const c = p[i]
+   674→  if (c === '\\') return Math.min(end, i + 2)
+   675→  if (c === '[') {
+   676→    let j = i + 1
+   677→    if (p[j] === '^') j++
+   678→    if (p[j] === ']') j++ // 首位 ] 为字面量
+   679→    while (j < end && p[j] !== ']') {
+   680→      if (p[j] === '\\') j++
+   681→      j++
+   682→    }
+   683→    return Math.min(end, j + 1)
+   684→  }
+   685→  if (c === '(') {
+   686→    let depth = 1
+   687→    let j = i + 1
+   688→    while (j < end && depth > 0) {
+   689→      const cj = p[j]
+   690→      if (cj === '\\') { j += 2; continue }
+   691→      if (cj === '[') {
+   692→        let k = j + 1
+   693→        if (p[k] === '^') k++
+   694→        if (p[k] === ']') k++
+   695→        while (k < end && p[k] !== ']') {
+   696→          if (p[k] === '\\') k++
+   697→          k++
+   698→        }
+   699→        j = k + 1
+   700→        continue
+   701→      }
+   702→      if (cj === '(') depth++
+   703→      else if (cj === ')') depth--
+   704→      j++
+   705→    }
+   706→    return Math.min(end, j)
+   707→  }
+   708→  return Math.min(end, i + 1)
+   709→}
+   710→
+   711→/**
+   712→ * 组内容(from..to)按顶层 | 分支检查: 任一分支的末原子带无界量词 → true。
+   713→ * 覆盖 (a+)+、(X*)×星、(a{2,})+、(?:\w+)+ 等显式嵌套, 以及 (a+|b)+ 型"分支歧义"形态
+   714→ * (末分支虽无嵌套, 但量词分支可变长 + 外层无界循环 = 同型灾难回溯)。
+   715→ * 保守口径: 有界外层({n,m})/末原子有界(\d+\.)+ 均不报警, 避免误伤正常模式
+   716→ */
+   717→function groupHasUnboundedTail(p: string, from: number, to: number): boolean {
+   718→  let i = from
+   719→  let branchUnbounded = false
+   720→  let anyBranchUnbounded = false
+   721→  while (i < to) {
+   722→    if (p[i] === '|') {
+   723→      anyBranchUnbounded = anyBranchUnbounded || branchUnbounded
+   724→      branchUnbounded = false
+   725→      i++
+   726→      continue
+   727→    }
+   728→    const atomEnd = skipRegexAtom(p, i, to)
+   729→    const q = unboundedQuantifierLen(p, atomEnd)
+   730→    branchUnbounded = q > 0
+   731→    i = atomEnd + q
+   732→  }
+   733→  return anyBranchUnbounded || branchUnbounded
+   734→}
+   735→
+   736→/** 顶层 | 分支的字面量串提取(rr-c3): 分支内仅含普通字符与单字符转义(无量词/类/组/元字符)
+   737→ *  时返回解码后的字面量串; 含任何元字符(量词/类/组/锚/点/类缩写)返回 null(保守不参与判定) */
+   738→function literalBranchOf(p: string, from: number, to: number): string | null {
+   739→  let out = ''
+   740→  let i = from
+   741→  while (i < to) {
+   742→    const c = p[i]
+   743→    if (c === '\\') {
+   744→      if (i + 1 >= to) return null
+   745→      const n = p[i + 1]
+   746→      if ('dDwWsSbB'.includes(n)) return null // 类缩写非字面量
+   747→      out += n === 'n' ? '\n' : n === 't' ? '\t' : n === 'r' ? '\r' : n
+   748→      i += 2
+   749→      continue
+   750→    }
+   751→    if ('+*?[](){}|^$.'.includes(c)) return null
+   752→    out += c
+   753→    i++
+   754→  }
+   755→  return out
+   756→}
+   757→
+   758→/** 分支前缀歧义(rr-c3): 组带无界量词时, 若存在两个字面量分支互为前缀(如 a 与 aa),
+   759→ *  匹配路径数随输入长度指数增长 —— (a|aa)+ 是 OWASP 经典灾难形态, 与 (a+)+ 同级;
+   760→ *  生产引擎运行时 node/V8 无 JSC 式回溯预算(probe-rr-c3-redos 实测: 41 字符输入 47s,
+   761→ *  53 字符 15s 跑不完), 原校验器仅认显式嵌套量词漏过此类。分支拆分复用 skipRegexAtom
+   762→ *  (嵌套组/类整体消耗, '|' 必为组内顶层), 字面量分支互为前缀即报警(保守口径) */
+   763→function branchesHavePrefixAmbiguity(p: string, from: number, to: number): boolean {
+   764→  const literals: (string | null)[] = []
+   765→  let i = from
+   766→  let start = from
+   767→  while (i < to) {
+   768→    const atomEnd = skipRegexAtom(p, i, to)
+   769→    i = atomEnd + unboundedQuantifierLen(p, atomEnd)
+   770→    if (i < to && p[i] === '|') {
+   771→      literals.push(literalBranchOf(p, start, i))
+   772→      i++
+   773→      start = i
+   774→    }
+   775→  }
+   776→  literals.push(literalBranchOf(p, start, to))
+   777→  const lits = literals.filter((s): s is string => s !== null && s.length > 0)
+   778→  for (let a = 0; a < lits.length; a++) {
+   779→    for (let b = 0; b < lits.length; b++) {
+   780→      if (a !== b && lits[b].startsWith(lits[a])) return true
+   781→    }
+   782→  }
+   783→  return false
+   784→}
+   785→
+   786→/** 嵌套量词检测(保守启发式):
+   787→ *  ① 结构检查: 未转义组 (...) 后跟无界量词, 且组内任一分支以无界量词原子收尾;
+   788→ *  ② 分支歧义检查(rr-c3 bug#4): 组带无界量词且组内两个字面量分支互为前缀((a|aa)+ 型,
+   789→ *     OWASP 经典灾难形态, 与显式嵌套同级 —— 生产引擎运行时 node/V8 无 JSC 式回溯预算,
+   790→ *     probe-rr-c3-redos 实测 41 字符输入 47s、53 字符 15s 跑不完);
+   791→ *  ③ 形态检查: [+*])[+*{ 与 cleaner.removeAdLines 运行时跳过闸门同款
+   792→ *     (该闸门会静默跳过此形态的模式 —— API 层若放行会造成"校验通过但运行时静默失效") */
+   793→export function hasNestedQuantifier(pattern: string): boolean {
+   794→  const n = pattern.length
+   795→  let i = 0
+   796→  const groupStack: number[] = []
+   797→  while (i < n) {
+   798→    const c = pattern[i]
+   799→    if (c === '\\') { i += 2; continue }
+   800→    if (c === '[') {
+   801→      let j = i + 1
+   802→      if (pattern[j] === '^') j++
+   803→      if (pattern[j] === ']') j++
+   804→      while (j < n && pattern[j] !== ']') {
+   805→        if (pattern[j] === '\\') j++
+   806→        j++
+   807→      }
+   808→      i = j + 1
+   809→      continue
+   810→    }
+   811→    if (c === '(') { groupStack.push(i); i++; continue }
+   812→    if (c === ')') {
+   813→      const start = groupStack.pop()
+   814→      i++
+   815→      const q = unboundedQuantifierLen(pattern, i)
+   816→      if (q > 0 && start !== undefined) {
+   817→        if (groupHasUnboundedTail(pattern, start + 1, i - 1)) return true
+   818→        if (branchesHavePrefixAmbiguity(pattern, start + 1, i - 1)) return true
+   819→      }
+   820→      i += q
+   821→      continue
+   822→    }
+   823→    i++
+   824→  }
+   825→  // 形态检查(与 cleaner 运行时闸门同口径): 量词紧跟闭括号再跟量词/开花括号
+   826→  if (/[+*]\s*\)\s*[+*{]/.test(pattern)) return true
+   827→  return false
+   828→}
+   829→
+   830→/**
+   831→ * 正则安全校验(gg-a): ①编译试错(非法 → 拒绝, 消灭"保存成功但静默失效"面)
+   832→ * ②嵌套量词启发式(灾难回溯 → 拒绝)。flags 传引擎实际生效的标志位
+   833→ * (expression=规则 flags 或缺省 gis/gi, replaceFrom=g, adPatterns=gi, tokenPattern 无标志),
+   834→ * 使编译试错与运行时行为严格一致(含非法标志位字符的拒绝)。
+   835→ * 空模式返回 ok(由各字段的必填校验另行把关)
+   836→ */
+   837→export function validateRegexSafety(pattern: string, flags?: string): RegexSafetyResult {
+   838→  if (typeof pattern !== 'string' || pattern === '') return { ok: true }
+   839→  const effFlags = typeof flags === 'string' ? flags : ''
+   840→  try {
+   841→    new RegExp(pattern, effFlags)
+   842→  } catch (e) {
+   843→    const msg = (e as Error)?.message?.slice(0, 120) || '编译失败'
+   844→    return { ok: false, reason: `正则非法(${msg})` }
+   845→  }
+   846→  if (hasNestedQuantifier(pattern)) {
+   847→    return { ok: false, reason: '疑似灾难型嵌套量词(形如 (a+)+ 或分支歧义 (a|aa)+), 会引发指数级回溯挂起采集线程' }
+   848→  }
+   849→  return { ok: true }
+   850→}
+   851→
+   852→/** 正则命中面描述(rules API 400 信息用) */
+   853→export interface RegexIssue {
+   854→  field: string
+   855→  reason: string
+   856→}
+   857→
+   858→/** FieldRule 正则面收集: expression(仅 regex 型) + replaceFrom(任意型, 引擎统一按正则跑) */
+   859→function collectFieldRuleIssues(prefix: string, rule: unknown, issues: RegexIssue[]): void {
+   860→  if (!rule || typeof rule !== 'object' || Array.isArray(rule)) return
+   861→  const r = rule as Record<string, unknown>
+   862→  if (r.type === 'regex' && typeof r.expression === 'string') {
+   863→    const res = validateRegexSafety(r.expression, typeof r.flags === 'string' ? r.flags : 'gis')
+   864→    if (!res.ok) issues.push({ field: `${prefix}.expression`, reason: res.reason || '不安全' })
+   865→  }
+   866→  if (typeof r.replaceFrom === 'string' && r.replaceFrom !== '') {
+   867→    const res = validateRegexSafety(r.replaceFrom, 'g')
+   868→    if (!res.ok) issues.push({ field: `${prefix}.replaceFrom`, reason: res.reason || '不安全' })
+   869→  }
+   870→}
+   871→
+   872→function collectPageRuleIssues(prefix: string, page: unknown, issues: RegexIssue[]): void {
+   873→  if (!page || typeof page !== 'object' || Array.isArray(page)) return
+   874→  const p = page as Record<string, unknown>
+   875→  collectFieldRuleIssues(`${prefix}.itemSelector`, p.itemSelector, issues)
+   876→  collectFieldRuleIssues(`${prefix}.tocLink`, p.tocLink, issues)
+   877→  if (p.fields && typeof p.fields === 'object' && !Array.isArray(p.fields)) {
+   878→    for (const [k, fr] of Object.entries(p.fields as Record<string, unknown>)) {
+   879→      collectFieldRuleIssues(`${prefix}.fields.${k}`, fr, issues)
+   880→    }
+   881→  }
+   882→  if (p.pagination && typeof p.pagination === 'object' && !Array.isArray(p.pagination)) {
+   883→    collectFieldRuleIssues(`${prefix}.pagination.nextLink`, (p.pagination as Record<string, unknown>).nextLink, issues)
+   884→  }
+   885→}
+   886→
+   887→/**
+   888→ * 规则配置全量正则安全审查(gg-a): 覆盖四入口 —— 四段 PageRule 的 regex 型 expression 与
+   889→ * 全部 replaceFrom / fetch.tokenPattern 的 'regex:' 形态 / clean.adPatterns 逐条。
+   890→ * 入参为保存接口收到的 config 原始形态(对象或 JSON 字符串; 字符串解析失败返回空 ——
+   891→ * 运行时 parseRuleConfig 对不可解析配置本就回退默认, 无正则执行面)。
+   892→ * 返回全部问题(空数组=通过)
+   893→ */
+   894→export function collectRegexIssues(config: unknown): RegexIssue[] {
+   895→  const issues: RegexIssue[] = []
+   896→  let cfg: unknown = config
+   897→  if (typeof cfg === 'string') {
+   898→    try { cfg = JSON.parse(cfg) } catch { return issues }
+   899→  }
+   900→  if (!cfg || typeof cfg !== 'object' || Array.isArray(cfg)) return issues
+   901→  const r = cfg as Record<string, unknown>
+   902→  collectPageRuleIssues('list', r.list, issues)
+   903→  collectPageRuleIssues('book', r.book, issues)
+   904→  collectPageRuleIssues('toc', r.toc, issues)
+   905→  collectPageRuleIssues('content', r.content, issues)
+   906→  if (r.fetch && typeof r.fetch === 'object' && !Array.isArray(r.fetch)) {
+   907→    const f = r.fetch as Record<string, unknown>
+   908→    const tp = f.tokenPattern
+   909→    if (typeof tp === 'string' && tp.startsWith('regex:')) {
+   910→      const res = validateRegexSafety(tp.slice(6))
+   911→      if (!res.ok) issues.push({ field: 'fetch.tokenPattern', reason: res.reason || '不安全' })
+   912→    }
+   913→  }
+   914→  if (r.clean && typeof r.clean === 'object' && !Array.isArray(r.clean)) {
+   915→    const c = r.clean as Record<string, unknown>
+   916→    if (Array.isArray(c.adPatterns)) {
+   917→      c.adPatterns.forEach((p, i) => {
+   918→        if (typeof p !== 'string' || !p) return
+   919→        const res = validateRegexSafety(p, 'gi')
+   920→        if (!res.ok) issues.push({ field: `clean.adPatterns[${i}]`, reason: res.reason || '不安全' })
+   921→      })
+   922→    }
+   923→  }
+   924→  return issues
+   925→}
+   926→
+   927→/** 代理条目形态校验(types.ts 侧与 fetcher.ts 运行时池解析共用口径):
+   928→ *  scheme 白名单 + 无空白/逗号的 host[:port][:path] 形态, 单条 ≤500 字符 */
+   929→function isValidProxySpec(s: string): boolean {
+   930→  return s.length <= 500 && /^(https?|socks5h?|socks4a?):\/\/[^\s,]+$/.test(s)
+   931→}
+   932→
+   933→/** CleanConfig 消毒: 选择器/广告正则/白名单标签三数组+布尔重建 */
+   934→export function sanitizeCleanConfig(v: unknown): CleanConfig | undefined {
+   935→  if (!v || typeof v !== 'object' || Array.isArray(v)) return undefined
+   936→  const r = v as Record<string, unknown>
+   937→  const out: CleanConfig = {
+   938→    removeSelectors: safeStrArr(r.removeSelectors, 30, 300) ?? [...DEFAULT_CLEAN_CONFIG.removeSelectors],
+   939→    adPatterns: safeStrArr(r.adPatterns, 30, 1000) ?? [...DEFAULT_CLEAN_CONFIG.adPatterns],
+   940→    whitelist:
+   941→      safeStrArr(r.whitelist, 30, 20)?.map((t) => t.trim().toLowerCase()).filter(Boolean) ??
+   942→      [...DEFAULT_CLEAN_CONFIG.whitelist],
+   943→    normalize: safeBool(r.normalize) ?? true,
+   944→    plainText: safeBool(r.plainText) ?? false,
+   945→  }
+   946→  return out
+   947→}
+   948→
