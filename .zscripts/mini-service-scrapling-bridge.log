@@ -1,0 +1,43 @@
+[scrapling-bridge] Installing dependencies...
+bun install v1.3.14 (0d9b296a)
+No packages! Deleted empty lockfile
+
+[8.00ms] done
+[scrapling-bridge] Running bun run dev...
+$ sh -c 'if [ -x .venv/bin/python ]; then exec .venv/bin/python server.py; else exec python3 server.py; fi'
+[scrapling-bridge] 启动 http://127.0.0.1:3012 (selfTest=FAIL: ModuleNotFoundError: No module named 'scrapling') versions={'python': '3.13.5', 'scrapling': 'unknown'}
+T[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
+[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
+[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
+[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
+[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
+[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
+[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
+[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
+[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
+[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
+[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
+[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
+[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
+[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
+[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
+[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
+[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
+[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
+[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
+[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
+[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
+[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
+[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
+[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
+[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
+[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
+[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
+[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
+[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
+[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
+[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
+[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
+[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
+[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
+[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -

@@ -1,0 +1,20 @@
+[fetch-relay] Installing dependencies...
+bun install v1.3.14 (0d9b296a)
+
+Checked 4 installs across 5 packages (no changes) [6.00ms]
+[fetch-relay] Running bun run dev...
+$ bun --hot index.ts
+133 |       { ok: false, error: 'missing or invalid X-Bridge-Key', code: 'BRIDGE_KEY_REQUIRED' },
+134 |       401,
+135 |     )
+136 |   }
+137 | 
+138 |   const server = Bun.serve({
+                           ^
+error: Failed to start server. Is port 3011 in use?
+ syscall: "listen",
+   errno: 0,
+    code: "EADDRINUSE"
+
+      at createBridgeServer (/home/z/my-project/mini-services/_shared/server.ts:138:22)
+      at /home/z/my-project/mini-services/fetch-relay/index.ts:109:1
