@@ -2688,3 +2688,40 @@ Work Log:
 最终: 53条规则(29启用+24禁用), 26/26测试通过(100%)
 - 新增通过: jhsssd(6本) hodei(6本)
 质量门: lint 0/0, tsc 0
+
+---
+Task ID: browser-engine-breakthrough
+Agent: Obscura浏览器引擎突破CF + 4个站点修复
+Task: 用engine=browser突破CF防护, 修复pilishuwu/daweixs/dafengdagengren/guichuideng
+
+Work Log:
+- pilishuwu.com(霹雳书屋): CF challenge → engine=browser突破!
+  发现: URL结构是/{cat}/list/{page}.html(非/sort/{cat}/{page}.html)
+  选择器: .ret-search-item / .ret-works-cover a(title=书名) / .ret-works-author / img
+  测试: count=20 ✓ (港片:你洪兴仔/今天也在努力做魔头/今天毁灭世界了吗)
+
+- guichuideng.info(鬼吹灯): 403 → engine=browser突破!
+  选择器: a[href*="/book/"] (直接从链接提取)
+  测试: count=23 ✓
+
+- daweixs.com(大微小说网): 403 → engine=browser突破!
+  选择器: .item, .book-item, .book, .li / a
+  测试: count=6 ✓
+
+- dafengdagengren.com(大奉打更人): 403 → engine=browser突破!
+  选择器: 同daweixs(同框架)
+  测试: count=6 ✓
+
+- 未突破(保持禁用):
+  hetushu.com: 502超时(浏览器引擎也超时)
+  dongliuxiaoshuo.com: 502超时
+  shucong.com: 502超时
+  wanbenshenzhan.com: 502超时(CF Verify Yourself)
+  libahao2.com: 仅1条(地区拦截)
+  biquge5200.com: 空响应
+  域名失效: biqugse/biquwx/ibiquwx/ibiquges/xbiqubao/duokanbiqu/zhongwenzw/123duw
+  特殊: 七猫(loopback SSRF) 8kana(Vue) xiaoshuodaquan(宝塔未配)
+
+最终: 53条规则(33启用+20禁用), 30/30测试通过(100%)
+新增突破: pilishuwu(20) guichuideng(23) daweixs(6) dafengdagengren(6)
+质量门: lint 0/0, tsc 0
