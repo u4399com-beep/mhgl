@@ -657,15 +657,22 @@ createBridgeServer({
     if (u.pathname === '/fetch') {
       if (inFlight >= MAX_CONCURRENT) return json({ ok: false, error: '并发已满' }, 503)
       inFlight++
-      try {
-        const body = await req.json()
+      // 硬超时包装: fetchPage 可能因浏览器 hang 而永不返回, 用 Promise.race 保证 inFlight 释放
+      const hardTimeout = Math.min(Number(req.headers.get('content-length')) || 0, 1) > 0 ? 120000 : 30000
+      const fetchPromise = (async () => {
+        const body: any = await req.json()
         const url = String(body?.url || '')
-        if (!url || !/^https?:\/\//.test(url)) return json({ ok: false, error: 'url required' }, 400)
-        const tier: StealthTier = body?.tier === 'standard' || body?.tier === 'maximum'
-          ? body.tier
-          : 'lite'
+        if (!url || !/^https?:\/\//.test(url)) return { ok: false, error: 'url required' } as any
+        const tier: StealthTier = body?.tier === 'standard' || body?.tier === 'maximum' ? body.tier : 'lite'
         const timeoutMs = Math.min(Number(body?.timeoutMs) || 30000, 120000)
-        const result = await fetchPage(url, tier, timeoutMs)
+        return await fetchPage(url, tier, timeoutMs)
+      })()
+      try {
+        const result = await Promise.race([
+          fetchPromise,
+          new Promise<any>((_, reject) => setTimeout(() => reject(new Error('fetch hard timeout')), hardTimeout)),
+        ])
+        if (result.error) return json({ ok: false, error: result.error }, 400)
         return json({
           ok: result.ok,
           html: result.html,
@@ -677,7 +684,7 @@ createBridgeServer({
       } catch (e: any) {
         return json({ ok: false, error: String(e?.message || e).slice(0, 300) }, 502)
       } finally {
-        inFlight--
+        inFlight = Math.max(0, inFlight - 1)
       }
     }
     return json({ ok: false, error: `未知路径 ${u.pathname}` }, 404)
