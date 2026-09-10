@@ -8,7 +8,7 @@
 // ============================================================
 import { db } from '@/lib/db'
 import { type RuleConfig, type TocItem, type FetchConfig, parseRuleConfig, sanitizeFetchConfig } from './types'
-import { fetchPage, fetchBinary, checkBrowser, type FetchResult, effectiveHostGateLimit } from './fetcher'
+import { fetchPage, fetchBinary, checkBrowser, type FetchResult, effectiveHostGateLimit, registerGracefulShutdown, loadCookieJarFromDisk } from './fetcher'
 import { acquireHostGate, releaseHostGate, reportHostSuccess, reportHostFailure, reportHostRateLimited, hostGateSnapshot, hostGateKeyOf } from './hostgate'
 import { parseList, parseBook, parseToc, parseContent, parseJsonBody, absolutize } from './parser'
 import { cleanContentHtml, cleanIntro, cleanChapterTitle, cleanTextField } from './cleaner'
@@ -16,6 +16,13 @@ import { reorderToc } from './sorter'
 import { saveChapterTxt, saveCoverWebp, deleteBookTxt, ensureDirs } from './storage'
 import { smartCategory, smartCompleteDetect } from './smart'
 import { fetchSuggestKeywords, mergeSuggestWords } from './suggest'
+
+// feat-cloak-anticrawler B/E: 启动时加载持久化 cookie jar + 注册 SIGTERM 优雅关闭 hook
+// (cookieJar 持久化 / Obscura 关闭 / 等在飞 / exit)。模块加载即触发, 保证 fetcher 模块
+// 一旦被 import 进运行时(任何采集路径都必经)就完成注册; dev HMR 多次 import 由
+// registerGracefulShutdown 内部 globalThis 标志保证幂等(只注册一次)。
+try { loadCookieJarFromDisk() } catch { /* 启动期失败容忍: 静默空罐启动 */ }
+try { registerGracefulShutdown() } catch { /* 某些运行时 process 只读, 忽略 */ }
 
 type ControlAction = 'start' | 'pause' | 'stop'
 
@@ -995,8 +1002,9 @@ export class TaskRunner {
     const tocFetchCfg: Partial<FetchConfig> = { ...fetchCfg, pageFetch: pageFetchGated }
     const contentFetchCfg: Partial<FetchConfig> = { ...fetchCfg, pageFetch: pageFetchGated }
 
-    /** 解析目录页HTML: tocLink规则 → 书籍页本身 → 目录链接自动嗅探兜底 */
-    const extractToc = async (html: string, baseUrl: string): Promise<{ items: TocItem[]; pages: number }> => {
+    /** 解析目录页HTML: tocLink规则 → 书籍页本身 → 目录链接自动嗅探兜底
+     *  feat-cloak-anticrawler J: 返回值增加 tocUrl 字段, 用于章节请求的 Referer 链强制 */
+    const extractToc = async (html: string, baseUrl: string): Promise<{ items: TocItem[]; pages: number; tocUrl: string }> => {
       // 1) 规则显式配置了 tocLink: 从书籍页提取目录页地址
       if (rule.toc.tocLink?.expression) {
         try {
@@ -1018,7 +1026,7 @@ export class TaskRunner {
             }
             await this.log(taskId, 'info', `目录页(tocLink): ${abs} (${page.html.length}字节)`)
             const r1 = await parseToc(abs, page.html, rule.toc, tocFetchCfg)
-            if (r1.items.length) return r1
+            if (r1.items.length) return { ...r1, tocUrl: abs }
           }
         } catch (e: any) {
           await this.log(taskId, 'warn', `tocLink 解析失败: ${e?.message?.slice(0, 80)}`)
@@ -1028,7 +1036,7 @@ export class TaskRunner {
       const r2 = await parseToc(baseUrl, html, rule.toc, tocFetchCfg, async (page, found) => {
         if (page % 5 === 0) await this.log(taskId, 'info', `目录解析中… 第${page}页 已发现${found}章`)
       })
-      if (r2.items.length) return r2
+      if (r2.items.length) return { ...r2, tocUrl: baseUrl }
       // 3) 兜底: 自动嗅探"目录"链接
       try {
         const ch = await import('cheerio')
@@ -1045,16 +1053,24 @@ export class TaskRunner {
         if (abs && /^https?:\/\//.test(abs) && abs !== baseUrl) {
           const page = await this.gateFetch(taskId, abs, fetchCfg, { minGapMs: nextInterval() }) // ab-b
           await this.log(taskId, 'info', `目录链接自动嗅探: ${abs}`)
-          return await parseToc(abs, page.html, rule.toc, tocFetchCfg)
+          const r3 = await parseToc(abs, page.html, rule.toc, tocFetchCfg)
+          if (r3.items.length) return { ...r3, tocUrl: abs }
         }
       } catch (e: any) {
         await this.log(taskId, 'warn', `目录嗅探失败: ${e?.message?.slice(0, 80)}`)
       }
-      return r2
+      return { ...r2, tocUrl: baseUrl }
     }
 
     const tocRes = await extractToc(bookRes.html, bookUrl)
     let tocItems = reorderToc(tocRes.items)
+    // feat-cloak-anticrawler J: 章节请求 Referer 强制使用 TOC 页 URL(而非书籍页 URL)。
+    // 旧实现: fetchCfg.refererUrl=bookUrl(书籍页), 章节 Referer 是书籍页 → 与真实浏览器
+    // 行为不符(用户从目录页点击进入章节, Referer 应是目录页)。新实现: 章节数据抓取时
+    // refererUrl=tocUrl(目录页 URL), 与真实浏览器翻页链路对齐; refererChain 关闭时也强制
+    // 注入, 让章节请求始终携带 TOC 页 Referer(很多 WAF 校验章节请求的 Referer 来源)
+    // 用 let 而非 const: 浏览器重取目录时若拿到更全目录, 同步更新 tocUrlRef
+    let tocUrlRef = tocRes.tocUrl || bookUrl
     await this.log(taskId, 'success', `目录解析完成: ${tocItems.length} 章(含翻页${tocRes.pages}页, 乱序重排+去重后)`)
 
     // 检查点: extractToc 内含多次 fetchPage(tocLink/翻页, 可达数十秒), 暂停/停止/新轮启动要及时生效
@@ -1074,6 +1090,8 @@ export class TaskRunner {
         const bToc = await extractToc(bPage.html, bookUrl)
         if (bToc.items.length > httpTocCount) {
           tocItems = reorderToc(bToc.items)
+          // feat-cloak-anticrawler J: 浏览器重取到更全目录时, 同步更新 tocUrl(可能从嗅探/翻页拿到的实际目录页 URL)
+          tocUrlRef = bToc.tocUrl || tocUrlRef
           await this.log(taskId, 'success', `浏览器渲染目录解析完成: ${tocItems.length} 章(此前仅${httpTocCount}章)`)
         }
       } catch (e: any) {
@@ -1452,8 +1470,22 @@ export class TaskRunner {
             // 若 cfg.fetch.jitterMs > 0, 额外叠加 0~jitterMs 随机抖动。同批多章并行时
             // 每章节奏独立不规则, 击败简单 rate-pattern 检测(固定 interval 配置下也变化)。
             // 该抖动 IN ADDITION TO hostGate 的 minGapMs 闸门(hostGate 实际执行 jitteredMinGap)
+            //
+            // feat-cloak-anticrawler J: 章节请求 Referer 强制使用 tocUrlRef(目录页 URL)而非
+            // bookUrl(书籍页) —— 真实浏览器从目录页点击进入章节, Referer 应是目录页不是书籍页。
+            // tocUrlRef 已在 extractToc 调用后赋值(tocLink URL / baseUrl / 嗅探到的目录 URL);
+            // 即使 refererChain 关闭, 章节请求也强制注入 refererUrl=tocUrlRef + refererChain=true
+            // (buildHeaders 只在 refererChain=true 时使用 refererUrl 作 Referer, 故此处需强制置 true
+            // 让"章节内容请求始终携带 TOC 页 Referer"语义生效; 其他请求面仍按规则配置)
+            // fallback: tocUrlRef 缺失时退回 bookUrl(零回归)
+            const contentRefererUrl = tocUrlRef || bookUrl
+            const contentFetchCfgWithReferer: Partial<FetchConfig> = {
+              ...fetchCfg,
+              refererUrl: contentRefererUrl,
+              refererChain: true,
+            }
             const jitteredMinGap = jitteredInterval(interval, fetchCfg.jitterMs)
-            const pageRes = await this.gateFetch(taskId, q.url, fetchCfg, { minGapMs: jitteredMinGap })
+            const pageRes = await this.gateFetch(taskId, q.url, contentFetchCfgWithReferer, { minGapMs: jitteredMinGap })
             // 疑似被拦不入库: 保持 fetched=false, 下次增量自动重试; 合法JSON体是API数据非挑战页, 放行
             if (pageRes.blocked && parseJsonBody(pageRes.html) === undefined) throw new Error('章节页疑似被拦截(验证码/JS挑战)')
             const parsedC = await parseContent(q.url, pageRes.html, rule.content, contentFetchCfg)

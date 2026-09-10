@@ -1,7 +1,7 @@
 [xjp-proxy] Installing dependencies...
 bun install v1.3.14 (0d9b296a)
 
-Checked 4 installs across 5 packages (no changes) [26.00ms]
+Checked 4 installs across 5 packages (no changes) [22.00ms]
 [xjp-proxy] Running bun run dev...
 $ bun --hot index.ts
 [xjp-proxy] self-test: PASS (合成c回环/n越界拒绝/HTML→文本/章节抽取 4项全过) port=3015

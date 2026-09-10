@@ -127,6 +127,22 @@ export interface FetchConfig {
   /** 同站并发闸门(hostGate)在飞上限, 缺省 3; 1~10 钳制(sanitizeFetchConfig 同步);
    *  同 host 连续失败自动降额(最低1)/连续成功回升(不超过此基准) */
   hostGateLimit?: number
+  /** feat-cloak-anticrawler F: 同站并发闸门上限(per-host)——hostGateLimit 的语义别名,
+   *  与 globalConcurrency 配对出现; sanitizeFetchConfig 同步处理。effectiveHostGateLimit
+   * 优先取本字段, 缺失时回退 hostGateLimit(零回归: 老规则不带本字段仍走原口径) */
+  hostGateConcurrency?: number
+  /** feat-cloak-anticrawler F: 全局并发上限(total, 跨 host 共享)缺省 10; 1~50 钳制。
+   *  runner 已有 hostGate(per-host 限流), 但无全局上限——多任务并行 + 多镜像 host 时
+   *  在飞请求数可线性增长至撑爆内存/OOM kill。fetcher.ts 内置全局信号量, 每次 fetchPage
+   *  入口 acquire 一票, 出口 release; 满则排队等待(同 hostGate 信号量语义)。
+   *  注: 与 hostGate 独立生效——本字段管"全局总在飞", hostGateConcurrency 管"同站并飞" */
+  globalConcurrency?: number
+  /** feat-cloak-anticrawler G: 路径抖动 —— 启用后 fetcher 跨"不同 URL path"切换时
+   *  插入 100~500ms 随机延迟, 击败"按 URL 路径模式检测爬虫"(如 /chapter/N.html 顺序访问
+   *  pattern)。runner 已有"批次内随机洗牌章节顺序"语义, 本字段在引擎层补"路径切换抖动",
+   *  让相邻请求路径切换不再是"瞬时无延迟"(真实用户翻页有阅读时间间隔)。零回归: 缺省 false
+   *  时无任何延迟注入, 老规则行为不变 */
+  pathJitter?: boolean
   /** 翻页请求传输回调(可选, 运行时注入): parseToc/parseContent 内部"下一页"抓取的传输实现。
    *  runner 注入过闸版 gateFetch(翻页请求与章节抓取同享同站并发闸, aa-f 已知边界闭环);
    *  未注入时 parser 直连 fetchPage —— rules/test 测试路由保持直连语义不变。
@@ -264,6 +280,11 @@ export const DEFAULT_FETCH_CONFIG: FetchConfig = {
   waitMs: 800,
   browserFallbackStatus: [403, 412, 429, 503],
   hostGateLimit: 3,
+  // feat-cloak-anticrawler F: 全局并发上限缺省 10(per-host 已由 hostGateLimit=3 限流,
+  // 跨 host 多任务并行需总量上限防 OOM); hostGateConcurrency 与 hostGateLimit 同值 3,
+  // 通过 effectiveHostGateLimit 优先取本字段, 缺失回退 hostGateLimit 实现向后兼容)
+  hostGateConcurrency: 3,
+  globalConcurrency: 10,
 }
 
 export const DEFAULT_CLEAN_CONFIG: CleanConfig = {
@@ -527,6 +548,17 @@ export function sanitizeFetchConfig(v: unknown): Partial<FetchConfig> {
   // parseRuleConfig 经 base.fetch 合并缺省 3
   const hostGateLimit = safeNum(r.hostGateLimit, 1, 10)
   if (hostGateLimit !== undefined) out.hostGateLimit = hostGateLimit
+  // feat-cloak-anticrawler F: hostGateConcurrency 是 hostGateLimit 的语义别名, 同口径钳制
+  // (1~10); effectiveHostGateLimit 优先取本字段, 缺失回退 hostGateLimit
+  const hostGateConcurrency = safeNum(r.hostGateConcurrency, 1, 10)
+  if (hostGateConcurrency !== undefined) out.hostGateConcurrency = hostGateConcurrency
+  // feat-cloak-anticrawler F: globalConcurrency 全局并发上限, 1~50 钳制(过小会拖慢采集,
+  // 过大失去限流意义); parseRuleConfig 经 base.fetch 合并缺省 10
+  const globalConcurrency = safeNum(r.globalConcurrency, 1, 50)
+  if (globalConcurrency !== undefined) out.globalConcurrency = globalConcurrency
+  // feat-cloak-anticrawler G: pathJitter 布尔开关(safeBool 同口径, 仅真布尔接受)
+  const pathJitter = safeBool(r.pathJitter)
+  if (pathJitter !== undefined) out.pathJitter = pathJitter
   // 通用 token 预取钩子(bb-d): 白名单同步(字符串钳长/枚举白名单), 非法类型丢弃。
   // pageFetch 为运行时注入项刻意不进白名单(函数不可 JSON 序列化, 规则 JSON 同名键自然丢弃)
   const tokenUrl = safeStr(r.tokenUrl, 1000)

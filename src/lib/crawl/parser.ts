@@ -12,6 +12,55 @@ import { type FieldRule, type PageRule, type TocItem, type ParsedBook, type Pars
 import { fetchPage } from './fetcher'
 
 // ---------------- 后处理 ----------------
+/**
+ * feat-cloak-anticrawler I: ReDoS 预算测试 —— 编译正则后用 200 字符样本跑一次,
+ * 超过 budgetMs(默认 100ms) 即判定为危险正则, 调用方应拒绝该规则或跳过该次替换。
+ *
+ * 设计:
+ *  - 200 字符样本足够暴露"嵌套量词+歧义字符"型灾难性回溯(典型 ReDoS 输入在 30~50 字符即挂死)
+ *  - 同步测量 performance.now() 起止, 单次测试上限 budgetMs; 超时即返回 false(危险)
+ *  - 测试样本默认混合"歧义字符序列"(如 'a'×50 + 'b'×50 + 'X'×100),
+ *    覆盖 a+ / a-star / (a+)+ 三种典型 ReDoS 模式触发场景
+ *  - 失败原因返回字符串(供调用方日志/审计); 测试 OK 返回 true
+ *
+ * 使用场景:
+ *  - applyTransform 替换前预算测试(运行时防御, 失败跳过本次替换零回归)
+ *  - API 保存入口(POST/PUT /api/admin/rules)调用此函数拒绝危险正则(save-time 防御)
+ *  - 既独立又互不依赖: 运行时与保存期双层防线, 任一未拦截时另一层兜底
+ */
+export function testRegexBudget(
+  src: string,
+  opts?: { sample?: string; budgetMs?: number }
+): { ok: boolean; reason?: string; elapsedMs?: number } {
+  const budgetMs = opts?.budgetMs ?? 100
+  // 默认 200 字符歧义样本: 'a'×50 + 'b'×50 + 'X'×100 —— 暴露 a+/(a+)+/(a|b)* 类回溯模式
+  const sample = opts?.sample ?? ('a'.repeat(50) + 'b'.repeat(50) + 'X'.repeat(100))
+  let re: RegExp
+  try {
+    re = new RegExp(src, 'g')
+  } catch (e: any) {
+    // 无效正则语法: 调用方应已用 isRegexSafe 拦截, 这里再兜底返回 false + 原因
+    return { ok: false, reason: `regex syntax error: ${String(e?.message || e).slice(0, 100)}` }
+  }
+  // 同步测量: JS 单线程无法中断运行中的正则, 故仅能"事后发现超时"。但 200 字符样本下
+  // 真正的 ReDoS 模式会在 ms 级即触发回溯爆炸, 不会卡到事件循环; >100ms 的样本运行
+  // 即可判定为危险(典型 ReDoS 在 200 字符样本上跑 1~30s+, 远超 100ms 阈值)
+  const start = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now()
+  try {
+    // 跑一次 full match 测试(同步, 用 sample 输入)
+    // 使用 String.replace 而非 re.test/re.exec: replace 会遍历整个 sample 触发最坏回溯路径
+    sample.replace(re, '')
+  } catch (e: any) {
+    return { ok: false, reason: `regex execution threw: ${String(e?.message || e).slice(0, 100)}` }
+  }
+  const end = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now()
+  const elapsedMs = end - start
+  if (elapsedMs > budgetMs) {
+    return { ok: false, reason: `regex ReDoS suspected: ${elapsedMs.toFixed(0)}ms > ${budgetMs}ms budget on 200-char sample`, elapsedMs }
+  }
+  return { ok: true, elapsedMs }
+}
+
 function applyTransform(value: string, rule: FieldRule): string {
   let v = value ?? ''
   if (rule.stripTags) v = v.replace(/<[^>]+>/g, '')
@@ -21,27 +70,38 @@ function applyTransform(value: string, rule: FieldRule): string {
     // 2) 嵌套量词闸门(同 cleaner.removeAdLines): 命中"量词+右括号+量词"形态跳过
     // 3) 执行预算: 100ms timeout via Promise.race + AbortSignal
     //    优于直接调用 v.replace(re, ...) 在 ReDoS 模式下卡死事件循环 30s+
+    // feat-cloak-anticrawler I: 4) 编译后预算测试 testRegexBudget(200 字符样本, 100ms 预算)
+    //    —— 在使用前先验证正则不会爆炸, 失败即跳过本次替换(零回归: 替换失败即不替换)。
+    //    与嵌套量词闸门双重防线: 闸门识别已知形态, 预算测试识别未知形态。
     const src = rule.replaceFrom
     if (src.length <= 1000 && !/[+*]\s*\)\s*[+*{]/.test(src)) {
       try {
-        const re = new RegExp(src, 'g')
-        const replaceTo = rule.replaceTo ?? ''
-        // 同步路径优先: 短输入(<200 字符)直接跑—— ReDoS 在小输入上时间有界(≤ 数十 ms)
-        if (v.length <= 200) {
-          v = v.replace(re, replaceTo)
+        // 预算测试: 200 字符样本跑一次, >100ms 判 ReDoS 跳过本次替换
+        const budget = testRegexBudget(src, { budgetMs: 100 })
+        if (!budget.ok) {
+          console.warn(`[parser] applyTransform 跳过危险正则(ReDoS 预算超时 ${budget.elapsedMs ?? 0}ms): ${src.slice(0, 80)}`)
+          // 跳过本次替换, 不改 v(零回归: 替换失败即不替换)
+          // 但 stripTags/index 等后续步骤照常执行
         } else {
-          // 大输入走预算保护: 100ms 内未完成视为 ReDoS, 跳过本次替换(零回归: 替换失败即不替换)
-          // RegExp.prototype[Symbol.replace] 是同步的, JS 单线程无法真正中断; 用 setTimeout
-          // 哨兵仅能"事后发现超时"——故真正的防护是上面长度/嵌套量词闸门 + 长度 ≤200 同步路径。
-          // >200 的输入先按 chunk 200 字符切片跑, 单 chunk ReDoS 不会拖死事件循环。
-          let out = ''
-          const CHUNK = 200
-          for (let i = 0; i < v.length; i += CHUNK) {
-            // 重新编译保证 global flag 不被上次 lastindex 污染
-            const subRe = new RegExp(src, 'g')
-            out += v.slice(i, i + CHUNK).replace(subRe, replaceTo)
+          const re = new RegExp(src, 'g')
+          const replaceTo = rule.replaceTo ?? ''
+          // 同步路径优先: 短输入(<200 字符)直接跑—— ReDoS 在小输入上时间有界(≤ 数十 ms)
+          if (v.length <= 200) {
+            v = v.replace(re, replaceTo)
+          } else {
+            // 大输入走预算保护: 100ms 内未完成视为 ReDoS, 跳过本次替换(零回归: 替换失败即不替换)
+            // RegExp.prototype[Symbol.replace] 是同步的, JS 单线程无法真正中断; 用 setTimeout
+            // 哨兵仅能"事后发现超时"——故真正的防护是上面长度/嵌套量词闸门 + 长度 ≤200 同步路径。
+            // >200 的输入先按 chunk 200 字符切片跑, 单 chunk ReDoS 不会拖死事件循环。
+            let out = ''
+            const CHUNK = 200
+            for (let i = 0; i < v.length; i += CHUNK) {
+              // 重新编译保证 global flag 不被上次 lastindex 污染
+              const subRe = new RegExp(src, 'g')
+              out += v.slice(i, i + CHUNK).replace(subRe, replaceTo)
+            }
+            v = out
           }
-          v = out
         }
       } catch { /* 无效正则忽略 */ }
     }

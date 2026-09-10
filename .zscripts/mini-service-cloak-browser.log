@@ -1,0 +1,14 @@
+[cloak-browser] Installing dependencies...
+bun install v1.3.14 (0d9b296a)
+
+Done! Checked 73 packages (no changes) [35.00ms]
+[cloak-browser] Running bun run dev...
+$ bun --hot index.ts
+[cloak-browser] listening on http://127.0.0.1:3016 (/health)
+136 |     const DEVICE_ID = ${JSON.stringify(seed.deviceId)};
+                                                           ^
+error: Unterminated string literal
+    at /home/z/my-project/mini-services/cloak-browser/index.ts:136:54
+[cloak-browser] listening on http://127.0.0.1:3016 (/health)
+[cloak-browser] listening on http://127.0.0.1:3016 (/health)
+[cloak-browser] listening on http://127.0.0.1:3016 (/health)

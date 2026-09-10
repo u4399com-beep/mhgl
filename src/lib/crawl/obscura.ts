@@ -750,6 +750,14 @@ interface PoolSlot {
   /** R3-17: 连续重建失败计数 —— recreateSlot 失败时累加, 成功时清零。
    *  达 3 次后该槽位从 S.slots 移除, 避免持续重试占用 MAX_CONCURRENCY 名额 */
   consecutiveFailures?: number
+  /** feat-cloak-anticrawler C/D: 指纹创建时间戳 + 派生 device ID(IMEI-like 15 位数字)。
+   *  - fpCreatedAt 用于"30 分钟指纹轮换"判定: 老指纹视为长期跟踪目标, 强制 recreate 新指纹
+   *    (UA/viewport/locale/timezone 全换, 击败"同源指纹长期跟踪"探针)。
+   *  - deviceId 来自 fp 种子哈希, 同 fp 内稳定; recreate 换 fp 时同时换 deviceId。
+   *    deviceId 注入到 navigator.userAgentData(brand 一项) + cookie(_devid=), 让浏览器
+   *    看起来像一台真实设备, 跨页保持同一设备 ID(用户视角一致性) */
+  fpCreatedAt?: number
+  deviceId?: string
 }
 
 /** chromium 启动参数: 防检测 + 容器环境兼容 */
@@ -904,12 +912,66 @@ async function newStealthContext(fp: ObscuraFingerprint): Promise<BrowserContext
   return ctx
 }
 
+/**
+ * feat-cloak-anticrawler D: 从指纹种子派生稳定 device ID(IMEI-like 15 位数字)。
+ *  同一 fp 内多次调用返回同 deviceId(跨页/跨请求一致, 模拟真实设备 ID);
+ *  fp 重建时(fpCreatedAt 变)deviceId 随之变更, 实现长期跟踪对抗。
+ *  使用 fp.userAgent + viewport + locale + timezoneId 作种子哈希, 简单 DJB2 实现(无依赖) */
+function deriveDeviceId(fp: ObscuraFingerprint): string {
+  const seedStr = `${fp.userAgent}|${fp.viewport.width}x${fp.viewport.height}|${fp.locale}|${fp.timezoneId}|${fp.deviceScaleFactor}|${fp.mobile ? 'm' : 'd'}`
+  // DJB2 hash: 32 位 → 转为 10 位数字; 再拼前缀 '86' + 3 位随机补充凑够 15 位 IMEI 格式
+  let h = 5381
+  for (let i = 0; i < seedStr.length; i++) {
+    h = ((h << 5) + h + seedStr.charCodeAt(i)) | 0
+  }
+  // 取绝对值的 32 位值, 然后转成 10 位数字 (mod 10^10)
+  const hashNum = (h >>> 0) % 1_000_000_000
+  const hashStr = String(hashNum).padStart(10, '0').slice(-10)
+  // 前缀 86(中国 IMEI 区段) + 3 位 deviceId-内序号(基于 viewport width 派生, 同 fp 一致)
+  const seq3 = String((fp.viewport.width * 7) % 1000).padStart(3, '0').slice(-3)
+  // 15 位数字: '86' + seq3 + 10 位 hash = 15 位 IMEI-like
+  return '86' + seq3 + hashStr.slice(0, 10)
+}
+
+/** feat-cloak-anticrawler D: 注入 device ID 到 navigator.userAgentData + cookie。
+ *  - 在每 frame 创建时自动注册 _devid cookie(同源站点首次访问即带上, 模拟设备级追踪 ID)
+ *  - 在 navigator.userAgentData.brands 末尾追加 DevID brand(供服务端审计关联同设备会话) */
+function buildDeviceIdInitScript(deviceId: string): string {
+  return `(() => { try {
+    // _devid cookie: 同源站点首次访问即种, max-age 1 天(同设备 ID 的稳定窗口)
+    if (document.cookie.indexOf('_devid=') === -1) {
+      document.cookie = '_devid=${deviceId}; path=/; max-age=86400; SameSite=Lax';
+    }
+    // navigator.userAgentData.brands 末尾追加 DevID brand(chromium 家族才有 userAgentData)
+    if (navigator.userAgentData && navigator.userAgentData.brands) {
+      const origBrands = navigator.userAgentData.brands;
+      // brands 是只读数组, 用 Proxy 拦截 toArray 追加 brand
+      try {
+        Object.defineProperty(navigator.userAgentData, 'brands', {
+          get: function () {
+            return origBrands.concat([{ brand: 'DevID', version: '${deviceId.slice(0, 4)}' }]);
+          },
+          configurable: true,
+        });
+      } catch (e) {}
+    }
+  } catch (e) {} })();`
+}
+
 async function createSlot(domain: string, fp: ObscuraFingerprint): Promise<PoolSlot> {
   const ctx = await newStealthContext(fp)
   try {
     const page = await ctx.newPage()
     const cdp = await applyUaCdpOverride(page, fp.userAgent)
-    const slot: PoolSlot = { ctx, page, domain, fp, busy: true, cdp, lastUsedAt: Date.now() }
+    // feat-cloak-anticrawler D: 派生 device ID + 注入 init 脚本(brand + cookie)
+    const deviceId = deriveDeviceId(fp)
+    await ctx.addInitScript(buildDeviceIdInitScript(deviceId))
+    const slot: PoolSlot = {
+      ctx, page, domain, fp, busy: true, cdp,
+      lastUsedAt: Date.now(),
+      fpCreatedAt: Date.now(),
+      deviceId,
+    }
     S.slots.push(slot)
     return slot
   } catch (e) {
@@ -937,6 +999,9 @@ async function recreateSlot(slot: PoolSlot, domain: string, fp: ObscuraFingerpri
   try {
     const page = await ctx.newPage()
     const cdp = await applyUaCdpOverride(page, fp.userAgent)
+    // feat-cloak-anticrawler D: 派生 device ID + 注入 init 脚本(brand + cookie)
+    const deviceId = deriveDeviceId(fp)
+    await ctx.addInitScript(buildDeviceIdInitScript(deviceId))
     slot.ctx = ctx
     slot.page = page
     slot.domain = domain
@@ -944,6 +1009,9 @@ async function recreateSlot(slot: PoolSlot, domain: string, fp: ObscuraFingerpri
     slot.cdp = cdp
     slot.busy = true
     slot.lastUsedAt = Date.now()
+    // feat-cloak-anticrawler C: 指纹创建时间戳重置(30 分钟轮换判定基准)
+    slot.fpCreatedAt = Date.now()
+    slot.deviceId = deviceId
     // R3-17: 重建成功 → 清零连续失败计数
     slot.consecutiveFailures = 0
   } catch (e) {
@@ -962,6 +1030,14 @@ async function recreateSlot(slot: PoolSlot, domain: string, fp: ObscuraFingerpri
     throw e
   }
 }
+
+/**
+ * feat-cloak-anticrawler C: 30 分钟指纹轮换阈值 —— 同域槽位若 fpCreatedAt 老于此阈值,
+ * 视为"长期跟踪目标", 强制 recreate 新指纹(UA/viewport/locale/timezone 全换)。
+ * 与 IDLE_CLOSE_MS(5min)/SLOT_IDLE_RECLAIM_MS(10min)独立: 后两者管"空闲资源回收",
+ * 本阈值管"指纹新鲜度"。即使槽位每分钟都在被使用, 满 30min 仍会触发 recreate。
+ * 防御长期爬虫被反爬指纹库锁定(同源同指纹跑数小时 → 探针标记为爬虫)。 */
+const FINGERPRINT_ROTATE_MS = 30 * 60 * 1000
 
 function resetIdleTimer(): void {
   if (S.idleTimer) clearTimeout(S.idleTimer)
@@ -1080,7 +1156,14 @@ export async function withObscuraPage<T>(
           wakeNext()
           throw new Error('Obscura: 浏览器正在关闭, 请稍后重试')
         }
-        if (free.domain !== domain || free.page.isClosed()) {
+        // feat-cloak-anticrawler C: 30 分钟指纹轮换 —— 同域槽位若 fpCreatedAt 老于阈值,
+        //  视为"长期跟踪目标", 强制 recreate 新指纹(UA/viewport/locale/timezone 全换)。
+        //  与 page.isClosed() / domain 变化 的 recreate 路径同入口, 复用现有失败兜底链
+        //  (consecutiveFailures 计数 + 重建失败唤醒等待者); fpCreatedAt 缺失(老槽位兼容)
+        //  用 lastUsedAt 兜底(若也缺失则当前时间兜底 → 不触发轮换, 零回归)
+        const fpAge = Date.now() - (free.fpCreatedAt ?? free.lastUsedAt ?? Date.now())
+        const needRotate = free.domain === domain && !free.page.isClosed() && fpAge > FINGERPRINT_ROTATE_MS
+        if (free.domain !== domain || free.page.isClosed() || needRotate) {
           try {
             await recreateSlot(free, domain, randomFingerprint({ userAgent: opts.userAgent }))
           } catch (e) {

@@ -2,42 +2,21 @@
 bun install v1.3.14 (0d9b296a)
 No packages! Deleted empty lockfile
 
-[8.00ms] done
+[14.00ms] done
 [scrapling-bridge] Running bun run dev...
 $ sh -c 'if [ -x .venv/bin/python ]; then exec .venv/bin/python server.py; else exec python3 server.py; fi'
-[scrapling-bridge] 启动 http://127.0.0.1:3012 (selfTest=FAIL: ModuleNotFoundError: No module named 'scrapling') versions={'python': '3.13.5', 'scrapling': 'unknown'}
-T[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
-[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
-[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
-[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
-[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
-[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
-[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
-[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
-[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
-[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
-[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
-[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
-[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
-[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
-[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
-[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
-[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
-[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
-[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
-[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
-[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
-[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
-[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
-[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
-[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
-[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
-[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
-[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
-[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
-[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
-[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
-[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
-[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
-[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
-[scrapling-bridge] 127.0.0.1 "GET /health HTTP/1.1" 200 -
+[scrapling-bridge] 启动 http://127.0.0.1:3012 (selfTest=FAIL: ModuleNotFoundError: No module named 'scrapling') versions={'python': '3.12.14', 'scrapling': 'unknown'}
+Traceback (most recent call last):
+  File "/home/z/my-project/mini-services/scrapling-bridge/server.py", line 324, in <module>
+    main()
+  File "/home/z/my-project/mini-services/scrapling-bridge/server.py", line 315, in main
+    server = ThreadingHTTPServer((HOST, PORT), Handler)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/z/.local/share/uv/python/cpython-3.12.14-linux-x86_64-gnu/lib/python3.12/socketserver.py", line 457, in __init__
+    self.server_bind()
+  File "/home/z/.local/share/uv/python/cpython-3.12.14-linux-x86_64-gnu/lib/python3.12/http/server.py", line 140, in server_bind
+    socketserver.TCPServer.server_bind(self)
+  File "/home/z/.local/share/uv/python/cpython-3.12.14-linux-x86_64-gnu/lib/python3.12/socketserver.py", line 478, in server_bind
+    self.socket.bind(self.server_address)
+OSError: [Errno 98] Address already in use
+error: script "dev" exited with code 1

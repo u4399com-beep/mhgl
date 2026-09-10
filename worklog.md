@@ -2771,3 +2771,99 @@ Work Log:
 
 最终: 53条(35启用+18禁用), 32/32通过(100%)
 质量门: lint 0/0, tsc 0
+
+---
+Task ID: feat-cloak-anticrawler
+Agent: CloakBrowser stealth + anti-crawler deep
+Task: CloakBrowser 3-tier stealth + 12 flags + CDP + 反反爬 10 项深度增强
+
+Work Log:
+- Part 1 CloakBrowser 重写(mini-services/cloak-browser/index.ts):
+  - 3-tier stealth profiles: lite / standard / maximum
+    · lite: 仅 puppeteer-extra-stealth(低安全站点)
+    · standard: + canvas/audio noise + WebGL spoof + CDP UA override (CF 站点)
+    · maximum: + request interception(屏蔽 tracking/ads) + font/screen/hardware
+      concurrency/device memory/IMEI device ID (hard WAF: hetushu/shucong)
+  - 12 stealth flags 全部注入(双保险: stealth plugin 已抹, 本引擎再覆):
+    1. navigator.webdriver = undefined
+    2. window.chrome runtime object
+    3. navigator.plugins (PDF Viewer etc)
+    4. navigator.languages (zh-CN, zh, en)
+    5. WebGL vendor/renderer override (Google Inc. Intel UHD 630)
+    6. navigator.permissions.query (notifications → granted)
+    7. canvas noise (toDataURL/toBlob, per-session 种子, LCG 噪声)
+    8. audio noise (AudioContext.createAnalyser.getFloatFrequencyData)
+    9. navigator.hardwareConcurrency = 8
+    10. navigator.deviceMemory = 8
+    11. navigator.connection (4g/rtt=50/downlink=10/wifi)
+    12. CDP Network.setUserAgentOverride + userAgentMetadata (brands/fullVersionList)
+  - per-session 噪声种子(非 per-request): 同 host 复用种子维持会话内指纹一致性,
+    防"指纹漂移"被探针识别; 30min 过期 + LRU 200 防泄漏
+  - CDP 集成: Network.setUserAgentOverride(含 userAgentMetadata) +
+    Page.addScriptToEvaluateOnNewDocument + Emulation.setDeviceMetricsOverride
+  - 增强 CF 处理: 30s challenge 等待 + 每 2s 尝试点 Turnstile checkbox(跨域 iframe);
+    仍失败 → 兜底访问 /robots.txt 拿 cf_clearance, 再回访目标 URL
+  - API: POST /fetch { url, tier?, timeoutMs? } → { ok, html, status, finalUrl, cookies, tier }
+  - 最大档位: request interception 屏蔽 20+ tracking/ad 网络 + beacon/ping type
+  - SIGTERM 优雅关闭: 等在飞 10s + 关 browser + exit(独立进程, 与父进程 Next.js 解耦)
+
+- Part 2 反反爬深度增强(8 文件):
+  - A. PSL 多段 TLD 识别(fetcher.ts): KNOWN_MULTI_PART_TLDS set (49 条目含 co.uk/com.cn/
+    com.hk/com.tw/com.au/co.jp/co.kr/com.br/co.in/com.sg + github.io/herokuapp.com 等 PaaS 域)
+    parentDomainChain 优先校验末尾 2 段是否命中 PSL, 命中则把 TLD 视作原子整体,
+    只在 TLD 之前的子域链上累积(防 'co.uk' 被当 host 罐条目污染全局)
+  - B. Cookie 持久化(fetcher.ts): cookieJar.persist() 序列化全罐为 JSON, cookieJar.load(json)
+    反向重建; loadCookieJarFromDisk() 启动期同步加载 data/cookies.json; validJar 校验新增
+    persist/load/domainCount 三方法防 dev HMR 复用旧实例
+  - C. 指纹轮换(obscura.ts): FINGERPRINT_ROTATE_MS = 30min, withObscuraPage 取 free 槽位时
+    若 fpCreatedAt 老于此阈值, 强制 recreateSlot 生成新 UA/viewport/locale/timezone;
+    与 IDLE_CLOSE_MS(5min)/SLOT_IDLE_RECLAIM_MS(10min) 独立(管"指纹新鲜度")
+  - D. IMEI device ID(obscura.ts): deriveDeviceId(fp) 用 DJB2 hash 派生 15 位数字 ID
+    ('86' + 3 位 viewport-derived seq + 10 位 hash); buildDeviceIdInitScript(deviceId)
+    注入到 navigator.userAgentData.brands(末尾追加 DevID brand) + 自动种 _devid cookie
+    (max-age 1 天, SameSite=Lax); 同 fp 内稳定, fp 重建时随之变更
+  - E. SIGTERM 优雅关闭(fetcher.ts + runner.ts + cloak-browser):
+    · fetcher.registerGracefulShutdown(): 持久化 cookieJar → shutdownObscura → 等在飞 10s → exit
+    · inFlightFetchCount 计数器(fetchPage 入口 +1, 出口 -1, finally 兜底)
+    · runner.ts 模块加载即调 loadCookieJarFromDisk() + registerGracefulShutdown()(防 HMR 多次注册)
+    · cloak-browser 独立进程的 SIGTERM handler(关 browser + 等在飞 10s + exit)
+  - F. 并发控制(types.ts + fetcher.ts):
+    · types.ts: hostGateConcurrency (1-10, 默认 3, hostGateLimit 别名) + globalConcurrency (1-50, 默认 10)
+    · DEFAULT_FETCH_CONFIG 同步加缺省; sanitizeFetchConfig 同步白名单 + 钳制
+    · effectiveHostGateLimit 优先取 hostGateConcurrency, 缺失回退 hostGateLimit(零回归)
+    · fetcher.ts 内置 globalSem 全局信号量(globalThis 防 HMR 多实例):
+      acquireGlobalSlot(limit) 满 limit 则 FIFO 排队, releaseGlobalSlot 唤醒下一个
+      fetchPage 入口 acquire, finally release(异常路径不泄漏槽位)
+  - G. 路径抖动(fetcher.ts + types.ts):
+    · types.ts: pathJitter?: boolean (缺省 false 零回归)
+    · fetcher.maybePathJitter(url, cfg): per-host 维护 last pathname, 不同 path 切换时
+      插入 100~500ms 随机延迟(LRU 200 防 leak); 同 path 重复请求不抖动(避免拖慢重试链)
+    · fetchPage 中在 acquireGlobalSlot 后调用, 让抖动等待也计入全局在飞
+  - H. OOM 保护(fetcher.ts): fetchPage 入口测 process.memoryUsage(), heapUsed > 1.5GB
+    暂停 5s 让 GC 回收; 同步调用开销 <1μs, 每请求测一次可接受
+  - I. ReDoS 加固(parser.ts):
+    · 导出 testRegexBudget(src, opts): 200 字符歧义样本跑一次, >100ms 判 ReDoS
+    · applyTransform 在嵌套量词闸门外, 再加 testRegexBudget 预算测试双重防线
+    · 失败跳过本次替换(零回归: 替换失败即不替换), warn 日志含 elapsedMs 供审计
+    · 测试样本: 'a'×50 + 'b'×50 + 'X'×100 (覆盖 a+ / a-star / (a+)+ 回溯模式)
+  - J. Referer 链强制(runner.ts):
+    · extractToc 返回值新增 tocUrl 字段(tocLink URL / baseUrl / 嗅探到的目录 URL)
+    · 章节内容抓取 contentFetchCfgWithReferer 强制 refererUrl=tocUrlRef + refererChain=true
+      (即使规则未启用 refererChain, 章节请求也强制携带 TOC 页 Referer; buildHeaders 仅在
+      refererChain=true 时使用 refererUrl, 故需强制置 true)
+    · tocUrlRef 用 let: 浏览器重取到更全目录时同步更新
+    · fallback: tocUrlRef 缺失时退回 bookUrl(零回归)
+
+Quality Gates:
+- bun run lint: 0/0 ✓ (exit 0)
+- bunx tsc --noEmit 2>&1 | grep -v "examples\|skills" | wc -l: 0 ✓ (exit 0)
+- Dev server /: HTTP 200 ✓
+- cloak-browser index.ts tsc(strict false): 0 errors ✓
+
+Stage Summary:
+- CloakBrowser 从单档 stealth 升级为 3-tier(lite/standard/maximum), 12 flags 全覆盖,
+  per-session 噪声种子, CDP 集成(头组/JS/网络层三方自洽), 增强 CF 处理(30s wait + Turnstile
+  点击 + /robots.txt 兜底拿 cf_clearance), 适用 hard WAF 站点(hetushu/shucong)
+- 反反爬 10 项深度增强覆盖: cookie PSL 多段 TLD / 持久化 / 指纹轮换 / device ID / SIGTERM
+  优雅关闭 / 全局并发信号量 / 路径抖动 / OOM 保护 / ReDoS 预算 / Referer 链强制
+- 全部零回归: 缺省配置下老规则行为不变, 新功能均通过 cfg 开关或字段缺省值启用

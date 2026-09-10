@@ -1,7 +1,7 @@
 [deqixs-proxy] Installing dependencies...
 bun install v1.3.14 (0d9b296a)
 
-Checked 4 installs across 5 packages (no changes) [3.00ms]
+Checked 4 installs across 5 packages (no changes) [13.00ms]
 [deqixs-proxy] Running bun run dev...
 $ bun --hot index.ts
 [deqixs-proxy] self-test: PASS (GBK解码/三参数提取/GBK-JSON解析/HTML→文本(含双解码)/URL解析 6项全过) port=3014

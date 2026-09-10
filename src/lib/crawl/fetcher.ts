@@ -7,7 +7,7 @@
 // ============================================================
 import iconv from 'iconv-lite'
 import { type FetchConfig, DEFAULT_FETCH_CONFIG, isValidMirrorHost } from './types'
-import { obscuraFetch, checkObscuraAvailable, clickSelectorAnywhere, buildIdentityInitScript, applyUaCdpOverride } from './obscura'
+import { obscuraFetch, checkObscuraAvailable, clickSelectorAnywhere, buildIdentityInitScript, applyUaCdpOverride, shutdownObscura } from './obscura'
 
 // ---------- UA 池 ----------
 // C.3(y-a重放): Chrome 系版本升级至当前稳定段 137~140(原池 118~131 过旧, 属明显
@@ -246,6 +246,44 @@ function hostOf(origin: string): string {
 //  例: 'a.b.example.com'          → ['a.b.example.com', 'b.example.com', 'example.com']
 //  IP 字面量 / localhost / 单段 host(无点) → [host](仅自身, 无父域可遍历)
 //  最多 5 级防病态长 TLD; 用于 CookieJar.get 父域 cookie 合并 + store domain 属性校验
+//
+// feat-cloak-anticrawler A: 多段 TLD(PSL)识别 ——
+//  原 parentDomainChain 按"倒数 N 段累积"做父域拆分, 把 co.uk / com.cn 这类多段 TLD
+//  当作普通 host: 'www.example.co.uk' → ['www.example.co.uk', 'example.co.uk', 'co.uk'],
+//  'co.uk' 被回填进 CookieJar 时就成了"任一 *.uk 站点 cookie 都共享"的灾难面。
+//  修法: 拆分前先扫 KNOWN_MULTI_PART_TLDS, 若 host 末尾匹配某多段 TLD, 把 TLD 段视作
+//  原子整体, 只在 TLD 之前的子域链上累积, 不再产生 TLD-only / TLD-父级 这类越权条目。
+const KNOWN_MULTI_PART_TLDS = new Set([
+  // UK
+  'co.uk', 'org.uk', 'ac.uk', 'gov.uk', 'me.uk', 'net.uk', 'sch.uk', 'nhs.uk', 'police.uk', 'mod.uk',
+  // CN
+  'com.cn', 'net.cn', 'org.cn', 'gov.cn', 'edu.cn', 'ac.cn', 'mil.cn',
+  // HK
+  'com.hk', 'net.hk', 'org.hk', 'gov.hk', 'edu.hk', 'idv.hk',
+  // TW
+  'com.tw', 'net.tw', 'org.tw', 'gov.tw', 'edu.tw', 'mil.tw', 'idv.tw',
+  // AU
+  'com.au', 'net.au', 'org.au', 'gov.au', 'edu.au',
+  // JP
+  'co.jp', 'ne.jp', 'or.jp', 'ac.jp', 'go.jp', 'ed.jp', 'gr.jp',
+  // KR
+  'co.kr', 'ne.kr', 'or.kr', 'go.kr', 're.kr', 'pe.kr', 'mil.kr', 'ac.kr',
+  // BR
+  'com.br', 'net.br', 'org.br', 'gov.br', 'edu.br',
+  // IN
+  'co.in', 'net.in', 'org.in', 'gov.in', 'ac.in', 'res.in', 'firm.in', 'gen.in', 'ind.in',
+  // SG
+  'com.sg', 'net.sg', 'org.sg', 'gov.sg', 'edu.sg', 'per.sg',
+  // US
+  'com.us',
+  // RU
+  'com.ru', 'net.ru', 'org.ru', 'gov.ru',
+  // cloud / paas 域(用于"操作员代理 / 域名伪造"的混入场景, 默认无主域可拆)
+  'github.io', 'gitlab.io', 'appspot.com', 'cloudapp.net', 'herokuapp.com',
+  'herokuapp.com', 'azurewebsites.net', 'onamazon.com', 'elasticbeanstalk.com',
+  'netlify.app', 'vercel.app', 'fastly.net', 'fly.dev', 'deno.dev', 'render.com',
+])
+
 function parentDomainChain(origin: string): string[] {
   const host = hostOf(origin)
   if (!host) return []
@@ -255,10 +293,26 @@ function parentDomainChain(origin: string): string[] {
   const parts = host.split('.')
   // 单段(如 'localhost' 已上面处理; 'com' 这类 TLD-only 不应作 host 出现, 但兜底返回自身)
   if (parts.length < 2) return [host]
-  // 倒序累积: parts=[a,b,example,com] → [a.b.example.com, b.example.com, example.com]
-  //  不含 TLD-only('com'), 防注入者用 TLD 设 cookie 影响全局
+
+  // feat-cloak-anticrawler A: 多段 TLD 识别 —— 尝试末尾 2 段 / 3 段 是否命中 PSL,
+  // 命中则把 TLD 段视作原子, 不再单独拆出 TLD-only 条目(co.uk 不进 chain)。
+  // 末尾 3 段优先校验: 'example.co.uk' → 末尾 'co.uk'(2 段)命中 → TLD='co.uk',
+  // 子域链只在 'example' 那一段上累积。
+  let tldSegments = 1
+  if (parts.length >= 3) {
+    const last2 = parts.slice(-2).join('.')
+    if (KNOWN_MULTI_PART_TLDS.has(last2)) tldSegments = 2
+  }
+  // 注: 不做 3 段 TLD(如 'pvt.k12.ca.us')识别 —— 当前 PSL set 无 3 段条目;
+  // 命中 2 段 TLD 后再校验 3 段会引入更复杂的边界(需保持 last2 优先), 此处保持保守
+  const tailEnd = parts.length - tldSegments
+  // TLD-only host(如 'co.uk' 本身作 host): 兜底返回自身
+  if (tailEnd <= 0) return [host]
+
+  // 倒序累积: parts=[a,b,example,co,uk] + tldSegments=2 →
+  //   [a.b.example.co.uk, b.example.co.uk, example.co.uk] (不含 'co.uk')
   const out: string[] = []
-  const maxLevels = Math.min(parts.length - 1, 5) // 最多 5 级, 不含 TLD
+  const maxLevels = Math.min(tailEnd, 5) // 最多 5 级, 不含 TLD
   for (let i = 0; i < maxLevels; i++) {
     out.push(parts.slice(i).join('.'))
   }
@@ -420,17 +474,274 @@ class CookieJar {
   clear(domain: string) {
     this.jars.delete(domain)
   }
+
+  /**
+   * feat-cloak-anticrawler B: 序列化全罐为 JSON 字符串(供 SIGTERM 持久化到 data/cookies.json)。
+   *  仅导出未过期条目, 形态: {"domains":[{"host":"example.com","cookies":[{"name":"k","value":"v","at":1234567890}]}]}
+   *  兼容 load() 反向重建; 进程重启后可凭其直接带 cf_clearance 等挑战凭证过盾, 免重新过 CF。
+   *  导出前先 prune() 顺带清过期条目(避免序列化已死 cookie 浪费磁盘 / 反序列化后立即过期)
+   */
+  persist(): string {
+    this.prune()
+    const domains: Array<{ host: string; cookies: Array<{ name: string; value: string; at: number }> }> = []
+    const now = Date.now()
+    for (const [host, jar] of this.jars) {
+      const cookies: Array<{ name: string; value: string; at: number }> = []
+      for (const [k, e] of jar) {
+        // 复查未过期(prune 已清过一次, 这里复用 fresh 兜底)
+        if (now - e.at >= COOKIE_SESSION_TTL_MS) continue
+        cookies.push({ name: k, value: e.v, at: e.at })
+      }
+      // 空罐跳过, 减少落盘体积
+      if (cookies.length > 0) domains.push({ host, cookies })
+    }
+    return JSON.stringify({ v: 1, ts: now, domains })
+  }
+
+  /**
+   * feat-cloak-anticrawler B: 从 persist() 的 JSON 字符串重建罐(启动时加载 data/cookies.json)。
+   *  - 形态不匹配/解析失败: 静默清空当前罐 + 警告日志, 不抛错(零回归: 不阻断启动)
+   *  - 加载后保留过期边界判定(fresh() 复查), 30 分钟 TTL 之外条目立即过期不参与合并
+   *  - 旧罐条目不保留(全量替换语义, 与持久化时点对齐); 调用方负责先 persist 旧罐再 load 新罐
+   */
+  load(json: string): void {
+    let parsed: { v?: number; domains?: Array<{ host: string; cookies: Array<{ name: string; value: string; at: number }> }> } | null = null
+    try {
+      parsed = JSON.parse(json)
+    } catch {
+      console.warn('[fetcher] cookieJar.load: JSON 解析失败, 罐保持空')
+      this.jars.clear()
+      return
+    }
+    if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.domains)) {
+      console.warn('[fetcher] cookieJar.load: 形态不匹配(缺 domains), 罐保持空')
+      this.jars.clear()
+      return
+    }
+    this.jars.clear()
+    const now = Date.now()
+    for (const d of parsed.domains) {
+      if (!d || typeof d.host !== 'string' || !Array.isArray(d.cookies)) continue
+      const jar = new Map<string, { v: string; at: number }>()
+      for (const c of d.cookies) {
+        if (!c || typeof c.name !== 'string' || typeof c.value !== 'string' || typeof c.at !== 'number') continue
+        // 跳过已过期条目(避免一加载就被静默清理占内存)
+        if (now - c.at >= COOKIE_SESSION_TTL_MS) continue
+        jar.set(c.name, { v: c.value, at: c.at })
+      }
+      if (jar.size > 0) this.jars.set(d.host, jar)
+    }
+  }
+
+  /** feat-cloak-anticrawler B: 当前罐中域名数(供 SIGTERM handler 状态日志用) */
+  domainCount(): number {
+    let n = 0
+    for (const _ of this.jars) n++
+    return n
+  }
 }
 const globalForJar = globalThis as unknown as { __novelCookieJar_v3?: CookieJar }
 // 版本化缓存键: dev 热更新时旧进程实例可能缺少新方法/旧条目结构(纯字符串 vs 时间戳对象),
 // 结构不匹配则重建(v2 纯串实例不含 TTL 时间戳, 复用会让 fresh() 读到 undefined)
+// feat-cloak-anticrawler B: 同时校验 persist/load/domainCount 新方法, 防止 dev HMR 复用
+// 不含新方法的旧实例(否则 SIGTERM 持久化路径会 TypeError)
 function validJar(j: CookieJar | undefined): j is CookieJar {
-  return !!j && typeof j.count === 'function' && typeof j.store === 'function' && typeof j.clear === 'function'
+  return !!j
+    && typeof j.count === 'function'
+    && typeof j.store === 'function'
+    && typeof j.clear === 'function'
+    && typeof (j as CookieJar).persist === 'function'
+    && typeof (j as CookieJar).load === 'function'
+    && typeof (j as CookieJar).domainCount === 'function'
 }
 export const cookieJar = validJar(globalForJar.__novelCookieJar_v3)
   ? globalForJar.__novelCookieJar_v3
   : new CookieJar()
 globalForJar.__novelCookieJar_v3 = cookieJar
+
+// ---------- feat-cloak-anticrawler B/E: Cookie 持久化 + SIGTERM 优雅关闭 ----------
+// data/cookies.json 路径(与 storage.ts ensureDirs 同根, 供 SIGTERM 持久化与启动加载复用)
+const COOKIE_PERSIST_PATH = 'data/cookies.json'
+
+/**
+ * 启动时加载持久化 cookie 罐 —— 进程启动早期调用一次即可(幂等: 重复调用会覆盖当前罐)。
+ * 文件不存在/解析失败/形态不匹配 → 静默跳过(零回归: 不阻断启动, 仅丢失上次会话凭证)。
+ * 加载成功后旧罐条目被覆盖(与 persist 时点对齐); 调用方需在启动后立即调用, 避免在采集
+ * 进行中调用导致正在使用的 cookie 被清空。
+ */
+export function loadCookieJarFromDisk(): void {
+  try {
+    // node:fs 同步读取(启动期阻塞可接受; 异步读取需保证后续 fetch 在加载完成前不触发,
+    // 复杂度更高且引入时序竞态, 故启动期同步加载)
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const fs = typeof require === 'function' ? require('node:fs') : null
+    if (!fs) return
+    if (!fs.existsSync(COOKIE_PERSIST_PATH)) return
+    const json = fs.readFileSync(COOKIE_PERSIST_PATH, 'utf8')
+    if (typeof json === 'string' && json.length > 0) {
+      cookieJar.load(json)
+      console.log(`[fetcher] cookie jar 已从 ${COOKIE_PERSIST_PATH} 加载(${cookieJar.domainCount()} 域)`)
+    }
+  } catch (e: any) {
+    console.warn(`[fetcher] 加载 cookie jar 失败(忽略, 继续空罐启动): ${String(e?.message || e).slice(0, 120)}`)
+  }
+}
+
+/**
+ * 在飞请求计数器 —— 用于 SIGTERM 时"等待在飞请求最多 10s"的判定。
+ * 每次 fetchPage 入口 +1, 出口(无论成功失败) -1。
+ */
+let inFlightFetchCount = 0
+function enterInFlight(): void { inFlightFetchCount++ }
+function leaveInFlight(): void { inFlightFetchCount = Math.max(0, inFlightFetchCount - 1) }
+
+/**
+ * feat-cloak-anticrawler F: 全局并发信号量 —— 跨 host 共享, 限制"全局总在飞"请求上限,
+ * 防 hostGate(per-host)无法表达的多任务并行 + 多镜像 host 累积在飞撑爆内存。
+ *
+ * 设计(与 hostgate 同款 FIFO + 无偏向容量复查语义, 但极简化无速率/降额维度):
+ *  - acquire(limit): 满 limit 则排队等待, 直到 inFlight < limit 才放行并 inFlight++
+ *  - release(): inFlight-- 且唤醒一个排队者
+ *  - 挂到 globalThis 防 dev HMR 多实例: 全局信号量在跨请求间共享, 单例必需
+ *  - 无超时上限(让上层 fetchPage 的 cfg.timeout 兜底, 不再叠加上层等待时间)
+ */
+interface GlobalSemaphore {
+  inFlight: number
+  waiters: Array<() => void>
+}
+const globalForSem = globalThis as unknown as { __novelGlobalSem_v1?: GlobalSemaphore }
+const globalSem: GlobalSemaphore = globalForSem.__novelGlobalSem_v1 ?? { inFlight: 0, waiters: [] }
+globalForSem.__novelGlobalSem_v1 = globalSem
+
+async function acquireGlobalSlot(limit: number): Promise<void> {
+  if (globalSem.inFlight < limit) {
+    globalSem.inFlight++
+    return
+  }
+  // 排队等待, release 时唤醒
+  await new Promise<void>((resolve) => {
+    globalSem.waiters.push(resolve)
+  })
+  // 被唤醒后 inFlight 已被唤醒者 ++ 占位(见 release), 直接返回
+}
+
+function releaseGlobalSlot(): void {
+  globalSem.inFlight = Math.max(0, globalSem.inFlight - 1)
+  // 容量空出后唤醒一个等待者(FIFO 无偏向)
+  const next = globalSem.waiters.shift()
+  if (next) {
+    // 唤醒者立即占位(inFlight++), 避免"先唤醒后竞争"导致 barge 插队
+    globalSem.inFlight++
+    next()
+  }
+}
+
+/**
+ * feat-cloak-anticrawler G: 路径抖动 —— 跨"不同 URL path"切换时插入 100~500ms 随机延迟。
+ * per-host 维护"上次请求的 pathname", 当前请求 path 不同时插入随机延迟并更新记录。
+ * 设计要点:
+ *  - 仅当 cfg.pathJitter === true 时启用(零回归: 缺省 false 不注入任何延迟)
+ *  - per-host: 同 host 不同 path 才抖动(同 path 重复请求如 token 重试不抖动, 避免拖慢重试链)
+ *  - 100~500ms: 与真实用户翻页阅读间隔同量级, 不至拖慢采集吞吐
+ *  - 全局 Map: 挂到 globalThis 防 dev HMR 多实例; LRU 200 条防泄漏
+ */
+interface PathJitterState {
+  /** host → last pathname seen */
+  lastPaths: Map<string, string>
+}
+const globalForPj = globalThis as unknown as { __novelPathJitter_v1?: PathJitterState }
+const pathJitterState: PathJitterState = globalForPj.__novelPathJitter_v1 ?? { lastPaths: new Map() }
+globalForPj.__novelPathJitter_v1 = pathJitterState
+
+async function maybePathJitter(url: string, cfg: FetchConfig): Promise<void> {
+  if (!cfg.pathJitter) return
+  let host = '', path = ''
+  try {
+    const u = new URL(url)
+    host = u.hostname.toLowerCase()
+    path = u.pathname
+  } catch { return /* URL 解析失败: 跳过抖动, 不阻断抓取 */ }
+  if (!host || !path) return
+  const last = pathJitterState.lastPaths.get(host)
+  // 同 path(如重试/token 挑战)不抖动; 不同 path 才注入延迟
+  if (last !== undefined && last !== path) {
+    const delay = 100 + Math.floor(Math.random() * 400) // 100~500ms
+    await new Promise((r) => setTimeout(r, delay))
+  }
+  // 更新 last path(无论是否抖动, 让"连续同 path 请求"也能正确判定)
+  pathJitterState.lastPaths.set(host, path)
+  // LRU 200 条防泄漏(同 cookieJar/domainUa 同款 FIFO 淘汰)
+  if (pathJitterState.lastPaths.size > 200) {
+    const firstKey = pathJitterState.lastPaths.keys().next().value
+    if (firstKey) pathJitterState.lastPaths.delete(firstKey)
+  }
+}
+
+/**
+ * 优雅关闭已注册标志(防 SIGTERM 多次触发重复执行关闭流程)。
+ * 挂到 globalThis 防 dev HMR 多次注册 handler。
+ */
+const globalForShutdown = globalThis as unknown as { __novelShutdownRegistered_v1?: boolean }
+let shutdownInProgress = false
+
+/**
+ * 注册 SIGTERM / SIGINT 优雅关闭 hook:
+ *  1. 持久化 cookieJar 到 data/cookies.json(挑战凭证 cf_clearance 等下次启动可复用)
+ *  2. shutdownObscura 关闭浏览器实例与槽位 ctx
+ *  3. 等待在飞 fetchPage 请求最多 10s(避免半路杀掉 fetcher 导致 cf_clearance 不写入罐)
+ *  4. exit(0) 退出
+ *
+ * 注: CloakBrowser(端口 3016)是独立 bun 进程, 由其自身的 SIGTERM handler 关闭
+ * 浏览器实例(本进程无法跨进程关闭其 browser); cookie jar 已持久化的部分覆盖 CloakBrowser
+ * 通过 Set-Cookie 头写回的 cf_clearance(由 fetcher.renderWithBrowser → cookieJar.store 落罐)。
+ *
+ * runner.ts 侧的"任务进度落库"由 saveProgress 在每次抓取批次后即时落库, SIGTERM 时
+ * 最多丢失"未到下一 saveProgress 检查点"的少量进度(已被持久化过的进度不丢失)。
+ */
+export function registerGracefulShutdown(): void {
+  if (globalForShutdown.__novelShutdownRegistered_v1) return
+  globalForShutdown.__novelShutdownRegistered_v1 = true
+  const handler = (sig: string) => {
+    if (shutdownInProgress) return
+    shutdownInProgress = true
+    console.log(`[fetcher] 收到 ${sig}, 开始优雅关闭(cookieJar 持久化 + Obscura 关闭 + 等在飞)`)
+    void (async () => {
+      // 1. cookie jar 持久化(同步 fs 写, 防 exit 前 IO 没刷盘)
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const fs = typeof require === 'function' ? require('node:fs') : null
+        if (fs) {
+          const json = cookieJar.persist()
+          // data 目录可能不存在(冷启动), mkdirSync 同步创建
+          try { fs.mkdirSync('data', { recursive: true }) } catch { /* 已存在 */ }
+          fs.writeFileSync(COOKIE_PERSIST_PATH, json, 'utf8')
+          console.log(`[fetcher] cookie jar 已持久化到 ${COOKIE_PERSIST_PATH} (${cookieJar.domainCount()} 域)`)
+        }
+      } catch (e: any) {
+        console.warn(`[fetcher] cookie jar 持久化失败(忽略): ${String(e?.message || e).slice(0, 120)}`)
+      }
+      // 2. Obscura 关闭(独立 try, 失败不阻断后续)
+      try { await shutdownObscura() } catch (e: any) {
+        console.warn(`[fetcher] Obscura 关闭失败(忽略): ${String(e?.message || e).slice(0, 120)}`)
+      }
+      // 3. 等待在飞请求(最多 10s; in-flight 计数降为 0 即提前退出)
+      const waitDeadline = Date.now() + 10_000
+      while (inFlightFetchCount > 0 && Date.now() < waitDeadline) {
+        await new Promise((r) => setTimeout(r, 200))
+      }
+      if (inFlightFetchCount > 0) {
+        console.warn(`[fetcher] 优雅关闭超时, 仍有 ${inFlightFetchCount} 个在飞请求, 强制退出`)
+      }
+      // 4. exit
+      process.exit(0)
+    })()
+  }
+  try {
+    process.once('SIGTERM', () => handler('SIGTERM'))
+    process.once('SIGINT', () => handler('SIGINT'))
+  } catch { /* 某些运行时 process 只读, 忽略 */ }
+}
+
 
 // ---------- 编码识别 ----------
 function stripBom(s: string): string {
@@ -1763,10 +2074,12 @@ export function scraplingModeOf(fetchMode: string | undefined | null): Scrapling
  */
 export const SCRAPLING_BROWSER_CONCURRENCY = 3
 
-export function effectiveHostGateLimit(cfg: Pick<FetchConfig, 'fetchMode' | 'hostGateLimit'>): number | undefined {
+export function effectiveHostGateLimit(cfg: Pick<FetchConfig, 'fetchMode' | 'hostGateLimit' | 'hostGateConcurrency'>): number | undefined {
   const mode = scraplingModeOf(cfg.fetchMode)
-  if (mode !== 'stealthy' && mode !== 'playwright') return cfg.hostGateLimit
-  const limit = cfg.hostGateLimit
+  // feat-cloak-anticrawler F: 优先取 hostGateConcurrency(语义别名), 缺失回退 hostGateLimit
+  const rawLimit = cfg.hostGateConcurrency ?? cfg.hostGateLimit
+  if (mode !== 'stealthy' && mode !== 'playwright') return rawLimit
+  const limit = rawLimit
   if (typeof limit !== 'number' || !Number.isFinite(limit)) return limit
   return Math.min(limit, SCRAPLING_BROWSER_CONCURRENCY)
 }
@@ -2187,40 +2500,74 @@ export interface FetchResult {
  */
 export async function fetchPage(url: string, cfgOverride?: Partial<FetchConfig>): Promise<FetchResult> {
   const cfg: FetchConfig = { ...DEFAULT_FETCH_CONFIG, ...cfgOverride }
-  // 2-fetcher Part A: SSRF 守卫 —— 默认禁止抓取内部/元数据/私网地址; loopback 仅对
-  // 操作员配置的 tokenUrl(127.0.0.1:301x)/fetch-relay/scrapling bridge 内部调用放行
-  const allowLoopback = loopbackBypassAllowed(url, cfg)
-  const ssrf = await assertSafeTarget(url, { allowLoopback })
-  if (!ssrf.ok) throw new Error(`SSRF blocked: ${ssrf.reason}`)
-  const group = mirrorGroupFor(url, cfg)
-  if (group.length <= 1) return fetchPageOnce(url, cfg)
-  let lastErr: unknown = null
-  for (let i = 0; i < group.length; i++) {
-    const hostUrl = rewriteMirrorHost(url, group[i])
-    if (!hostUrl) continue
-    // 2-fetcher Part A: 镜像 host 也走 SSRF 守卫(防 admin 配置 mirrorDomains 指向内网)
-    // R5-13: 原硬编码 allowLoopback:false 会把 URL 自身的 loopback token 代理(如 127.0.0.1:3010)
-    //  在 i=0 首次迭代(=URL 自身 host)时拒掉 → 该镜像被跳过 → 章节抓取静默失败。
-    //  改用 loopbackBypassAllowed(hostUrl, cfg) 与外层 SSRF 守卫同口径(配置豁免则放行)
-    const mirrorSsrf = await assertSafeTarget(hostUrl, { allowLoopback: loopbackBypassAllowed(hostUrl, cfg) })
-    if (!mirrorSsrf.ok) {
-      console.warn(`[fetcher] 镜像 ${group[i]} SSRF 拒绝: ${mirrorSsrf.reason}`)
-      lastErr = new Error(`SSRF blocked: ${mirrorSsrf.reason}`)
-      continue
-    }
+  // feat-cloak-anticrawler E: 在飞计数器(SIGTERM 优雅关闭判定用) —— 必须在 SSRF 守卫
+  // 之前 +1, 让"被 SSRF 拒绝也计入在飞"语义不丢(同步路径瞬时 return 不影响计数器一致性:
+  // enterInFlight +1, finally 出口 leaveInFlight -1)。SSRF 拒绝是同步 throw, finally 仍执行
+  enterInFlight()
+  try {
+    // feat-cloak-anticrawler F: 全局并发信号量 —— acquire/release 在外层包裹,
+    // 让"被 SSRF 拒绝/内存压力等待/镜像组重试"全路径都计入全局在飞计数(同 hostGate
+    // 口径, 保证信号量与在飞计数器一致)。release 必须在 finally, 否则异常路径会泄漏槽位。
+    // 钳制 limit [1, 50](sanitizeFetchConfig 同口径, 兜底防脏值)
+    const globalLimit = Math.max(1, Math.min(50, cfg.globalConcurrency ?? 10))
+    await acquireGlobalSlot(globalLimit)
     try {
-      return await fetchPageOnce(hostUrl, cfg)
-    } catch (e) {
-      lastErr = e
-      // 不可切换错误(404/3xx/其余4xx)原样上抛: 换镜像无意义, 错误语义与单 host 契约一致
-      if (!isMirrorSwitchableError(e)) throw e
-      console.warn(
-        `[fetcher] 镜像切换: ${group[i]} 失败(${String((e as Error)?.message || e).slice(0, 120)}), ` +
-        (i + 1 < group.length ? `改试下一镜像 ${group[i + 1]}` : `镜像组已尽(共${group.length}个 host)`)
-      )
+      // feat-cloak-anticrawler G: 路径抖动 —— 跨"不同 URL path"切换时插入 100~500ms 随机延迟
+      // (cfg.pathJitter === true 时启用, 缺省 false 零回归)。必须在信号量获取后, 让抖动等待
+      // 也计入全局在飞(否则信号量槽位会被抖动等待占用而其他请求饿死)。抖动不释放信号量,
+      // 同一个槽位一直持有到 fetchPageOnce 完成 → finally release
+      await maybePathJitter(url, cfg)
+      // feat-cloak-anticrawler H: OOM 保护 —— heapUsed 超 1.5GB 暂停新请求 5s, 让 GC 回收
+      // 在飞响应体/cheerio 文档; 长任务大书(数千章节)累积堆占用撑爆 4G 容器导致 OOM kill。
+      // 同步 process.memoryUsage() 开销极低(<1μs), 每请求测一次可接受
+      try {
+        const mem = process.memoryUsage()
+        if (mem.heapUsed > 1.5 * 1024 * 1024 * 1024) {
+          console.warn(`[fetcher] 内存压力(heapUsed=${Math.round(mem.heapUsed / 1024 / 1024)}MB > 1.5GB), 暂停 5s 让 GC 回收`)
+          await new Promise((r) => setTimeout(r, 5000))
+        }
+      } catch { /* memoryUsage 失败容忍 */ }
+
+      // 2-fetcher Part A: SSRF 守卫 —— 默认禁止抓取内部/元数据/私网地址; loopback 仅对
+      // 操作员配置的 tokenUrl(127.0.0.1:301x)/fetch-relay/scrapling bridge 内部调用放行
+      const allowLoopback = loopbackBypassAllowed(url, cfg)
+      const ssrf = await assertSafeTarget(url, { allowLoopback })
+      if (!ssrf.ok) throw new Error(`SSRF blocked: ${ssrf.reason}`)
+      const group = mirrorGroupFor(url, cfg)
+      if (group.length <= 1) return await fetchPageOnce(url, cfg)
+      let lastErr: unknown = null
+      for (let i = 0; i < group.length; i++) {
+        const hostUrl = rewriteMirrorHost(url, group[i])
+        if (!hostUrl) continue
+        // 2-fetcher Part A: 镜像 host 也走 SSRF 守卫(防 admin 配置 mirrorDomains 指向内网)
+        // R5-13: 原硬编码 allowLoopback:false 会把 URL 自身的 loopback token 代理(如 127.0.0.1:3010)
+        //  在 i=0 首次迭代(=URL 自身 host)时拒掉 → 该镜像被跳过 → 章节抓取静默失败。
+        //  改用 loopbackBypassAllowed(hostUrl, cfg) 与外层 SSRF 守卫同口径(配置豁免则放行)
+        const mirrorSsrf = await assertSafeTarget(hostUrl, { allowLoopback: loopbackBypassAllowed(hostUrl, cfg) })
+        if (!mirrorSsrf.ok) {
+          console.warn(`[fetcher] 镜像 ${group[i]} SSRF 拒绝: ${mirrorSsrf.reason}`)
+          lastErr = new Error(`SSRF blocked: ${mirrorSsrf.reason}`)
+          continue
+        }
+        try {
+          return await fetchPageOnce(hostUrl, cfg)
+        } catch (e) {
+          lastErr = e
+          // 不可切换错误(404/3xx/其余4xx)原样上抛: 换镜像无意义, 错误语义与单 host 契约一致
+          if (!isMirrorSwitchableError(e)) throw e
+          console.warn(
+            `[fetcher] 镜像切换: ${group[i]} 失败(${String((e as Error)?.message || e).slice(0, 120)}), ` +
+            (i + 1 < group.length ? `改试下一镜像 ${group[i + 1]}` : `镜像组已尽(共${group.length}个 host)`)
+          )
+        }
+      }
+      throw lastErr ?? new Error('抓取失败(镜像组全部尝试失败)')
+    } finally {
+      releaseGlobalSlot()
     }
+  } finally {
+    leaveInFlight()
   }
-  throw lastErr ?? new Error('抓取失败(镜像组全部尝试失败)')
 }
 
 /**

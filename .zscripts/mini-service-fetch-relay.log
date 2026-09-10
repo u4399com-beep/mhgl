@@ -1,7 +1,7 @@
 [fetch-relay] Installing dependencies...
 bun install v1.3.14 (0d9b296a)
 
-Checked 4 installs across 5 packages (no changes) [6.00ms]
+Checked 4 installs across 5 packages (no changes) [15.00ms]
 [fetch-relay] Running bun run dev...
 $ bun --hot index.ts
 133 |       { ok: false, error: 'missing or invalid X-Bridge-Key', code: 'BRIDGE_KEY_REQUIRED' },
