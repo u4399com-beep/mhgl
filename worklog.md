@@ -2666,3 +2666,25 @@ Work Log:
 - Re-disabled 5 failures, keeping 27 enabled 24/24 pass (100%)
 - Final: 53 rules (27 enabled + 26 disabled)
 - Pushed to GitHub
+
+---
+Task ID: cf-breakthrough
+Agent: CF突破 + 123duw探查 + jhsssd/hodei修复
+Task: 突破5个CF站点 + 探查123duw + 修复选择器
+
+Work Log:
+- 123duw.com探查: SSL证书过期(certificate has expired) + HTTP 301→HTTPS + HTTPS 403
+  → 不可用, 保持禁用
+- jhsssd.com(精华书阁): 直连200可达! 关键发现: uaMode=rotate时部分UA被站点拒绝
+  返回简化页面(10620字符, 缺.item class), 用uaMode=desktop强制桌面UA获取完整页面
+  (18012字符含.item), 选择器.item/dt a/dt span/dd/.image img, count=6 ✓
+- hodei.net(好读小说网): 同理, uaMode=desktop获取完整页面(33759字符)
+  选择器.item/dt a:last-child/.image img, count=6 ✓
+- pilishuwu.com: CF challenge页, curl获取到cookie但访问sort页仍403
+  → 需engine=auto浏览器引擎求解CF, 测试模式无法触发, 保持禁用
+- hetushu.com: CF challenge页(Just a moment), 同上保持禁用
+- dongliuxiaoshuo.com: CF challenge页(Access denied), 同上保持禁用
+
+最终: 53条规则(29启用+24禁用), 26/26测试通过(100%)
+- 新增通过: jhsssd(6本) hodei(6本)
+质量门: lint 0/0, tsc 0
