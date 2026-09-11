@@ -37,6 +37,8 @@ import json
 import os
 import platform
 import re
+import signal
+import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -51,6 +53,46 @@ MODES = ('static', 'stealthy', 'playwright')
 # 浏览器类模式(stealthy/playwright)每次请求独立 launch 浏览器实例, 内存开销大:
 # 桥内并发闸与引擎 hostGate 缺省上限(3)同向, 超出的请求排队等信号量
 BROWSER_SEM = threading.BoundedSemaphore(3)
+
+# [R9-b-19] venv/scrapling 缺失时的可操作修复提示(错误信封与 /health 同文附)
+INSTALL_HINT = (
+    "修复: 在 mini-services/scrapling-bridge 内执行 "
+    "`uv venv .venv && uv pip install --python .venv/bin/python 'scrapling[fetchers]' "
+    "&& .venv/bin/scrapling install`, 然后重启本桥"
+)
+
+# [R9-b-17] 优雅关闭: 在飞浏览器请求计数(信号持有者) + 关停事件。
+# 旧实现 SIGTERM 走 Python 默认处理器直接终止进程: 在飞 fetch 的 patchright chromium
+# 子进程来不及收尾, 可能残留孤儿浏览器进程。改为: 停止接收新请求 → 限等待飞浏览器
+# 请求结束(≤10s) → 正常退出(让 playwright 驱动侧 atexit/管道关闭机制回收子进程)
+_INFLIGHT_LOCK = threading.Lock()
+_BROWSER_INFLIGHT = 0
+_SERVER = None  # type: ignore[var-annotated]
+
+
+def _browser_inflight_change(delta: int) -> None:
+    global _BROWSER_INFLIGHT
+    with _INFLIGHT_LOCK:
+        _BROWSER_INFLIGHT = max(0, _BROWSER_INFLIGHT + delta)
+
+
+def _browser_inflight() -> int:
+    with _INFLIGHT_LOCK:
+        return _BROWSER_INFLIGHT
+
+
+def _graceful_shutdown_async() -> None:
+    """在独立线程里停机(signal handler 运行在主线程, 直接调 shutdown() 会死锁 serve_forever)"""
+    try:
+        if _SERVER is not None:
+            _SERVER.shutdown()
+    except Exception:
+        pass
+
+
+def _handle_signal(sig, _frame):  # noqa: ANN001 — signal handler 固定签名
+    print(f'[scrapling-bridge] 收到 {sig}, 优雅关闭(停止接新请求, 等在飞浏览器请求≤10s)', flush=True)
+    threading.Thread(target=_graceful_shutdown_async, daemon=True).start()
 
 _FETCHERS = None
 _FETCHERS_ERR = None
@@ -69,7 +111,7 @@ def get_fetchers():
                 except Exception as e:  # noqa: BLE001 — 留档启动期失败原因
                     _FETCHERS_ERR = f'{type(e).__name__}: {e}'
     if _FETCHERS is None:
-        raise RuntimeError(f'scrapling fetchers 不可用: {_FETCHERS_ERR}')
+        raise RuntimeError(f'scrapling fetchers 不可用: {_FETCHERS_ERR}。{INSTALL_HINT}')
     return _FETCHERS
 
 
@@ -208,10 +250,18 @@ def do_fetch(payload) -> dict:
 
     impl = IMPLS[mode]
     acquired = False
+    tracked = False
     try:
         if mode in BROWSER_MODES:
-            BROWSER_SEM.acquire()
+            # [R9-b-18] 修复: 信号量获取加超时(与请求 timeoutMs 同量级) —— 旧实现无限阻塞,
+            # 三个浏览器槽位全被慢站占住时, 后续排队线程永久挂起(客户端超时后连接已断,
+            # 线程仍在等信号量, daemon 线程数只增不减)
+            if not BROWSER_SEM.acquire(timeout=max(1.0, timeout_ms / 1000)):
+                return {'ok': False, 'error': f'浏览器并发闸排队超时(>{int(timeout_ms / 1000)}s, 3 槽位全忙), 请降低该源并发或稍后重试'}
             acquired = True
+            # [R9-b-17]: 在飞浏览器请求计数(优雅关闭时限等收尾用)
+            _browser_inflight_change(1)
+            tracked = True
         page = impl(url, timeout_ms, headers, proxy, headless)
         html = body_to_text(page)
         if len(html.encode('utf-8', errors='replace')) > MAX_BODY_BYTES:
@@ -227,6 +277,8 @@ def do_fetch(payload) -> dict:
         msg = f'{type(e).__name__}: {e}'
         return {'ok': False, 'error': msg[:600]}
     finally:
+        if tracked:
+            _browser_inflight_change(-1)
         if acquired:
             try:
                 BROWSER_SEM.release()
@@ -255,13 +307,19 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):  # noqa: N802 — BaseHTTPRequestHandler 命名约定
         path = self.path.split('?')[0]
         if path == '/health':
-            self._send_json({
+            st_ok = self_test()
+            payload = {
                 'ok': True,
-                'selfTestOk': self_test(),
+                'selfTestOk': st_ok,
                 'versions': versions(),
                 'modes': list(MODES),
                 'ts': int(time.time() * 1000),
-            })
+            }
+            # [R9-b-19]: selfTest 失败时附可操作修复提示(运维/引擎侧可直接感知 venv 缺失原因)
+            if not st_ok:
+                payload['selfTestError'] = str(_FETCHERS_ERR)[:300]
+                payload['installHint'] = INSTALL_HINT
+            self._send_json(payload)
             return
         self._send_json({'ok': False, 'error': 'not found'}, status=404)
 
@@ -304,6 +362,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
+    global _SERVER
     # 启动即预热 fetchers 导入(首个 /fetch 不吃冷启动 import 开销; 失败留档,
     # /health selfTestOk=false 让引擎/运维可感知)
     ok = self_test()
@@ -312,12 +371,32 @@ def main():
         f' versions={versions()}',
         flush=True,
     )
+    # [R9-b-17]: 优雅关闭信号注册(SIGTERM 来自进程管理器/父进程 stop; SIGINT 来自 Ctrl-C)
+    try:
+        signal.signal(signal.SIGTERM, _handle_signal)
+        signal.signal(signal.SIGINT, _handle_signal)
+    except (ValueError, OSError):
+        pass  # 非主线程/受限环境下注册失败则维持默认行为
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     server.daemon_threads = True
+    _SERVER = server
     try:
-        server.serve_forever()
+        server.serve_forever(poll_interval=0.2)
     except KeyboardInterrupt:
         pass
+    finally:
+        # [R9-b-17]: serve_forever 返回(信号触发 shutdown 或 Ctrl-C)后, 限等在飞浏览器请求
+        # 结束再退出, 尽量让 patchright chromium 正常收尾, 不留孤儿浏览器进程;
+        # 超时则放弃等待(进程退出后 playwright 驱动管道关闭会连带回收子进程)
+        deadline = time.time() + 10
+        while _browser_inflight() > 0 and time.time() < deadline:
+            time.sleep(0.2)
+        remaining = _browser_inflight()
+        if remaining > 0:
+            print(f'[scrapling-bridge] 关闭超时, 仍有 {remaining} 个在飞浏览器请求, 强制退出', flush=True)
+        server.server_close()
+        print('[scrapling-bridge] 已退出', flush=True)
+    sys.exit(0)
 
 
 if __name__ == '__main__':

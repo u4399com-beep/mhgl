@@ -3,7 +3,7 @@ import { db } from '@/lib/db'
 import { ok } from '@/lib/api'
 import { TaskRunner } from '@/lib/crawl/runner'
 import { logger } from '@/lib/logger'
-import { withGuard } from '../../_lib/http'
+import { withGuard, slimTaskProgressJson } from '../../_lib/http'
 
 const globalForBoot = globalThis as unknown as { __novelBootRecovered?: boolean }
 
@@ -23,22 +23,26 @@ function empty7d(): Array<{ day: string; count: number }> {
   return out
 }
 
-/** 把 createdAt 列表分桶到 7 天序列(就地填 count) */
-function bucketize7d(
-  rows: Array<{ createdAt: Date }>,
-): Array<{ day: string; count: number }> {
+/**
+ * R9-d-7: 近 7 天逐日计数 —— 旧实现 findMany({ select: { createdAt } }) 把 7 天内全部行的
+ * createdAt 拉回内存再分桶(活跃采集周可达数十万行, 纯粹为了 count)。改为按本地自然日
+ * [当日 0 点, 次日 0点) 边界做 7 次 count(输出与旧行为逐桶一致), 内存 O(1)、无需传输行数据。
+ */
+async function countPerDay7d(
+  model: 'chapter' | 'book'
+): Promise<Array<{ day: string; count: number }>> {
   const buckets = empty7d()
-  // day 字符串 → bucket 索引, O(1) 查
-  const idx = new Map<string, number>()
-  buckets.forEach((b, i) => idx.set(b.day, i))
-  for (const r of rows) {
-    const d = r.createdAt instanceof Date ? r.createdAt : new Date(r.createdAt)
-    if (isNaN(d.getTime())) continue
-    const mm = String(d.getMonth() + 1).padStart(2, '0')
-    const dd = String(d.getDate()).padStart(2, '0')
-    const key = `${mm}-${dd}`
-    const i = idx.get(key)
-    if (i !== undefined) buckets[i].count++
+  // 动态模型选择: chapter/book 两表同构的 createdAt 计数, 这里用窄化接口规避 any
+  type Countable = { count(args: { where: { createdAt: { gte: Date; lt: Date } } }): Promise<number> }
+  const m = (model === 'chapter' ? db.chapter : db.book) as unknown as Countable
+  const now = new Date()
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  for (let i = 6; i >= 0; i--) {
+    const dayStart = new Date(today)
+    dayStart.setDate(dayStart.getDate() - i)
+    const dayEnd = new Date(dayStart)
+    dayEnd.setDate(dayEnd.getDate() + 1)
+    buckets[6 - i].count = await m.count({ where: { createdAt: { gte: dayStart, lt: dayEnd } } })
   }
   return buckets
 }
@@ -70,7 +74,14 @@ export async function GET() {
       db.downloadJob.count(),
     ])
     const wordAgg = await db.chapter.aggregate({ _sum: { wordCount: true } })
-    const recentTasks = await db.task.findMany({ orderBy: { updatedAt: 'desc' }, take: 6, include: { rule: { select: { name: true } } } })
+    const recentTasksRaw = await db.task.findMany({ orderBy: { updatedAt: 'desc' }, take: 6, include: { rule: { select: { name: true } } } })
+    // R9-d-6/7: 仪表盘 recentTasks 同款进度瘦身(单任务 progress 可达 ~12MB, 6 行原样返回
+    // 会被 Dashboard 轮询周期性拖回数十 MB; 前端仅消费标量进度字段)
+    const recentTasks = recentTasksRaw.map((t) => {
+      const slim = slimTaskProgressJson(t.progress)
+      if (!slim.truncated) return t
+      return { ...t, progress: slim.progress, progressTruncated: true }
+    })
     const recentBooks = await db.book.findMany({
       orderBy: { updatedAt: 'desc' },
       take: 6,
@@ -112,30 +123,18 @@ export async function GET() {
       logger.warn('stats booksByStatus failed', { err: (e as Error)?.message })
     }
 
-    // 3) 近 7 天章节入库曲线 — fetch createdAt 后分桶 (select 仅取 createdAt, 控制 IO)
+    // 3) 近 7 天章节入库曲线 — R9-d-7: 逐日 count 替代全行 findMany+分桶(内存 O(1))
     let chaptersLast7d: Array<{ day: string; count: number }> = empty7d()
     try {
-      const since = new Date(Date.now() - 6 * 24 * 3600 * 1000)
-      since.setHours(0, 0, 0, 0)
-      const rows = await db.chapter.findMany({
-        where: { createdAt: { gte: since } },
-        select: { createdAt: true },
-      })
-      chaptersLast7d = bucketize7d(rows)
+      chaptersLast7d = await countPerDay7d('chapter')
     } catch (e) {
       logger.warn('stats chaptersLast7d failed', { err: (e as Error)?.message })
     }
 
-    // 4) 近 7 天书籍入库曲线
+    // 4) 近 7 天书籍入库曲线 — R9-d-7: 同上
     let booksLast7d: Array<{ day: string; count: number }> = empty7d()
     try {
-      const since = new Date(Date.now() - 6 * 24 * 3600 * 1000)
-      since.setHours(0, 0, 0, 0)
-      const rows = await db.book.findMany({
-        where: { createdAt: { gte: since } },
-        select: { createdAt: true },
-      })
-      booksLast7d = bucketize7d(rows)
+      booksLast7d = await countPerDay7d('book')
     } catch (e) {
       logger.warn('stats booksLast7d failed', { err: (e as Error)?.message })
     }

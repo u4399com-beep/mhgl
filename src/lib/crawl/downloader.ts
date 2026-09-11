@@ -129,10 +129,13 @@ export async function generateBookTxt(
   defaultSiteName: string,
   defaultSiteUrl: string
 ): Promise<{ rel: string; size: number; chapters: number }> {
-  const book = await db.book.findUniqueOrThrow({
-    where: { id: bookId },
-    include: { chapters: { orderBy: { idx: 'asc' } } },
-  })
+  // R9-d-5: 章节改分批加载 —— 旧实现 findUniqueOrThrow({ include: { chapters } }) 把全书章节行
+  // (db 存储模式含 content 正文!)一次性载入内存: 20000 章 × ~15KB ≈ 300MB 峰值, 万章大部头书
+  // 生成即 OOM(gg-a 流式落盘只消除了 parts 拼接峰值, 查询本身的整书载入仍在)。改为按 idx 游标
+  // 分批 findMany(每批 500 章, 仅 select 输出所需字段), 峰值内存从 O(全书) 降到 O(单批);
+  // 输出字节序与旧实现逐字节一致(同 idx 升序遍历, 组装逻辑不变)
+  const book = await db.book.findUniqueOrThrow({ where: { id: bookId } })
+  const totalChapters = await db.chapter.count({ where: { bookId } })
   const opts: DownloadOptions = { ...DEFAULT_DOWNLOAD_OPTIONS, ...optionsOverride }
 
   const siteName = opts.siteName || defaultSiteName || '小说站'
@@ -202,31 +205,46 @@ export async function generateBookTxt(
     // 后续同卷章每次都重发『══════ 卷名 ══════』, 万章书可产生几十个重复卷头。
     // lastEmittedVolume 语义: 空卷名不重置基准; 真正换卷(v2)/卷回归(v1)仍正确插头。
     let lastEmittedVolume = ''
-    for (const ch of book.chapters) {
-      count++
-      let text = await chapterPlainText(ch as any)
-      if (!text) continue
+    // R9-d-5: idx 游标分批遍历章节(升序与旧实现全量 include 一致), 峰值内存 O(单批)
+    const CHAPTER_BATCH = 500
+    let lastIdx = 0
+    for (;;) {
+      const batch = await db.chapter.findMany({
+        where: { bookId, idx: { gt: lastIdx } },
+        orderBy: { idx: 'asc' },
+        take: CHAPTER_BATCH,
+        select: { idx: true, title: true, volume: true, content: true, filePath: true, storage: true },
+      })
+      if (batch.length === 0) break
+      lastIdx = batch[batch.length - 1].idx
+      for (const ch of batch) {
+        count++
+        let text = await chapterPlainText(ch)
+        if (!text) continue
 
-      // 分卷结构: 卷变化处插入卷标题行(volume 为空不插, 仅对有正文的章节生效防孤儿卷头;
-      // 空卷名不重置判重基准 —— 详见上方 qq-e 修复注释)
-      const vol = (ch as { volume?: string }).volume || ''
-      if (vol && vol !== lastEmittedVolume) {
-        await emit(`══════ ${vol} ══════`)
-        lastEmittedVolume = vol
-      }
+        // 分卷结构: 卷变化处插入卷标题行(volume 为空不插, 仅对有正文的章节生效防孤儿卷头;
+        // 空卷名不重置判重基准 —— 详见上方 qq-e 修复注释)
+        const vol = ch.volume || ''
+        if (vol && vol !== lastEmittedVolume) {
+          await emit(`══════ ${vol} ══════`)
+          lastEmittedVolume = vol
+        }
 
-      if (opts.obfuscate) {
-        text = obfuscateText(text, opts.obfuscateMode || 'zero-width', opts.obfuscateDensity ?? 0.05)
-      }
+        if (opts.obfuscate) {
+          text = obfuscateText(text, opts.obfuscateMode || 'zero-width', opts.obfuscateDensity ?? 0.05)
+        }
 
-      await emit(`\n${ch.title}\n\n${text}`)
+        await emit(`\n${ch.title}\n\n${text}`)
 
-      if (opts.siteInfo && count % 5 === 0) {
-        await emit(`\n—— 本章节由 ${siteTag} 整理 ——`)
+        if (opts.siteInfo && count % 5 === 0) {
+          await emit(`\n—— 本章节由 ${siteTag} 整理 ——`)
+        }
+        if (opts.insertAds && adEvery > 0 && ads.length > 0 && count % adEvery === 0) {
+          await emit(`\n\n【${ads[Math.floor(Math.random() * ads.length)]}】`)
+        }
       }
-      if (opts.insertAds && adEvery > 0 && ads.length > 0 && count % adEvery === 0) {
-        await emit(`\n\n【${ads[Math.floor(Math.random() * ads.length)]}】`)
-      }
+      // 批间让出事件循环, 万章书分钟级生成期间不饿死并发请求
+      await new Promise((r) => setImmediate(r))
     }
 
     await emit(footer)
@@ -236,5 +254,5 @@ export async function generateBookTxt(
   }
 
   const { rel, size } = await writer.finish()
-  return { rel, size, chapters: book.chapters.length }
+  return { rel, size, chapters: totalChapters }
 }

@@ -422,7 +422,9 @@ async function stageVerify(
   const trace: CalibrationTrace = {
     stage: 'verify',
     param: threadMax,
-    requests: VERIFY_REQUESTS,
+    // [R9-c-10] requests 如实记录实际执行数: 120s 截止/chainUrls 取尽提前 break 时旧值恒为
+    // VERIFY_REQUESTS, 轨迹展示 20 请求全通过但实际只发了部分, 误导排查
+    requests: done,
     hit429,
     hit403,
     other,

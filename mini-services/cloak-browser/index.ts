@@ -38,6 +38,12 @@
 //     仍失败 → 先访问 /robots.txt 拿 cf_clearance, 再访问目标 URL
 //   - Cookie 回流: 返回 Set-Cookie 风格数组供引擎复用
 //   - 并发限制 2(与 Obscura 一致)
+//   - [R9-e-1] 多 UA 池与身份族谱(1-b 遗留项, CLOAK_UA_POOL=1 显式开启): 旧实现单一
+//     DEFAULT_UA(全站同一指纹面); 开启后 UA 池按 host 哈希确定性选取(同站恒同 UA,
+//     像"同一台设备回访"; 跨站分散指纹面), 且 UA 与 CDP userAgentMetadata 的
+//     platform/platformVersion/brands(Edge UA 必含 Microsoft Edge brand)绑定为同一
+//     "身份族"—— sec-ch-ua 头组 ↔ JS userAgentData ↔ UA 字符串三方自洽, 与 obscura
+//     parseUaIdentity 同一套版本纪律。缺省关闭时走 DEFAULT_UA 原路径(逐字节一致)
 
 import puppeteer from 'puppeteer-extra'
 import StealthPlugin from 'puppeteer-extra-plugin-stealth'
@@ -47,6 +53,11 @@ puppeteer.use(StealthPlugin())
 
 const PORT = Number(process.env.PORT) || 3016
 const MAX_CONCURRENT = 2
+// [R9-b-13] 修复: DevID brand/_devid cookie 默认关闭(CLOAK_DEVID=1 显式开启) —— 真实 Chrome 的
+// userAgentData.brands 永远不会含 "DevID" 非标准品牌, 指纹探针逐 brand 检查即判定伪装浏览器;
+// 且 CDP userAgentMetadata.brands(sec-ch-ua 请求头组)不含 DevID 而 JS 层 getter 追加了 DevID,
+// 头组与 JS 自相矛盾是自报家门级指纹面。缺省零注入, 保留服务端审计用途可显式开启
+const DEVID_ENABLED = process.env.CLOAK_DEVID === '1'
 
 // ---------- 隐身层级类型 ----------
 type StealthTier = 'lite' | 'standard' | 'maximum'
@@ -126,10 +137,22 @@ function sessionKeyOf(url: string): string {
 
 let browser: Awaited<ReturnType<typeof puppeteer.launch>> | null = null
 let inFlight = 0
+// [R9-b-9] 修复: 并发启动锁 —— 旧实现两个并发 /fetch 同步看到 browser===null 时会各自
+// puppeteer.launch, 第二次赋值覆盖第一次, 首个浏览器对象失去引用但 chromium 进程仍在跑
+// (zombie 进程泄漏)。加 launch Promise 锁: 并发调用共享同一次 launch
+let browserLaunchPromise: Promise<NonNullable<typeof browser>> | null = null
 
 async function ensureBrowser() {
   if (browser && browser.connected) return browser
-  browser = await puppeteer.launch({
+  // [R9-b-9] 修复: 残留进程清理 —— browser 存在但 connected=false(崩溃/断连)时,
+  // 尽力 kill 底层 chromium 子进程再重拉, 防 "断连但进程还活着" 的半死实例累积
+  if (browser) {
+    try { browser.process()?.kill('SIGKILL') } catch { /* 进程已死, 忽略 */ }
+    try { await browser.close().catch(() => {}) } catch { /* 已关, 忽略 */ }
+    browser = null
+  }
+  if (browserLaunchPromise) return browserLaunchPromise
+  browserLaunchPromise = puppeteer.launch({
     headless: true,
     args: [
       '--no-sandbox',
@@ -142,9 +165,17 @@ async function ensureBrowser() {
       '--no-default-browser-check',
       '--disable-infobars',
       '--lang=zh-CN',
+      // [R9-b-6] 增强: WebRTC 泄漏封堵(与 obscura LAUNCH_ARGS 同向) —— 禁非代理 UDP,
+      // 内网 RFC1918 地址不再进 SDP 候选, 堵 WebRTC.localIP 探针
+      '--force-webrtc-ip-handling-policy=disable_non_proxied_udp',
     ],
   })
-  return browser
+  try {
+    browser = await browserLaunchPromise
+    return browser
+  } finally {
+    browserLaunchPromise = null
+  }
 }
 
 // ---------- 12 隐身 flags 注入脚本 ----------
@@ -306,6 +337,9 @@ function buildStandardStealthScript(seed: SessionSeed): string {
 
     // ---------- DEVICE_ID 注入到 navigator.userAgentData.brands 作 brand 之一 ----------
     // (仅 standard/maximum 档; lite 档不加, 保持 stealth plugin 原行为)
+    // [R9-b-13] 修复: 默认关闭(CLOAK_DEVID=1 开启) —— 非标准 DevID brand 是自报家门指纹面,
+    // 且与 CDP userAgentMetadata.brands(sec-ch-ua 头组)不一致
+    ${DEVID_ENABLED ? `
     try {
       if (navigator.userAgentData && navigator.userAgentData.brands) {
         // 不破坏原 brands, 仅追加一个 device-id-like brand(用于服务端审计/会话关联)
@@ -317,6 +351,7 @@ function buildStandardStealthScript(seed: SessionSeed): string {
         });
       }
     } catch (e) {}
+    ` : ''}
 
     // ---------- flag 1: navigator.webdriver = undefined (stealth plugin 已抹, 双保险) ----------
     try {
@@ -395,11 +430,15 @@ function buildMaximumStealthScript(seed: SessionSeed): string {
     } catch (e) {}
 
     // ---------- device ID cookie: 自动种 cookie 让服务端识别本"设备" ----------
+    // [R9-b-13] 修复: 默认关闭(CLOAK_DEVID=1 开启) —— 陌生 _devid cookie 对目标站是
+    // 非自然痕迹(真实浏览器不会凭空带出这种 cookie), 与 brands 门控同口径
+    ${DEVID_ENABLED ? `
     try {
       if (document.cookie.indexOf('_devid=') === -1) {
         document.cookie = '_devid=${seed.deviceId}; path=/; max-age=86400; SameSite=Lax';
       }
     } catch (e) {}
+    ` : ''}
   } catch (e) {}
 })();
   `.trim()
@@ -416,34 +455,115 @@ interface FetchResult {
 
 // ---------- CDP 集成: Network.setUserAgentOverride + Page.addScriptToEvaluateOnNewDocument ----------
 
-const DEFAULT_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36'
+const DEFAULT_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'
+// [R9-b-14] 增强: UA 版本纪律对齐 —— 旧默认 Chrome/152 是不存在的未来版本(当前 stable ~140),
+// 指纹库按"版本号超前于现实"即可标记伪装; 与 obscura DESKTOP_UAS(137~140)同一套版本纪律
 
-/** flag 12: CDP Network.setUserAgentOverride + userAgentMetadata(brands/mobile/platform 全自洽) */
-async function applyCdpUaOverride(page: any, ua: string): Promise<void> {
+// ---------- [R9-e-1] 多 UA 池与身份族谱(1-b 遗留项) ----------
+/** 开关: CLOAK_UA_POOL=1 显式开启(缺省关闭, 走 DEFAULT_UA 原路径零回归)。
+ *  命名沿用本服务 CLOAK_ 前缀惯例(同 CLOAK_DEVID); 任务书示例名 OBSCURA_UA_POOL
+ *  对应的是 obscura 侧 —— obscura 自 hh-d2/R9-b-4 起已是"多 UA 池 + 身份族绑定"
+ *  (DESKTOP_UAS/MOBILE_UAS + parseUaIdentity + CDP metadata), 无此遗留, 故本开关落在本服务 */
+const UA_POOL_ENABLED = process.env.CLOAK_UA_POOL === '1'
+
+/** 身份族条目: UA 字符串与其绑定的平台元数据(供 CDP userAgentMetadata 一致性注入)。
+ *  仅收桌面 Chromium 家族(本服务引擎即 chromium; 移动 UA 会与 applyDeviceMetrics
+ *  mobile:false + 1920x1080 视口矛盾, 不收)。版本纪律与 obscura DESKTOP_UAS 对齐(137~140) */
+interface UaFamilyEntry {
+  ua: string
+  /** sec-ch-ua-platform / CDP metadata.platform */
+  platform: 'Windows' | 'macOS' | 'Linux'
+  /** 高熵 platformVersion(与 obscura parseUaIdentity 同取值口径) */
+  platformVersion: string
+  /** Edge UA 附加品牌(非 Edge 条目为空) */
+  edgeBrand?: { brand: string; version: string }
+}
+
+const UA_POOL: UaFamilyEntry[] = [
+  {
+    ua: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36',
+    platform: 'Windows', platformVersion: '10.0.0',
+  },
+  {
+    ua: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36',
+    platform: 'Windows', platformVersion: '10.0.0',
+  },
+  {
+    ua: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36',
+    platform: 'macOS', platformVersion: '10.15.7',
+  },
+  {
+    ua: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36',
+    platform: 'Linux', platformVersion: '6.1.0',
+  },
+  // Edge 条目: brands 末段追加 Microsoft Edge(obscura parseUaIdentity 同构), 让 Edge 分支
+  // 逻辑被实际路径覆盖(与 fetcher 指纹头组 Edge 识别配对)
+  {
+    ua: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36 Edg/139.0.0.0',
+    platform: 'Windows', platformVersion: '10.0.0',
+    edgeBrand: { brand: 'Microsoft Edge', version: '139' },
+  },
+  {
+    ua: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36 Edg/139.0.0.0',
+    platform: 'macOS', platformVersion: '10.15.7',
+    edgeBrand: { brand: 'Microsoft Edge', version: '139' },
+  },
+]
+
+/** 按 host 哈希确定性选取 UA 族(DJB2, 与 obscura hashUa32 同构): 同站恒同 UA(会话/cookie
+ *  一致性, cf_clearance 等挑战凭证与 UA 绑定, 换 UA 即作废), 跨站分散指纹面 */
+function pickUaFamily(sessionKey: string): UaFamilyEntry {
+  let h = 5381
+  for (let i = 0; i < sessionKey.length; i++) h = ((h << 5) + h + sessionKey.charCodeAt(i)) | 0
+  return UA_POOL[(h >>> 0) % UA_POOL.length]
+}
+
+/** flag 12: CDP Network.setUserAgentOverride + userAgentMetadata(brands/mobile/platform 全自洽)
+ *  [R9-e-1] 增强: 传入身份族条目(UA 池开启时)时, platform/platformVersion/brands 按
+ *  条目注入 —— UA 字符串 ↔ sec-ch-ua 头组 ↔ JS userAgentData 三方同族自洽;
+ *  不传(池关闭/旧调用方)时保持原硬编码 Windows 形态, 行为逐字节不变 */
+async function applyCdpUaOverride(page: any, ua: string, family?: UaFamilyEntry): Promise<void> {
   try {
     const cdp = await page.target().createCDPSession()
     // 解析 Chrome 版本生成 brands
-    const chromeVer = ua.match(/Chrome\/(\d+)/)?.[1] || '152'
+    const chromeVer = ua.match(/Chrome\/(\d+)/)?.[1] || '140'
     const fullVer = `${chromeVer}.0.0.0`
-    const brands = [
-      { brand: 'Chromium', version: chromeVer },
-      { brand: 'Google Chrome', version: chromeVer },
-      { brand: 'Not:A-Brand', version: '24' },
-    ]
-    await cdp.send('Network.setUserAgentOverride', {
-      userAgent: ua,
-      platform: 'Windows',
-      userAgentMetadata: {
-        brands,
-        fullVersionList: [
+    // [R9-e-1]: Edge 身份族在 brands/fullVersionList 中追加 Microsoft Edge(与 obscura 同构);
+    // 非 Edge(含池关闭)分支数组形态与原实现一致
+    const brands = family?.edgeBrand
+      ? [
+          { brand: 'Chromium', version: chromeVer },
+          { brand: 'Google Chrome', version: chromeVer },
+          { brand: family.edgeBrand.brand, version: family.edgeBrand.version },
+          { brand: 'Not:A-Brand', version: '24' },
+        ]
+      : [
+          { brand: 'Chromium', version: chromeVer },
+          { brand: 'Google Chrome', version: chromeVer },
+          { brand: 'Not:A-Brand', version: '24' },
+        ]
+    const fullVersionList = family?.edgeBrand
+      ? [
+          { brand: 'Chromium', version: fullVer },
+          { brand: 'Google Chrome', version: fullVer },
+          { brand: family.edgeBrand.brand, version: `${family.edgeBrand.version}.0.0.0` },
+          { brand: 'Not:A-Brand', version: '24.0.0.0' },
+        ]
+      : [
           { brand: 'Chromium', version: fullVer },
           { brand: 'Google Chrome', version: fullVer },
           { brand: 'Not:A-Brand', version: '24.0.0.0' },
-        ],
+        ]
+    await cdp.send('Network.setUserAgentOverride', {
+      userAgent: ua,
+      platform: family ? family.platform : 'Windows',
+      userAgentMetadata: {
+        brands,
+        fullVersionList,
         fullVersion: fullVer,
         mobile: false,
-        platform: 'Windows',
-        platformVersion: '10.0.0',
+        platform: family ? family.platform : 'Windows',
+        platformVersion: family ? family.platformVersion : '10.0.0',
         architecture: 'x86',
         bitness: '64',
         model: '',
@@ -567,11 +687,12 @@ async function tryClickTurnstile(page: any): Promise<void> {
   } catch { /* 整体容忍 */ }
 }
 
-/** 等 CF challenge 自动放行, 最长 30s, 期间每 2s 尝试点 Turnstile checkbox */
+/** 等 CF challenge 自动放行, 最长 30s, 期间每 1.5~3s 随机间隔尝试点 Turnstile checkbox。
+ *  [R9-b-14] 增强: 轮询节奏随机化(旧固定 2s 过于规律, 与 obscura E2 ① 同向的行为拟真) */
 async function waitCfChallenge(page: any, maxMs = 30000): Promise<boolean> {
   const start = Date.now()
   while (Date.now() - start < maxMs) {
-    await new Promise((r) => setTimeout(r, 2000))
+    await new Promise((r) => setTimeout(r, 1500 + Math.floor(Math.random() * 1500)))
     await tryClickTurnstile(page)
     try {
       const html = await page.content()
@@ -611,87 +732,110 @@ async function fetchPage(url: string, tier: StealthTier, timeoutMs: number, reqI
   const b = await ensureBrowser()
   const page = await b.newPage()
   const abort = new AbortController()
+  // [R9-b-10] 修复: page 创建后立即注册 activeFetchPages, 且把 page.close 收进外层 try/finally ——
+  //  旧实现 setViewport/setUserAgent/injectStealthScripts 等初始化步骤若抛错(页崩/CDP 断连),
+  //  page 已创建但永远无人 close(泄漏), activeFetchPages 也不清理。外层 finally 统一兑底
   activeFetchPages.set(reqId, { page, abort })
-  await page.setViewport({ width: 1920, height: 1080 })
-  await page.setUserAgent(DEFAULT_UA)
-
-  const sessionKey = sessionKeyOf(url)
-  const seed = await getSeed(sessionKey)
-
-  // 标准档+: CDP UA override + stealth 脚本注入
-  if (tier === 'standard' || tier === 'maximum') {
-    await applyCdpUaOverride(page, DEFAULT_UA)
-    const scripts = [buildStandardStealthScript(seed)]
-    if (tier === 'maximum') scripts.push(buildMaximumStealthScript(seed))
-    await injectStealthScripts(page, scripts)
-    await applyDeviceMetrics(page, 1920, 1080)
-  }
-
-  // 最大档位: request interception (屏蔽 tracking/ads)
-  if (tier === 'maximum') {
-    await enableRequestInterception(page)
-  }
-
-  let status = 0
-  let finalUrl = url
-
   try {
-    const response = await page.goto(url, { waitUntil: 'networkidle2', timeout: timeoutMs })
-    if (response) {
-      status = response.status()
-      finalUrl = page.url()
+    await page.setViewport({ width: 1920, height: 1080 })
+    // [R9-e-1] 增强: UA 池开启时按 host 哈希确定性选取身份族(同站恒同 UA), 关闭时用 DEFAULT_UA
+    const sessionKey = sessionKeyOf(url)
+    const uaFamily = UA_POOL_ENABLED ? pickUaFamily(sessionKey) : null
+    const effUa = uaFamily ? uaFamily.ua : DEFAULT_UA
+    await page.setUserAgent(effUa)
+
+    const seed = await getSeed(sessionKey)
+
+    // 标准档+: CDP UA override + stealth 脚本注入(身份族元数据随 UA 同源注入, 三方自洽)
+    if (tier === 'standard' || tier === 'maximum') {
+      await applyCdpUaOverride(page, effUa, uaFamily ?? undefined)
+      const scripts = [buildStandardStealthScript(seed)]
+      if (tier === 'maximum') scripts.push(buildMaximumStealthScript(seed))
+      await injectStealthScripts(page, scripts)
+      await applyDeviceMetrics(page, 1920, 1080)
     }
 
-    let html = await page.content()
-
-    // CF challenge 检测: 等 30s + 尝试点 Turnstile
-    if (isCfChallenge(html)) {
-      const cleared = await waitCfChallenge(page, 30000)
-      if (!cleared) {
-        // 兜底: 先访问 /robots.txt 拿 cf_clearance
-        const ok = await tryCfClearanceFallback(page, url, timeoutMs)
-        if (ok) {
-          finalUrl = page.url()
-          status = 200
-        }
-      }
-      await new Promise((r) => setTimeout(r, 1500))
-      html = await page.content().catch(() => html)
+    // 最大档位: request interception (屏蔽 tracking/ads)
+    if (tier === 'maximum') {
+      await enableRequestInterception(page)
     }
 
-    // R8-21: cookies 用显式 URL 过滤 —— tryCfClearanceFallback 走过 /robots.txt (同 origin),
-    // page.cookies() 无参返回所有域的 cookies, 但若 /robots.txt 响应设置了非目标域 cookie,
-    // 调用方按目标 origin 存储会误归。显式传 targetUrl 让 puppeteer 仅返回匹配该 URL 的 cookies
-    let cookies: any[]
+    let status = 0
+    let finalUrl = url
+
     try {
-      cookies = await page.cookies(url)
-    } catch {
-      // 显式 URL 过滤失败兜底: 全量取(原行为)
-      cookies = await page.cookies().catch(() => [])
+      const response = await page.goto(url, { waitUntil: 'networkidle2', timeout: timeoutMs })
+      if (response) {
+        status = response.status()
+        finalUrl = page.url()
+      }
+
+      let html = await page.content()
+
+      // CF challenge 检测: 等 30s + 尝试点 Turnstile
+      if (isCfChallenge(html)) {
+        const cleared = await waitCfChallenge(page, 30000)
+        if (!cleared) {
+          // 兜底: 先访问 /robots.txt 拿 cf_clearance
+          const ok = await tryCfClearanceFallback(page, url, timeoutMs)
+          if (ok) {
+            finalUrl = page.url()
+            status = 200
+          }
+        }
+        await new Promise((r) => setTimeout(r, 1500))
+        html = await page.content().catch(() => html)
+      }
+
+      // R8-21: cookies 用显式 URL 过滤 —— tryCfClearanceFallback 走过 /robots.txt (同 origin),
+      // page.cookies() 无参返回所有域的 cookies, 但若 /robots.txt 响应设置了非目标域 cookie,
+      // 调用方按目标 origin 存储会误归。显式传 targetUrl 让 puppeteer 仅返回匹配该 URL 的 cookies
+      let cookies: any[]
+      try {
+        cookies = await page.cookies(url)
+      } catch {
+        // 显式 URL 过滤失败兜底: 全量取(原行为)
+        cookies = await page.cookies().catch(() => [])
+      }
+      return { ok: html.length > 100, html, status, finalUrl, cookies: cookies as unknown as Array<Record<string, unknown>>, tier }
+    } catch (e: any) {
+      const html = await page.content().catch(() => '')
+      return { ok: false, html, status, finalUrl, cookies: [], tier }
     }
-    return { ok: html.length > 100, html, status, finalUrl, cookies: cookies as unknown as Array<Record<string, unknown>>, tier }
-  } catch (e: any) {
-    const html = await page.content().catch(() => '')
-    return { ok: false, html, status, finalUrl, cookies: [], tier }
   } finally {
     activeFetchPages.delete(reqId)
     await page.close().catch(() => {})
   }
 }
 
+// [R9-b-11] selfTest 结果缓存(60s) —— /health 高频调用不应每次 launch+外网导航
+let selfTestCache: { ok: boolean; ts: number } | null = null
+
 createBridgeServer({
   name: 'cloak-browser',
   port: PORT,
   idleTimeoutS: 250,
   selfTest: async () => {
+    // [R9-b-11] 修复: selfTest 每次 /health 都 launch+外网导航太重且网络依赖强(离线环境 /health
+    //  也被拖慢), 加 60s 结果缓存; page 泄漏修复(goto 抛错时旧实现直接 return false 不 close)
+    let page: any = null
     try {
+      if (selfTestCache && Date.now() - selfTestCache.ts < 60_000) return selfTestCache.ok
       const b = await ensureBrowser()
-      const page = await b.newPage()
+      page = await b.newPage()
       await page.goto('https://example.com/', { waitUntil: 'domcontentloaded', timeout: 10000 })
       const title = await page.title()
-      await page.close()
-      return title.length > 0
-    } catch { return false }
+      const ok = title.length > 0
+      selfTestCache = { ok, ts: Date.now() }
+      return ok
+    } catch {
+      selfTestCache = { ok: false, ts: Date.now() }
+      return false
+    } finally {
+      if (page) {
+        try { await page.close().catch(() => {}) } catch { /* 已关, 忽略 */ }
+      }
+    }
   },
   async fetch(req) {
     const u = new URL(req.url)
@@ -704,6 +848,8 @@ createBridgeServer({
         inFlight,
         sessions: sessions.size,
         tiers: ['lite', 'standard', 'maximum'],
+        // [R9-e-1]: UA 池开关可观测(缺省 false)
+        uaPool: UA_POOL_ENABLED,
       })
     }
     if (u.pathname === '/fetch') {
@@ -723,20 +869,26 @@ createBridgeServer({
         const timeoutMs = Math.min(Number(body?.timeoutMs) || 30000, 120000)
         return await fetchPage(url, tier, timeoutMs, reqId)
       })()
+      // [R9-b-12] 修复: 硬超时定时器句柄提出 —— 旧实现正常完成后 120s 定时器仍会触发一次
+      // (空查找+对已 settled 的 race 调 reject, 无功能影响但每请求挂一个 120s 假定时器),
+      // finally 统一 clearTimeout
+      let hardTimer: ReturnType<typeof setTimeout> | null = null
       try {
         const result = await Promise.race([
           fetchPromise,
-          new Promise<any>((_, reject) => setTimeout(() => {
-            // R8-2: timeout 时显式 close page + abort, 防 hung page 泄漏 ——
-            // fetchPage 的 finally 要等 page.goto 完成才执行, hung site 下 goto 卡死数分钟,
-            // 浏览器页累积最终 OOM。这里强制 close 让 goto 立即 reject, finally 顺带执行清理
-            const entry = activeFetchPages.get(reqId)
-            if (entry) {
-              try { entry.abort.abort() } catch { /* 已 abort, 忽略 */ }
-              try { entry.page.close().catch(() => {}) } catch { /* page 已关, 忽略 */ }
-            }
-            reject(new Error('fetch hard timeout'))
-          }, hardTimeout)),
+          new Promise<any>((_, reject) => {
+            hardTimer = setTimeout(() => {
+              // R8-2: timeout 时显式 close page + abort, 防 hung page 泄漏 ——
+              // fetchPage 的 finally 要等 page.goto 完成才执行, hung site 下 goto 卡死数分钟,
+              // 浏览器页累积最终 OOM。这里强制 close 让 goto 立即 reject, finally 顺带执行清理
+              const entry = activeFetchPages.get(reqId)
+              if (entry) {
+                try { entry.abort.abort() } catch { /* 已 abort, 忽略 */ }
+                try { entry.page.close().catch(() => {}) } catch { /* page 已关, 忽略 */ }
+              }
+              reject(new Error('fetch hard timeout'))
+            }, hardTimeout)
+          }),
         ])
         if (result.error) return json({ ok: false, error: result.error }, 400)
         return json({
@@ -756,6 +908,8 @@ createBridgeServer({
         }
         return json({ ok: false, error: String(e?.message || e).slice(0, 300) }, 502)
       } finally {
+        // [R9-b-12]: 正常完成即清硬超时定时器(防 120s 假定时器堆积)
+        if (hardTimer) clearTimeout(hardTimer)
         inFlight = Math.max(0, inFlight - 1)
       }
     }

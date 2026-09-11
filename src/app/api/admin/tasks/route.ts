@@ -1,7 +1,7 @@
 // 采集任务 CRUD
 import { db } from '@/lib/db'
 import { ok, fail, readBody } from '@/lib/api'
-import { withGuard, str } from '../../_lib/http'
+import { withGuard, str, slimTaskProgressJson } from '../../_lib/http'
 import { normalizeTaskData, validateTaskPair, TASK_STATUSES, type NormalizedTask } from './_shared'
 
 export async function GET(req: Request) {
@@ -17,7 +17,16 @@ export async function GET(req: Request) {
       // API-12: 加 take: 500 上限, 防止任务表无限膨胀拉回内存
       take: 500,
     })
-    return ok(tasks)
+    // R9-d-6: 列表视图进度瘦身 —— 大范围任务的 progress 内含最多 4×50000 条续采 URL
+    // (~12MB/任务), 500 行原样返回单次响应可达数百 MB, 且管理端列表/监控仅消费标量进度
+    // 字段。超阈值(64KB)的行截断 URL 集合到 200 条并附带 progressTruncated 标记(可增字段,
+    // 响应结构不变); 运行时续采读写走 runner 直连 DB, 不受影响。任务详情 [id] 路由仍返回全量
+    const slimmed = tasks.map((t) => {
+      const slim = slimTaskProgressJson(t.progress)
+      if (!slim.truncated) return t
+      return { ...t, progress: slim.progress, progressTruncated: true }
+    })
+    return ok(slimmed)
   })
 }
 

@@ -28,6 +28,10 @@ import type { Browser, BrowserContext, CDPSession, Page } from 'playwright'
 export interface ObscuraFetchOptions {
   /** 覆盖 UA(默认用随机指纹自带 UA); 传入后本次槽位使用该 UA */
   userAgent?: string
+  /** [R9-b-7] 增强: 本次请求的出口代理 URL(http/socks5, 可带凭据 http://user:pass@host:port)。
+   *  传入后槽位隔离到独立代理浏览器实例(per-context proxy), 与直连槽位互不串扰;
+   *  缺省 undefined 走原直连路径(零回归)。代理槽位与直连槽位不互复 */
+  proxy?: string
   /** goto 超时 ms, 默认 20000 */
   timeout?: number
   /** 渲染后等待出现的选择器(容忍超时) */
@@ -67,6 +71,15 @@ export interface ObscuraFingerprint {
   deviceScaleFactor: number
   /** 是否移动端视口(用于 UA/触屏一致性) */
   mobile: boolean
+  /** [R9-b-3] 增强: per-context 稳定硬件指纹(navigator.hardwareConcurrency/deviceMemory)。
+   *  旧静态脚本每 document 随机一次 cores —— 同 context 跨导航核数漂移本身即指纹;
+   *  改为指纹创建期定死、身份脚本按 context 注入(覆盖静态脚本) */
+  hardwareConcurrency?: number
+  /** [R9-b-3] 增强: deviceMemory 按 W3C 规范上限 8, 加权池 8 为主(8/8/8/4/2) */
+  deviceMemory?: number
+  /** [R9-b-4] 增强: WebGL vendor/renderer 池化 —— 按 UA 平台从真实形态 GPU 池抽取,
+   *  同 context 稳定(静态脚本 6 的 Intel Iris 通用掩蔽值被身份脚本覆盖) */
+  gpu?: { vendor: string; renderer: string }
 }
 
 // ---------- 指纹池 ----------
@@ -101,6 +114,12 @@ const MOBILE_UAS = [
 
 function pick<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)]
+}
+/** [R9-b-3] 简单字符串哈希(DJB2 32位, 无依赖) —— UA → 确定性硬件缺省值 */
+function hashUa32(s: string): number {
+  let h = 5381
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0
+  return h >>> 0
 }
 function jitter(n: number, max: number): number {
   const d = Math.floor(Math.random() * (max * 2 + 1)) - max
@@ -153,30 +172,51 @@ function pickMobileDsf(): number {
   return 3
 }
 
+// [R9-b-3] 硬件指纹加权池 —— hardwareConcurrency 8 核为主流, deviceMemory 按 W3C 规范
+// 封顶 8(旧静态脚本恒 8 亦可, 但与核数组合单一化; 此处引入少量 4/2 低配机形态)
+const CORES_POOL = [4, 6, 8, 8, 8, 10, 12, 16]
+const DEVICE_MEM_POOL = [8, 8, 8, 8, 8, 4, 4, 2]
+
+/** [R9-b-4] 从 UA 推导平台(与 parseUaIdentity 的 os 分支同构, 本地复制避免先解析整份身份) */
+function uaOsOf(ua: string): UaIdentity['os'] {
+  return /Android/.test(ua) ? 'android' : /iPhone|iPad|iPod/.test(ua) ? 'ios' : /Windows/.test(ua) ? 'windows' : /Mac OS|Macintosh/.test(ua) ? 'macos' : /X11|Linux|CrOS/.test(ua) ? 'linux' : 'other'
+}
+
 export function randomFingerprint(overrides?: { userAgent?: string }): ObscuraFingerprint {
   const mobile = overrides?.userAgent ? isMobileUaLocal(overrides.userAgent) : Math.random() < 0.22
   const { locale, timezone } = pickLocale()
   if (mobile) {
     const [w, h] = pick(MOBILE_SIZES)
+    const ua = overrides?.userAgent || pick(MOBILE_UAS)
+    const os = uaOsOf(ua)
     return {
       viewport: { width: w, height: h },
-      userAgent: overrides?.userAgent || pick(MOBILE_UAS),
+      userAgent: ua,
       locale,
       timezoneId: timezone,
       colorScheme: 'light',
       deviceScaleFactor: pickMobileDsf(),
       mobile: true,
+      // [R9-b-3/4] 硬件指纹 + GPU 池化(移动分支按 UA 平台取池)
+      hardwareConcurrency: pick(CORES_POOL),
+      deviceMemory: pick(DEVICE_MEM_POOL),
+      gpu: pick(GPU_POOLS[os] || GPU_POOLS.other),
     }
   }
   const [w, h] = pick(DESKTOP_SIZES)
+  const ua = overrides?.userAgent || pick(DESKTOP_UAS)
+  const os = uaOsOf(ua)
   return {
     viewport: { width: jitter(w, 8), height: jitter(h, 8) },
-    userAgent: overrides?.userAgent || pick(DESKTOP_UAS),
+    userAgent: ua,
     locale,
     timezoneId: timezone,
     colorScheme: 'light',
     deviceScaleFactor: pickDesktopDsf(),
     mobile: false,
+    hardwareConcurrency: pick(CORES_POOL),
+    deviceMemory: pick(DEVICE_MEM_POOL),
+    gpu: pick(GPU_POOLS[os] || GPU_POOLS.other),
   }
 }
 
@@ -214,6 +254,11 @@ interface UaIdentity {
   brands: Array<{ brand: string; version: string }>
   fullVersionList: Array<{ brand: string; version: string }>
   gpu: { vendor: string; renderer: string }
+  /** [R9-b-3] 硬件指纹确定性缺省(UA 哈希派生; 指纹池可经 buildIdentityInitScript extra 覆盖) */
+  cores: number
+  deviceMemory: number
+  /** [R9-b-5] 屏幕/窗口几何(仅指纹池路径注入; UA-only 解析路径缺省 undefined → 脚本跳过) */
+  screen?: { width: number; height: number; availWidth: number; availHeight: number; x: number; y: number }
 }
 
 /** WebGL UNMASKED vendor/renderer 按 UA 平台取真实形态字符串(无 SwiftShader/Mesa 软渲染字样);
@@ -226,6 +271,36 @@ export const GPU_BY_OS: Record<UaIdentity['os'], { vendor: string; renderer: str
   android: { vendor: 'Google Inc. (Qualcomm)', renderer: 'ANGLE (Qualcomm, Adreno (TM) 740, OpenGL ES 3.2)' },
   ios: { vendor: 'Apple Inc.', renderer: 'Apple GPU' },
   other: { vendor: 'Google Inc. (Intel)', renderer: 'ANGLE (Intel, Intel(R) UHD Graphics 630 (0x00003E9B) Direct3D11 vs_5_0 ps_5_0, D3D11)' },
+}
+
+/** [R9-b-4] 增强: WebGL vendor/renderer 按平台池化 —— 原 GPU_BY_OS 每 OS 单一 GPU 字符串,
+ *  同平台所有 context 聚成同一 renderer 指纹面(creepjs 类检测可聚簇); 扩为真实形态池
+ *  (真实设备 ID 0x25xx/0x73FF/0x9A49 等 + 各 OS 原生 ANGLE 格式), 随机指纹从池中抽取,
+ *  同 context 内稳定(fp.gpu 随指纹保存)。randomFingerprint 引用本表(声明提升: const 在
+ *  模块顶层先于调用执行, randomFingerprint 仅运行时调用无 TDZ 问题) */
+const GPU_POOLS: Record<UaIdentity['os'], Array<{ vendor: string; renderer: string }>> = {
+  windows: [
+    GPU_BY_OS.windows,
+    { vendor: 'Google Inc. (NVIDIA)', renderer: 'ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 (0x00002503) Direct3D11 vs_5_0 ps_5_0, D3D11)' },
+    { vendor: 'Google Inc. (AMD)', renderer: 'ANGLE (AMD, AMD Radeon RX 6600 (0x000073FF) Direct3D11 vs_5_0 ps_5_0, D3D11)' },
+    { vendor: 'Google Inc. (Intel)', renderer: 'ANGLE (Intel, Intel(R) Iris(R) Xe Graphics (0x00009A49) Direct3D11 vs_5_0 ps_5_0, D3D11)' },
+  ],
+  macos: [
+    GPU_BY_OS.macos,
+    { vendor: 'Google Inc. (Apple)', renderer: 'ANGLE (Apple, ANGLE Metal Renderer: Apple M2, Unspecified Version)' },
+    { vendor: 'Google Inc. (Apple)', renderer: 'ANGLE (Apple, ANGLE Metal Renderer: Apple M3 Pro, Unspecified Version)' },
+  ],
+  linux: [
+    GPU_BY_OS.linux,
+    { vendor: 'Google Inc. (Intel)', renderer: 'ANGLE (Intel, Mesa Intel(R) UHD Graphics 630 (CML GT2), OpenGL 4.6)' },
+    { vendor: 'Google Inc. (AMD)', renderer: 'ANGLE (AMD, AMD Radeon RX 7900 XTX (radeonsi navi31 LLVM 17.0.6), OpenGL 4.6)' },
+  ],
+  android: [
+    GPU_BY_OS.android,
+    { vendor: 'Google Inc. (ARM)', renderer: 'ANGLE (ARM, Mali-G715-MC11, OpenGL ES 3.2)' },
+  ],
+  ios: [GPU_BY_OS.ios],
+  other: [GPU_BY_OS.other],
 }
 
 /** 从 UA 解析身份(brands 结构与 ff 轮 fingerprintHeadersFor 同构: Chromium/Google Chrome[/Edge]/Not:A-Brand) */
@@ -256,6 +331,9 @@ export function parseUaIdentity(ua: string): UaIdentity {
     brands.push({ brand: 'Not:A-Brand', version: '24' })
     fullVersionList.push({ brand: 'Not:A-Brand', version: '24.0.0.0' })
   }
+  // [R9-b-3] 硬件指纹确定性缺省: 同 UA 恒定(跨 context 稳定), 不同 UA 哈希分散;
+  // newStealthContext 会用 fp.hardwareConcurrency/deviceMemory 覆盖(指纹级变化)
+  const uaHash = hashUa32(ua)
   return {
     ua,
     family,
@@ -274,6 +352,8 @@ export function parseUaIdentity(ua: string): UaIdentity {
     brands,
     fullVersionList,
     gpu: GPU_BY_OS[os],
+    cores: CORES_POOL[uaHash % CORES_POOL.length],
+    deviceMemory: DEVICE_MEM_POOL[(uaHash >>> 3) % DEVICE_MEM_POOL.length],
   }
 }
 
@@ -304,12 +384,30 @@ export function buildUaMetadata(id: UaIdentity): Record<string, unknown> {
  *    (真引擎无此物)
  *  - maxTouchPoints: 移动 5 / 桌面 0(与 context hasTouch 自洽; 原静态脚本强制 0 会与移动 UA 矛盾)
  *  - WebGL vendor/renderer 按 UA 平台自洽(覆盖静态脚本的通用掩蔽值)
- * 注: 必须在静态脚本之后注册 —— 覆盖其 UA/maxTouchPoints/WebGL 定义, 并在 Safari 分支
+ *  - [R9-b-3] hardwareConcurrency/deviceMemory 按身份钉死(静态脚本 5 每 document 随机, 跨文档
+ *    漂移即指纹; 本脚本后注册覆盖为 context 稳定值)
+ *  - [R9-b-5] 屏幕/窗口几何自洽(传入 extra.screen 时): window.screen.width/height/avail* +
+ *    outerWidth/outerHeight + screenX/Y/Left/Top 与视口一致 —— headless 下 --window-size 固定
+ *    1366x900 而 viewport 随机, innerWidth > outerWidth 在真机不可能出现, 是探针可检的自相矛盾
+ * 注: 必须在静态脚本之后注册 —— 覆盖其 UA/maxTouchPoints/WebGL/硬件/窗口位置定义, 并在 Safari 分支
  * 抹掉静态脚本伪造的 window.chrome(原静态脚本 9 会在 DOMContentLoaded 把父页 chrome 重新
  * 挂进 iframe, 已随本增强移除, iframe 一致性改由 per-frame 身份脚本原生保证)
  */
-export function buildIdentityInitScript(ua: string): string {
+export function buildIdentityInitScript(
+  ua: string,
+  extra?: {
+    cores?: number
+    deviceMemory?: number
+    gpu?: { vendor: string; renderer: string }
+    screen?: { width: number; height: number; availWidth: number; availHeight: number; x: number; y: number }
+  },
+): string {
   const id = parseUaIdentity(ua)
+  // [R9-b-3/4/5] 指纹池覆盖项合入身份(extra 缺省时用 parseUaIdentity 的确定性缺省)
+  if (extra?.cores) id.cores = extra.cores
+  if (extra?.deviceMemory) id.deviceMemory = extra.deviceMemory
+  if (extra?.gpu) id.gpu = extra.gpu
+  if (extra?.screen) id.screen = extra.screen
   return '(function () {\n' +
     '  try {\n' +
     `    var I = ${JSON.stringify(id)};\n` +
@@ -323,6 +421,8 @@ export function buildIdentityInitScript(ua: string): string {
     "    def(nav, 'vendorSub', function () { return ''; });\n" +
     "    def(nav, 'productSub', function () { return I.family === 'firefox' ? '20100101' : '20030107'; });\n" +
     "    def(nav, 'maxTouchPoints', function () { return I.mobile ? 5 : 0; });\n" +
+    "    def(nav, 'hardwareConcurrency', function () { return I.cores; });\n" +
+    "    def(nav, 'deviceMemory', function () { return I.deviceMemory; });\n" +
     "    if (I.family === 'chromium') {\n" +
     '      var uad = {\n' +
     '        brands: I.brands.map(function (b) { return { brand: b.brand, version: b.version }; }),\n' +
@@ -391,6 +491,26 @@ export function buildIdentityInitScript(ua: string): string {
     '        };\n' +
     '        if (window.WebGLRenderingContext) patch(window.WebGLRenderingContext.prototype);\n' +
     '        if (window.WebGL2RenderingContext) patch(window.WebGL2RenderingContext.prototype);\n' +
+    '      } catch (e) {}\n' +
+    '    })();\n' +
+    // [R9-b-5] 屏幕/窗口几何自洽(仅 I.screen 存在即指纹池路径): screen 尺寸=视口(最大化全屏形),
+    // 桌面 availHeight 减任务栏, outer=inner(headless 无 chrome UI), 窗口位置 per-context 稳定
+    // (覆盖静态脚本 12 的每 document 随机 —— 跨文档窗口位置漂移同样是指纹)
+    '    (function () {\n' +
+    '      try {\n' +
+    '        var sc = I.screen;\n' +
+    '        if (sc && window.screen) {\n' +
+    "          def(window.screen, 'width', function () { return sc.width; });\n" +
+    "          def(window.screen, 'height', function () { return sc.height; });\n" +
+    "          def(window.screen, 'availWidth', function () { return sc.availWidth; });\n" +
+    "          def(window.screen, 'availHeight', function () { return sc.availHeight; });\n" +
+    '        }\n' +
+    "        def(window, 'outerWidth', function () { return sc ? sc.width : window.innerWidth; });\n" +
+    "        def(window, 'outerHeight', function () { return sc ? sc.height : window.innerHeight; });\n" +
+    "        def(window, 'screenX', function () { return sc ? sc.x : 0; });\n" +
+    "        def(window, 'screenY', function () { return sc ? sc.y : 0; });\n" +
+    "        def(window, 'screenLeft', function () { return sc ? sc.x : 0; });\n" +
+    "        def(window, 'screenTop', function () { return sc ? sc.y : 0; });\n" +
     '      } catch (e) {}\n' +
     '    })();\n' +
     '  } catch (e) {}\n' +
@@ -758,6 +878,8 @@ interface PoolSlot {
    *    看起来像一台真实设备, 跨页保持同一设备 ID(用户视角一致性) */
   fpCreatedAt?: number
   deviceId?: string
+  /** [R9-b-7] 槽位所属代理出口(''=直连默认浏览器); 复用/重建时亲和匹配 */
+  proxyKey?: string
 }
 
 /** chromium 启动参数: 防检测 + 容器环境兼容 */
@@ -771,6 +893,10 @@ const LAUNCH_ARGS = [
   '--disable-infobars',
   '--window-size=1366,900',
   '--lang=zh-CN',
+  // [R9-b-6] 增强: WebRTC 泄漏封堵 —— 禁止非代理 UDP + 隐藏本地 IP(mDNS 候选仍可, 但
+  // 内网 RFC1918 地址不再进 SDP), 堵住 WebRTC.localIP 泄漏探针; 仅影响 WebRTC 面,
+  // 纯 HTML 采集零影响
+  '--force-webrtc-ip-handling-policy=disable_non_proxied_udp',
 ]
 
 /** 页面池并发上限(可用 OBSCURA_CONCURRENCY 环境变量覆盖) */
@@ -795,9 +921,14 @@ interface ObscuraGlobal {
   pwModule?: typeof import('playwright') | null
   browser?: Browser | null
   launchPromise?: Promise<Browser> | null
+  /** [R9-b-7] per-proxy 独立浏览器实例表(key=proxy URL 原串) —— per-context 代理要求
+   *  browser 级挂占位全局 proxy, 不能与直连浏览器混用; 按 proxy 分桶隔离 */
+  proxyBrowsers: Map<string, { browser: Browser | null; launchPromise: Promise<Browser> | null }>
   slots: PoolSlot[]
   pendingCreates: number
   waiters: Array<() => void>
+  /** [R9-b-8] 指纹学习表: host → 过盾成功指纹(同站复用, 学习行为); 仅进程内, 上限 200 LRU */
+  fpWins: Map<string, { fp: ObscuraFingerprint; wins: number; ts: number }>
   idleTimer?: ReturnType<typeof setTimeout> | null
   /** E5: 槽位级心跳回收定时器(60s 扫描一次, 关闭 10min 未用的槽位 ctx) */
   reclaimTimer?: ReturnType<typeof setInterval> | null
@@ -814,9 +945,11 @@ const S: ObscuraGlobal = globalForObscura.__obscuraState ?? {
   pwModule: null,
   browser: null,
   launchPromise: null,
+  proxyBrowsers: new Map(),
   slots: [],
   pendingCreates: 0,
   waiters: [],
+  fpWins: new Map(),
   idleTimer: null,
   reclaimTimer: null,
   probeOk: null,
@@ -850,26 +983,53 @@ export async function applyUaCdpOverride(page: Page, ua: string): Promise<CDPSes
   }
 }
 
-async function ensureBrowser(): Promise<Browser> {
+/** [R9-b-7] 清扫已无任何槽位引用的代理浏览器实例(excludeKey 除外 —— 当前正在创建的桶)。
+ *  槽位总量被 MAX_CONCURRENCY 上限钉死, 故有槽位的代理桶天然有界; 本清扫只回收
+ *  "代理不再被任何槽位使用”的孤儿实例, 防长任务轮换多代理时 chromium 进程累积 */
+function sweepIdleProxyBrowsers(excludeKey: string): void {
+  for (const [key, entry] of S.proxyBrowsers) {
+    if (key === excludeKey) continue
+    if (entry.launchPromise) continue // 创建中, 交给 launch 后自然写入 entry.browser
+    const hasSlot = S.slots.some((s) => (s.proxyKey || '') === key)
+    if (hasSlot) continue
+    S.proxyBrowsers.delete(key)
+    if (entry.browser) {
+      const b = entry.browser
+      void b.close().catch(() => { /* 已死则忽略 */ })
+    }
+  }
+}
+
+async function ensureBrowser(proxyKey = ''): Promise<Browser> {
+  // [R9-b-1] 修复: shutdownObscura 进行中禁止(重)拉浏览器 —— 旧行为下排队等待者被唤醒后会走
+  //  createSlot → ensureBrowser 把 S.browser=null 的实例重新 launch 出来, 与正在 await b.close()
+  //  的 shutdown 流程并发: 轻则多起一个无人管理的 chromium 实例(慢泄漏), 重则把新建 ctx 写进
+  //  已被 splice 的 slot(orphan)。统一在入口拦截, 抛错让调用方走降级链
+  if (S.shuttingDown) throw new Error('Obscura: 浏览器正在关闭, 拒绝拉起新实例')
+  // [R9-b-7] 代理浏览器分桶: per-context 代理要求 browser 级挂占位全局 proxy,
+  // 故代理槽位隔离到独立实例, 互不影响直连浏览器
+  if (proxyKey) {
+    let entry = S.proxyBrowsers.get(proxyKey)
+    if (!entry) {
+      // [R9-b-7] 资源护栏: 开新代理浏览器前清扫"已无槽位引用"的旧代理实例 ——
+      // 引擎侧轮换多代理时防 chromium 实例随代理组合数无界累积(每个实例都是独立进程)
+      sweepIdleProxyBrowsers(proxyKey)
+      entry = { browser: null, launchPromise: null }
+      S.proxyBrowsers.set(proxyKey, entry)
+    }
+    if (entry.browser && entry.browser.isConnected()) return entry.browser
+    if (entry.launchPromise) return entry.launchPromise
+    entry.launchPromise = launchBrowser(proxyKey)
+    try {
+      entry.browser = await entry.launchPromise
+      return entry.browser
+    } finally {
+      entry.launchPromise = null
+    }
+  }
   if (S.browser && S.browser.isConnected()) return S.browser
   if (S.launchPromise) return S.launchPromise
-  S.launchPromise = (async () => {
-    if (!S.pwModule) {
-      // 惰性 import('playwright'): 避免未用浏览器引擎时加载 ~几十ms 的模块开销
-      S.pwModule = await import('playwright')
-    }
-    // playwright 类型无 any 滥用: launch 参数全部字面量
-    const b = await S.pwModule.chromium.launch({ headless: true, args: LAUNCH_ARGS })
-    // 浏览器重启(旧实例崩溃)时清空旧槽位, 避免持有已死 context
-    const stale = S.slots.splice(0, S.slots.length)
-    await Promise.allSettled(stale.map((s) => s.ctx.close().catch(() => {})))
-    S.browser = b
-    registerExitHooks()
-    // E5: 启动心跳回收定时器(幂等: 已存在则直接返回); 浏览器实例生命周期内常驻,
-    // shutdownObscura 时一并清理
-    scheduleReclaim()
-    return b
-  })()
+  S.launchPromise = launchBrowser('')
   try {
     return await S.launchPromise
   } finally {
@@ -877,8 +1037,58 @@ async function ensureBrowser(): Promise<Browser> {
   }
 }
 
-async function newStealthContext(fp: ObscuraFingerprint): Promise<BrowserContext> {
-  const browser = await ensureBrowser()
+/** [R9-b-7] 实际拉起一个 chromium 实例(proxyKey='' 为默认直连浏览器, 否则为代理占位浏览器)。
+ *  代理浏览器实例同样需要 launch 级占位 proxy(Playwright 契约: 所有 context 覆盖代理后
+ *  全局值永不使用, 可为任意串) —— newStealthContext 对每个 ctx 都显式覆盖真实代理 */
+async function launchBrowser(proxyKey: string): Promise<Browser> {
+  if (!S.pwModule) {
+    // 惰性 import('playwright'): 避免未用浏览器引擎时加载 ~几十ms 的模块开销
+    S.pwModule = await import('playwright')
+  }
+  // playwright 类型无 any 滥用: launch 参数全部字面量
+  const b = await S.pwModule.chromium.launch({
+    headless: true,
+    args: LAUNCH_ARGS,
+    ...(proxyKey ? { proxy: { server: 'http://per-context-placeholder' } } : {}),
+  })
+  // 浏览器重启(旧实例崩溃)时清空【同分桶】旧槽位, 避免持有已死 context
+  // (仅清本桶: 代理浏览器崩溃不应连带销毁直连/其他代理的活槽位, 反之亦然)
+  const stale = S.slots.filter((s) => (s.proxyKey || '') === proxyKey)
+  for (const s of stale) {
+    const idx = S.slots.indexOf(s)
+    if (idx >= 0) S.slots.splice(idx, 1)
+  }
+  await Promise.allSettled(stale.map((s) => s.ctx.close().catch(() => {})))
+  if (!proxyKey) {
+    S.browser = b
+    registerExitHooks()
+    // E5: 启动心跳回收定时器(幂等: 已存在则直接返回); 浏览器实例生命周期内常驻,
+    // shutdownObscura 时一并清理
+    scheduleReclaim()
+  }
+  return b
+}
+
+/** [R9-b-7] 代理 URL → Playwright per-context proxy 参数(server/username/password)。
+ *  与 fetcher.playwrightProxyParts 同语义(obscura 禁止反向 import fetcher, 本地复制) */
+function parseProxyParts(proxy: string): { server: string; username?: string; password?: string } {
+  try {
+    const u = new URL(proxy)
+    const server = `${u.protocol}//${u.host}`
+    const username = u.username ? decodeURIComponent(u.username) : ''
+    const password = u.password ? decodeURIComponent(u.password) : ''
+    return {
+      server,
+      ...(username ? { username } : {}),
+      ...(password ? { password } : {}),
+    }
+  } catch {
+    return { server: proxy }
+  }
+}
+
+async function newStealthContext(fp: ObscuraFingerprint, proxyKey = ''): Promise<BrowserContext> {
+  const browser = await ensureBrowser(proxyKey)
   const ctx = await browser.newContext({
     userAgent: fp.userAgent,
     viewport: fp.viewport,
@@ -890,6 +1100,11 @@ async function newStealthContext(fp: ObscuraFingerprint): Promise<BrowserContext
     hasTouch: fp.mobile,
     // E3: Accept-Language 头按 fp.locale 动态构造(原硬编码 zh-CN 与随机 locale 池冲突)
     extraHTTPHeaders: { 'Accept-Language': acceptLanguageFor(fp.locale) },
+    // [R9-b-5] 增强: 原生 screen 尺寸与视口一致(最大化/全屏形) —— 先在引擎层自洽,
+    // 身份脚本再补 availHeight/outer/窗口位置等引擎层无选项的面
+    screen: { width: fp.viewport.width, height: fp.viewport.height },
+    // [R9-b-7] 增强: per-context 真实代理(browser 级挂的是占位串, 此处覆盖才生效)
+    ...(proxyKey ? { proxy: parseProxyParts(proxyKey) } : {}),
   })
   for (const script of STEALTH_INIT_SCRIPTS) {
     await ctx.addInitScript(script)
@@ -908,7 +1123,23 @@ async function newStealthContext(fp: ObscuraFingerprint): Promise<BrowserContext
   )
   // hh-d2: 按 UA 参数化的身份脚本 —— 必须在静态脚本之后注册(覆盖其 UA/platform/vendor/
   // maxTouchPoints/WebGL 定义), 使 JS 面与 UA 身份(含移动分支/Safari·Firefox 语义)逐 frame 自洽
-  await ctx.addInitScript(buildIdentityInitScript(fp.userAgent))
+  // [R9-b-3/4/5]: 硬件指纹/GPU 池/屏幕几何随指纹注入(context 级稳定)
+  await ctx.addInitScript(
+    buildIdentityInitScript(fp.userAgent, {
+      ...(fp.hardwareConcurrency ? { cores: fp.hardwareConcurrency } : {}),
+      ...(fp.deviceMemory ? { deviceMemory: fp.deviceMemory } : {}),
+      ...(fp.gpu ? { gpu: fp.gpu } : {}),
+      screen: {
+        width: fp.viewport.width,
+        height: fp.viewport.height,
+        availWidth: fp.viewport.width,
+        // 桌面任务栏扣除 48px(真实最大化窗口形态), 移动端全屏无任务栏
+        availHeight: fp.mobile ? fp.viewport.height : Math.max(320, fp.viewport.height - 48),
+        x: fp.mobile ? 0 : Math.floor(Math.random() * 30),
+        y: fp.mobile ? 0 : Math.floor(Math.random() * 20),
+      },
+    }),
+  )
   return ctx
 }
 
@@ -935,7 +1166,13 @@ function deriveDeviceId(fp: ObscuraFingerprint): string {
 
 /** feat-cloak-anticrawler D: 注入 device ID 到 navigator.userAgentData + cookie。
  *  - 在每 frame 创建时自动注册 _devid cookie(同源站点首次访问即带上, 模拟设备级追踪 ID)
- *  - 在 navigator.userAgentData.brands 末尾追加 DevID brand(供服务端审计关联同设备会话) */
+ *  - 在 navigator.userAgentData.brands 末尾追加 DevID brand(供服务端审计关联同设备会话)
+ *  [R9-b-2] 修复(默认关闭, OBSCURA_DEVID=1 显式开启): 本特性对反检测是【净伤害】——
+ *  ① 真实 Chrome 的 brands 永远不会含 "DevID" 这种非标准品牌, 任何指纹探针逐 brand 检查
+ *     即判定为伪装浏览器; ② 身份脚本/CDP userAgentMetadata 的 brands 不含 DevID, 而 JS 层
+ *     getter 追加了 DevID —— sec-ch-ua 请求头组与 navigator.userAgentData.brands 不自洽,
+ *     是自报家门级矛盾面。改为环境变量显式开启(保留服务端审计用途), 缺省零注入 */
+const DEVID_ENABLED = process.env.OBSCURA_DEVID === '1'
 function buildDeviceIdInitScript(deviceId: string): string {
   return `(() => { try {
     // _devid cookie: 同源站点首次访问即种, max-age 1 天(同设备 ID 的稳定窗口)
@@ -958,19 +1195,24 @@ function buildDeviceIdInitScript(deviceId: string): string {
   } catch (e) {} })();`
 }
 
-async function createSlot(domain: string, fp: ObscuraFingerprint): Promise<PoolSlot> {
-  const ctx = await newStealthContext(fp)
+async function createSlot(domain: string, fp: ObscuraFingerprint, proxyKey = ''): Promise<PoolSlot> {
+  const ctx = await newStealthContext(fp, proxyKey)
   try {
     const page = await ctx.newPage()
     const cdp = await applyUaCdpOverride(page, fp.userAgent)
     // feat-cloak-anticrawler D: 派生 device ID + 注入 init 脚本(brand + cookie)
-    const deviceId = deriveDeviceId(fp)
-    await ctx.addInitScript(buildDeviceIdInitScript(deviceId))
+    // [R9-b-2]: 默认关闭(OBSCURA_DEVID=1 开启) —— 非标准 brand 是自报家门指纹面
+    let deviceId: string | undefined
+    if (DEVID_ENABLED) {
+      deviceId = deriveDeviceId(fp)
+      await ctx.addInitScript(buildDeviceIdInitScript(deviceId))
+    }
     const slot: PoolSlot = {
       ctx, page, domain, fp, busy: true, cdp,
       lastUsedAt: Date.now(),
       fpCreatedAt: Date.now(),
-      deviceId,
+      ...(deviceId ? { deviceId } : {}),
+      proxyKey,
     }
     S.slots.push(slot)
     return slot
@@ -993,15 +1235,20 @@ async function createSlot(domain: string, fp: ObscuraFingerprint): Promise<PoolS
  *  系统资源耗尽/page 损坏持续态), 把槽位从 S.slots 移除以缩减池容量, 避免持续重试占用
  *  MAX_CONCURRENCY 名额。同时触发 checkObscuraAvailable() 重探测: 若 chromium 整体不可用,
  *  probeOk 立即转 false, 后续请求直接走裸 Playwright 降级路径不再卡 obscura */
-async function recreateSlot(slot: PoolSlot, domain: string, fp: ObscuraFingerprint): Promise<void> {
+async function recreateSlot(slot: PoolSlot, domain: string, fp: ObscuraFingerprint, proxyKey = ''): Promise<void> {
   try { await slot.ctx.close().catch(() => {}) } catch { /* ignore */ }
-  const ctx = await newStealthContext(fp)
+  // [R9-b-7]: 重建可跨代理分桶(槽位亲和切换) —— newStealthContext 按 proxyKey 从对应浏览器建 ctx
+  const ctx = await newStealthContext(fp, proxyKey)
   try {
     const page = await ctx.newPage()
     const cdp = await applyUaCdpOverride(page, fp.userAgent)
     // feat-cloak-anticrawler D: 派生 device ID + 注入 init 脚本(brand + cookie)
-    const deviceId = deriveDeviceId(fp)
-    await ctx.addInitScript(buildDeviceIdInitScript(deviceId))
+    // [R9-b-2]: 默认关闭(OBSCURA_DEVID=1 开启)
+    let deviceId: string | undefined
+    if (DEVID_ENABLED) {
+      deviceId = deriveDeviceId(fp)
+      await ctx.addInitScript(buildDeviceIdInitScript(deviceId))
+    }
     slot.ctx = ctx
     slot.page = page
     slot.domain = domain
@@ -1011,7 +1258,10 @@ async function recreateSlot(slot: PoolSlot, domain: string, fp: ObscuraFingerpri
     slot.lastUsedAt = Date.now()
     // feat-cloak-anticrawler C: 指纹创建时间戳重置(30 分钟轮换判定基准)
     slot.fpCreatedAt = Date.now()
-    slot.deviceId = deviceId
+    // [R9-b-2]: TS 精确可选属性写入(undefined 时删除旧值, 避免脏 deviceId 残留)
+    if (deviceId) slot.deviceId = deviceId
+    else delete slot.deviceId
+    slot.proxyKey = proxyKey
     // R3-17: 重建成功 → 清零连续失败计数
     slot.consecutiveFailures = 0
   } catch (e) {
@@ -1144,20 +1394,67 @@ export async function clickSelectorAnywhere(page: Page, selector: string, perFra
   return false
 }
 
+// ---------- 指纹学习(过盾成功指纹按站复用) ----------
+/** [R9-b-8] 增强: 学习有效期 —— 指纹过盾成功后 2h 内同站复用(与 30min 轮换阈值独立:
+ *  学到的"已验证可过盾"指纹优先于随机轮换, 过期后重新随机, 直到下一次成功重新学习);
+ *  避免把已证明能过盾的指纹过早轮换掉(30min 轮换面向"随机新指纹"的跟踪对抗,
+ *  本学习面向"已知可用指纹"的同站复用, 两者按 TTL 取平衡) */
+const FP_WIN_TTL_MS = 2 * 60 * 60 * 1000
+/** [R9-b-8] 学习表容量上限(防多站点爬取撑爆内存) */
+const FP_WIN_MAX = 200
+
+function hostnameOf(url: string): string {
+  try { return new URL(url).hostname.toLowerCase() } catch { return '' }
+}
+
+/** [R9-b-8] 选指纹: 同站存在未过期的"过盾成功"指纹且未指定 UA 覆盖时复用之(同站指纹稳定
+ *  像回访老用户), 否则随机新指纹。学习指纹命中时 touch ts 作 LRU */
+function pickFingerprint(host: string, uaOverride?: string): ObscuraFingerprint {
+  if (host && !uaOverride) {
+    const learned = S.fpWins.get(host)
+    if (learned && Date.now() - learned.ts < FP_WIN_TTL_MS) {
+      learned.ts = Date.now()
+      return { ...learned.fp }
+    }
+  }
+  return randomFingerprint({ userAgent: uaOverride })
+}
+
+/** [R9-b-8] 记录过盾成功: 渲染终态非挑战页时调用(挑战等待中通过也算 —— 指纹+会话组合已证明可过) */
+function recordFpWin(host: string, fp: ObscuraFingerprint): void {
+  if (!host) return
+  const prev = S.fpWins.get(host)
+  S.fpWins.set(host, { fp: { ...fp }, wins: (prev?.wins || 0) + 1, ts: Date.now() })
+  if (S.fpWins.size > FP_WIN_MAX) {
+    // LRU: 淘汰最久未命中的站点
+    let oldestKey = ''
+    let oldestTs = Infinity
+    for (const [k, v] of S.fpWins) {
+      if (v.ts < oldestTs) { oldestTs = v.ts; oldestKey = k }
+    }
+    if (oldestKey) S.fpWins.delete(oldestKey)
+  }
+}
+
 export async function withObscuraPage<T>(
   url: string,
-  fn: (page: Page, ctx: BrowserContext) => Promise<T>,
-  opts: { userAgent?: string } = {}
+  fn: (page: Page, ctx: BrowserContext, meta: { fp: ObscuraFingerprint; proxyKey: string }) => Promise<T>,
+  opts: { userAgent?: string; proxy?: string } = {}
 ): Promise<T> {
   const domain = originOf(url)
   if (!domain) throw new Error(`Obscura: 无效 URL: ${url}`)
+  const host = hostnameOf(url)
+  // [R9-b-7]: 代理亲和键(''=直连) —— 同代理槽位复用/互不复用, 防代理出口与 cookie/指纹错配
+  const proxyKey = opts.proxy || ''
   let slot: PoolSlot | null = null
   try {
     // 信号量获取
     for (;;) {
       // 修复: 优先复用同域空闲槽位 —— 原先 find(!busy) 拿到哪个算哪个, 两个空闲槽
       // 分属不同域时跨域请求会撞掉另一个域的 context(cookie/指纹被无谓销毁重建)
-      const free = S.slots.find((s) => !s.busy && s.domain === domain && !s.page.isClosed())
+      // [R9-b-7]: 三级匹配: 同域+同代理(理想) → 同代理(换域重建 ctx) → 任意空闲(跨桶重建)
+      const free = S.slots.find((s) => !s.busy && (s.proxyKey || '') === proxyKey && s.domain === domain && !s.page.isClosed())
+        ?? S.slots.find((s) => !s.busy && (s.proxyKey || '') === proxyKey)
         ?? S.slots.find((s) => !s.busy)
       if (free) {
         free.busy = true // 先占位再异步重建, 防止并发抢占同一空槽
@@ -1175,10 +1472,12 @@ export async function withObscuraPage<T>(
         //  (consecutiveFailures 计数 + 重建失败唤醒等待者); fpCreatedAt 缺失(老槽位兼容)
         //  用 lastUsedAt 兜底(若也缺失则当前时间兜底 → 不触发轮换, 零回归)
         const fpAge = Date.now() - (free.fpCreatedAt ?? free.lastUsedAt ?? Date.now())
-        const needRotate = free.domain === domain && !free.page.isClosed() && fpAge > FINGERPRINT_ROTATE_MS
-        if (free.domain !== domain || free.page.isClosed() || needRotate) {
+        const sameAffinity = free.domain === domain && (free.proxyKey || '') === proxyKey
+        const needRotate = sameAffinity && !free.page.isClosed() && fpAge > FINGERPRINT_ROTATE_MS
+        if (!sameAffinity || free.page.isClosed() || needRotate) {
           try {
-            await recreateSlot(free, domain, randomFingerprint({ userAgent: opts.userAgent }))
+            // [R9-b-8]: 重建时优先复用同站"过盾成功"指纹(学习行为), 无学习记录则随机
+            await recreateSlot(free, domain, pickFingerprint(host, opts.userAgent), proxyKey)
           } catch (e) {
             free.busy = false // 重建失败归还槽位(旧 ctx 已关, 下次获取时会再次重建)
             // 修复: 失败路径也必须唤醒一个等待者, 否则排队的请求会永久饥饿挂起
@@ -1186,13 +1485,22 @@ export async function withObscuraPage<T>(
             throw e
           }
         }
+        // [R9-b-1] 修复: recreateSlot 期间 shutdownObscura 可能已启动(此前只覆盖 createSlot
+        //  路径) —— recreate 完成后再次检查, 命中则关掉新建 ctx 并抛错, 防 fn 在已关浏览器上跑
+        if (S.shuttingDown) {
+          try { await free.ctx.close().catch(() => {}) } catch { /* ignore */ }
+          free.busy = false
+          wakeNext()
+          throw new Error('Obscura: 浏览器正在关闭, 请稍后重试')
+        }
         slot = free
         break
       }
       if (S.slots.length + S.pendingCreates < MAX_CONCURRENCY) {
         S.pendingCreates++
         try {
-          slot = await createSlot(domain, randomFingerprint({ userAgent: opts.userAgent }))
+          // [R9-b-8]: 建槽时同站学习指纹优先(同站连续请求拿到同一身份, 像同一设备回访)
+          slot = await createSlot(domain, pickFingerprint(host, opts.userAgent), proxyKey)
         } finally {
           S.pendingCreates--
           // 建槽失败时容量已释放, 唤醒一个等待者去重试(否则等待队列可能永久挂起)
@@ -1237,7 +1545,8 @@ export async function withObscuraPage<T>(
       })
     }
     resetIdleTimer()
-    return await fn(slot.page, slot.ctx)
+    // [R9-b-8]: 向 fn 透传槽位指纹(供 renderStealth 学习"过盾成功指纹")
+    return await fn(slot.page, slot.ctx, { fp: slot.fp, proxyKey: slot.proxyKey || '' })
   } finally {
     if (slot) {
       slot.busy = false
@@ -1351,7 +1660,7 @@ export async function renderStealth(url: string, opts: ObscuraFetchOptions = {})
   const timeout = opts.timeout ?? 20000
   // Turnstile 管理型挑战(无交互自动验证)常需 10~25s, 慢尾可达 35s+, 默认 40s 上限
   const challengeWaitMs = opts.challengeWaitMs ?? 40000
-  return withObscuraPage(url, async (page, ctx) => {
+  return withObscuraPage(url, async (page, ctx, meta) => {
     try {
       await page.goto(url, {
         waitUntil: 'domcontentloaded',
@@ -1459,6 +1768,14 @@ export async function renderStealth(url: string, opts: ObscuraFetchOptions = {})
     // obscura 期间拿到的 cf_clearance 等凭证 cookie 仍会写入 CookieJar 供后续 HTTP 引擎直连复用
     // if (looksLikeChallenge(finalHtml)) { /* 不抛: 交 fetcher.looksBlocked 处理 */ }
 
+    // [R9-b-8] 增强: 过盾成功指纹学习 —— 终态非挑战页且未指定 UA 覆盖时, 把本槽位指纹记入
+    // 学习表(host 键, 2h TTL, 上限 200), 同站后续请求优先复用该指纹(同站指纹稳定像回访;
+    // UA 覆盖请求的指纹由调用方钦定, 不具随机代表性, 不学习)
+    const learnHost = hostnameOf(url)
+    if (learnHost && meta?.fp && !opts.userAgent && !looksLikeChallenge(finalHtml)) {
+      recordFpWin(learnHost, meta.fp)
+    }
+
     // —— Cookie 回传: 转为 Set-Cookie 风格字符串, 供 fetcher 写入 CookieJar ——
     // Bug18 修复(Task 4-a): 原实现按 `new URL(url).hostname` 过滤 ctx.cookies(), 用的是【请求
     // URL】而非【page.url() 最终URL】—— 挑战通过后页面常发生同 host 跳转(如 /cdn-cgi/challenge
@@ -1483,7 +1800,7 @@ export async function renderStealth(url: string, opts: ObscuraFetchOptions = {})
       finalUrl: page.url(),
       challengeWaited,
     }
-  }, { userAgent: opts.userAgent })
+  }, { userAgent: opts.userAgent, proxy: opts.proxy })
 }
 
 // ---------- 统一入口 ----------
@@ -1508,12 +1825,19 @@ export async function shutdownObscura(): Promise<void> {
   S.browser = null
   S.probeOk = null
   S.probeAt = 0
+  // [R9-b-7]: 代理浏览器实例一并关闭(否则空闲关停后代理 chromium 常驻残留)
+  const proxyEntries = [...S.proxyBrowsers.values()]
+  S.proxyBrowsers.clear()
   // 唤醒所有等待者: 让它们重新评估(浏览器已关, 按需重建或快速失败), 防止永久挂起
+  // (ensureBrowser 入口的 shuttingDown 拦截会让它们快速失败, 不会重启浏览器)
   const waiters = S.waiters.splice(0, S.waiters.length)
   for (const w of waiters) w()
   if (b) {
     try { await b.close() } catch { /* 已死则忽略 */ }
   }
+  await Promise.allSettled(
+    proxyEntries.map((e) => (e.browser ? e.browser.close().catch(() => {}) : Promise.resolve())),
+  )
   // 清除 shuttingDown 标志(收尾完成, 后续 ensureBrowser 重新拉起时不再被拦截)
   S.shuttingDown = false
 }

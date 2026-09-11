@@ -5,3 +5,8 @@ node_modules/
 data/
 upload/
 dev.log
+tool-results/
+tmp/
+__pycache__/
+*.pyc
+tsconfig.tsbuildinfo

@@ -34,6 +34,32 @@ const RELAY_MAX_TIMEOUT_MS = 120_000
 // 本桥全 POST 契约实测 130s 在途存活 —— 显式化 200s 覆盖 RELAY_MAX_TIMEOUT_MS=120s +
 // 20MB 响应 base64 重组开销, 防未来 Bun 阈值变化静默破坏慢站中继(中继桥存在的意义)。
 const RELAY_IDLE_TIMEOUT_S = 200
+// [R9-b-15] 增强: 请求背压闸 —— 在飞请求上限(可用 RELAY_MAX_INFLIGHT 覆盖, 缺省 32)。
+// 旧实现无上限: 引擎高并发 + 慢目标站时 20MB×N 的 base64 缓冲同时驻留内存, 无背压保护;
+// 超限返 503, 引擎侧按中继层失败重试/降级(与端口占用/进程未起的语义一致)
+const RELAY_MAX_INFLIGHT = (() => {
+  const n = Number(process.env.RELAY_MAX_INFLIGHT || '')
+  return Number.isFinite(n) && n >= 1 ? Math.floor(n) : 32
+})()
+let relayInflight = 0
+// [R9-b-16] 增强(默认关, RELAY_BLOCK_PRIVATE=1 显式开启): 私网/回环地址出网拦截 ——
+// ss-d 留档决策: 默认不拦(引擎侧 hostGate 把关 + verify-gg-d 断言依赖回环目标可达),
+// 但多主机部署时操作员需要一个显式开关。词法检查(不含 DNS 解析, rebinding 面同 R5-19
+// 既知限制): IP 字面量私网段/回环/链路本地/仅元数据地址 + localhost/.local 域名
+const RELAY_BLOCK_PRIVATE = process.env.RELAY_BLOCK_PRIVATE === '1'
+const RELAY_PRIVATE_HOST_RE = /^(127\.|10\.|0\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.)/
+function isPrivateHostUrl(raw: string): boolean {
+  try {
+    const h = new URL(raw).hostname.toLowerCase().replace(/^\[|\]$/g, '')
+    if (h === 'localhost' || h.endsWith('.localhost') || h.endsWith('.local') || h.endsWith('.internal')) return true
+    if (h === '::1' || h === '::' || h.startsWith('fc') || h.startsWith('fd') || h.startsWith('fe80:')) return true
+    // IPv6-mapped IPv4 (::ffff:127.0.0.1 等)
+    const v4 = h.startsWith('::ffff:') ? h.slice(7) : h
+    return RELAY_PRIVATE_HOST_RE.test(v4)
+  } catch {
+    return true // 解析失败按私网处理(后续 URL 校验会再拒一次)
+  }
+}
 
 /** 流式限量读 body(请求/响应两用): 超限立即取消返回超限标记, 防全量缓冲内存炸面(ss-d) */
 async function readBodyCapped(body: ReadableStream<Uint8Array> | null, cap: number): Promise<{ ok: true; buf: Buffer } | { ok: false; size: number }> {
@@ -139,6 +165,15 @@ createBridgeServer({
     if (!/^https?:\/\//i.test(url) || url.length > 2048) {
       return Response.json({ relayError: 'url 非法(仅 http/https)' }, { status: 502 })
     }
+    // [R9-b-16]: 显式开启时拦截私网/回环目标出网(缺省不拦, 保持 ss-d 既有语义零回归)
+    if (RELAY_BLOCK_PRIVATE && isPrivateHostUrl(url)) {
+      console.log(`[fetch-relay] BLOCK 私网目标 ${safeHostPath(url)} (RELAY_BLOCK_PRIVATE=1)`)
+      return Response.json({ relayError: 'RELAY_BLOCK_PRIVATE=1 已启用: 禁止私网/回环地址出网' }, { status: 502 })
+    }
+    // [R9-b-15]: 背压闸 —— 超限 503, 引擎侧按中继层失败处理
+    if (relayInflight >= RELAY_MAX_INFLIGHT) {
+      return Response.json({ relayError: `中继并发已满(>${RELAY_MAX_INFLIGHT})` }, { status: 503 })
+    }
     const proxy = typeof body.proxy === 'string' && body.proxy ? body.proxy : undefined
     if (proxy && (!/^(https?|socks5h?|socks4a?):\/\/[^\s,]+$/.test(proxy) || proxy.length > 500)) {
       return Response.json({ relayError: 'proxy 形态非法' }, { status: 502 })
@@ -156,6 +191,8 @@ createBridgeServer({
       }
     }
 
+    // [R9-b-15]: 计数在全部校验早退之后、出网 try 之前 —— 与 finally 减计严格配对
+    relayInflight++
     const startedAt = Date.now()
     try {
       const init: RequestInit & { proxy?: string } = {
@@ -193,6 +230,9 @@ createBridgeServer({
       // ss-d: 中继层失败留档(仅 host+path, 不落全 URL —— 目标 URL 查询串可能含 token)
       console.log(`[fetch-relay] FAIL ${safeHostPath(url)} (${Date.now() - startedAt}ms): ${msg.slice(0, 200)}`)
       return Response.json({ relayError: msg.slice(0, 300) }, { status: 502 })
+    } finally {
+      // [R9-b-15]: 所有早退/成功/异常路径统一释放在飞计数
+      relayInflight = Math.max(0, relayInflight - 1)
     }
   },
 })

@@ -20,6 +20,30 @@ const RESTORE_MAX_BODY_BYTES = 200 * 1024 * 1024
 // R4A-10: 章节正文字段长度上限 500_000 字符(与 PUT /api/admin/chapters/[id] 同口径)
 const CHAPTER_CONTENT_MAX = 500_000
 
+/** 任务状态白名单(与 runner 状态机/normalizeTaskData 的 TASK_STATUSES 同口径) */
+const TASK_STATUS_WHITELIST = ['pending', 'running', 'paused', 'stopped', 'done', 'error'] as const
+
+/**
+ * R9-d-8: 备份导入的任务 status 归一化 —— 旧实现 String(t.status).slice(0,20) 原样落库:
+ *  ① status='running' 的备份导入后 DB 显示"运行中"但运行时无采集循环(幽灵运行态,
+ *     recoverOnBoot 只在进程启动时回收, 运行期导入无人兜底), 操作员误判任务在跑;
+ *  ② 白名单外的垃圾值直接污染状态机(控制路由的状态判断全部失效)。
+ * 归一化: running → paused(与 recoverOnBoot 的孤儿回收同语义, 保留"可点击继续"预期);
+ * 白名单外 → pending; 并统计发生次数写入 warnings 让操作员感知。
+ */
+function normalizeRestoredTaskStatus(v: unknown, warnings: string[]): string {
+  const s = String(v ?? 'pending').trim()
+  if (!(TASK_STATUS_WHITELIST as readonly string[]).includes(s)) {
+    warnings.push('任务状态含非法值, 已归一化为 pending')
+    return 'pending'
+  }
+  if (s === 'running') {
+    warnings.push('备份中存在 status=running 的任务, 导入后自动转为 paused(进程内无对应采集循环, 防幽灵运行态)')
+    return 'paused'
+  }
+  return s
+}
+
 /** 校验 + 导入主流程 */
 export async function POST(req: Request) {
   return withGuard(async () => {
@@ -351,6 +375,8 @@ export async function POST(req: Request) {
           if (!t || typeof t.id !== 'string' || !t.id) continue
           const ruleId = String(t.ruleId || '')
           if (!ruleId) continue // 没有关联 rule 的任务无法重建
+          // R9-d-8: 状态归一化(running→paused / 非法值→pending), create/update 同口径
+          const taskStatus = normalizeRestoredTaskStatus(t.status, warnings)
           await tx.task.upsert({
             where: { id: t.id },
             create: {
@@ -376,7 +402,7 @@ export async function POST(req: Request) {
               autoSuggest: t.autoSuggest !== false,
               autoRefresh: !!t.autoRefresh,
               refreshIntervalMin: Number(t.refreshIntervalMin) || 30,
-              status: String(t.status || 'pending').slice(0, 20),
+              status: taskStatus,
               progress: String(t.progress || '{}').slice(0, 100_000),
               stats: String(t.stats || '{}').slice(0, 100_000),
             },
@@ -401,7 +427,7 @@ export async function POST(req: Request) {
               autoSuggest: t.autoSuggest !== false,
               autoRefresh: !!t.autoRefresh,
               refreshIntervalMin: Number(t.refreshIntervalMin) || 30,
-              status: String(t.status || 'pending').slice(0, 20),
+              status: taskStatus,
               progress: String(t.progress || '{}').slice(0, 100_000),
               stats: String(t.stats || '{}').slice(0, 100_000),
             },
@@ -447,9 +473,11 @@ export async function POST(req: Request) {
       return fail(`导入失败已回滚: ${(e as Error)?.message?.slice(0, 200) || '未知错误'}`, 500)
     }
 
+    // R9-d-8: 状态归一化警告按发生次数去重(逐任务 push 会产生大量重复文案), 汇总为一条
+    const deduped = Array.from(new Set(warnings))
     return ok({
       imported,
-      warnings,
+      warnings: deduped,
       took: Date.now() - startedAt,
     })
   })

@@ -67,7 +67,8 @@ const eslintConfig = [...nextCoreWebVitals, ...nextTypescript, {
   // scripts/**: Task 2-a 明确声明 scripts 与 mini-services 独立 tsconfig/quality-gate,
   //   不参与主 tsc/lint 门(verify-* 脚本另有独立校验;seed/mock 仅开发期一次性运行)
   // tmp/**: 运行时暂存(截图/原站 HTML+CSS+JS 资产留证, mm 轮), 非源码不入质量门
-  ignores: ["node_modules/**", ".next/**", "out/**", "build/**", "next-env.d.ts", "examples/**", "skills", "mini-services/**", "scripts/**", "tmp/**"]
+  // tool-results/**: agent 工具链运行产物(read 缓存等), 非源码不入质量门 [R9-cl]
+  ignores: ["node_modules/**", ".next/**", "out/**", "build/**", "next-env.d.ts", "examples/**", "skills", "mini-services/**", "scripts/**", "tmp/**", "tool-results/**"]
 }];
 
 export default eslintConfig;

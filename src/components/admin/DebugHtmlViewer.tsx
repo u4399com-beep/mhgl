@@ -9,6 +9,8 @@
 // ============================================================
 import { useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
+// [R9-cl-1] 整合: 与 cleaner.escapeReg 同款正则转义, 下沉到 @/lib/utils 共用
+import { escapeRegExp } from '@/lib/utils'
 
 interface DebugMatchSummary {
   field: string
@@ -128,11 +130,6 @@ function escapeHtmlForPre(s: string): string {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
-}
-
-/** 转义正则元字符, 用于把 data-field/data-idx 字符串安全地嵌入 RegExp */
-function escapeRegExp(s: string): string {
-  return (s || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 /**

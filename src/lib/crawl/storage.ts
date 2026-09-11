@@ -6,6 +6,15 @@
 import { promises as fs } from 'fs'
 import path from 'path'
 import sharp from 'sharp'
+import { sliceCodePoints } from '@/lib/utils'
+
+// [R9-cl-3] 整合: saveChapterTxt 与 downloadTxtTarget 各有一份同款文件名清洗
+// (控制字符/Windows 保留字符→'_' + 按码点截断, Bug 21 同源修复), 提取共用。
+// 原实现双层截断(先 80 再 40 / 先 100 再 80)输出等价于直接截到最外层(小值),
+// 语义不变(仅消去中间无效截断)
+function sanitizeFileBase(name: string, max: number): string {
+  return sliceCodePoints(name.replace(/[\x00-\x1f\\/:*?"<>|\s]+/g, '_'), max)
+}
 
 export const DATA_ROOT = path.join(process.cwd(), 'data')
 export const NOVELS_DIR = path.join(DATA_ROOT, 'novels')
@@ -32,9 +41,8 @@ export async function saveChapterTxt(
   await fs.mkdir(dir, { recursive: true })
   // 清洗控制字符(\x00-\x1f, 原 \s 不覆盖) + Windows 保留字符; 截断防超长文件名
   // (Bug 21 修复: 按码点截断: 直接 slice(0,80) 可能把 emoji 等 astral 字符的代理对拦腰
-  // 斩断, 落盘出半字符乱码文件名; Array.from 按码点迭代后再 slice 才安全)
-  const slug = Array.from(title.replace(/[\x00-\x1f\\/:*?"<>|\s]+/g, '_')).slice(0, 80).join('')
-  const slugSafe = Array.from(slug).slice(0, 40).join('') || 'chapter'
+  // 斩断, 落盘出半字符乱码文件名; 按码点迭代后再 slice 才安全)
+  const slugSafe = sanitizeFileBase(title, 40) || 'chapter'
   const fileName = `${String(idx).padStart(5, '0')}_${slugSafe}.txt`
   const filePath = path.join(dir, fileName)
   // R3-27: 标题强制单行 —— 源站标题偶含 \r\n(列表项跨行/HTML br 转文本时残留), 写入
@@ -124,9 +132,8 @@ export async function saveDownloadTxt(name: string, content: string): Promise<{ 
  *  清洗控制字符 + 截断: 超长书名会导致 ENAMETOOLONG 直接抛错(按码点截断防代理对斩半) */
 function downloadTxtTarget(name: string): { filePath: string; rel: string; fileName: string } {
   // Bug 21 修复: 原实现 .slice(0, 100) 按 UTF-16 code unit 截断, astral 字符(emoji/CJK 扩展)
-  // 代理对被斩半 → 落盘出半字符乱码文件名。改为 Array.from 按码点迭代后再 slice。
-  const base = Array.from(name.replace(/[\x00-\x1f\\/:*?"<>|\s]+/g, '_')).slice(0, 100).join('')
-  const fileName = `${Array.from(base).slice(0, 80).join('')}.txt`
+  // 代理对被斩半 → 落盘出半字符乱码文件名。改为按码点迭代后再截断(经 sanitizeFileBase 共用)
+  const fileName = `${sanitizeFileBase(name, 80)}.txt`
   const filePath = path.join(DOWNLOADS_DIR, fileName)
   return { filePath, rel: `downloads/${fileName}`, fileName }
 }

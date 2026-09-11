@@ -12,7 +12,7 @@
 //   6) globalThis.__heisLogger 单例 (Next.js dev HMR 安全, 模块热重载不重建)
 //
 // 通过 LOG_LEVEL 环境变量控制输出层级
-// (默认 dev=debug, prod=info; setLogLevel 可运行时调整)
+// (默认 dev=debug, prod=info)
 // ============================================================
 
 export enum LogLevel {
@@ -131,15 +131,6 @@ export class Logger {
     this.bindings = bindings
   }
 
-  /** 调整日志级别 (运行时; 也可通过 LOG_LEVEL 环境变量初始化) */
-  setLevel(level: LogLevel): void {
-    this.level = level
-  }
-
-  getLevel(): LogLevel {
-    return this.level
-  }
-
   /** 创建子 logger: 注入额外上下文字段 (合并父 bindings) */
   child(bindings: Record<string, unknown>): Logger {
     return new Logger(this.level, { ...this.bindings, ...bindings })
@@ -184,7 +175,7 @@ export class Logger {
 
 // ---- globalThis 单例 (HMR 安全) ----
 // dev 模式下模块热重载会重新执行模块体, 直接 const logger = new Logger() 会
-// 在每次重载时创建新实例并重置 level 为环境默认值 (setLogLevel 调用丢失)。
+// 在每次重载时创建新实例并重置 level 为环境默认值 (运行时已调整的 level 丢失)。
 // 通过 globalThis.__heisLogger 缓存: 模块重载时返回既有实例, level/bindings 保持。
 interface GlobalWithLogger {
   __heisLogger?: Logger
@@ -197,11 +188,6 @@ if (!G.__heisLogger) {
 
 /** 根 logger (进程级单例, HMR 安全) */
 export const logger: Logger = G.__heisLogger
-
-/** 调整日志级别 (LOG_LEVEL 环境变量初始化后仍可运行时覆盖) */
-export function setLogLevel(level: LogLevel): void {
-  G.__heisLogger!.setLevel(level)
-}
 
 /** 创建绑定 reqId 的子 logger (供中间件按请求打 tag) */
 export function withReqId(reqId: string): Logger {

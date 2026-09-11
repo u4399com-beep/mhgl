@@ -18,6 +18,9 @@ export async function GET(req: Request) {
           { author: { contains: q } },
           { intro: { contains: q } },
           { keywords: { contains: q } },
+          // [R9-f-1] 修复: 下拉词/SEO 关键词命中应能搜到书 —— 全量关键词短语存于
+          // BookTag.tag(如「xxx全文阅读」), Book.keywords 仅保留基础名, 原先搜标签词返回空
+          { tags: { some: { tag: { contains: q } } } },
         ],
       },
       orderBy: { wordCount: 'desc' },

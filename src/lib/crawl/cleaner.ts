@@ -5,6 +5,9 @@
 import * as cheerio from 'cheerio'
 import * as OpenCC from 'opencc-js'
 import { type CleanConfig, DEFAULT_CLEAN_CONFIG } from './types'
+// [R9-cl-1] 整合: escapeRegExp/sliceCodePoints 下沉到 @/lib/utils 共用(原本文件内 escapeReg
+// 与 DebugHtmlViewer.escapeRegExp 重复; 码点截断惯用法三处重复)
+import { escapeRegExp, sliceCodePoints } from '@/lib/utils'
 
 // ---------- 繁体→简体转换(OpenCC, 采集源为繁体时自动启用) ----------
 // 设计: 逐段检测"繁体独有字"命中才触发转换 —— 简体源站零误转, 繁体源站任意段落必然
@@ -127,6 +130,8 @@ export function t2sHtml(html: string): string {
  *  恒解码为字面量 "&lt;"(与浏览器对已解码文本的展示语义一致)。数字实体复用
  *  fromCodePointSafe(越界/孤立代理区返回空) */
 const ENTITY_RE = /&(?:nbsp|amp|lt|gt|quot|apos|#x[0-9a-f]+|#[0-9]+);/gi
+// [R9-cl-2] 整合: 控制字符剥离正则本文件内 4 处同款重复, 提取为具名常量(\t\n\r 保留口径不变)
+const CTRL_CHARS_RE = /[\x00-\x08\x0B\x0C\x0E-\x1F]/g
 const ENTITY_BASIC: Record<string, string> = { nbsp: ' ', amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }
 function fromCodePointSafe(cp: number): string {
   if (!Number.isFinite(cp) || cp < 0 || cp > 0x10ffff) return ''
@@ -186,7 +191,7 @@ export function cleanContentHtml(raw: string, cfgOverride?: Partial<CleanConfig>
     // 会把词组保护外的「乾县」继续转成「干县」), 双重转换是真实的简体损坏路径
     // 控制字符剥离(\b 退格等源站杂符; \t\n\r 不在剥离类内): 全库实扫发现 2 章孤立 \b
     // 随正文入库(dd 轮), 输出层统一剥离一次
-    return text.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '')
+    return text.replace(CTRL_CHARS_RE, '')
   }
 
   // HTML模式
@@ -329,7 +334,7 @@ export function cleanContentHtml(raw: string, cfgOverride?: Partial<CleanConfig>
       .join('')
   }
   // 同上: HTML 模式出口同样剥离控制字符(源站 \b 杂符曾随 <p>\b话虽… 入库)
-  return out.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '').trim()
+  return out.replace(CTRL_CHARS_RE, '').trim()
 }
 
 // 广告正则清洗的 URL 保护例外(y-a重放): 默认首条广告正则
@@ -348,7 +353,11 @@ function removeAdLines(text: string, patterns: string[]): string {
   const urls: string[] = []
   let out = text.replace(/https?:\/\/[^\s"'<>]+/gi, (m) => {
     urls.push(m)
-    return `\uE000${urls.length - 1}\uE001`
+    // [R9-c-7] 编号带校验位: encode(n)=n*10+(n%9+1)。相邻占位符被广告正则吃掉中间
+    // \uE001…\uE000 时会合并成 \uE00012\uE001 形态, 旧纯数字编号会把 urls[12](存在时!)
+    // 错注入正文; 校验位不符的合并串还原失败 → 走末尾清理(丢一条 URL, 不注入错 URL)
+    const idx = urls.length - 1
+    return `\uE000${idx * 10 + (idx % 9 + 1)}\uE001`
   })
   for (const p of patterns) {
     if (!p) continue
@@ -362,9 +371,16 @@ function removeAdLines(text: string, patterns: string[]): string {
       out = out.replace(new RegExp(p, 'gi'), '')
     } catch { /* 无效正则跳过 */ }
   }
-  // 还原被保护的 URL(良构占位符), 再清掉还原失败的控制字符残留
-  out = out.replace(/\uE000(\d+)\uE001/g, (_, i) => urls[Number(i)] ?? '')
-  out = out.replace(/\uE000\d*\uE001?/g, '')
+  // 还原被保护的 URL(校验位验签通过且索引存在), 不合法/合并串一律丢弃
+  out = out.replace(/\uE000(\d+)\uE001/g, (_, s: string) => {
+    const v = Number(s)
+    if (!Number.isInteger(v) || v < 1) return ''
+    const body = Math.floor(v / 10)
+    return body % 9 + 1 === v % 10 && body < urls.length ? urls[body] : ''
+  })
+  // [R9-c-7] 残留清理覆盖"开标签被吃"残骸: 旧 scrub(\uE000\d*\uE001?)对 \uE000 被吃掉的
+  // 孤立 \uE001 不清理, PUA 控制字符可随正文入库
+  out = out.replace(/[\uE000\uE001]/g, '')
   return out
 }
 
@@ -378,7 +394,7 @@ export function cleanTextField(raw: string | undefined | null, maxLength?: numbe
   // 控制字符剥离(qq-e): dd 轮只修了正文出口(cleanContentHtml), 纯文本字段(章节标题/简介/
   // 关键词)漏网 —— 源站标题混入 \x00/\x08/\x0B 等随 DB 入库并进 JSON API/前台。
   // \t\n\r(\x09\x0A\x0D)不在剥离类内, 与正文出口同口径
-  v = v.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '')
+  v = v.replace(CTRL_CHARS_RE, '')
   // 繁体→简体(检测未命中原样返回)
   v = t2sText(v)
   v = v
@@ -387,7 +403,7 @@ export function cleanTextField(raw: string | undefined | null, maxLength?: numbe
     .trim()
   if (maxLength && v.length > maxLength) {
     // 按码点截断(UTF-16 slice 会把 emoji 等 astral 字符代理对斩半产出乱码 U+FFFD)
-    v = Array.from(v).slice(0, maxLength).join('')
+    v = sliceCodePoints(v, maxLength)
   }
   return v
 }
@@ -399,7 +415,7 @@ export function cleanIntro(raw: string | undefined | null, maxLength = 2000): st
   v = v.replace(/<[^>]+>/g, '')
   v = decodeEntitiesOnce(v)
   // 控制字符剥离(qq-e): 与 cleanTextField 同口径(\t\n\r 保留, 供下方按行切段)
-  v = v.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '')
+  v = v.replace(CTRL_CHARS_RE, '')
   v = t2sText(v)
   v = removeAdLines(v, DEFAULT_CLEAN_CONFIG.adPatterns)
   v = v
@@ -407,7 +423,7 @@ export function cleanIntro(raw: string | undefined | null, maxLength = 2000): st
     .map((l) => l.trim())
     .filter(Boolean)
     .join('\n')
-  if (v.length > maxLength) v = Array.from(v).slice(0, maxLength).join('')
+  if (v.length > maxLength) v = sliceCodePoints(v, maxLength)
   return v
 }
 
@@ -416,7 +432,7 @@ export function cleanChapterTitle(raw: string | undefined | null, bookName?: str
   if (!raw) return ''
   let t = cleanTextField(raw)
   if (bookName) {
-    t = t.replace(new RegExp(`^${escapeReg(bookName)}\\s*`, 'g'), '')
+    t = t.replace(new RegExp(`^${escapeRegExp(bookName)}\\s*`, 'g'), '')
   }
   // 修复(qq-e): 剥离切割点从「分隔符起点」改为「垃圾关键词起点」—— 原实现
   // t.slice(0, junk.index) 以匹配起点(分隔符)切割, 标题内嵌连字符且站点尾巴与正文隔了
@@ -438,9 +454,5 @@ export function cleanChapterTitle(raw: string | undefined | null, bookName?: str
   }
   // 按码点截断(与 cleanTextField/cleanIntro 同款): UTF-16 slice(0,120) 会把 emoji 等
   // astral 字符代理对斩半产出乱码(U+FFFD)
-  return Array.from(t.trim()).slice(0, 120).join('') || '未命名章节'
-}
-
-function escapeReg(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return sliceCodePoints(t.trim(), 120) || '未命名章节'
 }

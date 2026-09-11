@@ -37,7 +37,10 @@ export function matchCategoryByText(text: string, existingCategories?: string[])
   for (const [name, kws] of CATEGORY_KEYWORDS) {
     let score = 0
     for (const kw of kws) {
-      if (t.includes(kw.trim())) score += kw.length >= 2 ? 2 : 1
+      // [R9-a-17] 修复: 含空格的关键词(' urb '/' war ')空格本身是防子串误伤的边界,
+      // trim() 会把它退化成裸子串('urb' 命中 urban/suburb/turban)。带空白词保留原样匹配
+      const needle = /\s/.test(kw) ? kw : kw.trim()
+      if (t.includes(needle)) score += needle.length >= 2 ? 2 : 1
     }
     if (score > 0 && (!best || score > best.score)) best = { name, score }
   }
@@ -50,7 +53,13 @@ export async function smartCategory(
   intro: string,
   sourceCategory?: string
 ): Promise<{ category: string | null; method: 'source' | 'keyword' | 'llm' | 'none' }> {
-  const cats = await db.category.findMany({ orderBy: { sortOrder: 'asc' } })
+  const cats = await db.category.findMany({ orderBy: { sortOrder: 'asc' } }).catch((e: unknown) => {
+    // [R9-a-18] 修复: findMany 异常(DB 瞬断/SQLite busy)原先直接上抛 → 采集流水线把整本书
+    // 计为失败。智能分类是锦上添花, 异常时退化空分类表(关键词匹配/LLM 兑底照常, 仅丢
+    // "直接命中已有分类名"一步)
+    console.warn('[smart] 分类表读取失败(退化空表):', (e as Error)?.message?.slice(0, 80))
+    return [] as Array<{ name: string }>
+  })
   const names = cats.map((c) => c.name)
 
   // 1. 来源站点自带分类

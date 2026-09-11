@@ -264,10 +264,26 @@ export interface ParsedBook {
   status?: string
 }
 
+/** [R9-c-6] 正文质量画像(可选输出): 解析层对最终正文的质量自评, 供 runner 降级决策/
+ *  规则诊断展示; 全部可选字段, 旧调用方零影响 */
+export interface ContentQuality {
+  /** 去标签后正文字符数 */
+  textLen: number
+  /** 短行(≤8字)行数占比 0~1, 过高疑似壳页/导航被当正文 */
+  shortLineRatio: number
+  /** 广告/导流词命中字符占比 0~1, 过高疑似广告页 */
+  adHitRatio: number
+}
+
 /** 章节内容解析结果 */
 export interface ParsedContent {
   content: string
   pages: number
+  /** [R9-c-6] 解析置信度 0~1(启发式: 文本量/短行占比/广告密度三档扣减), 供 runner
+   *  降级决策; 未产出时缺省(旧调用方零影响) */
+  confidence?: number
+  /** [R9-c-6] 质量画像明细(可选) */
+  quality?: ContentQuality
 }
 
 export const DEFAULT_FETCH_CONFIG: FetchConfig = {

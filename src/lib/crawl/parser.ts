@@ -12,6 +12,91 @@ import { type FieldRule, type PageRule, type TocItem, type ParsedBook, type Pars
 import { fetchPage } from './fetcher'
 
 // ---------------- 后处理 ----------------
+// [R9-c-1] 替换执行哨兵常量: 逐匹配累计耗时/匹配数上限(超限放弃本次替换, 调用方保持原文)
+const REPLACE_BUDGET_MS = 1000
+const REPLACE_MAX_MATCHES = 100_000
+const nowMs = () => (typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now())
+
+/** [R9-c-1] 展开 String.replace 语义的替换串占位符: $$ / $& / $` / $' / $1~$99 / $<name>。
+ *  组号不存在时按规范保留字面量(如仅 8 组时 "$18" → 组1内容 + 字面 "8") */
+function expandReplaceTo(repl: string, m: RegExpExecArray, source: string): string {
+  let out = ''
+  let i = 0
+  while (i < repl.length) {
+    const ch = repl[i]
+    if (ch !== '$') { out += ch; i++; continue }
+    const nxt = repl[i + 1]
+    if (nxt === '$') { out += '$'; i += 2; continue }
+    if (nxt === '&') { out += m[0]; i += 2; continue }
+    if (nxt === '`') { out += source.slice(0, m.index); i += 2; continue }
+    if (nxt === "'") { out += source.slice(m.index + m[0].length); i += 2; continue }
+    if (nxt === '<') {
+      const end = repl.indexOf('>', i + 2)
+      if (end > i + 1) {
+        const name = repl.slice(i + 2, end)
+        out += m.groups && m.groups[name] !== undefined ? m.groups[name] : ''
+        i = end + 1
+        continue
+      }
+    }
+    if (nxt && nxt >= '0' && nxt <= '9') {
+      // 两位组号(存在才采用)优先, 否则一位; 均不存在按字面量透传($ 与数字原样保留)
+      const two = repl.slice(i + 1, i + 3)
+      if (/^\d{2}$/.test(two) && m[parseInt(two)] !== undefined) { out += m[parseInt(two)]; i += 3; continue }
+      if (m[parseInt(nxt)] !== undefined) { out += m[parseInt(nxt)]; i += 2; continue }
+      out += '$'; i += 1
+      continue
+    }
+    out += '$'; i += 1
+  }
+  return out
+}
+
+/** [R9-c-1] 安全整串替换: 单遍 exec 循环 + $ 占位符展开; 逐匹配累计耗时超预算或匹配数超
+ *  上限时中止并返回 null(调用方保持原文不替换, 与"跳过危险正则"同 fail-safe 语义)。
+ *  返回 null ≠ 空串, 调用方须严格判 null */
+function safeReplaceAll(input: string, src: string, replaceTo: string): string | null {
+  try {
+    const re = new RegExp(src, 'g')
+    const t0 = nowMs()
+    let out = ''
+    let last = 0
+    let count = 0
+    let m: RegExpExecArray | null
+    while ((m = re.exec(input)) !== null) {
+      // 零宽匹配: 与 String.replace 同语义在该位置插入 replaceTo, 但需手动推进 lastIndex 防死循环
+      if (m[0].length === 0) {
+        out += input.slice(last, m.index) + expandReplaceTo(replaceTo, m, input)
+        last = m.index
+        re.lastIndex++
+        if (re.lastIndex > input.length) break
+        continue
+      }
+      if (++count > REPLACE_MAX_MATCHES) return null
+      if (nowMs() - t0 > REPLACE_BUDGET_MS) return null
+      out += input.slice(last, m.index) + expandReplaceTo(replaceTo, m, input)
+      last = m.index + m[0].length
+    }
+    return out + input.slice(last)
+  } catch {
+    return null
+  }
+}
+
+// [R9-c-2] 正则危险度预算记忆化: regexExtract/regexExtractAll 在逐条目提取路径上高频调用
+// (数千条目录 × 每条数字段), 每次全跑 200 字符样本测试开销可观; 以 pattern 为键缓存结论,
+// 上限 512 条满了简单清空(正则模式集合有限, 不会抖动)
+const regexBudgetMemo = new Map<string, boolean>()
+function regexRuntimeSafe(src: string): boolean {
+  const memo = regexBudgetMemo.get(src)
+  if (memo !== undefined) return memo
+  // 与 applyTransform 同多闸门: 长度上限 + 嵌套量词快筛 + 样本预算测试
+  const ok = src.length <= 1000 && !/[+*]\s*\)\s*[+*{]/.test(src) && testRegexBudget(src, { budgetMs: 200 }).ok
+  if (regexBudgetMemo.size >= 512) regexBudgetMemo.clear()
+  regexBudgetMemo.set(src, ok)
+  return ok
+}
+
 /**
  * feat-cloak-anticrawler I: ReDoS 预算测试 —— 编译正则后用 200 字符样本跑一次,
  * 超过 budgetMs(默认 100ms) 即判定为危险正则, 调用方应拒绝该规则或跳过该次替换。
@@ -88,37 +173,14 @@ function applyTransform(value: string, rule: FieldRule): string {
           // 跳过本次替换, 不改 v(零回归: 替换失败即不替换)
           // 但 stripTags/index 等后续步骤照常执行
         } else {
-          const re = new RegExp(src, 'g')
-          const replaceTo = rule.replaceTo ?? ''
-          // 同步路径优先: 短输入(<200 字符)直接跑—— ReDoS 在小输入上时间有界(≤ 数十 ms)
-          if (v.length <= 200) {
-            v = v.replace(re, replaceTo)
-          } else {
-            // 大输入走预算保护: 200ms 内未完成视为 ReDoS, 跳过本次替换(零回归: 替换失败即不替换)
-            // RegExp.prototype[Symbol.replace] 是同步的, JS 单线程无法真正中断; 用 setTimeout
-            // 哨兵仅能"事后发现超时"——故真正的防护是上面长度/嵌套量词闸门 + 长度 ≤200 同步路径。
-            // >200 的输入按 chunk 切片跑, 单 chunk ReDoS 不会拖死事件循环。
-            // R8-7: chunk size 从 200 提升至 2000, 且加 100 字符 overlap ——
-            // 旧实现 CHUNK=200, 跨 chunk 边界的正则匹配(如 /ab+c/g 匹配 "abbbbbc" 横跨两 chunk)
-            // 会因 chunk 切片而丢失; 100 字符 overlap 让下一 chunk 起点回退 100 字符, 边界匹配可
-            // 在下一 chunk 内完成。最终结果因 overlap 会重复替换末尾 100 字符, 但 replaceTo 多为
-            // 空串或短串, 重复替换幂等(replaceFrom 找不到匹配即不动); 边界附近的 100 字符会被
-            // 覆盖两次, 不影响最终结果(无重叠匹配被吞, 但有重叠匹配的 chunk 内已替换为空)。
-            let out = ''
-            const CHUNK = 2000
-            const OVERLAP = 100
-            let i = 0
-            while (i < v.length) {
-              const slice = v.slice(i, i + CHUNK)
-              // 重新编译保证 global flag 不被上次 lastindex 污染
-              const subRe = new RegExp(src, 'g')
-              out += slice.replace(subRe, replaceTo)
-              if (i + CHUNK >= v.length) break
-              // 下一 chunk 起点回退 OVERLAP 字符, 让边界匹配可在下一 chunk 内完成
-              i += CHUNK - OVERLAP
-            }
-            v = out
-          }
+          // [R9-c-1] 单遍 exec 循环(safeReplaceAll)整体替代旧"短串直接 replace / 长串分块
+          // replace"双路径: 旧分块实现 out += f(slice) 按 CHUNK-OVERLAP 步进【拼接】, 相邻
+          // chunk 的 100 字符重叠区会两次进入输出 —— 长正文(>2000 字符)配置 replaceFrom 的
+          // 规则每 ~1900 字符即重复拼出 100 字符(真实数据损坏; 旧注释"重复替换幂等"对
+          // 拼接语义不成立)。单遍扫描无重叠即无重复, 也无跨块边界断匹配;
+          // ReDoS 防线保留(嵌套量词闸门 + 预算测试), 另有逐匹配耗时哨兵兜底
+          const replaced = safeReplaceAll(v, src, rule.replaceTo ?? '')
+          if (replaced !== null) v = replaced
         }
       } catch { /* 无效正则忽略 */ }
     }
@@ -257,13 +319,12 @@ function xpathExtractNodes(doc: any, expression: string): any[] {
   }
 }
 
-function xpathAttr(node: any, name: string): string {
-  return nodeAttr(node, name)
-}
-
 // ---------------- 正则 ----------------
 function regexExtract(html: string, rule: FieldRule): string {
   try {
+    // [R9-c-2] 运行时 ReDoS 闸门: API 保存期校验(validateRegexSafety)只拦入库路径, 直写 DB
+    // 的规则仍可携带灾难性回溯模式 —— 引擎层执行前再兜一道, 危险正则跳过本次提取(返回空)
+    if (!regexRuntimeSafe(rule.expression)) return ''
     const flags = rule.flags || 'gis'
     const re = new RegExp(rule.expression, flags)
     const m = re.exec(html)
@@ -275,6 +336,8 @@ function regexExtract(html: string, rule: FieldRule): string {
 
 function regexExtractAll(html: string, rule: FieldRule): string[] {
   try {
+    // [R9-c-2] 同 regexExtract: 全页扫描型更易踩回溯路径, 危险正则直接空结果
+    if (!regexRuntimeSafe(rule.expression)) return []
     const flags = rule.flags || 'gi'
     const re = new RegExp(rule.expression, flags)
     const group = rule.attr && /^\d+$/.test(rule.attr) ? parseInt(rule.attr) : (re.source.includes('(') ? 1 : 0)
@@ -293,7 +356,9 @@ function regexExtractAll(html: string, rule: FieldRule): string[] {
 /** 响应体 → JSON值: 非对象/数组开头或解析失败返回 undefined(由调用方决定空结果) */
 export function parseJsonBody(html: string): unknown | undefined {
   if (!html) return undefined
-  const s = html.trim()
+  // [R9-c-3] 去 UTF-8 BOM: 部分 JSON API 响应体带 \uFEFF 前缀, 原实现 s[0] !== '{' 直接判非
+  // JSON → 整段静默空结果(fetcher 解码层已去一次, 此处对测试面板直传 html 等入口兜底)
+  const s = html.replace(/^\uFEFF+/, '').trim()
   if (!s || (s[0] !== '{' && s[0] !== '[')) return undefined
   try {
     return JSON.parse(s)
@@ -574,6 +639,56 @@ function resolveWithBase(raw: string, base: string): string {
 }
 
 // ---------------- 翻页传输 ----------------
+/** [R9-c-4] 翻页"下一页"链接鲁棒选取: 候选逐个绝对化+自引用过滤, 取第一个有效且未被排除
+ *  (已访问/重复)的 URL。旧实现只取第一个匹配元素的 href —— 站点把装饰锚点(javascript:;/#top)
+ *  排在真翻页链接之前时 absolutize 返回空, 翻页静默终止丢整卷; 且规则型 nextLink 配 css
+ *  未写 attr 时旧逻辑按 text 提取(纯文本恒非 URL)必失败, 现补 href 候选。文案兜底仅按
+ *  fallbackTexts 指定词匹配(目录页含"下一章"哨兵, 正文页刻意不含 —— 防末页误并下一章)。
+ *  候选上限 50 防超大导航条拖慢 */
+function pickNextHref(
+  $: cheerio.CheerioAPI,
+  doc: any,
+  nextRule: FieldRule | undefined,
+  scopeHtml: string,
+  base: string,
+  docUrl: string,
+  fallbackTexts: string[],
+  exclude: (u: string) => boolean
+): string {
+  const raws: string[] = []
+  if (nextRule) {
+    if (nextRule.type === 'css') {
+      const els = cssSelect($, null, nextRule.expression)
+      if (els && els.length) {
+        for (const el of els.toArray().slice(0, 50)) {
+          // text/html 或未指定 attr 时旧语义按文本提取, 补 href 为首选候选(未指定 attr 的
+          // 规则此前恒翻页失败); 显式属性 attr 照旧
+          const v = nextRule.attr === 'text' || nextRule.attr === 'html' || !nextRule.attr
+            ? ($(el).attr('href') || $(el).text() || '')
+            : ($(el).attr(nextRule.attr) || '')
+          if (v) raws.push(v)
+        }
+      }
+    } else {
+      // regex/xpath/json/const 型沿用统一提取单值
+      raws.push(extractField(scopeHtml, $, null, doc, nextRule))
+    }
+  }
+  // 常见文案兜底(与旧实现同序; 规则型候选为空或全部无效时仍可翻页)
+  for (const t of fallbackTexts) {
+    const hits = $(`a:contains("${t}")`)
+    for (const el of hits.toArray().slice(0, 50)) {
+      const v = $(el).attr('href')
+      if (v) raws.push(v)
+    }
+  }
+  for (const raw of raws) {
+    const abs = absolutize(resolveWithBase(raw, base), docUrl)
+    if (abs && abs !== docUrl && !exclude(abs)) return abs
+  }
+  return ''
+}
+
 /** 翻页请求传输: fetchCfg.pageFetch 注入时走注入回调(runner 过闸路径, 与章节抓取同享
  *  hostGate 同站并发闸); 未注入时直连 fetchPage(rules/test 测试路由保持直连语义)。
  *  ll-c: refererUrl 可选第二参 —— parseToc/parseContent 翻页第2页起回传【上一页 URL】,
@@ -778,6 +893,9 @@ export async function parseToc(
   let current = html
   const maxPages = pageRule.pagination?.enabled ? (pageRule.pagination.maxPages || 20) : 1
   const seen = new Set<string>()
+  // [R9-c-5] 首页入防环集: 末页"下一页"指回目录首页时, 原实现需重新抓取/解析一次首页后
+  // 才被 __page__ 集合拦截; 预置后直接判停(免一次无谓请求)
+  if (pageRule.pagination?.enabled) seen.add('__page__' + firstUrl)
   // R3-24: 同 path 不同 query 的"伪翻页"计数器 —— 部分站点把"下一页"链 query 改个时间戳/
   // 随机数/nocache 仍指回当前页(分页 rule 配置错或源站分页 bug), 原 seen.has 防环判重不命中
   // (每次 next 都是新 URL), maxPages 上限 20 内不断拉取重复内容入库。连 5 次同 path 即停。
@@ -832,7 +950,7 @@ export async function parseToc(
       if (urlRule) href = extractField(scope.html, scope$, null, scopeDoc, urlRule)
       if (volumeRule) vol = extractField(scope.html, scope$, null, scopeDoc, volumeRule)
       if (!title && !href) continue
-      if (!href && scope.node) href = xpathAttr(scope.node, 'href') || ''
+      if (!href && scope.node) href = nodeAttr(scope.node, 'href') || ''
       href = absolutize(resolveWithBase(href, base), url || firstUrl)
       // 修复: absolutize 会把纯锚点(javascript:void(0)/#top 等)过滤成空 —— 此前仅
       // "title 与 href 双空"才跳过, 导致目录混入 url 为空的垃圾章节(导航锚点常态);
@@ -847,19 +965,10 @@ export async function parseToc(
 
     // 翻页
     if (p < maxPages && pageRule.pagination?.enabled) {
-      let next = ''
-      const nextRule = pageRule.pagination.nextLink
-      if (nextRule) {
-        next = extractField(current, $, null, doc, nextRule)
-      } else {
-        // 兜底: 常见"下一页"链接
-        next =
-          $('a:contains("下一页")').attr('href') ||
-          $('a:contains("下页")').attr('href') ||
-          $('a:contains("下一章")').attr('href') || ''
-      }
-      next = absolutize(resolveWithBase(next, base), url)
-      if (!next || next === url || seen.has('__page__' + next)) break
+      // [R9-c-4] 鲁棒下一页选取: 规则型候选+文案兜底逐个绝对化试选(排除已访页);
+      // 目录页文案哨兵含"下一章"(与旧实现一致)
+      const next = pickNextHref($, doc, pageRule.pagination.nextLink, current, base, url, ['下一页', '下页', '下一章'], (u) => seen.has('__page__' + u))
+      if (!next) break
       seen.add('__page__' + next)
       // ll-c: Referer 链翻页语义 —— 此刻 url 仍是当前页(第N页), 取下一页前先捕获作
       // 第 N+1 页的 Referer(真实浏览器翻页导航链); 未启用 refererChain 时 runner 侧忽略
@@ -892,6 +1001,8 @@ export async function parseContent(
   let current = html
   const maxPages = pageRule.pagination?.enabled ? (pageRule.pagination.maxPages || 10) : 1
   const visited = new Set<string>()
+  // [R9-c-6] 低质备用选择器状态: 仅在第 1 页定夺一次, 后续页沿用同一提取器(防跨页风格混拼)
+  let useLargest = false
 
   for (let p = 1; p <= maxPages && url; p++) {
     if (visited.has(url)) break
@@ -902,23 +1013,37 @@ export async function parseContent(
     // 原先直接按文档 URL 解析, 页面携带 base href 时翻页链错位成 404 → 静默断页丢正文
     const base = docBase($, url || firstUrl)
     let part = extractField(current, $, null, doc, contentRule)
-    if (!part && contentRule.type === 'css') {
-      // 兜底: 取最长文本容器
-      part = findLargestText($)
+    if (contentRule.type === 'css') {
+      if (p === 1) {
+        // [R9-c-6] 低质触发备用选择器重试(增强): 主规则提取结果为空/文本量过小/短行占比
+        // 过高(疑似命中壳页导航或站点改版后规则失效), 而"最长文本容器"显著更好(得分×1.5)
+        // 时改用备用; 防误切双保险 —— alt 与主结果互不包含(超集切换只会混入噪声, 子集切换会丢内容)
+        const q1 = scoreContentHtml(part)
+        if (q1.textLen === 0) {
+          useLargest = true
+          part = findLargestText($)
+        } else if ((q1.textLen < 400 || q1.shortLineRatio > 0.5) && q1.textLen < 5000) {
+          const alt = findLargestText($)
+          if (alt && alt !== part && !alt.includes(part) && !part.includes(alt)) {
+            const q2 = scoreContentHtml(alt)
+            if (q2.score > q1.score * 1.5) {
+              part = alt
+              useLargest = true
+            }
+          }
+        }
+      } else if (useLargest) {
+        // 备用提取器路径: 最长容器取不到(末页过短/低于 200 字门槛)时回退主规则结果
+        part = findLargestText($) || part
+      }
     }
     if (part) parts.push(part)
 
     if (p < maxPages && pageRule.pagination?.enabled) {
-      let next = ''
-      const nextRule = pageRule.pagination.nextLink
-      if (nextRule) next = extractField(current, $, null, doc, nextRule)
-      if (!next) {
-        next =
-          $('a:contains("下一页")').attr('href') ||
-          $('a:contains("下页")').attr('href') || ''
-      }
-      next = absolutize(resolveWithBase(next, base), url)
-      if (!next || next === url) break
+      // [R9-c-4] 鲁棒下一页选取: 正文页文案哨兵刻意不含"下一章"(末页"下一章"常指向下一章,
+      // 误随会把下一章正文并进本章); 排除集=已访页防循环分页
+      const next = pickNextHref($, doc, pageRule.pagination.nextLink, current, base, url, ['下一页', '下页'], (u) => visited.has(u))
+      if (!next) break
       // ll-c: 与 parseToc 同口径 —— 正文分页第2页起 Referer=上一正文页(翻页链逐页回溯)
       const refererForNext = url
       url = next
@@ -931,7 +1056,55 @@ export async function parseContent(
       break
     }
   }
-  return { content: parts.filter(Boolean).join(joinWith), pages: Math.max(1, visited.size) }
+  const content = parts.filter(Boolean).join(joinWith)
+  // [R9-c-6] 解析置信度输出(增强): 质量画像 + 0~1 置信度, 均为可选字段(旧调用方零影响),
+  // 供 runner 降级决策/规则诊断展示 —— 本函数只产出不改行为
+  const q = scoreContentHtml(content)
+  return {
+    content,
+    pages: Math.max(1, visited.size),
+    confidence: contentConfidence(q),
+    quality: {
+      textLen: q.textLen,
+      shortLineRatio: Math.round(q.shortLineRatio * 1000) / 1000,
+      adHitRatio: Math.round(q.adHitRatio * 1000) / 1000,
+    },
+  }
+}
+
+// ---------------- [R9-c-6] 正文质量评分(增强) ----------------
+/** 广告/导流词标记: 命中密度作为正文质量信号(仅评分用, 不参与清洗) */
+const AD_MARKER_RE = /(请记住本站|最新章节|无弹窗|首发|本站地址|章节错误|点此举报|广告|推广|手机阅读|APP下载|加入书签|点击下一页|继续阅读|www\.|https?:\/\/)/gi
+
+interface ContentScore { textLen: number; shortLineRatio: number; adHitRatio: number; score: number }
+
+/** 正文质量画像: 去标签后按行统计 —— 文本量为主分, 短行(≤8字)占比/广告词密度折减 */
+function scoreContentHtml(html: string): ContentScore {
+  const text = (html || '').replace(/<[^>]+>/g, '\n')
+  const lines = text.split(/\n+/).map((l) => l.trim()).filter(Boolean)
+  const textLen = lines.join('').length
+  if (!textLen) return { textLen: 0, shortLineRatio: 1, adHitRatio: 0, score: 0 }
+  let shortLines = 0
+  let adChars = 0
+  for (const l of lines) {
+    if (l.length <= 8) shortLines++
+    const hits = l.match(AD_MARKER_RE)
+    if (hits) adChars += hits.join('').length
+  }
+  const shortLineRatio = shortLines / lines.length
+  const adHitRatio = Math.min(1, adChars / textLen)
+  const score = textLen * (1 - 0.5 * shortLineRatio) * (1 - 0.7 * adHitRatio)
+  return { textLen, shortLineRatio, adHitRatio, score }
+}
+
+/** 置信度映射(0~1): 文本量/短行占比/广告密度三档扣减的启发式评分 */
+function contentConfidence(q: ContentScore): number {
+  if (q.textLen < 50) return 0.1
+  let c = 0.9
+  if (q.textLen < 300) c -= 0.3
+  if (q.shortLineRatio > 0.5) c -= 0.3
+  if (q.adHitRatio > 0.05) c -= 0.3
+  return Math.max(0, Math.min(1, c))
 }
 
 function findLargestText($: cheerio.CheerioAPI): string {

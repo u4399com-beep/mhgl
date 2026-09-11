@@ -43,6 +43,8 @@ import {
 import { cleanContentHtml } from '@/lib/crawl/cleaner'
 import * as cheerio from 'cheerio'
 import type { AnyNode } from 'domhandler'
+// [R9-cl-1] 整合: 按码点截断惯用法下沉 @/lib/utils 共用
+import { sliceCodePoints } from '@/lib/utils'
 
 const TEST_GUARD_MS = 90_000
 const PREVIEW_MAX_CHARS = 1500
@@ -94,9 +96,9 @@ function assertNotBlocked(res: Awaited<ReturnType<typeof fetchPage>>): void {
 type TestSection = 'list' | 'book' | 'toc' | 'content'
 const SECTIONS: TestSection[] = ['list', 'book', 'toc', 'content']
 
-/** 按码点截断(Array.from 迭代码点而非 UTF-16 单元, emoji 代理对不斩半) */
+/** 按码点截断(实现在 @/lib/utils.sliceCodePoints, Array.from 迭代码点而非 UTF-16 单元, emoji 代理对不斩半) */
 function cutText(s: string, max = PREVIEW_MAX_CHARS): string {
-  return Array.from(s).slice(0, max).join('')
+  return sliceCodePoints(s, max)
 }
 
 /** 列表段 URL 占位符展开(固定测试第 1 页, 与 runner 列表页展开同口径):

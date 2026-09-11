@@ -48,6 +48,38 @@ export const HOST_GATE_RATE_LIMIT_DEFAULT_MS = 30_000
 /** 限流冷却上限钳制(zz-b): 服务端给出离谱大值时最多停手 120s */
 export const HOST_GATE_RATE_LIMIT_MAX_MS = 120_000
 
+// ---------- [R9-e-4] 增强: 请求节奏画像(响应变慢/挑战页感知 → 自动放缓准入节奏) ----------
+/**
+ * 场景: 源站开始限流前常有前兆 —— 响应延迟逐次抬升(TTFB 恶化)/开始插入挑战页。
+ * 既有 hostgate 只有"失败计数降额"(事后惩罚)与"429 冷却"(事后停手), 缺"事前预判"。
+ * 本画像在 host 状态上维护延迟滑动窗口/EWMA 基线与挑战连续计数:
+ *  - 连续 ≥3 次延迟显著抬升(≥基线×1.6 且 ≥1.2s) → 进入放缓窗 10min,
+ *    准入间隔地板抬至 avg(近3样本)/2(错 800~3000ms);
+ *  - 连续 ≥2 次挑战/拦截页 → 同样进入放缓窗, 地板 ≥1.2s(盾站高频准入只会刷出更多盾);
+ *  - 干净成功( reportHostSuccess )即清空连续计数(站点恢复, 放缓窗到期自然解除);
+ *  - 地板仅在准入判定处生效(fast path/pump/gapTimer), 不写入 st.minGapMs ——
+ *    不与 R4-14 caller 换代检测/R5-3 冷却回滚快照互相污染;
+ *  - 全部由 HOSTGATE_PACE_PROFILE=1 显式开启, 缺省关闭: 上报函数为 no-op,
+ *    准入判定取地板时直接返回 st.minGapMs 原值, 行为与旧版逐字节一致。
+ *  观测面: hostGateSnapshot 新增 slowdownUntil/challengeStreak/latencyEwmaMs 字段,
+ *  供 runner 降级参考(工作日志/诊断展示)
+ */
+export const PACE_PROFILE_ENABLED = process.env.HOSTGATE_PACE_PROFILE === '1'
+/** 延迟样本滑动窗口长度 */
+const PACE_LAT_WINDOW = 10
+/** 连续显著变慢次数阈值 → 进入放缓窗 */
+const PACE_SLOW_STREAK = 3
+/** 连续挑战/拦截页次数阈值 → 进入放缓窗 */
+const PACE_CHALLENGE_STREAK = 2
+/** 放缓窗时长(ms) */
+const PACE_SLOWDOWN_MS = 10 * 60 * 1000
+/** 放缓期准入间隔地板下限(ms) */
+const PACE_GAP_FLOOR_MS = 800
+/** 放缓期准入间隔地板上限(ms) */
+const PACE_GAP_CEIL_MS = 3000
+/** 挑战页触发时的最低准入间隔地板(ms) */
+const PACE_CHALLENGE_GAP_MS = 1200
+
 interface Waiter {
   timer: ReturnType<typeof setTimeout> | null
   resolve: (ticket: HostGateTicket) => void
@@ -102,6 +134,18 @@ interface HostState {
   gapTimer: ReturnType<typeof setTimeout> | null
   /** 限流冷却到点唤醒定时器(单一定时器, 同款) */
   penaltyTimer: ReturnType<typeof setTimeout> | null
+  /** [R9-e-4] 画像: 最近延迟样本 ms(有界 FIFO 窗口, 仅 PACE 开启时写入) */
+  latWin?: number[]
+  /** [R9-e-4] 画像: 延迟基线 EWMA ms(0=无基线) */
+  latEwma?: number
+  /** [R9-e-4] 画像: 连续显著变慢计数 */
+  slowStreak?: number
+  /** [R9-e-4] 画像: 连续挑战/拦截页计数 */
+  challengeStreak?: number
+  /** [R9-e-4] 画像: 放缓窗截止时刻 ms(0=无) */
+  slowUntil?: number
+  /** [R9-e-4] 画像: 放缓期准入间隔地板 ms */
+  slowGapMs?: number
 }
 
 // ---------- globalThis 单例(防 dev 热重载多实例各记一套账) ----------
@@ -234,6 +278,76 @@ function settleRateLimitExpiry(st: HostState): void {
 }
 
 /**
+ * [R9-e-4] 画像: 本次准入的有效间隔地板 = max(caller 间隔, 放缓窗地板)。
+ * PACE 关闭时恒返回 st.minGapMs(与旧判定表达式等值, 路径逐字节一致); 开启且放缓窗在效时
+ * 取两者较大值。只读不写 st.minGapMs —— 不污染 R4-14 caller 换代检测/R5-3 冷却回滚快照
+ */
+function paceGapFloor(st: HostState): number {
+  if (!PACE_PROFILE_ENABLED) return st.minGapMs
+  const slow = st.slowUntil || 0
+  const gap = st.slowGapMs || 0
+  if (slow > Date.now() && gap > st.minGapMs) return gap
+  return st.minGapMs
+}
+
+/**
+ * [R9-e-4] 画像上报: 一次成功响应的墙钟延迟(末跳含正文下载, fetcher 成功路径调用)。
+ * 无 host 状态(未过闸的调用方)/非法值(≤0 或 >120s)/开关关闭 → 忽略。
+ * 连续显著变慢达阈值 → 进入放缓窗(日志一次)
+ */
+export function reportHostLatency(url: string, latencyMs: number): void {
+  if (!PACE_PROFILE_ENABLED) return
+  const st = gates().get(hostGateKeyOf(url))
+  if (!st) return
+  if (!Number.isFinite(latencyMs) || latencyMs <= 0 || latencyMs > 120_000) return
+  const win = st.latWin || (st.latWin = [])
+  const prevBaseline = st.latEwma || 0
+  win.push(Math.round(latencyMs))
+  if (win.length > PACE_LAT_WINDOW) win.shift()
+  // EWMA(α=0.3): 平滑单次毛刺, 首个样本直接作为基线
+  st.latEwma = prevBaseline > 0 ? Math.round(prevBaseline * 0.7 + latencyMs * 0.3) : Math.round(latencyMs)
+  // 显著变慢: 相对基线抬升 ≥60% 且绝对值 ≥1.2s(排除正常网络抖动/冷启动); 首个样本前无基线不判
+  const base = Math.max(prevBaseline, 800)
+  if (prevBaseline > 0 && latencyMs >= Math.max(1200, base * 1.6)) st.slowStreak = (st.slowStreak || 0) + 1
+  else st.slowStreak = 0
+  if ((st.slowStreak || 0) >= PACE_SLOW_STREAK) {
+    const recent = win.slice(-3)
+    const avg = Math.round(recent.reduce((s, v) => s + v, 0) / Math.max(1, recent.length))
+    st.slowUntil = Date.now() + PACE_SLOWDOWN_MS
+    st.slowGapMs = Math.min(PACE_GAP_CEIL_MS, Math.max(PACE_GAP_FLOOR_MS, Math.round(avg / 2)))
+    st.slowStreak = 0
+    console.warn(
+      `[hostgate] 节奏画像: ${st.host} 响应持续变慢(基线≈${prevBaseline}ms, 本轮≈${Math.round(latencyMs)}ms), ` +
+      `放缓准入间隔至 ${st.slowGapMs}ms × ${Math.round(PACE_SLOWDOWN_MS / 1000)}s(供 runner 降级参考)`,
+    )
+  }
+}
+
+/**
+ * [R9-e-4] 画像上报: 一次挑战/拦截页响应(被拦壳/验证码/JS 挑战, fetcher 判定后调用)。
+ * 连续 ≥2 次 → 进入放缓窗且地板不低于 1.2s(盾站高频准入只会刷出更多盾), 重复命中顺延窗口
+ */
+export function reportHostChallenge(url: string): void {
+  if (!PACE_PROFILE_ENABLED) return
+  const st = gates().get(hostGateKeyOf(url))
+  if (!st) return
+  st.challengeStreak = (st.challengeStreak || 0) + 1
+  st.slowStreak = 0
+  if (st.challengeStreak >= PACE_CHALLENGE_STREAK) {
+    // 顺延放缓窗; 地板抬到挑战档(不降已有更高地板)。首次达阈值打一次日志
+    const firstArm = !(st.slowUntil && st.slowUntil > Date.now())
+    st.slowUntil = Date.now() + PACE_SLOWDOWN_MS
+    st.slowGapMs = Math.max(st.slowGapMs || 0, PACE_CHALLENGE_GAP_MS)
+    if (firstArm) {
+      console.warn(
+        `[hostgate] 节奏画像: ${st.host} 连续 ${st.challengeStreak} 次返回挑战/拦截页, ` +
+        `放缓准入间隔至 ${st.slowGapMs}ms × ${Math.round(PACE_SLOWDOWN_MS / 1000)}s(供 runner 降级参考)`,
+      )
+    }
+  }
+}
+
+/**
  * 容量复查(计账式准入核心): 从 FIFO 队头起, 让等待者自行复查
  * "limit - inFlight > 0" 并自计入账。降额(limit 变小)时在飞不中断,
  * 队头反复复查直到存量回落到余量>0 才放行 —— 即"存量自然回落"。
@@ -249,9 +363,11 @@ function pump(st: HostState) {
     armPenaltyTimer(st)
     return
   }
+  // [R9-e-4]: 本次复查的准入间隔地板(PACE 关闭时 == st.minGapMs, 判定表达式等值)
+  const gapFloor = paceGapFloor(st)
   while (st.waiters.length > 0) {
     if (st.limit - st.inFlight <= 0) return // 并发余量不足: 等 release 触发下一次复查
-    if (Date.now() - st.lastAdmitAt < st.minGapMs) break // 节流未到点: 卡住整个队列(无 barge)
+    if (Date.now() - st.lastAdmitAt < gapFloor) break // 节流未到点: 卡住整个队列(无 barge)
     const w = st.waiters.shift()!
     if (w.settled) continue
     w.settled = true
@@ -267,7 +383,8 @@ function pump(st: HostState) {
 /** 节流到点唤醒定时器(单一定时器, 重复先 clear 再设; unref 同等待者超时 timer) */
 function armGapTimer(st: HostState) {
   if (st.gapTimer) { clearTimeout(st.gapTimer); st.gapTimer = null }
-  const wait = st.lastAdmitAt + st.minGapMs - Date.now()
+  // [R9-e-4]: 唤醒时刻按有效地板计算(PACE 关闭时 == st.minGapMs, 等待时长不变)
+  const wait = st.lastAdmitAt + paceGapFloor(st) - Date.now()
   if (wait <= 0) return // 已到点(pump 判定路径理论不可达, 保险不设负延时)
   const t = setTimeout(() => {
     st.gapTimer = null
@@ -328,6 +445,13 @@ export function acquireHostGate(
   //  —— 否则冷却到期瞬间, 节流早已放宽, 立即 admission storm 撞上原限流源站。
   //  (注: 本文件中 rateLimitedUntil 才是真正的"限流冷却"语义; penaltyUntil 是降额操作冷却,
   //  仅冷却"再降一档"动作, 不阻准入, 不在此判定内)
+  // [R9-a-16] 修复: settleRateLimitExpiry 必须先于 caller 节奏调整执行 ——
+  //  原先它排在 minGapMs 调整块【之后】: 限流冷却刚过期(rateLimitedUntil 已过时刻但尚未结算)
+  //  时, 先被新 caller 覆写 st.minGapMs, 随后 settle 又把 minGapMs 回滚到 minGapMsBeforeCooldown
+  //  (旧 caller 的值) → 新 caller 传入值被吞; 且 minGapMsLastValue 已记录为新值, 后续同 caller
+  //  走 MAX 合并分支永不回落(R4-14 毒杀 bug 借冷却过期窗口复活)。
+  //  先结算: 冷却到期先清零/回滚, 再让本 caller 的 minGapMs 生效, 语义自洽。
+  settleRateLimitExpiry(st)
   const now0 = Date.now()
   const isNewCaller = st.minGapMsLastValue !== minGapMs
   if (isNewCaller) {
@@ -353,15 +477,15 @@ export function acquireHostGate(
     // 同 caller(同 minGapMs 值) 维持 MAX 合并语义(保留原 Bug 6 修复的 rate-limit 保护)
     st.minGapMs = Math.max(st.minGapMs || 0, minGapMs)
   }
-  settleRateLimitExpiry(st)
 
   const now = Date.now()
   // 快速通道: 队列为空(不越过任何等待者) + 有余量 + 非限流冷却期 + 节流到点
+  // ([R9-e-4] 节流判定用有效地板: PACE 关闭时 paceGapFloor 返回 st.minGapMs 原值, 判定不变)
   if (
     st.waiters.length === 0 &&
     st.limit - st.inFlight > 0 &&
     now >= st.rateLimitedUntil &&
-    now - st.lastAdmitAt >= st.minGapMs
+    now - st.lastAdmitAt >= paceGapFloor(st)
   ) {
     st.inFlight++
     st.lastAdmitAt = Date.now()
@@ -412,6 +536,10 @@ export function reportHostSuccess(url: string): void {
   if (!st) return
   st.failStreak = 0
   st.successStreak++
+  // [R9-e-4] 画像: 干净成功即视为站点恢复, 清空挑战/变慢连续计数(放缓窗到期自然解除,
+  // 不提前撤销 —— 已证实的盾站不因一次成功就恢复常态)
+  st.challengeStreak = 0
+  st.slowStreak = 0
   if (st.successStreak >= RECOVER_SUCCESS_STREAK && st.limit < st.baseLimit) {
     st.limit = Math.min(st.baseLimit, st.limit + 1)
     st.successStreak = 0
@@ -486,6 +614,12 @@ export function hostGateSnapshot(url: string): {
   minGapMs: number
   /** 上次准入时刻 ms(zz-b; 0=尚无准入) */
   lastAdmitAt: number
+  /** [R9-e-4] 画像: 放缓窗截止时刻 ms(HOSTGATE_PACE_PROFILE=1 且在效时非 0, 供 runner 降级参考) */
+  slowdownUntil: number
+  /** [R9-e-4] 画像: 当前连续挑战/拦截页计数 */
+  challengeStreak: number
+  /** [R9-e-4] 画像: 延迟基线 EWMA ms(0=无样本) */
+  latencyEwmaMs: number
 } | null {
   const host = hostGateKeyOf(url)
   const st = gates().get(host)
@@ -501,6 +635,10 @@ export function hostGateSnapshot(url: string): {
     rateLimitedUntil: st.rateLimitedUntil,
     minGapMs: st.minGapMs,
     lastAdmitAt: st.lastAdmitAt,
+    // [R9-e-4] 画像观测面: 字段恒存在(关闭时恒 0/基线值), 纯增量对既有消费者零影响
+    slowdownUntil: PACE_PROFILE_ENABLED && (st.slowUntil || 0) > Date.now() ? (st.slowUntil || 0) : 0,
+    challengeStreak: st.challengeStreak || 0,
+    latencyEwmaMs: st.latEwma || 0,
   }
 }
 

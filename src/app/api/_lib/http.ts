@@ -93,3 +93,58 @@ export function safeJoin(root: string, rel: string): string | null {
   if (!resolved.startsWith(prefix + path.sep)) return null
   return resolved
 }
+
+// ============================================================
+// R9-d-6: 任务进度 JSON 瘦身 (列表/仪表盘视图专用)
+// ============================================================
+// task.progress 内含 4 个续采集合字段(discoveredBookUrls/completedBookUrls/ongoingBookUrls
+// /bookLastChapters), 单集合 cap 50000 条 URL ≈ 3~5MB, 四集合合计可达 ~12MB/任务。
+// 列表 API(500 行)与仪表盘 recentTasks 若原样返回, 一次轮询可拖回数百 MB JSON
+// (且管理端仅消费标量进度字段, URL 集合从未被前端使用)。运行时续采数据由 runner
+// 直接读写 DB, 与本瘦身影响面完全隔离。
+/** 超过该长度(progress 字符串字节数)才触发解析瘦身, 小行零开销直通 */
+export const TASK_PROGRESS_SLIM_THRESHOLD = 64 * 1024
+/** 瘦身后每个集合保留的条数(仅截断展示冗余, 标量字段原样保留) */
+export const TASK_PROGRESS_SLIM_KEEP = 200
+
+/**
+ * 任务进度 JSON 瘦身: 解析后把 4 个续采集合字段截断到 SLIM_KEEP 条。
+ * 返回 { progress: 处理后的 JSON 字符串, truncated: 是否发生了截断 }。
+ * 非 JSON/解析失败/未超阈值/无截断 → 原样返回(truncated=false), 调用方按需附带标记字段。
+ */
+export function slimTaskProgressJson(raw: string | null | undefined): { progress: string; truncated: boolean } {
+  if (!raw || raw.length <= TASK_PROGRESS_SLIM_THRESHOLD) return { progress: raw || '', truncated: false }
+  let p: unknown
+  try {
+    p = JSON.parse(raw)
+  } catch {
+    return { progress: raw, truncated: false } // 非 JSON(异常数据): 原样透传, 不做二次破坏
+  }
+  if (!p || typeof p !== 'object' || Array.isArray(p)) return { progress: raw, truncated: false }
+  const obj = p as Record<string, unknown>
+  let truncated = false
+  for (const key of ['discoveredBookUrls', 'completedBookUrls', 'ongoingBookUrls'] as const) {
+    const arr = obj[key]
+    if (Array.isArray(arr) && arr.length > TASK_PROGRESS_SLIM_KEEP) {
+      obj[key] = arr.slice(0, TASK_PROGRESS_SLIM_KEEP)
+      truncated = true
+    }
+  }
+  const blc = obj.bookLastChapters
+  if (blc && typeof blc === 'object' && !Array.isArray(blc)) {
+    const dict = blc as Record<string, unknown>
+    const keys = Object.keys(dict)
+    if (keys.length > TASK_PROGRESS_SLIM_KEEP) {
+      const out: Record<string, unknown> = {}
+      for (const k of keys.slice(0, TASK_PROGRESS_SLIM_KEEP)) out[k] = dict[k]
+      obj.bookLastChapters = out
+      truncated = true
+    }
+  }
+  if (!truncated) return { progress: raw, truncated: false }
+  try {
+    return { progress: JSON.stringify(obj), truncated: true }
+  } catch {
+    return { progress: raw, truncated: false }
+  }
+}

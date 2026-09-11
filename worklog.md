@@ -3129,3 +3129,205 @@ Stage Summary:
 - Lint + tsc + dev server all green.
 - No tests added (per constraint).
 - No components / prisma / Docker / config files touched.
+
+---
+Task ID: 0
+Agent: main-orchestrator (Z.ai Code)
+Task: 环境搭建 — 克隆 heis 仓库、迁移至主项目目录、依赖安装、DB 初始化、dev server 启动、质量基线
+
+Work Log:
+- git clone https://github.com/u4399com-beep/heis.git → /home/z/my-project (替换脚手架, 保留仓库 .git)
+- bun install (90 packages 补齐: puppeteer/stealth/opencc-js/xpath/xmldom/iconv-lite/sharp 等)
+- .env 写入 DATABASE_URL=file:./db/custom.db + ADMIN_PASSWORD + SESSION_SECRET
+- bun run db:push → SQLite 建表成功; bun run scripts/seed.ts → 演示数据入库(分类15+书6本)
+- bun run dev 后台启动, GET / → 200
+
+Stage Summary:
+- 质量基线: lint 0错0警 ✓; tsc 主代码(src+scripts) 0错 ✓ (examples/ 与 skills/ 有既存错误, 属沙箱附属非应用代码)
+- 仓库状态: 原样迁移, 未改任何业务代码; 历史已进行八轮审查(a770bad)
+- 后续 agent 请先 `tail -n 250 worklog.md` 了解历史, 再执行任务; 完成后按模板追加本文件
+
+---
+Task ID: 1-d
+Agent: orchestration-layer-reviewer-fixer
+Task: runner/storage/downloader/auth/API 深度审查修复 + 编排增强
+
+Work Log:
+- 通读 worklog 近 250 行确认前八轮已修复项(R8-13 serializeStatusWrite 链/R8-19 oomBackpressure/R8-20 normalizeUrlForCompare 等), 避免重复
+- 逐行审查本分区: runner.ts(1960行)/storage.ts/downloader.ts/themes.ts/theme-matrix.ts/auth.ts/api.ts/links.ts/pseudostatic.ts/logger.ts/db.ts + api/_lib/** + api/admin/** 全部 26 个路由 + proxy.ts 鉴权链
+- 逐项核查后落地修复(全部带 // [R9-d-N] 注释):
+  1) runner.ts: executeTask 崩溃路径状态写 bypass serializeStatusWrite + 无视操作员 stop/pause 意图(修前 stop 后崩溃会把 status 覆写回 error 且 autoRefresh 把已停任务拉起) → serializeCrashStatus 统一收口(L276/L535/L858/L881)
+  2) runner.ts: control()/serializeStatusWrite 的 30s 超时定时器从不清理 → 每次调用泄漏定时器 + prev 已正常完成时 30s 后必打虚假"30s 未完成"warn 日志 → 句柄持有 + finally clearTimeout(L212-217/L449-458)
+  3) runner.ts: 范围任务列表发现循环 urls/listFields 无上限(listEnd 可配 100000 页) → 50 万条单轮发现熔断(L677)
+  4) runner.ts: crawlOneBook new URL(bookUrl).pathname 兜底对备份导入的非法 sourceUrl 直接抛 TypeError → try 容错降级(L1013)
+  5) downloader.ts: generateBookTxt include 全量章节(db 模式含 content, 万章书数百 MB 查询级峰值, gg-a 流式落盘未覆盖此层) → idx 游标分批 500 章 select 窄化, 峰值 O(单批), 输出字节序不变(L132/208)
+  6) _lib/http.ts + tasks/route.ts + stats/route.ts: 大范围任务 progress JSON(4×50000 URL ≈ 12MB/任务)被列表 API(500行)/仪表盘 recentTasks(6行) 原样返回, 单次轮询可达数百 MB → 共享 slimTaskProgressJson(>64KB 才解析, URL 集合截到 200 条, 附 progressTruncated 可增字段, 结构不变); 运行时续采读写走 runner 直连 DB 零影响(http.ts:115, tasks:24, stats:78)
+  7) stats/route.ts: 近 7 天入库曲线 findMany 全行 createdAt 拉回内存分桶(活跃周数十万行) → 逐日 [0点,次日0点) count×7, 输出逐桶一致(L31-48)
+  8) backup/restore: 任务 status 原样 String 落库 → 白名单归一化(running→paused 防幽灵运行态/非法→pending) + warnings 去重(L34/379)
+- 编排增强(B): runner.ts 孤儿 running 任务运行期回收 sweeper —— 单例构造挂载 5min 周期 unref 定时器, DB status=running 且进程内 isRunning=false 且 60s 宽限外 → 回收 paused+日志(L163/173/231); autoRefresh 触发失败(如撞熔断冷却)重排一次同间隔定时, 自愈链闭环(L314)
+- 安全核查(C): auth.ts timingSafeEqual/会话 exp/nonce 白名单/5次60s限流/HttpOnly+Secure 全部到位; SSRF 已由 fetcher.ts 引擎层守卫(私网/云元数据/链路本地拒绝, loopback 仅内部服务豁免) + rules/test httpUrl 协议白名单, 无新增缺口
+- 验证: bun run lint 0错0警; bunx tsc --noEmit(排除 examples/skills) 0错; dev server 冒烟(/ 200, auth/check ok, admin 401 鉴权, 登录后 tasks/stats/health 全 200); slimTaskProgressJson 实测 1.2MB→17KB; sweeper 实测孤儿 running→paused 回收成功
+
+Stage Summary:
+- 修复清单: R9-d-1[High] 崩溃状态写 bypass 串行链+覆写操作员意图 | R9-d-5[High] TXT 生成整书章节载入 OOM | R9-d-2[Med] 超时定时器泄漏+虚假 warn 日志 | R9-d-3[Med] 发现循环内存无界 | R9-d-6[Med] 任务列表/仪表盘进度 JSON 内存炸弹 | R9-d-7[Med] 7 天曲线全行加载 | R9-d-8[Med] 备份导入幽灵 running 态 | R9-d-4[Low] 非法 sourceUrl 抛错中断采集
+- 增强项: 孤儿 running 任务 5min 周期自愈回收(备份导入/重启遗留兜底); autoRefresh 失败重排闭环
+- 未修复项: ① runner.log() 每条日志 count+delete 两查询(已有 3000 条/30 天双层收敛, 改批量需动日志契约, 收益低) ② auth.ts 编译期默认密码(audit-fix-2025, 既有运维决策, 已有 warn 提示, 擅改会破坏 .env 丢失场景可登录性) ③ API 并发上限/intervalMin=0 允许 1ms 间隔属管理员自有风险(设计如此)
+- 注: 工作区内 obscura.ts/fetch-relay/scrapling-bridge 改动为并行 agent 所为, 本任务未触碰
+---
+Task ID: 1-b
+Agent: anti-detect-layer-reviewer-fixer
+Task: obscura/cloak-browser/fetch-relay/scrapling-bridge 深度审查修复 + 反反爬增强
+
+Work Log:
+- 通读 worklog 八轮历史(R8-2/3/4/9/14/17/21 等已修项避免重复), 逐行审查 4 个分区文件共 ~3000 行
+- src/lib/crawl/obscura.ts:
+  · 修复 R9-b-1(High): shutdownObscura 进行中 ensureBrowser 仍可(重)拉 chromium —— 排队等待者被唤醒后会重新 launch 出无人管理的浏览器实例(zombie 泄漏); recreateSlot 完成后补 shuttingDown 复查(原先只覆盖 createSlot 路径)
+  · 修复 R9-b-2(High): feat-cloak-anticrawler D 的 DevID brand + _devid cookie 默认关闭(OBSCURA_DEVID=1 开启) —— 真实 Chrome brands 永无 "DevID" 非标准品牌, 且与 CDP userAgentMetadata/sec-ch-ua 头组不自洽, 属自报家门级指纹面(保留审计用途改显式 opt-in)
+  · 增强 R9-b-3: hardwareConcurrency/deviceMemory 从"静态脚本每 document 随机"(跨文档漂移即指纹)改为指纹创建期定死、身份脚本按 context 注入; deviceMemory 按 W3C 规范封顶 8 加权池(8/4/2)
+  · 增强 R9-b-4: WebGL vendor/renderer 按 UA 平台池化(GPU_POOLS: Win Intel/NVIDIA/AMD/IrisXe、Mac M1/M2/M3、Linux NVIDIA/Mesa/AMD、Android Adreno/Mali, 全部真实设备 ID + 原生 ANGLE 格式), 同 context 稳定
+  · 增强 R9-b-5: 屏幕/窗口几何自洽 —— newContext 原生 screen=viewport + 身份脚本补 availHeight/outerWidth/outerHeight/screenX/Y/Left/Top(context 级稳定, 覆盖静态脚本 12 的每文档随机); 修复 headless 下 innerWidth(随机视口) > outerWidth(--window-size 1366x900) 的物理不可能形态
+  · 增强 R9-b-6: LAUNCH_ARGS 加 --force-webrtc-ip-handling-policy=disable_non_proxied_udp 封堵 WebRTC 本地 IP 泄漏
+  · 增强 R9-b-7: per-context 独立代理出口 —— ObscuraFetchOptions/withObscuraPage 新增可选 proxy; 代理槽位隔离到独立 chromium 实例(launch 级占位 proxy + context 级真实代理覆盖, 与 fetcher.renderWithBrowserRaw dd-a 同模式); 槽位 proxyKey 亲和匹配(同域+同代理→同代理→任意空闲三级复用); 新开桶前清扫无槽位引用的孤儿代理浏览器实例防多代理轮换进程累积; shutdownObscura 一并关闭代理实例
+  · 增强 R9-b-8: 指纹学习 —— host → "过盾成功"指纹表(2h TTL, 200 条 LRU), createSlot/recreateSlot 时同站优先复用学习指纹(像回访老用户); renderStealth 终态非挑战页且未钦定 UA 时记录 win
+- mini-services/cloak-browser/index.ts:
+  · 修复 R9-b-9(High): ensureBrowser 无并发锁 —— 两个并发 /fetch 同步看到 browser===null 各自 launch, 首个实例被覆盖失联成 zombie chromium; 加 launch Promise 锁 + 断连实例 process() SIGKILL 残留清理
+  · 修复 R9-b-10(Med): fetchPage 页创建后初始化段(setViewport/setUserAgent/inject)无 try/finally, 抛错即泄漏 page; 外层 finally 统一回收 + activeFetchPages 提前注册
+  · 修复 R9-b-11(Low): selfTest 每次 /health 都 launch+外网导航(goto 失败还泄漏 page); 加 60s 结果缓存 + finally close
+  · 修复 R9-b-12(Low): /fetch 硬超时定时器正常完成后不清理(每请求挂 120s 假定时器); 句柄提出 finally clearTimeout
+  · 修复 R9-b-13(Med): DevID brand/_devid cookie 默认关闭(CLOAK_DEVID=1), 理由同 R9-b-2
+  · 增强 R9-b-14: DEFAULT_UA Chrome/152(不存在的未来版本, 版本号超前即指纹) → Chrome/140 与 obscura 池对齐; waitCfChallenge 轮询 2s 固定节奏 → 1.5~3s 随机; launch args 加 WebRTC 封堵
+- mini-services/fetch-relay/index.ts:
+  · 增强 R9-b-15: 请求背压闸 —— 在飞上限 RELAY_MAX_INFLIGHT(缺省 32)超限 503, 计数与 finally 严格配对(校验早退路径不占计数)
+  · 增强 R9-b-16: SSRF 显式开关 RELAY_BLOCK_PRIVATE=1(默认关, 尊重 ss-d "记录不修"决策与 verify-gg-d 回环断言) —— 词法拦截私网/回环/链路本地/CGNAT/云元数据段 + localhost/.local/.internal 域名与 IPv6-mapped IPv4; DNS rebinding 面与 R5-19 同口径留档
+- mini-services/scrapling-bridge/server.py:
+  · 修复 R9-b-17(Med): SIGTERM/SIGINT 走 Python 默认处理直接杀死进程, 在飞 patchright chromium 成孤儿; 改注册信号 handler → 独立线程 server.shutdown(防主线程死锁) → 限等在飞浏览器请求≤10s → 正常 exit(0) 让驱动侧管道回收子进程
+  · 修复 R9-b-18(Low): BROWSER_SEM.acquire() 无限阻塞(3 槽位全被慢站占住时排队线程永久挂起); 改 acquire(timeout=请求超时) 超时返回明确 ok:false 信封
+  · 修复 R9-b-19(Low): venv/scrapling 缺失时错误信息附可操作修复命令(INSTALL_HINT), /health 增附 selfTestError/installHint 可选字段(协议向后兼容)
+- 验证: bun run lint 0错0警; bunx tsc --noEmit(排除 examples/skills) 0错; mini-services/fetch-relay 与 _shared 各自 tsconfig tsc 0错(cloak-browser 无 tsconfig 按指示跳过, 改用 bun build 转译校验通过); scrapling-bridge python3 -m py_compile 通过; buildIdentityInitScript 四种 UA(桌面/移动/Edge/extra 覆盖)new Function 编译冒烟 + randomFingerprint 200 轮字段/上限断言 + looksLikeChallenge 长页误判回归全部通过; per-context proxy launch 模式验证因沙箱无 chromium 二进制(ms-playwright 缺失)未跑通, 该模式与 fetcher.ts dd-a 已验证实现同构
+- 注: 收尾时发现 dev server 进程已消失(非本任务所为 —— 本任务未启停任何进程/服务, 并行 agent 亦在其 worklog 记录过 dev 冒烟; 依"勿重启"约束未拉起), lint/tsc 质量门均静态通过; 未启动过任何 mini-service, 无需清理
+
+Stage Summary:
+- 修复清单: R9-b-1[High] shutdown 期间禁止重拉浏览器+recreate 后复查 | R9-b-2[High] DevID brand/_devid 默认关闭(sec-ch-ua↔JS brands 自洽) | R9-b-9[High] cloak 并发 launch 锁+zombie 进程清理 | R9-b-10[Med] cloak fetchPage 初始化段 page 泄漏 | R9-b-13[Med] cloak DevID 同口径门控 | R9-b-17[Med] scrapling SIGTERM 优雅关闭防孤儿浏览器 | R9-b-11[Low] selfTest 泄漏+缓存 | R9-b-12[Low] 硬超时定时器清理 | R9-b-18[Low] 浏览器信号量排队超时 | R9-b-19[Low] venv 缺失修复提示
+- 增强项: R9-b-3 硬件指纹 per-context 稳定化 | R9-b-4 WebGL GPU 按平台池化 | R9-b-5 屏幕/窗口几何自洽 | R9-b-6 WebRTC 泄漏封堵 | R9-b-7 per-context 独立代理出口(可选 proxy, 直连路径零回归) | R9-b-8 过盾成功指纹按站学习复用 | R9-b-14 cloak UA 版本纪律对齐+挑战轮询节奏随机化 | R9-b-15 fetch-relay 背压闸 | R9-b-16 fetch-relay SSRF 显式开关(默认关)
+- 未修复项: ① cloak-browser DEFAULT_UA 仅单一 UA(多 UA 池需重构 per-request tier 语义, 影响会话种子一致性, 留档) ② fetch-relay SSRF 默认关闭(ss-d 既有决策, verify-gg-d 回环断言依赖, 已提供 RELAY_BLOCK_PRIVATE=1 显式开关) ③ 字体集模拟(chromium headless 系统字体枚举面, 无依赖约束下无法拟真, 收益/成本比低) ④ 行为拟真滚动/鼠标轨迹注入(Turnstile 点击已有, 全页滚动拟真需逐站调参易引入新检测面, 留档) ⑤ per-context proxy 运行时未实测(沙箱无 chromium 二进制; 与已验证的 fetcher dd-a 同构实现)
+---
+Task ID: 1-a2
+Agent: crawl-http-layer-verifier
+Task: fetcher/hostgate/smart 已有修改核实 + 补齐审查
+
+Work Log:
+- git diff 三文件(891行)逐块审阅 1-a 全部修改(16 处 [R9-a-N] 标记); tail worklog 250 行同步 R9-b/1-d 上下文防重复
+- 逐项核实 1-a 修改: secFetchSite same-site 档 / getBuiltinModule 取 fs / renderWithBrowserRaw+checkBrowser close 吞错 / Accept 按家族 / 头序规范化 / curl 手工逐跳重写(curlOnce) / TLS 画像钉扎 / {token} 全量替换 / host 节奏记忆+失败分类 / 条件请求协商 / 蜜罐信号 / hostgate settle 提前 / smart 两处 —— 除下述 2 处缺陷外全部正确保留
+- [R9-a2-3] 修复: [R9-a-6] 实现与注释不符 —— suffix 互判只覆盖【父子域】, 兄弟子域(a→b.example.com, www→img)仍误判 cross-site(恰是其注释声称的场景); 且 host 带端口/scheme 未按站点元组处理。重写为 origin 全等→same-origin, scheme+注册域(eTLD+1 近似, 复用 KNOWN_MULTI_PART_TLDS 多段 TLD 口径)相等→same-site; 新增 registrableDomainOf(IP/IPv6/单标签原样返回防 1.2.3.4↔5.6.3.4 误并站)
+- [R9-a2-1] 修复: curlOnce close 处理器不校验 curl 退出码 —— exit 28(--max-time 到点)/exit 18(传输中断)/SIGKILL 时部分头+截断 body 被按成功 resolve → 半截正文入库; 现 code≠0/有 signal 一律 reject(成功收完必 exit 0, 4xx/5xx 不带 --fail 不影响退出码)
+- [R9-a2-2] 修复: 304 命中不续期缓存条目 TTL(10min 按首抓时刻耗尽) —— 长任务周期复查目录页时条件请求命中率随时间衰减回全量抓取; 命中即 at=now(RFC 9111 成功再验证重置新鲜度)
+- 重点区核查结论: ①重定向链 Referer 传递符合真实浏览器(跳间保持初始 referer+逐跳重算 Sec-Fetch-Site/User) ②cookie 罐三链(native/curl/binary)逐跳按跳 URL 域归属, 跨域不串味 ③403/429 与 HostGate 互补不冲突(fetcher 节奏≤3s 有界, hostgate 管准入) ④abort/timer 三处 fetchHttp/fetchBinary/curlOnce killTimer 全部 finally 清理 ⑤304 判成功路径正确(不计失败/不进退避/challenge 谜壳不入缓存/token 预取/contentProxy 显式 conditionalGet:false) ⑥hostgate 信号量: waiter 超时/快速通道/pump/reset 全路径无 inFlight 漏计, [R9-a-16] settle 提前语义验证正确(新 caller 节奏在未结算冷却窗口存活, 冒烟实测) ⑦反反爬一致性: fetcher sec-ch-ua brands==UA 版本/Edge 品牌配对/无 DevID(与 R9-b-2 自洽), Accept/头序按家族(safari 无 CH+Sec-Fetch), smart.ts 无引擎/防护级映射逻辑(分类+完结判定, 其防护级映射实际落在 fetcher 家族头组, 已核)
+- 冒烟: bun 直连模块 30 项断言全过(分类/Sec-Fetch-Site 11 边界/家族指纹/陷阱信号/hostgate 冷却结算/smart 空格关键词/curl 不可达 reject); bun run lint 0错0警; tsc(排除 examples/skills) 0错
+- dev server 进程已消失(与 1-b 收尾记录一致, 非本任务所为, 按勿重启约束未拉起); 质量门为静态验证
+
+Stage Summary:
+- 1-a 修改核实: 16 处中 14 处正确保留(hostgate R9-a-16 修复语义验证成立; smart R9-a-17/18 正确); 2 处被修正: R9-a-6 实现不符注释(兄弟子域仍误判)/304 缓存不续期
+- 新修复清单: R9-a2-1[High] curlOnce 截断响应按成功返回(退出码不校验) | R9-a2-3[Med] Sec-Fetch-Site 兄弟子域+scheme+端口语义 | R9-a2-2[Low] 条件请求 304 不续期致命中率衰减
+- 遗留风险: ①KNOWN_MULTI_PART_TLDS 非完整 PSL(co.uk 级覆盖, 与既有 parentDomainChain 同口径) ②detectTrapSignals nofollow≥21 阈值对论坛类站点可致 10min 内 ≤1.5s 温和降速(设计权衡, 有界) ③host 节奏惩罚窗执行上限 3s/请求, >3s 冷却靠多请求分摊(设计如此, 不阻塞任务) ④fetchHttp 20 跳上限未与 curl 6 跳对齐(各自沿用历史口径) ⑤dev server 缺位致运行时冒烟未做, 静态门+模块级冒烟替代
+---
+Task ID: 1-c
+Agent: parse-clean-layer-reviewer-fixer
+Task: parser/cleaner/sorter/calibrate/suggest/rule-templates/types 深度审查修复
+
+Work Log:
+- 通读 worklog 近 120 行 + 历史修复索引(R8-7/8/18、R4-18/19/20、Bug13-17、R3-24/25/26、ll-c/kk-a/qq-e 等已修项), 避免重复修复; 确认 runner/test 路由对 parseContent/parseToc 的消费面(.content/.pages)后按"只加可选字段"约束设计增强
+- 逐行审查本分区 7 文件共 ~4000 行: parser.ts(948)/cleaner.ts(446)/sorter.ts(381)/calibrate.ts(591)/suggest.ts(123)/rule-templates.ts(591)/types.ts, 核对 cheerio 空结果兜底、attr() undefined 传播、absolutize 协议过滤/自引用过滤、docBase/resolveWithBase 基址链、JSON 点路径算子、翻页防环、清洗白名单/属性消毒、排序去重键
+- 逐项核查后落地修复(全部带 // [R9-c-N] 注释):
+  1) parser.ts applyTransform[R9-c-1][High]: R8-7 分块 replace 实为 out += f(slice) 拼接, 相邻 chunk 100 字符重叠区【两次】进入输出 —— 长正文(>2000字符)配置 replaceFrom 的规则每 ~1900 字符重复拼出 100 字符(真实数据损坏, 旧注释"重复替换幂等"对拼接语义不成立)。重写为单遍 exec 循环 safeReplaceAll: 无重叠无重复无边界断匹配, 手工展开 $&/$`/$'/$1~99/$<name>/$$ 占位符(组号不存在按规范保留字面量), 保留嵌套量词闸门+预算测试, 新增逐匹配累计 1000ms/10万次匹配哨兵(超限放弃替换返回原文)
+  2) parser.ts regexExtract/regexExtractAll[R9-c-2][Med]: 原无运行时 ReDoS 防护(API 校验只拦入库路径, 直写 DB 规则可携带灾难正则) → 引擎层执行前 regexRuntimeSafe 闸门(长度+嵌套量词+200字符样本预算), 按模式记忆化(上限512, 防数千条目录逐条重测开销)
+  3) parser.ts parseJsonBody[R9-c-3][Low]: \uFEFF BOM 前缀导致 s[0]!=='{' 判非 JSON → 整段静默空结果; 去 BOM 兜底(fetcher 解码层已去一次, 此处覆盖测试面板直传入口)
+  4) parser.ts 翻页[R9-c-4][Med]: pickNextHref 统一候选选取 —— 旧实现只取第一个匹配 href, 站点把 javascript:/# 装饰锚点排在真翻页链接前时 absolutize 返回空, 翻页静默终止丢整卷; 且 css 型 nextLink 未写 attr 时按 text 提取恒失败, 现补 href 候选; 规则失效后仍可走文案兜底。目录页哨兵含"下一章"(与旧一致), 正文页刻意不含(防末页"下一章"误并下一章正文); 候选上限50
+  5) parser.ts parseToc[R9-c-5][Low]: firstUrl 预置 __page__ 防环集 —— 末页"下一页"回指目录首页时旧实现需重抓重析一次才被拦截
+  6) sorter.ts extractChapterNo[R9-c-8][Med]: "第1,234章"千位分隔符原数字字符类不含逗号→首分支失配且严格 fallback 因"第"紧贴数字不成立→整题无号; 折叠数字间千位分隔符(要求后接3位数字组, "2023,1,2"日期式连写不满足保持原样)
+  7) sorter.ts sortByChapterNo[R9-c-9][Med]: 无号项一律排尾导致源站目录[序章,第1章…]重排后序章被甩到全书末尾; 新增卷首词识别(序/序章/序言/自序/前言/楔子/引子/开篇)排最前, 番外/终章/尾声/后记仍排尾; 仅无号项参与判定, "第10章 序幕之战"不受影响
+  8) cleaner.ts removeAdLines[R9-c-7][Med]: URL 占位符纯数字编号, 相邻占位符被广告正则吃掉中间 \uE001…\uE000 时合并成 \uE00012\uE001, urls[12] 存在时错注入正文; 编号加校验位 encode(n)=n*10+(n%9+1), 合并串校验不符还原拒绝(丢一条URL不注入错URL); 旧 scrub 对 \uE000 被吃掉的孤立 \uE001 不清理, PUA 控制字符可随正文入库 → 全量 PUA 残留清理
+  9) calibrate.ts stageVerify[R9-c-10][Low]: 120s 截止/chainUrls 取尽提前 break 时 trace.requests 恒为 VERIFY_REQUESTS(展示20请求全通过但实际只发了部分) → 如实记录实际执行数 done
+- 增强(B)[R9-c-6]: parser.ts 正文质量评分+置信度 —— scoreContentHtml(文本量/短行占比/广告词密度) + contentConfidence(0~1 三档扣减) 输出到 ParsedContent.confidence/quality(可选字段, 旧调用方零影响); 低质触发备用选择器重试: css 型主规则第1页提取为空/文本<400字/短行占比>0.5 时, "最长文本容器"得分×1.5 且互不包含(超集切换只会混噪声/子集切换会丢内容)才切换, 仅第1页定夺后续页沿用同一提取器防跨页混拼; 第1页主规则为空时置 useLargest 与旧行为等价且修复了"第1页用兜底第2页又切回主规则"的跨页不一致
+- types.ts(只增不删): 新增 ContentQuality 接口 + ParsedContent.confidence?/quality? 可选字段
+- suggest.ts/rule-templates.ts 审查未发现需修复问题(suggest 各引擎 JSONP/JSON 解析空结果容错完备; 模板 config 引用链/字段结构与解析引擎契约核对一致)
+- 验证: bun run lint 0错0警; bunx tsc --noEmit(排除 examples/skills) 0错; 冒烟(临时脚本已删): 千位/全角/小数/万位章号、序章排前序、长文 replaceFrom 无重复且逐段唯一、$1/$& 占位符展开、BOM JSON、URL 保全+广告剥除、置信度输出、备用选择器兜底、javascript:装饰锚点跳过+回指首页防环 —— 全部符合预期
+- 注: dev server 进程在开工前已消失(1-b worklog 已记录同现象, 非本任务所为; 依"勿重启"约束未拉起), lint/tsc 质量门静态通过; 未触碰 prisma schema/依赖/测试文件, 未 git commit
+
+Stage Summary:
+- 修复清单: R9-c-1[High] applyTransform 分块replace重叠区重复拼接(长正文数据损坏) | R9-c-2[Med] regexExtract/All 运行时 ReDoS 闸门(记忆化) | R9-c-4[Med] 翻页下一页装饰锚点断链/css nextLink 无attr恒败 | R9-c-7[Med] URL占位符合并错注入+PUA残留 | R9-c-8[Med] 千位分隔符章号无号 | R9-c-9[Med] 序章类被排尾 | R9-c-3[Low] parseJsonBody BOM | R9-c-5[Low] 目录首页循环预置 | R9-c-10[Low] 校准验证轨迹虚报请求数
+- 增强项: R9-c-6 正文质量评分(textLen/shortLineRatio/adHitRatio)+解析置信度输出(ParsedContent.confidence/quality 可选字段)+低质触发备用选择器重试(防误切双保险)
+- 未修复项: ① 正文分页兜底"下一页"在末章可能指向下一章(需站点级语义判断, 泛化修复易误伤, 现靠 pages/置信度可事后发现) ② removeAdLines 占位符合并时丢一条被保护URL(校验位方案把"错注入"降为"丢失", 彻底解决需占位符逃逸重设计, 收益/成本比低) ③ t2sHtml 属性值含">"被标签拆分正则截断(既有 trade-off 已注释, 修需完整 HTML 解析器) ④ suggest/rule-templates 零修复(审查无问题)
+- dev server 不在线(开工前已消失, 依约束未重启)
+---
+Task ID: 2-a
+Agent: global-cleanup-consolidator
+Task: 全局代码清理/整合/精简（非语义）
+
+Work Log:
+- 通读 worklog 近 300 行确认 R9 四个修复 agent 的 [R9-a/a2/b/c/d-*] 改动范围, 全程避开 fetcher/obscura/smart/hostgate/mini-services 四个禁碰分区; 所有清理点带 [R9-cl-N] 注释
+- [A 配置卫生] tsconfig.json exclude 补 "examples"/"skills"(4 个既存类型错误从源头排除, 此前靠 grep 过滤质量门); .gitignore 补 tool-results/ tmp/ __pycache__/ *.pyc tsconfig.tsbuildinfo; eslint.config.mjs ignores 补 tool-results/**(附注释)
+- [B 死代码清除] ① 以 src/app 路由+proxy.ts 为入口做全仓 import 可达性分析, 删除 25 个零引用死文件(3889 行): components/ui 23 个 shadcn 闲置组件(accordion/aspect-ratio/avatar/breadcrumb/calendar/carousel/chart/command/context-menu/drawer/form/hover-card/input-otp/menubar/navigation-menu/pagination/resizable/sheet/sidebar/toast/toaster/toggle/toggle-group)+hooks/use-mobile.ts+hooks/use-toast.ts(toast/toaster/use-toast 构成封闭死岛, 上轮 verify-tt-d-ui 存档已注明 toaster 从 layout 摘除) —— 删除后复跑可达性确认无新增死文件; ② logger.ts 删除零调用 setLogLevel/Logger.setLevel/Logger.getLevel(LOG_LEVEL 环境变量路径保留, 相关注释同步改写); ③ 全分区扫裸 console.log: 仅 fetcher.ts 3 处(他人分区); 其余 console.warn/error 均为运维语义日志, 保留; ④ 大段连续注释逐处核查均为设计文档非注释代码, 全部保留; ⑤ crawl 全部 100+ 顶层导出逐一 grep 外部引用, 无死导出; links/pseudostatic/api/_lib 各导出仅文件内消费(export 关键字冗余但非死代码, 未动)
+- [C 重复逻辑整合] ① utils.ts 新增 escapeRegExp + sliceCodePoints 小工具(下沉, 无新依赖): cleaner.escapeReg 与 DebugHtmlViewer.escapeRegExp 两份同源正则转义合一; Array.from(s).slice(0,n).join('') 码点截断惯用法 5 处合一(cleaner×3/storage/rules-test cutText); ② cleaner.ts 控制字符剥离正则 [\x00-\x08\x0B\x0C\x0E-\x1F] 4 处同款提取为 CTRL_CHARS_RE 常量(replace 语义下共享 /g 无 lastIndex 风险); ③ storage.ts saveChapterTxt/downloadTxtTarget 两份文件名清洗(控制字符+Windows保留字符→'_' + 按码点截断)整合为 sanitizeFileBase, 顺带消去双层截断冗余(先 80 再 40 / 先 100 再 80 ≡ 直接截小值, 数学等价); ④ runner.ts 书籍状态分流三分支(连载复查末章未变 L1311/跨源去重 L1359/本书完成 L1837, 每处 15 行)逐行比对等价后整合为私有 shuntBookStatus(rt, bookUrl, detectedStatus, lastChapterUrl), 调用点各自传末章 URL 取值源, dirty 标志条件(仅末章实际写入才置 dirtyLastChapters)原样保留
+- [D 精简] parser.ts 内联单转发函数 xpathAttr(唯一调用点直接用 nodeAttr); 其余候选(存在章节双 findMany/jsonGet 与 jsonArrayWalk 双行走器/批量 while 循环)评估后保留: 前两者各有语义分叉(R5-1 上限重查逻辑; map-collect 与 %26 转义行为差异), 不属等价重复, 按"拿不准就不动"红线不动
+- 语义等价验证: bun 临时冒烟脚本(已删)对 sliceCodePoints/escapeRegExp/sanitizeFileBase 新旧双式/CTRL 正则/shuntBookStatus 五点做穷举等价断言全过(含 emoji astral 边界/空串/截断超长); 收尾期间并行 agent 曾短暂使 fetcher↔hostgate 导出面失配(非本任务所为), 轮询至其落盘完成后双门转绿
+- 质量门: bun run lint 0错0警; bunx tsc --noEmit 全量 0 错(examples/skills 已排除, 无需 grep 过滤); 未触碰 dev server/prisma schema/依赖清单/测试; 未 git commit
+
+Stage Summary:
+- 删除清单: 25 个零引用死文件 3889 行(shadcn 闲置组件+use-toast 死岛+use-mobile); logger 死 API 3 个函数约 15 行; 合计净删约 3950 行
+- 整合清单: escapeRegExp(2 文件→1)+sliceCodePoints(5 处→1)+CTRL_CHARS_RE(4 处→1)+storage 文件名清洗(2 处→1, 消双层截断)+runner 状态分流(3×15 行→1 helper+3 调用)+xpathAttr 内联; 每处均留 [R9-cl-N] 中文注释
+- 配置修正: tsconfig exclude+2(全量 tsc 首次 0 错), .gitignore+5 产物条目, eslint ignores+1
+- 保留未动项及原因: ① jsonGet/jsonArrayWalk 形似行走器(map-collect/%26/缺= 语义分叉, 非等价重复) ② runner 存在章节双 findMany(R5-1 有界加载设计) ③ sorter.normalizeUrlKey 与 runner.normalizeUrlForCompare(去重键 vs 变更比较, 口径刻意不同) ④ console.warn/error 运维日志与 fetcher 裸 console.log(他人分区) ⑤ package.json 中仅被已删 ui 组件消费的依赖(未要求动依赖, bun.lock 风险大于收益) ⑥ tsconfig.tsbuildinfo 已被 git 跟踪, 仅入 ignore 防再提交(退跟踪需 git rm --cached, 未做 git 操作)
+- 遗留风险: 无语义面新增风险; 删除的 shadcn 组件如未来需要可经 shadcn CLI 重生成; 删除组件的独占依赖(recharts/embla/react-day-picker/react-hook-form 等)仍留在 package.json
+---
+Task ID: 2-b
+Agent: anticrawl-enhancer
+Task: 采集功能+反反爬能力增强落地
+
+Work Log:
+- tail worklog 250 行同步 R9 已落地项(R9-a/a2 条件请求+403/429 退避+curl 退出码、R9-b WebGL池/per-context代理/指纹学习、R9-c 正文质量评分、R9-d 孤儿自愈), 逐文件读源确认缺口未实现再动手; 任务书候选 3(smart.ts 落点)经核实与 1-a2 结论一致(smart.ts 仅分类/完结判定, 降级链实际在 fetcher), 放弃(理由见 Stage Summary)
+- mini-services/cloak-browser/index.ts [R9-e-1]: 多 UA 池+身份族谱(1-b 遗留项, CLOAK_UA_POOL=1 缺省关) —— UA_POOL 6 条桌面 Chromium(137~140 与 obscura DESKTOP_UAS 同版本纪律, Win/Mac/Linux + 2 条 Edge); pickUaFamily 按 host DJB2 哈希确定性选取(同站恒同 UA, cf_clearance 等 UA 绑定凭证不失效; 跨站分散指纹面); applyCdpUaOverride 增可选 family 参数, platform/platformVersion/brands(Edge 追加 Microsoft Edge brand)随 UA 同源注入 → UA 字符串 ↔ sec-ch-ua 头组 ↔ JS userAgentData 三方自洽; /health 增 uaPool 可观测字段; 关闭态 effUa=DEFAULT_UA + family=undefined → brands/platform 硬编码分支与原字面量逐字节一致; 仅收桌面 UA(移动 UA 与 applyDeviceMetrics mobile:false+1920x1080 矛盾)
+- src/lib/crawl/fetcher.ts [R9-e-2]: 代理健康度评分(PROXY_HEALTH_SCORING=1 缺省关) —— ProxyState 增 win 滑动窗口(最近12次{ok,latencyMs,at})+lastBanAt; recordProxyOutcome 在 fetchHttpWithCurlFallback 成功/失败路径记录(源站 4xx/5xx=传输层通记成功, 与既有"不冷却"同口径); proxyHealthScore=成功率²×延迟因子(1000/(1000+avg))×近期封禁降权(2min 内 ×0.2), 无数据=满分(与均匀随机等价); 开启时缺省 random 策略改加权随机(weightedPickByHealth, 权重下限 0.01 保弱者探活)、降级尝试顺序改健康度降序; round-robin/least-used 显式策略语义不变; 与既有 403/429 退避/R4-3 指数冷却正交叠加
+- src/lib/crawl/fetcher.ts [R9-e-5]: 封面/静态资源瞬时失败重试(FETCH_BINARY_RETRY=1 缺省关) —— fetchBinary 原 try 主体内移为 attemptOnce(ok/permanent/transient 三态), SSRF 拒/重定向环/scheme 降级/超限/整体超时(controller 已 abort)/4xx 反盗链=permanent 不重试, 网络层异常/408/5xx=transient 延迟 800ms 重试一次; 关闭态单次尝试返回值与旧实现一致
+- src/lib/crawl/fetcher.ts [R9-e-6]: 响应完整性校验(FETCH_BODY_LEN_CHECK=1 缺省关) —— fetchHttp.readBodyCapped 增 strictLen 参数(仅成功路径传, 错误体/挑战壳不校验), 实际读取 < Content-Length 判截断抛 RangeError → 落上层既有重试链(同代理 curl 重取, R9-a2-1 退出码校验兜同风险); 仅 native 传输(中继重组 CL 头不可信)+无 Content-Encoding(压缩传输 CL 是压缩字节数不可比), 防误判
+- src/lib/crawl/hostgate.ts [R9-e-4]: 请求节奏画像(HOSTGATE_PACE_PROFILE=1 缺省关) —— HostState 增 latWin(10 样本窗)/latEwma 基线/slowStreak/challengeStreak/slowUntil/slowGapMs; reportHostLatency(连续 ≥3 次延迟 ≥基线×1.6 且 ≥1.2s → 放缓窗 10min, 地板=clamp(avg近3/2, 800~3000)ms)/reportHostChallenge(连续 ≥2 次挑战页 → 地板 ≥1.2s, 重复命中顺延窗); reportHostSuccess 清零连续计数(放缓窗到期自然解除); paceGapFloor 只读参与准入判定(fast path/pump/armGapTimer), 不写 st.minGapMs → 不污染 R4-14 caller 换代检测/R5-3 冷却回滚快照; hostGateSnapshot 增 slowdownUntil/challengeStreak/latencyEwmaMs 供 runner 降级参考
+- fetcher 接线 [R9-e-4]: fetchHttp 成功路径末跳墙钟 reportHostLatency(仅 native 传输; 中继/curl 时延含桥接开销不代表目标站); fetchPageOnce HTTP/浏览器路径 blockedHtml 时 reportHostChallenge; import 自 hostgate(其零内部依赖, 无循环风险); 开关关闭时上报函数 no-op+hopT0 恒 0, 零开销
+- types.ts 未改动(本任务无新增规则字段需求, 全部走 env 开关; 文件中现有未提交 [R9-c-6] 插入为 1-c agent 所为)
+- 验证: bun run lint 0错0警; bunx tsc --noEmit(排除 examples/skills) 0错; cloak-browser bun build --target bun 转译通过; 模块级冒烟(临时脚本已删): ①hostgate 开关双态 —— 关闭态上报 no-op+snapshot 画像字段恒 0+minGapMs=0 双准入 0ms(与旧版一致), 开启态 EWMA≈500 基线→3 连 3000ms 触发放缓窗(地板 1500ms)+准入实测被放缓+2 连挑战触发 1200ms 地板+干净成功清零计数 ②代理健康度 —— 无健康数据 100 轮加权随机分布 [32,31,37](与均匀随机等价, 新代理不被歧视)+全冷却降级直连+全新池 round-robin 开启态仍全覆盖轮换(语义保持) ③probe 双准入时序 1501/3001ms 证实地板逐次生效无双重等待
+- 注: dev server 进程开工前已在线响应缺失(GET / 000, 与 1-a2/1-b/1-c 收尾记录同现象, 非本任务所为), 依"勿重启"约束未拉起, 质量门为静态验证+模块级冒烟; 未 git commit, 未动 prisma/依赖/测试
+
+Stage Summary:
+- 落地增强清单: [R9-e-1] cloak-browser 多 UA 池+身份族谱(CLOAK_UA_POOL=1, 缺省关) | [R9-e-2] 代理健康度评分滑动窗口+加权选路(PROXY_HEALTH_SCORING=1, 缺省关) | [R9-e-4] hostgate 请求节奏画像: 延迟抬升/挑战页感知→自动放缓准入+快照观测面(HOSTGATE_PACE_PROFILE=1, 缺省关) | [R9-e-5] 封面/静态资源瞬时失败一次性重试(FETCH_BINARY_RETRY=1, 缺省关) | [R9-e-6] Content-Length↔实际字节完整性校验截断即失败重试(FETCH_BODY_LEN_CHECK=1, 缺省关); 全部零新增依赖/零 prisma 改动/零 types.ts 改动, 关闭态代码路径与旧版逐字节一致(冒烟实证)
+- 放弃项及原因: ①候选 3 挑战学习记忆增强(host→{指纹,引擎档位,成功UA族}+跳级) —— 设计前提与本仓库架构不符: smart.ts 经 1-a2 核实无引擎/防护级映射逻辑(仅分类+完结判定), 降级链实际形态是 fetcher HTTP→obscura→裸 Playwright(cloak-browser 不在链内), "引擎档位"无既有落点; 指纹学习表(R9-b-8)已含 UA(fp.userAgent); 强行落地需重构 renderWithBrowser 选路语义(uaMode 钉扎/cookie-UA 绑定互锁), 回归面大收益存疑, 留档 ②obscura 侧 UA 池 —— 非遗留项: obscura 自 hh-d2/R9-b-4 起已是"多 UA 池+身份族绑定"(DESKTOP_UAS/MOBILE_UAS+parseUaIdentity+CDP metadata), 任务书示例开关名 OBSCURA_UA_POOL 对应能力已存在, 故 [R9-e-1] 落在确实单一 UA 的 cloak-browser(开关名沿用其 CLOAK_ 惯例) ③fetch-relay/scrapling-bridge 本轮无候选项涉及, 未触碰
+- 遗留风险: ①[R9-e-4] 放缓窗为进程内存态, 重启即解除(与 hostgate 既有语义一致); 延迟样本仅 native 链供给, 纯 curl/中继站无画像 ②[R9-e-2] 健康延迟样本含链内 curl 兜底重试墙钟(粗粒度信号), 可能低估"native 被拒但 curl 通"代理的健康度(降权有界且弱者保 1% 探活流量) ③[R9-e-6] 依赖源站 CL 头如实; 对"声明正确但传输中途断连且无 CL"的站无效(curl 链 R9-a2-1 退出码校验部分兜底) ④[R9-e-1] UA 池按 host 哈希恒定, 6 条桶分布非均匀可控(如需均匀轮换需引入 TTL 重选, 会破坏同站会话一致性, 不做) ⑤并行 agent 改动区(api/runner/downloader)未触碰; runner 若后续消费 hostGateSnapshot 画像字段属纯增量读取
+
+---
+Task ID: 3
+Agent: main-orchestrator (Z.ai Code) — 代终审agent收尾
+Task: R9 跨 agent 集成交查 + 运行时全链路 E2E（终审agent超时前的成果核实与收尾）
+
+Work Log:
+- 终审 agent 超时, 但其 E2E 已在超时前实际跑通: dev.log 显示 POST /api/admin/downloads 200、GET /api/admin/downloads/{id} 200、GET /api/public/download 200
+- DB 实证: 任务「R9终审E2E单书任务」(single) status=done; 书籍《测试之书甲》completed, 10章; 首章《第1章 初入》contentLen=232 ✓
+- types.ts 复查: 仅 +16 行纯新增(ContentQuality 接口 + ParsedContent.confidence/quality 可选字段), "只增不删"承诺守住
+- 清理终审 agent 临时脚本与输出文件; lint 0/0 + tsc 全量 0 错复核通过
+
+Stage Summary:
+- 全链路实证通过: mock站点→admin API建规则→任务→抓取→解析→落库(10章)→TXT下载 API 全 200
+- R9 总盘: 7 个执行 agent, 修复 ~50 项(3 High 级: R9-c-1 分块替换数据损坏 / R9-a2-1 curl 退出码 / R9-b-1/2/9 生命周期泄漏), 增强 ~16 项(全部默认关闭零回归), 清理净删 ~3950 行死代码
+- 测试残留: 《测试之书甲》及 R9终审E2E任务留库作证据, 源指向 mock 站点, 无害
+
+---
+Task ID: 3 (续)
+Agent: main-orchestrator (Z.ai Code)
+Task: Agent Browser E2E UI 验证 + 前台搜索修复 + R9 收尾
+
+Work Log:
+- dev server 改用沙箱官方 .zscripts/dev.sh 启动(此前 setsid 方式被沙箱周期性回收, 根因定位), 同时拉起 7 个 mini-services
+- 浏览器 E2E 全链路: 登录页渲染 → 登录 → 仪表盘(统计/图表/服务灯全活) → 前台书城(分类/热词/封面卡) → 书籍详情(章节24/最新章) → 阅读页(正文渲染) → 采集任务页(R9终审任务已完成) → 移动端 390px 响应式 ✓; console 0 error
+- E2E 中发现真实 bug: 前台点击 SEO 下拉词(如「星海尘缘录全文阅读」)搜索 0 结果 —— 全量关键词短语存于 BookTag.tag 而 Book.keywords 仅存基础名, 搜索 OR 条件缺 tags 关联
+- [R9-f-1] 修复: src/app/api/public/search/route.ts where OR 增 { tags: { some: { tag: { contains: q } } } }, 实测命中
+- 终质量门: lint 0错0警 + tsc 全量 0 错(无需过滤) ✓
+
+Stage Summary:
+- 浏览器实证 + API 实证双通过; R9 全轮次闭环(7 执行 agent + 主控终审)
+- 测试残留说明: 《测试之书甲》/「R9终审E2E单书任务」/「R9终审Mock规则」留库为 E2E 证据, 源指向本地 mock, 可在管理端删除

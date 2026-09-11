@@ -93,7 +93,10 @@ export function cnNumToNumber(cn: string): number {
 /** 从标题提取章节序号 */
 export function extractChapterNo(title: string): number {
   if (!title) return NaN
-  const t = foldDigits(title.trim())
+  // [R9-c-8] 千位分隔符折叠: "第1,234章"/"第1，234章" 原数字字符类不含逗号, 首分支失配、
+  // 严格分隔符 fallback 又因"第"紧贴数字不成立 → 整题无号。仅折叠"数字间"的千位分隔符
+  // (要求后接 3 位数字组, 不碰小数点; "2023,1,2" 日期式连写不满足 3 位组, 保持原样不动)
+  const t = foldDigits(title.trim()).replace(/(\d)[,，](\d{3})(?!\d)/g, '$1$2')
   // ll-c 修复: 单位类拆两级 —— 章节单位([章节回集])优先于卷级单位([卷篇])。原实现单类
   // 左扫描, 混写标题"第二卷 第10章"先命中"第二卷"(卷属单位类) → 返回卷号 2 而非章号 10,
   // 卷字段组内全部混写章提号相同, 组内排序退化为原始顺序。纯卷标题([章节回集]不命中)
@@ -234,10 +237,15 @@ export function reorderToc(items: TocItem[]): TocItem[] {
   return sortByChapterNo(deduped)
 }
 
+/** [R9-c-9] 卷首无号标题(序章类): 旧实现无号项一律排尾, 源站目录 [序章, 第1章…] 重排后
+ *  序章被甩到全书末尾(阅读序错乱)。识别常见卷首词, 排序时置于全部有号章之前;
+ *  无号尾项(番外/终章/尾声/后记)语义不变仍排尾 */
+const PROLOGUE_TITLE_RE = /^(序章?|序言|自序|前言|楔子|引子|开篇)/
+
 /** 卷内/无卷排序: 提取序号成功比例高→按序号, 否则自然比较+倒序检测(原 reorderToc 主逻辑原样保留, 零回归) */
 function sortByChapterNo(deduped: TocItem[]): TocItem[] {
   // ---- 提取序号 ----
-  const withNo = deduped.map((it, i) => ({ it, i, no: extractChapterNo(it.title) }))
+  const withNo = deduped.map((it, i) => ({ it, i, no: extractChapterNo(it.title), pro: PROLOGUE_TITLE_RE.test(it.title.trim()) }))
   const validRatio = withNo.filter((w) => !isNaN(w.no)).length / Math.max(1, withNo.length)
 
   if (validRatio >= 0.6) {
@@ -245,6 +253,11 @@ function sortByChapterNo(deduped: TocItem[]): TocItem[] {
     withNo.sort((x, y) => {
       const xa = isNaN(x.no)
       const xb = isNaN(y.no)
+      // [R9-c-9] 序章类无号项排最前(仅无号项参与判定, 有号"第10章 序幕之战"不受影响);
+      // 其余无号项仍排尾
+      const xp = xa && x.pro
+      const yp = xb && y.pro
+      if (xp !== yp) return xp ? -1 : 1
       if (xa && xb) return x.i - y.i
       if (xa) return 1
       if (xb) return -1

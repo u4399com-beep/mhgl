@@ -151,6 +151,56 @@ export class TaskRunner {
    *  会覆盖新写(status 显示 running 但实际任务已停)。修法: per-task 把所有 db.task.update(status:...)
    *  串行化, 旧写必先完成、新写后发, last-write-wins 保证新 control 的状态写总胜出 */
   private dbStatusChains = new Map<string, Promise<unknown>>()
+  /** R9-d-9: 孤儿 running 任务回收 sweeper 定时器(进程级单例, unref 不阻止退出) */
+  private ghostSweepTimer: ReturnType<typeof setInterval> | null = null
+
+  /** R9-d-9: 单例创建即挂载孤儿回收 sweeper(每 5 分钟一轮, unref)。
+   *  兜底三类幽灵态: ① 备份导入的任务行自带 status:'running'(restore 不改写运行时);
+   *  ② recoverOnBoot 之后因异常路径漏回收的 running 行; ③ 手工改库/外部写入的 running 行。
+   *  判定精确: DB status==='running' 且本进程内 isRunning(id)===false 且 60s 宽限
+   *  (cover control('start') 状态写在途窗口)未过 → 回收为 paused(与 recoverOnBoot 同语义,
+   *  保留"可点击继续恢复"的操作员预期)。正常在跑任务 rt.running 恒先于状态写置位, 不会误伤 */
+  private ensureGhostSweeper(): void {
+    if (this.ghostSweepTimer) return
+    const timer = setInterval(() => {
+      this.reclaimGhostRunningTasks().catch(() => { /* DB 故障轮静默, 下轮重试 */ })
+    }, 5 * 60_000)
+    if (typeof timer.unref === 'function') timer.unref()
+    this.ghostSweepTimer = timer
+  }
+
+  /** R9-d-9: 单轮回收扫描 —— 见 ensureGhostSweeper 注 */
+  async reclaimGhostRunningTasks(): Promise<number> {
+    let reclaimed = 0
+    let rows: Array<{ id: string; updatedAt: Date }> = []
+    try {
+      rows = await db.task.findMany({
+        where: { status: 'running' },
+        select: { id: true, updatedAt: true },
+        take: 500,
+      })
+    } catch {
+      return 0 // DB 故障: 本轮放弃, 下轮重试
+    }
+    const now = Date.now()
+    for (const t of rows) {
+      if (this.isRunning(t.id)) continue // 本进程真实在跑
+      const updated = t.updatedAt instanceof Date ? t.updatedAt.getTime() : new Date(t.updatedAt).getTime()
+      if (Number.isFinite(updated) && now - updated < 60_000) continue // 60s 宽限(状态写在途窗口)
+      try {
+        await db.task.update({ where: { id: t.id }, data: { status: 'paused' } })
+        reclaimed++
+        await this.log(t.id, 'warn', '检测到孤儿运行态(进程内无活跃采集循环, 可能源于服务重启/备份导入), 已自动回收为暂停, 可点击继续恢复')
+      } catch { /* P2025 任务已删等: 忽略 */ }
+    }
+    return reclaimed
+  }
+
+  constructor() {
+    // R9-d-9: 单例构造即启动兜底 sweeper(recoverOnBoot 只覆盖进程启动一轮, 运行期幽灵态
+    // 由本 sweeper 周期回收); globalThis 单例保证构造仅一次, dev HMR 不会重复挂载
+    this.ensureGhostSweeper()
+  }
 
   /** R4-8: per-task status 串行写 —— 把 db.task.update(status:...) 串到 prev 链尾,
    *  保证旧 controlInner(可能已 Promise.race 超时)的写必先完成、新 controlInner 的写后发,
@@ -163,45 +213,95 @@ export class TaskRunner {
   private async serializeStatusWrite(taskId: string, status: string): Promise<void> {
     const STEP_TIMEOUT_MS = 30_000
     const prev = this.dbStatusChains.get(taskId) ?? Promise.resolve()
-    // R8-13: 给 prev 加 30s 超时 —— 不论 prev resolve 还是 reject, 都归为 undefined 继续本步;
-    // 若 prev 在 30s 内未 settle(SQLite busy), 跳过等待(已 log warn), 继续执行本步
-    const prevWithTimeout: Promise<void> = Promise.race([
-      prev.then(() => undefined, () => undefined),
-      new Promise<void>((resolve) => {
-        const t = setTimeout(() => {
-          console.warn(`[runner] serializeStatusWrite 前置链 30s 未完成, 跳过等待 task=${taskId} status=${status}`)
-          resolve()
-        }, STEP_TIMEOUT_MS)
-        if (typeof t.unref === 'function') t.unref()
-      }),
-    ])
-    const next = prevWithTimeout.then(
-      () => Promise.race([
-        db.task.update({ where: { id: taskId }, data: { status } }),
-        new Promise<never>((_, reject) => {
-          const t = setTimeout(
-            () => reject(new Error(`serializeStatusWrite db.task.update 30s timeout`)),
-            STEP_TIMEOUT_MS,
-          )
-          if (typeof t.unref === 'function') t.unref()
+    // R9-d-2: 定时器句柄必须持有并在 race 定局后 clearTimeout —— 旧实现两个 30s 定时器
+    // (prev 等待超时 + db.update 超时)从不清理: ① 每次调用都遗留一个 30s 才触发的定时器
+    // (且未 unref 的分支会拖住进程退出); ② 前置链超时定时器的回调在【prev 已正常完成】时
+    // 照样触发, 每次状态写 30s 后都打出一条"30s 未完成"的虚假 warn 日志(日志噪音污染)。
+    // 现改为句柄持有 + race 定局(finally)统一清理, 正常路径零残留、零虚假日志
+    let prevTimer: ReturnType<typeof setTimeout> | undefined
+    let stepTimer: ReturnType<typeof setTimeout> | undefined
+    try {
+      // R8-13: 给 prev 加 30s 超时 —— 不论 prev resolve 还是 reject, 都归为 undefined 继续本步;
+      // 若 prev 在 30s 内未 settle(SQLite busy), 跳过等待(已 log warn), 继续执行本步
+      const prevWithTimeout: Promise<void> = Promise.race([
+        prev.then(() => undefined, () => undefined),
+        new Promise<void>((resolve) => {
+          prevTimer = setTimeout(() => {
+            console.warn(`[runner] serializeStatusWrite 前置链 30s 未完成, 跳过等待 task=${taskId} status=${status}`)
+            resolve()
+          }, STEP_TIMEOUT_MS)
+          if (typeof prevTimer.unref === 'function') prevTimer.unref()
         }),
-      ]).catch((e: any) => {
-        if (e?.code === 'P2025') return // 任务已删, 写无处可去, 视作正常终态
-        // R8-13: 超时不视为硬错误, 跳过本步继续链(防链死锁); 其他错误透传给调用方
-        if (String(e?.message || e).includes('timeout')) {
-          console.warn(`[runner] serializeStatusWrite db.task.update 30s 超时, 跳过 task=${taskId} status=${status}`)
-          return
-        }
-        throw e
-      }),
-    )
-    // tail 不抛错防链断: 调用方通过 await next 收到错误; 链尾只负责串行化顺序
-    const tail = next.catch(() => {})
-    this.dbStatusChains.set(taskId, tail)
-    void tail.then(() => {
-      if (this.dbStatusChains.get(taskId) === tail) this.dbStatusChains.delete(taskId)
-    })
-    await next
+      ])
+      const next = prevWithTimeout.then(
+        () => Promise.race([
+          db.task.update({ where: { id: taskId }, data: { status } }),
+          new Promise<never>((_, reject) => {
+            stepTimer = setTimeout(
+              () => reject(new Error(`serializeStatusWrite db.task.update 30s timeout`)),
+              STEP_TIMEOUT_MS,
+            )
+            if (typeof stepTimer.unref === 'function') stepTimer.unref()
+          }),
+        ]).catch((e: any) => {
+          if (e?.code === 'P2025') return // 任务已删, 写无处可去, 视作正常终态
+          // R8-13: 超时不视为硬错误, 跳过本步继续链(防链死锁); 其他错误透传给调用方
+          if (String(e?.message || e).includes('timeout')) {
+            console.warn(`[runner] serializeStatusWrite db.task.update 30s 超时, 跳过 task=${taskId} status=${status}`)
+            return
+          }
+          throw e
+        }),
+      )
+      // tail 不抛错防链断: 调用方通过 await next 收到错误; 链尾只负责串行化顺序
+      const tail = next.catch(() => {})
+      this.dbStatusChains.set(taskId, tail)
+      void tail.then(() => {
+        if (this.dbStatusChains.get(taskId) === tail) this.dbStatusChains.delete(taskId)
+      })
+      await next
+    } finally {
+      // R9-d-2: race 定局即清理两个超时定时器(正常完成/超时/异常路径统一收口)
+      if (prevTimer) clearTimeout(prevTimer)
+      if (stepTimer) clearTimeout(stepTimer)
+    }
+  }
+
+  /**
+   * R9-d-1: 崩溃路径统一状态落库 —— 把"异常终止 → status:'error'"的写走 serializeStatusWrite
+   * 串行链, 并尊重操作员意图: 用户已显式 stop(明确终止意图, R3-14 口径)或 pause(保留可恢复态)
+   * 时不覆写为 error(旧实现无条件写 error 会把用户的 stopped 覆盖掉, autoRefresh 又把已被
+   * 手动停止的任务拉起来跑, 与操作意图相反)。任务行已删(P2025)由链内静默容忍。
+   */
+  private async serializeCrashStatus(taskId: string): Promise<void> {
+    const rt = this.runtimes.get(taskId)
+    if (rt && (rt.stopped || rt.paused)) return // 操作员已表态: 不降级为 error
+    await this.serializeStatusWrite(taskId, 'error')
+  }
+
+  /** [R9-cl-4] 整合: 书籍状态分流三处重复(连载复查末章未变/跨源去重/本书完成)—— 完结入
+   *  completedBookUrls 并清理连载记忆; 否则按 ongoing 处理(unknown 仍可能后续新增章节, 谨慎跟踪)
+   *  入 ongoingBookUrls 并记录末章 URL。dirty 标志与原三处一致(仅末章 URL 实际写入时置 dirtyLastChapters;
+   *  R8-5 语义不变)。三处原分支逐行比对等价后合并, 调用点传入各自的末章 URL 取值源 */
+  private shuntBookStatus(
+    rt: TaskRuntime,
+    bookUrl: string,
+    detectedStatus: 'completed' | 'ongoing' | 'unknown',
+    lastChapterUrl: string | undefined,
+  ): void {
+    if (detectedStatus === 'completed') {
+      rt.completedBookUrls.add(bookUrl)
+      rt.ongoingBookUrls.delete(bookUrl)
+      rt.bookLastChapters.delete(bookUrl)
+      rt.dirtyCompleted = true
+      rt.dirtyOngoing = true
+      rt.dirtyLastChapters = true // R8-5: mark dirty
+    } else {
+      rt.ongoingBookUrls.add(bookUrl)
+      if (lastChapterUrl) rt.bookLastChapters.set(bookUrl, lastChapterUrl)
+      rt.dirtyOngoing = true
+      if (lastChapterUrl) rt.dirtyLastChapters = true // R8-5: mark dirty
+    }
   }
 
   static get instance(): TaskRunner {
@@ -230,7 +330,14 @@ export class TaskRunner {
         if (!t || !t.autoRefresh || this.isRunning(taskId) || !['done', 'error'].includes(t.status)) return
         await this.log(taskId, 'info', `⟳ 自动刷新触发, 重新开始采集「${t.name}」`)
         const res = await this.control(taskId, 'start')
-        if (!res.ok) await this.log(taskId, 'warn', `⟳ 自动刷新启动失败: ${res.message}`)
+        if (!res.ok) {
+          await this.log(taskId, 'warn', `⟳ 自动刷新启动失败: ${res.message}`)
+          // R9-d-10: 启动失败后重排一次同间隔定时, 自愈链闭环 —— 旧实现单发定时器失败即死
+          // (典型: 触发时刻恰处熔断 60s 冷却窗口, control('start') 被拒), autoRefresh 从此
+          // 失效直到进程重启, 违背"定时增量自愈"设计意图。重排会再次走上方复核
+          // (任务被删/autoRefresh 关闭/已运行/状态非终态均自动放弃), 不会无限硬敲
+          this.scheduleAutoRefresh(taskId, clampedMin, t.name)
+        }
       } catch { /* 任务已删除等 */ }
     }, ms)
     // E1: unref 长延时定时器 —— autoRefresh 常为数十分钟到小时的延时, 不 unref 会阻止进程
@@ -364,12 +471,21 @@ export class TaskRunner {
     // control 串行卡在 prev.then 后, 任务永远停不下来也启不动。Promise.race 上限 30s,
     // 超时则当前 control reject, 链尾 catch 吞错后释放 → 下次 control 可正常入队执行
     const prev = this.controlChains.get(taskId) ?? Promise.resolve()
-    const inner = () => Promise.race([
-      this.controlInner(taskId, action),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('control timeout(30s)')), 30_000),
-      ),
-    ])
+    // R9-d-2: 30s 超时定时器句柄持有 + race 定局后 clearTimeout —— 旧实现每次 control 调用
+    // 都遗留一个存活的 30s 定时器(未 unref, 会拖住事件循环空转/延迟进程退出; 频繁控制操作
+    // 时定时器线性堆积)。现 finally 统一清理, 正常路径零残留
+    const inner = () => {
+      let timeoutTimer: ReturnType<typeof setTimeout> | undefined
+      return Promise.race([
+        this.controlInner(taskId, action),
+        new Promise<never>((_, reject) => {
+          timeoutTimer = setTimeout(() => reject(new Error('control timeout(30s)')), 30_000)
+          if (typeof timeoutTimer.unref === 'function') timeoutTimer.unref()
+        }),
+      ]).finally(() => {
+        if (timeoutTimer) clearTimeout(timeoutTimer)
+      })
+    }
     const run = prev.then(() => inner())
     const tail = run.catch(() => {})
     this.controlChains.set(taskId, tail)
@@ -438,7 +554,10 @@ export class TaskRunner {
         // 异步执行, 不阻塞API
         this.executeTask(taskId).catch(async (e) => {
           await this.log(taskId, 'error', `任务异常终止: ${e?.message || e}`)
-          await db.task.update({ where: { id: taskId }, data: { status: 'error' } }).catch(() => {})
+          // R9-d-1: 崩溃兜底路径的状态写同样必须走 serializeStatusWrite 串行链 —— 旧实现直接
+          // db.task.update('error'), 与并发 control(stop) 的链上状态写提交序不定, 停止写可能被
+          // 崩溃写晚提交覆盖(用户点了停止, DB 却显示 error)。且用户已显式 stop/pause 时不再覆写
+          await this.serializeCrashStatus(taskId).catch(() => {})
         })
         return { ok: true, message: '已启动' }
       }
@@ -576,10 +695,19 @@ export class TaskRunner {
         await this.saveProgress(taskId, progress, stats)
         const listRule = cfg.rule.list
         const urls: string[] = []
+        // R9-d-3: 单轮发现上限熔断 —— listStart/listEnd 允许配置到 100000 页, 极端配置下
+        // urls/listFields/discoveredBookUrls 三个集合无上限增长(2M 书 × ~100B ≈ 数百 MB 堆),
+        // 且发现阶段不可中断收尾。达上限即停止翻页并落库已发现部分(继续走采集阶段, 可通过
+        // bookStart/bookEnd 或续采分批处理余量), 防内存无界。量级: 500000 × 100B ≈ 50MB 安全余量
+        const DISCOVERY_MAX_URLS = 500_000
         for (let p = cfg.task.listStart; p <= cfg.task.listEnd; p++) {
           if (rt.stopped || isStale()) break
           while (rt.paused && !rt.stopped && !isStale()) await sleep(600)
           if (rt.stopped || isStale()) break
+          if (urls.length >= DISCOVERY_MAX_URLS) {
+            await this.log(taskId, 'warn', `发现书籍数已达单轮上限 ${DISCOVERY_MAX_URLS}, 停止翻页(已发现的书籍继续采集; 余量请用 bookStart/bookEnd 或续采分批处理)`)
+            break
+          }
           // {page}=页号原值; {offset:N}=第p页的列表偏移量(p-1)*N(cc-c: 番茄聚合API
           // searchUrl 用 offset=(page-1)*10 分页, {page} 无法表达算术偏移)
           const url = (listRule.urlTemplate || '')
@@ -749,11 +877,10 @@ export class TaskRunner {
         // 话, 原实现仍无条件写 done 并按旧配置重排 autoRefresh —— 用户的"停止"被完成态
         // 覆盖 + 已取消的定时刷新复活。落笔前重查三个让位条件(与上方分支判定同口径)
         if (!rt.paused && !rt.stopped && !isStale()) {
-          await db.task.update({ where: { id: taskId }, data: { status: 'done' } }).catch((e: any) => {
-            // zz-d: 收尾途中任务被删除的 P2025 不再炸成"任务崩溃"(与 dd-b saveProgress
-            // 同窗口同口径); 其余真 DB 故障继续上抛走崩溃路径落 error 终态
-            if (e?.code !== 'P2025') throw e
-          })
+          // R9-d-1: done 状态写同样走 serializeStatusWrite 串行链 —— 与并发 control(stop/pause)
+          // 的状态写保证调用序=提交序(last-write-wins), 消除"完成写与停止写乱序提交"窗口;
+          // P2025(任务被删)由链内静默容忍, 其余真 DB 故障上抛走崩溃路径落 error 终态(语义不变)
+          await this.serializeStatusWrite(taskId, 'done')
           // Bug 25: done 落库成功 → 置标志, 下方 catch 不再覆盖为 error(后续 saveProgress/
           // autoRefresh 排定抛错仅是收尾噪声, 不应降级已完成任务的终态)
           doneWritten = true
@@ -765,19 +892,26 @@ export class TaskRunner {
         await this.saveProgress(taskId, progress, stats)
       }
     } catch (e: any) {
-      // ee-d ⑤: 旧循环崩溃同样不得误标新一轮运行中的任务(与结束块同权)
-      if (!isStale()) {
+      // ee-d ⑤: 旧循环崩溃同样不得误标新一轮运行中的任务(epoch 漂移让位, 与结束块同权)
+      // R9-d-1: rt.stopped/rt.paused 同样让位 —— 操作员已显式停止/暂停时, 崩溃不得把
+      // 状态覆写为 error(旧实现把用户的"停止"覆盖成 error 后, autoRefresh 又把任务拉起,
+      // 直接违背操作意图), 也不得重排自动刷新
+      if (!isStale() && !rt.stopped && !rt.paused) {
         await this.log(taskId, 'error', `任务崩溃: ${e?.message || e}`)
         // Bug 25: done 已落库则不再覆盖为 error —— 修前 done 写成功后 saveProgress/autoRefresh
         // 排定抛错会落到本 catch 重写 error, 把已完成任务降级为崩溃态; 保留 done 终态语义,
         // 仅未完成时落 error(autoRefresh 仍按原逻辑在下面排定)
+        // R9-d-1: error 写走 serializeStatusWrite 串行链(与并发 control 状态写定序)
         if (!doneWritten) {
-          await db.task.update({ where: { id: taskId }, data: { status: 'error' } }).catch(() => {})
+          await this.serializeStatusWrite(taskId, 'error').catch(() => {})
         }
         // jj-e: autoRefresh 任务崩溃同样自动重试(实时更新的鲁棒性; 触发时会复核终态)
         try {
           if (cfg?.task.autoRefresh) this.scheduleAutoRefresh(taskId, cfg.task.refreshIntervalMin, cfg.task.name)
         } catch { /* cfg 可能未加载 */ }
+      } else if (!isStale() && (rt.stopped || rt.paused)) {
+        // R9-d-1: 操作员已让位场景仍要留痕(崩溃原因可查), 但不动状态、不排自动刷新
+        await this.log(taskId, 'warn', `任务在${rt.stopped ? '停止' : '暂停'}后发生内部异常(状态未被覆写): ${e?.message || e}`).catch(() => {})
       }
     } finally {
       const r = this.runtimes.get(taskId)
@@ -898,8 +1032,15 @@ export class TaskRunner {
     await this.log(taskId, 'info', `书籍页: ${bookUrl} (引擎:${bookRes.engine}, ${bookRes.html.length}字节)`)
     const parsed = parseBook(bookRes.html, bookUrl, rule.book)
     // ll-c2: 字段兑底链 detail解析 → 列表页字段(detail端点空数据时不丢书名) → URL片段 → 未知
+    // R9-d-4: URL 片段兜底必须容错 —— bookUrl 可能来自备份导入/手工录入的非法 sourceUrl
+    // (restore 路径不校验 URL 格式), new URL('垃圾串') 直接抛 TypeError 使本书采集中断;
+    // 解析失败时跳过该兜底(落到"未知书名"), 不中断采集链
+    let urlFragmentName = ''
+    try {
+      urlFragmentName = new URL(bookUrl).pathname.slice(1, 30)
+    } catch { /* 非法 URL: 留空走下一级兜底 */ }
     const bookName = cleanTextField(parsed.name, 120) || cleanTextField(listFields?.name, 120)
-      || new URL(bookUrl).pathname.slice(1, 30) || '未知书名'
+      || urlFragmentName || '未知书名'
     const intro = cleanIntro(parsed.intro) || cleanIntro(listFields?.intro || '')
     const author = cleanTextField(parsed.author, 60) || cleanTextField(listFields?.author, 60) || '佚名'
 
@@ -1191,20 +1332,9 @@ export class TaskRunner {
           'info',
           `增量检查连载: 《${bookName}》(末章未变, 跳过新章采集; 上次末章: ${storedLastChapterUrl.slice(0, 80)})`,
         ).catch(() => {})
-        // 状态分流: 完结→completedBookUrls; 连载中/unknown→ongoingBookUrls + 更新末章 URL
-        if (detectedStatus === 'completed') {
-          rt.completedBookUrls.add(bookUrl)
-          rt.ongoingBookUrls.delete(bookUrl)
-          rt.bookLastChapters.delete(bookUrl)
-          rt.dirtyCompleted = true
-          rt.dirtyOngoing = true
-          rt.dirtyLastChapters = true // R8-5: mark dirty after mutations
-        } else {
-          rt.ongoingBookUrls.add(bookUrl)
-          if (currentLastChapterUrl) rt.bookLastChapters.set(bookUrl, currentLastChapterUrl)
-          rt.dirtyOngoing = true
-          if (currentLastChapterUrl) rt.dirtyLastChapters = true // R8-5: mark dirty
-        }
+        // [R9-cl-4] 状态分流整合(与本书完成/跨源去重同语义): 完结→completedBookUrls;
+        // 连载中/unknown→ongoingBookUrls + 更新末章 URL
+        this.shuntBookStatus(rt, bookUrl, detectedStatus, currentLastChapterUrl)
         progress.booksDone++
         await this.saveProgress(taskId, progress, stats)
         return 'ok'
@@ -1239,21 +1369,9 @@ export class TaskRunner {
           'info',
           `跨源去重: 《${bookName}》已存在于其他源(其他源 ${existingChapCount} 章 / 本源 ${tocItems.length} 章), 跳过`,
         ).catch(() => {})
-        // 状态分流: 完结→completedBookUrls; 连载中/unknown→ongoingBookUrls + 记录末章 URL
-        if (detectedStatus === 'completed') {
-          rt.completedBookUrls.add(bookUrl)
-          rt.ongoingBookUrls.delete(bookUrl)
-          rt.bookLastChapters.delete(bookUrl)
-          rt.dirtyCompleted = true
-          rt.dirtyOngoing = true
-          rt.dirtyLastChapters = true // R8-5: mark dirty
-        } else {
-          rt.ongoingBookUrls.add(bookUrl)
-          const lastUrl = tocItems[tocItems.length - 1]?.url
-          if (lastUrl) rt.bookLastChapters.set(bookUrl, lastUrl)
-          rt.dirtyOngoing = true
-          if (lastUrl) rt.dirtyLastChapters = true // R8-5: mark dirty
-        }
+        // [R9-cl-4] 状态分流整合(与本书完成/连载复查同语义): 完结→completedBookUrls;
+        // 连载中/unknown→ongoingBookUrls + 记录末章 URL
+        this.shuntBookStatus(rt, bookUrl, detectedStatus, tocItems[tocItems.length - 1]?.url)
         progress.booksDone++
         await this.saveProgress(taskId, progress, stats)
         return 'ok'
@@ -1718,21 +1836,8 @@ export class TaskRunner {
     //    (下次重启走增量检查: 抓目录→对比末章→无新章跳过/有新章增量采)
     //  - 同时清理可能的"连载→完结"状态跃迁记忆(原在 ongoingBookUrls 中的书若终判完结,
     //    从 ongoingBookUrls + bookLastChapters 中移除, 改入 completedBookUrls)
-    if (detectedStatus === 'completed') {
-      rt.completedBookUrls.add(bookUrl)
-      rt.ongoingBookUrls.delete(bookUrl)
-      rt.bookLastChapters.delete(bookUrl)
-      rt.dirtyCompleted = true
-      rt.dirtyOngoing = true
-      rt.dirtyLastChapters = true // R8-5: mark dirty
-    } else {
-      // ongoing 或 unknown: 按 ongoing 处理(unknown 仍可能后续新增章节, 谨慎跟踪)
-      rt.ongoingBookUrls.add(bookUrl)
-      const lastChapUrl = tocItems[tocItems.length - 1]?.url
-      if (lastChapUrl) rt.bookLastChapters.set(bookUrl, lastChapUrl)
-      rt.dirtyOngoing = true
-      if (lastChapUrl) rt.dirtyLastChapters = true // R8-5: mark dirty
-    }
+    //  [R9-cl-4] 三处同语义分支已整合进 shuntBookStatus
+    this.shuntBookStatus(rt, bookUrl, detectedStatus, tocItems[tocItems.length - 1]?.url)
     await this.saveProgress(taskId, progress, stats)
     return 'ok'
   }
