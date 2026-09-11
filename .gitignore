@@ -14,3 +14,6 @@ tsconfig.tsbuildinfo
 # 沙箱工作截图/临时产物不入库 [R10-f]
 .zscripts/*.png
 .zscripts/*.log
+
+# sandbox runtime artifacts
+.zscripts/dev.pid

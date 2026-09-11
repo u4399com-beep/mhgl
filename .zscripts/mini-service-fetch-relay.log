@@ -1,9 +1,0 @@
-[fetch-relay] Installing dependencies...
-bun install v1.3.14 (0d9b296a)
-
-+ @types/bun@1.4.0
-
-4 packages installed [287.00ms]
-[fetch-relay] Running bun run dev...
-$ bun --hot index.ts
-[fetch-relay] listening on http://127.0.0.1:3011 (/health)
