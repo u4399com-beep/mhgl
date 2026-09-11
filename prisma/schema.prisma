@@ -82,6 +82,11 @@ model Chapter {
   @@unique([bookId, idx])
   @@index([bookId, url])
   @@index([updatedAt])
+  // [R11-a2-1] 仪表盘 7 日入库曲线索引 —— GET /api/admin/stats 的 countPerDay7d('chapter')
+  //  按本地自然日做 7 次 count({ createdAt: gte/lt }), 修前 Chapter 无任何 createdAt 索引,
+  //  每次仪表盘加载(前端 5~10s 轮询)都对最大表(章节行数随采集无界增长, 生产可达数十万行)
+  //  全表扫描 7 次; 补 createdAt 索引后转为窄区间扫描
+  @@index([createdAt])
 }
 
 // ==================== 书籍标签(搜索引擎下拉词) ====================
@@ -152,6 +157,10 @@ model TaskLog {
   createdAt DateTime @default(now())
 
   @@index([taskId, id])
+  // [R11-a2-1] 日志保留期清扫索引 —— 两处读路径顺手 deleteMany({ createdAt: lt 30天前 })
+  //  均按 createdAt 过滤: GET /api/admin/stats(仪表盘每次轮询)与 GET /api/admin/tasks/[id]/logs。
+  //  修前仅 (taskId, id) 索引, stats 侧的全局清理(无 taskId 条件)必然全表扫描
+  @@index([createdAt])
 }
 
 // ==================== 站群站点 ====================
@@ -191,6 +200,12 @@ model DownloadJob {
   error    String?
   size     Int     @default(0)
   createdAt DateTime @default(now())
+
+  // [R11-c-3] 公开下载读路径索引 —— /api/public/download?book=<id> 走 findFirst({bookId,
+  // status, filePath not null} orderBy createdAt desc), 修前 DownloadJob 无任何 bookId 索引,
+  // 该端点无鉴权且每次下载请求都触发一次全表扫描(任务行随下载历史无界增长)。
+  // 复合序 (bookId, status, createdAt) 与查询形态精确匹配(status 等值 + createdAt 排序取最新)
+  @@index([bookId, status, createdAt])
 }
 
 // ==================== 全局设置 ====================
@@ -230,4 +245,9 @@ model Feedback {
 
   @@index([status, createdAt])
   @@index([type])
+  // [R11-c-2] 反滥用限流索引 —— /api/public/feedback POST 每次提交都执行
+  // count({ ip, createdAt: { gte: 1小时前 } })(同 IP 5条/小时), 修前 Feedback 无 ip 索引,
+  // 该无鉴权写路径的每次请求都是全表扫描(反馈行只增不删, 长期运行后无限流检查拖慢+扫描放大)。
+  // 等值 ip + 范围 createdAt 的复合序与查询形态精确匹配
+  @@index([ip, createdAt])
 }

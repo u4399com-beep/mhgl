@@ -38,6 +38,8 @@
 //   ruleContent.content @js(签名+AES 解密) → content.fields.content json 'content'(代理解密纯文本)
 //   ## 排除规则: 本书源原文无 ## → clean.adPatterns 留空(解密纯文本无广告形态)
 // ============================================================
+import { seedRuleIdempotent } from './_seed-lib'
+
 export {}
 export const RULE_NAME = '七猫官方API (wtzw.com)·Legado7698·签名代理'
 
@@ -121,38 +123,20 @@ export const ruleConfig = {
   },
 }
 
-const BASE = 'http://localhost:3000'
-
 async function main() {
-  // 幂等: 同名规则先删后建
-  const listRes = await fetch(`${BASE}/api/admin/rules?take=100`)
-  const listJson = (await listRes.json()) as { ok: boolean; data?: unknown }
-  const rules = (Array.isArray(listJson.data) ? listJson.data : []) as { id: string; name: string }[]
-  const existing = rules.find((r) => r.name === RULE_NAME)
-  if (existing) {
-    const del = await fetch(`${BASE}/api/admin/rules/${existing.id}`, { method: 'DELETE' })
-    const delJson = (await del.json()) as { ok: boolean }
-    console.log('旧规则已删除:', existing.id, delJson.ok)
-  }
-  const res = await fetch(`${BASE}/api/admin/rules`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      name: RULE_NAME,
-      description:
-        '七猫官方API(api-bc/api-ks.wtzw.com)四层JSON采集: rank发现页/detail/toc/content。' +
-        '结构依据 Legado 书源 yckceo 7698.json「⭐七猫[官方]v3.1✨」反译并真网实测。' +
-        '⚠ 依赖本机签名代理 mini-services/qimao-proxy(端口3013, MD5双签名+正文AES-128-CBC解密, key=242ccb8230d709e1): ' +
-        '上游全端点强制逐请求验签, 声明式规则无法表达 → 六段指向代理(引擎 json/const 型)。' +
-        'list=leader-board大热榜男频50本(上游忽略page分页禁用, /search 通道留代理); 出版书(source非空)正文为EPUB如实报错。' +
-        '代理启动: cd mini-services/qimao-proxy && bun run start; /health 自检 selfTestOk/apiReachable。',
-      enabled: true,
-      config: ruleConfig,
-    }),
+  // [R11-d-6] 幂等入库收敛至 scripts/_seed-lib.ts(description 字面量保留原位, 供 import-all extractDescription 全文提取)
+  await seedRuleIdempotent({
+    name: RULE_NAME,
+    description:
+      '七猫官方API(api-bc/api-ks.wtzw.com)四层JSON采集: rank发现页/detail/toc/content。' +
+      '结构依据 Legado 书源 yckceo 7698.json「⭐七猫[官方]v3.1✨」反译并真网实测。' +
+      '⚠ 依赖本机签名代理 mini-services/qimao-proxy(端口3013, MD5双签名+正文AES-128-CBC解密, key=242ccb8230d709e1): ' +
+      '上游全端点强制逐请求验签, 声明式规则无法表达 → 六段指向代理(引擎 json/const 型)。' +
+      'list=leader-board大热榜男频50本(上游忽略page分页禁用, /search 通道留代理); 出版书(source非空)正文为EPUB如实报错。' +
+      '代理启动: cd mini-services/qimao-proxy && bun run start; /health 自检 selfTestOk/apiReachable。',
+    enabled: true,
+    config: ruleConfig,
   })
-  const json = (await res.json()) as { ok: boolean; data?: { id?: string }; message?: string }
-  console.log('入库结果:', json.ok ? `OK id=${json.data?.id}` : json.message)
-  if (!json.ok) process.exit(1)
 }
 
 if (import.meta.main) main()

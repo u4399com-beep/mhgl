@@ -110,6 +110,9 @@ export function coverSrc(cover?: string | null): string | null {
   if (!c) return null
   if (/^https?:\/\//i.test(c)) return c
   if (c.startsWith('covers/')) return '/api/public/cover?file=' + encodeURIComponent(c.replace(/^covers\//, ''))
+  // [R11-c-4] 拒绝协议相对形态 —— "//host/x" 以 / 开头但指向第三方源, 原样放行会让 <img src>
+  // 直接向外部主机发起请求(读者 IP 泄漏面)。封面合法形态仅 covers/ 相对路径或站内 / 开头路径
+  if (c.startsWith('//')) return null
   if (c.startsWith('/')) return c
   return null
 }

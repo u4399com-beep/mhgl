@@ -30,7 +30,7 @@
 //      div.des.bb 简介 + div.item img 封面
 //    * 目录 = 内嵌书籍页 #list li > a, 每页 999 章, 大书经 a.gr 翻页链(p-{n}.html#dir)采全
 //    * 正文 = div.con(p 段落), 子页分页 maxPages 10
-const BASE = 'http://localhost:3000'
+import { RuleSeed, seedRuleIdempotent, testSection } from './_seed-lib'
 
 // 测试探针:
 //  - list: 玄幻分类列表第 1 页(/xuanhuan/1.html 200 直达无 302, 10 本 ≥10)
@@ -51,13 +51,6 @@ const PROBE = {
   tocBig: 'https://www.shudugu.org/3299/',
   bookFin: 'https://www.shudugu.org/128/',
   tocFin: 'https://www.shudugu.org/128/',
-}
-
-interface RuleSeed {
-  name: string
-  description: string
-  enabled: boolean
-  config: unknown
 }
 
 const rule: RuleSeed = {
@@ -162,88 +155,31 @@ const rule: RuleSeed = {
 }
 
 // ---------- 四段测试 ----------
-interface TestResp {
-  ok: boolean
-  message?: string
-  data?: Record<string, unknown>
-}
-
-async function testSection(section: string, url: string, ruleSection: unknown, extra: Record<string, unknown> = {}): Promise<Record<string, any> | null> {
-  const t0 = Date.now()
-  const res = await fetch(`${BASE}/api/admin/rules/test`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      section, url, rule: ruleSection,
-      fetch: (rule.config as Record<string, unknown>).fetch,
-      clean: (rule.config as Record<string, unknown>).clean,
-      ...extra,
-    }),
-  })
-  const json = (await res.json()) as TestResp
-  const ms = Date.now() - t0
-  if (!json.ok) {
-    console.log(`  [${section}] ❌ ${json.message} (${ms}ms)`)
-    return null
-  }
-  const d = json.data as Record<string, any>
-  if (section === 'list') {
-    console.log(`  [list] ✅ engine=${d.engine} count=${d.count} ${d.ms}ms`)
-    for (const it of (d.sample || []).slice(0, 2)) console.log('    ', JSON.stringify(it).slice(0, 150))
-  } else if (section === 'book') {
-    console.log(`  [book] ✅ engine=${d.engine} ${d.ms}ms fields=${JSON.stringify(d.fields).slice(0, 260)}`)
-  } else if (section === 'toc') {
-    console.log(`  [toc] ✅ engine=${d.engine} count=${d.count} pages=${d.pages} ${d.ms}ms`)
-    for (const it of (d.sample || []).slice(0, 2)) console.log('    ', JSON.stringify(it).slice(0, 130))
-  } else {
-    console.log(`  [content] ✅ engine=${d.engine} pages=${d.pages} raw=${d.rawLength} clean=${d.cleanedLength} ${d.ms}ms`)
-    console.log('    text:', JSON.stringify((d.cleanedText || '').slice(0, 120)))
-  }
-  return d
-}
-
 async function main() {
   const cfg = rule.config as Record<string, any>
   let allPass = true
 
   console.log('== shudugu.org 四段测试 ==')
-  const list = await testSection('list', PROBE.list, cfg.list)
+  const list = await testSection(rule, 'list', PROBE.list, cfg.list)
   if (!list || (list.count as number) < 10) allPass = false
 
-  const book = await testSection('book', PROBE.book, cfg.book)
+  const book = await testSection(rule, 'book', PROBE.book, cfg.book)
   if (!book || !book.fields || !(book.fields as Record<string, string>).name) allPass = false
 
-  const toc = await testSection('toc', PROBE.toc, cfg.toc)
+  const toc = await testSection(rule, 'toc', PROBE.toc, cfg.toc)
   if (!toc || (toc.count as number) < 50) { allPass = false; console.log('  !! toc<50 未过线') }
 
-  const content = await testSection('content', PROBE.content, cfg.content)
+  const content = await testSection(rule, 'content', PROBE.content, cfg.content)
   if (!content || (content.cleanedLength as number) < 2000) { allPass = false; console.log('  !! content<2000 未过线') }
 
   console.log('== 布局兼容性附加探针(不设门槛, 仅报告: 大书3299目录999截断样本/完结书128) ==')
-  await testSection('book', PROBE.bookBig, cfg.book)
-  await testSection('toc', PROBE.tocBig, cfg.toc)
-  await testSection('book', PROBE.bookFin, cfg.book)
-  await testSection('toc', PROBE.tocFin, cfg.toc)
+  await testSection(rule, 'book', PROBE.bookBig, cfg.book)
+  await testSection(rule, 'toc', PROBE.tocBig, cfg.toc)
+  await testSection(rule, 'book', PROBE.bookFin, cfg.book)
+  await testSection(rule, 'toc', PROBE.tocFin, cfg.toc)
 
-  // 幂等入库: 同名规则(含历史重复)全部先删后建
-  // 注: GET /api/admin/rules 信封为 {ok, data: Rule[]} —— data 直接是数组
-  const listRes = await fetch(`${BASE}/api/admin/rules?take=100`)
-  const listJson = (await listRes.json()) as { ok: boolean; data?: { id: string; name: string }[] | { rules?: { id: string; name: string }[] } }
-  const raw = Array.isArray(listJson.data) ? listJson.data : (listJson.data as { rules?: { id: string; name: string }[] })?.rules || []
-  const duplicates = raw.filter((r) => r.name === rule.name)
-  for (const d of duplicates) {
-    const del = await fetch(`${BASE}/api/admin/rules/${d.id}`, { method: 'DELETE' })
-    const delJson = (await del.json()) as { ok: boolean }
-    console.log('旧规则已删除:', d.id, delJson.ok)
-  }
-  const res = await fetch(`${BASE}/api/admin/rules`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(rule),
-  })
-  const json = (await res.json()) as { ok: boolean; data?: { id?: string }; message?: string }
-  console.log('入库结果:', json.ok ? `OK id=${json.data?.id}` : json.message)
-  if (!json.ok) process.exit(1)
+  // [R11-d-6] 幂等入库收敛至 scripts/_seed-lib.ts(同名规则含历史重复全删后建; 失败 exit(1))
+  await seedRuleIdempotent(rule)
 
   console.log(allPass ? '✅ 四段测试全部过线(list≥10, toc≥50, content≥2000)' : '❌ 存在未过线段落, 见上方日志')
   if (!allPass) process.exit(2)

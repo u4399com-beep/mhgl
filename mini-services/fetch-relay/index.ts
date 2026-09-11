@@ -113,7 +113,9 @@ async function readRequestCapped(body: ReadableStream<Uint8Array> | null, cap: n
 }
 
 /** 头键白名单与取值净化现已从 _shared/server 导入(safeHeaderKey / safeHeaderValue),
- *  与 5 个采集代理共用同一份白名单 —— 1-c 重构的初衷。 */
+ *  与 5 个采集代理共用同一份白名单 —— 1-c 重构的初衷。
+ *  [R11-d-5]: JSON 响应信封统一改用 _shared 的 json()(application/json; charset=utf-8,
+ *  与各代理一致); 引擎侧按 res.json() 解析 relayError, content-type 增 charset 无影响。 */
 
 interface FetchBody {
   url?: unknown
@@ -148,35 +150,35 @@ createBridgeServer({
       // ss-d2: content-length 硬拒改流式排空(见 readRequestCapped 注) —— 早拒会致 keep-alive 失步
       const reqBody = await readRequestCapped(req.body, RELAY_MAX_REQUEST_BYTES)
       if (!reqBody.ok) {
-        return Response.json({ relayError: `请求体超限(>${RELAY_MAX_REQUEST_BYTES}B)` }, { status: 502 })
+        return json({ relayError: `请求体超限(>${RELAY_MAX_REQUEST_BYTES}B)` }, 502)
       }
       // ss-d2: 空体/字面量 null 解析为 null → body.url 抛 TypeError → Bun 500 错误页(残改实录,
       // 引擎契约是 502 {relayError} 信封) → 非对象解析结果一律归 502 请求体非 JSON
       const parsed = JSON.parse(reqBody.buf.toString('utf8') || 'null') as FetchBody
       if (!parsed || typeof parsed !== 'object') {
-        return Response.json({ relayError: '请求体非 JSON' }, { status: 502 })
+        return json({ relayError: '请求体非 JSON' }, 502)
       }
       body = parsed
     } catch {
-      return Response.json({ relayError: '请求体非 JSON' }, { status: 502 })
+      return json({ relayError: '请求体非 JSON' }, 502)
     }
 
     const url = typeof body.url === 'string' ? body.url : ''
     if (!/^https?:\/\//i.test(url) || url.length > 2048) {
-      return Response.json({ relayError: 'url 非法(仅 http/https)' }, { status: 502 })
+      return json({ relayError: 'url 非法(仅 http/https)' }, 502)
     }
     // [R9-b-16]: 显式开启时拦截私网/回环目标出网(缺省不拦, 保持 ss-d 既有语义零回归)
     if (RELAY_BLOCK_PRIVATE && isPrivateHostUrl(url)) {
       console.log(`[fetch-relay] BLOCK 私网目标 ${safeHostPath(url)} (RELAY_BLOCK_PRIVATE=1)`)
-      return Response.json({ relayError: 'RELAY_BLOCK_PRIVATE=1 已启用: 禁止私网/回环地址出网' }, { status: 502 })
+      return json({ relayError: 'RELAY_BLOCK_PRIVATE=1 已启用: 禁止私网/回环地址出网' }, 502)
     }
     // [R9-b-15]: 背压闸 —— 超限 503, 引擎侧按中继层失败处理
     if (relayInflight >= RELAY_MAX_INFLIGHT) {
-      return Response.json({ relayError: `中继并发已满(>${RELAY_MAX_INFLIGHT})` }, { status: 503 })
+      return json({ relayError: `中继并发已满(>${RELAY_MAX_INFLIGHT})` }, 503)
     }
     const proxy = typeof body.proxy === 'string' && body.proxy ? body.proxy : undefined
     if (proxy && (!/^(https?|socks5h?|socks4a?):\/\/[^\s,]+$/.test(proxy) || proxy.length > 500)) {
-      return Response.json({ relayError: 'proxy 形态非法' }, { status: 502 })
+      return json({ relayError: 'proxy 形态非法' }, 502)
     }
     const timeoutMs = Math.min(
       Math.max(typeof body.timeoutMs === 'number' && body.timeoutMs > 0 ? body.timeoutMs : 20_000, 1000),
@@ -206,7 +208,7 @@ createBridgeServer({
       const upBody = await readBodyCapped(res.body, RELAY_MAX_BODY_BYTES)
       if (!upBody.ok) {
         console.log(`[fetch-relay] FAIL ${res.status} ${safeHostPath(url)} (${Date.now() - startedAt}ms): 响应体超限(>${RELAY_MAX_BODY_BYTES}B, 已取消)`)
-        return Response.json({ relayError: `响应体超限(>${RELAY_MAX_BODY_BYTES}B)` }, { status: 502 })
+        return json({ relayError: `响应体超限(>${RELAY_MAX_BODY_BYTES}B)` }, 502)
       }
       const buf = upBody.buf
       // 响应头: set-cookie 走专用通道保留多条, 其余按 [k,v] 对保留
@@ -219,7 +221,7 @@ createBridgeServer({
         typeof (res.headers as unknown as { getSetCookie?: () => string[] }).getSetCookie === 'function'
           ? (res.headers as unknown as { getSetCookie: () => string[] }).getSetCookie().map(safeHeaderValue)
           : []
-      return Response.json({
+      return json({
         status: res.status,
         headers: hdrs,
         setCookie,
@@ -229,7 +231,7 @@ createBridgeServer({
       const msg = e instanceof Error ? `${e.name}: ${e.message}` : String(e)
       // ss-d: 中继层失败留档(仅 host+path, 不落全 URL —— 目标 URL 查询串可能含 token)
       console.log(`[fetch-relay] FAIL ${safeHostPath(url)} (${Date.now() - startedAt}ms): ${msg.slice(0, 200)}`)
-      return Response.json({ relayError: msg.slice(0, 300) }, { status: 502 })
+      return json({ relayError: msg.slice(0, 300) }, 502)
     } finally {
       // [R9-b-15]: 所有早退/成功/异常路径统一释放在飞计数
       relayInflight = Math.max(0, relayInflight - 1)

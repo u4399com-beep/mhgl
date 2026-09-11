@@ -117,9 +117,9 @@ async function auditSite(
 
   // ---- Friend links / link wheel ----
   if (linkWheelCount === 0) {
-    issues.push({ severity: 'warning', category: 'links', message: '无友链参与链轮 (inLinkWheel)', fix: '在友链管理中至少启用一条 inLinkWheel 链接' })
+    issues.push({ severity: 'warning', category: 'links', message: '无启用的友链 (页脚链轮无友链可展示)', fix: '在友链管理中添加并启用至少一条友链' })
   } else {
-    passed.push(`链轮友链 ${linkWheelCount} 条`)
+    passed.push(`启用友链 ${linkWheelCount} 条`)
   }
 
   // ---- Theme ----
@@ -190,9 +190,12 @@ export async function GET(req: Request) {
     const sites = await db.site.findMany({ take: 500 })
     const themeIds = new Set(THEMES.map((t) => t.id))
 
-    // 友链链轮统计
+    // 友链链轮统计 — 与读侧 src/lib/links.ts:266 的链轮友链取数口径完全对齐(enabled 即入轮,
+    // FriendLink 表并无 per-link 的 inLinkWheel 字段, 该标志只在 Site 上)
+    // [R11-a2-2] 修前 where 多带 url contains 'http'(恒真冗余条件), 且告警文案把操作员指向
+    //  一个不存在的「友链 inLinkWheel 开关」; 统一改为 enabled 口径 + 如实文案
     const linkWheelCount = await db.friendLink.count({
-      where: { enabled: true, url: { contains: 'http' } },
+      where: { enabled: true },
     })
 
     // 每个站点的书籍数 = 全库 books 数 (offset 仅影响分页起止, 不改变可访问书籍集合)

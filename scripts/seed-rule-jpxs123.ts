@@ -16,8 +16,9 @@
 // - status: book 段 h1 原文含"(全本)"后缀 → smartCompleteDetect 词表命中 completed;
 //   连载书无后缀 → 走简介/末章启发式(既有行为)
 // - GET /api/admin/rules 信封 data 直为数组(幂等取法兼容两种形态)
+import { seedRuleIdempotent } from './_seed-lib'
+
 export {}
-const BASE = 'http://localhost:3000'
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36'
 
 const rule = {
@@ -102,25 +103,8 @@ const rule = {
 }
 
 async function main() {
-  // 幂等: 同名规则先删后建(信封 data 直为数组, 兼容 data.rules 旧形态)
-  const listRes = await fetch(`${BASE}/api/admin/rules?take=100`, { headers: { 'User-Agent': UA } })
-  const listJson = (await listRes.json()) as { ok: boolean; data?: unknown }
-  const arr = Array.isArray(listJson.data)
-    ? (listJson.data as { id: string; name: string }[])
-    : ((listJson.data as { rules?: { id: string; name: string }[] })?.rules || [])
-  const old = arr.find((r) => r.name === rule.name)
-  if (old) {
-    const del = await fetch(`${BASE}/api/admin/rules/${old.id}`, { method: 'DELETE' })
-    console.log('清理同名旧规则:', old.id, del.ok ? 'OK' : 'FAIL')
-  }
-  const res = await fetch(`${BASE}/api/admin/rules`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(rule),
-  })
-  const j = (await res.json()) as { ok: boolean; data?: { id: string }; message?: string }
-  if (!j.ok) { console.error('入库失败:', j.message); process.exit(1) }
-  console.log('入库结果: OK id=' + j.data?.id)
+  // [R11-d-6] 幂等入库收敛至 scripts/_seed-lib.ts(同名规则含历史重复全删后建; 失败 exit(1))
+  await seedRuleIdempotent(rule)
 }
 
 main()

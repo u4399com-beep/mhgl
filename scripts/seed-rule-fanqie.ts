@@ -28,6 +28,8 @@
 //     按 legado 原文实现; API 恢复后如 404 可一键改 const 模板为 tab=3 再验
 // itemId 为长数字, legado 亦 JSON.parse 直用(源可用) → 视为字符串安全范围, mock 按字符串
 // ============================================================
+import { seedRuleIdempotent } from './_seed-lib'
+
 export {}
 export const RULE_NAME = '番茄小说聚合API (fq.taijiwang.top)'
 
@@ -126,35 +128,17 @@ export const ruleConfig = {
   },
 }
 
-const BASE = 'http://localhost:3000'
-
 async function main() {
-  // 幂等: 同名规则先删后建(GET /api/admin/rules 信封 data 直为数组)
-  const listRes = await fetch(`${BASE}/api/admin/rules?take=100`)
-  const listJson = (await listRes.json()) as { ok: boolean; data?: unknown }
-  const rules = (Array.isArray(listJson.data) ? listJson.data : []) as { id: string; name: string }[]
-  const existing = rules.find((r) => r.name === RULE_NAME)
-  if (existing) {
-    const del = await fetch(`${BASE}/api/admin/rules/${existing.id}`, { method: 'DELETE' })
-    const delJson = (await del.json()) as { ok: boolean }
-    console.log('旧规则已删除:', existing.id, delJson.ok)
-  }
-  const res = await fetch(`${BASE}/api/admin/rules`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      name: RULE_NAME,
-      description:
-        '番茄小说聚合API(fq.taijiwang.top)四层JSON采集: search(tab_type=3嵌套数组过滤+map-collect展平)/detail/book(数组的数组*展平)/content。' +
-        '结构依据 legado 书源 V3.2 反译。⚠ API 于 2026-08-31 全路径 502 暂不可达, 规则未实测, 恢复后请四段复验。' +
-        '引擎依赖: cc-c jsonGet [n]/[k=v]/*/map-collect + parseToc 两阶段vars + runner {offset:N}。',
-      enabled: true,
-      config: ruleConfig,
-    }),
+  // [R11-d-6] 幂等入库收敛至 scripts/_seed-lib.ts(description 字面量保留原位, 供 import-all extractDescription 全文提取)
+  await seedRuleIdempotent({
+    name: RULE_NAME,
+    description:
+      '番茄小说聚合API(fq.taijiwang.top)四层JSON采集: search(tab_type=3嵌套数组过滤+map-collect展平)/detail/book(数组的数组*展平)/content。' +
+      '结构依据 legado 书源 V3.2 反译。⚠ API 于 2026-08-31 全路径 502 暂不可达, 规则未实测, 恢复后请四段复验。' +
+      '引擎依赖: cc-c jsonGet [n]/[k=v]/*/map-collect + parseToc 两阶段vars + runner {offset:N}。',
+    enabled: true,
+    config: ruleConfig,
   })
-  const json = (await res.json()) as { ok: boolean; data?: { id?: string }; message?: string }
-  console.log('入库结果:', json.ok ? `OK id=${json.data?.id}` : json.message)
-  if (!json.ok) process.exit(1)
 }
 
 if (import.meta.main) main()

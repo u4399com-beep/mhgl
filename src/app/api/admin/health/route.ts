@@ -47,6 +47,8 @@ const SERVICE_PROBE_TIMEOUT_MS = 1_000
 //  - qimao-proxy:     3013 (required)
 //  - deqixs-proxy:     3014 (required)
 //  - xjp-proxy:       3015 (required)
+//  - cloak-browser:   3016 (optional — Obscura 反检测渲染链, 缺 chromium 环境可省略;
+//                      [R11-f-1] 修前缺席本表, 该链故障时管理端健康页无任何感知)
 interface ServiceSpec { port: number; optional?: boolean }
 const SERVICES: Record<string, ServiceSpec> = {
   bqg713: { port: 3010 },
@@ -55,6 +57,7 @@ const SERVICES: Record<string, ServiceSpec> = {
   qimao: { port: 3013 },
   deqixs: { port: 3014 },
   xjp: { port: 3015 },
+  cloak: { port: 3016, optional: true },
 }
 
 interface ServiceHealth {

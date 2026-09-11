@@ -11,8 +11,11 @@ export async function GET(req: Request) {
     const q = likeSafe(url.searchParams.get('q'))
     const categoryId = str(url.searchParams.get('categoryId'), 64).trim()
     const status = str(url.searchParams.get('status'), 20).trim()
-    // 分页边界: page≥1 / size 1~50, 防 skip/take 负数导致 Prisma 500
-    const page = clampInt(url.searchParams.get('page'), 1, 1, 1_000_000)
+    // [R11-a-2] 越界页钳制到末页, 顺带闭合超大 OFFSET 扫描面 —— 修前 page 上限 100 万 ×
+    //  size 上限 50 → skip 可达 5000 万行, 单请求可令 SQLite 全表扫(OFFSET 需逐行跳过)
+    //  数秒, 60/min 限流下足以饱和 DB。与 themes 分页同款: 先取 total, page 钳到
+    //  ceil(total/size), 合法页行为不变, 越界页从"空列表"变为"末页"(skip 上界=表行数)
+    const page0 = clampInt(url.searchParams.get('page'), 1, 1, 1_000_000)
     const size = clampInt(url.searchParams.get('size'), 20, 1, 50)
 
     const where: Record<string, unknown> = {}
@@ -21,19 +24,18 @@ export async function GET(req: Request) {
     // 状态白名单: 非法值忽略(不报错, 保持列表可用), 防任意字符串进查询
     if (status && (BOOK_STATUSES as readonly string[]).includes(status)) where.status = status
 
-    const [total, books] = await Promise.all([
-      db.book.count({ where }),
-      db.book.findMany({
-        where,
-        orderBy: { updatedAt: 'desc' },
-        skip: (page - 1) * size,
-        take: size,
-        include: {
-          category: true,
-          _count: { select: { chapters: true, tags: true } },
-        },
-      }),
-    ])
+    const total = await db.book.count({ where })
+    const page = Math.max(1, Math.min(page0, Math.ceil(total / size) || 1))
+    const books = await db.book.findMany({
+      where,
+      orderBy: { updatedAt: 'desc' },
+      skip: (page - 1) * size,
+      take: size,
+      include: {
+        category: true,
+        _count: { select: { chapters: true, tags: true } },
+      },
+    })
     return ok({ total, page, size, books })
   })
 }

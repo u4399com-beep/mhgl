@@ -46,16 +46,9 @@
 // 引擎侧配套(Task aa-c): types.ts FieldRule.type 增加 'json'(JSON点路径)/'const'(常量模板
 // {字段名}/{index}/{q.查询参数}), itemSelector json 数组路径支持逗号并集; sanitize 白名单同步;
 // parseList/parseToc JSON模式; runner/test路由 tocLink 传 urlVars —— 语法契约见 types.ts 头注释
+import { RuleSeed, seedRuleIdempotent } from './_seed-lib'
+
 export {}
-const BASE = 'http://localhost:3000'
-
-interface RuleSeed {
-  name: string
-  description: string
-  enabled: boolean
-  config: unknown
-}
-
 const rule: RuleSeed = {
   name: '笔趣阁bqg713(www.bqg713.cc)·纯JSON API站采集',
   description:
@@ -161,23 +154,8 @@ const rule: RuleSeed = {
 }
 
 async function main() {
-  // 幂等: 同名规则先删后建
-  const listRes = await fetch(`${BASE}/api/admin/rules?take=100`)
-  const listJson = (await listRes.json()) as { ok: boolean; data?: { rules?: { id: string; name: string }[] } }
-  const existing = (Array.isArray(listJson.data) ? listJson.data : listJson.data?.rules || []).find((r) => r.name === rule.name)
-  if (existing) {
-    const del = await fetch(`${BASE}/api/admin/rules/${existing.id}`, { method: 'DELETE' })
-    const delJson = (await del.json()) as { ok: boolean }
-    console.log('旧规则已删除:', existing.id, delJson.ok)
-  }
-  const res = await fetch(`${BASE}/api/admin/rules`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(rule),
-  })
-  const json = (await res.json()) as { ok: boolean; data?: { id?: string }; message?: string }
-  console.log('入库结果:', json.ok ? `OK id=${json.data?.id}` : json.message)
-  if (!json.ok) process.exit(1)
+  // [R11-d-6] 幂等入库收敛至 scripts/_seed-lib.ts(同名规则含历史重复全删后建; 失败 exit(1))
+  await seedRuleIdempotent(rule)
 }
 
 main()

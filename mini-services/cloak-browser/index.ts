@@ -837,21 +837,18 @@ createBridgeServer({
       }
     }
   },
+  // [R11-d-4] 修复: 服务私有观测面(browserReady/inFlight/sessions/tiers/uaPool)原先写在
+  // 用户 fetch 的自定义 /health 分支里, 但 1-c 重构后 /health 被本工厂统一拦截 → 该分支
+  // 成为不可达死代码, R9-e-1 加入的 uaPool 可观测字段从未真正露出。改经 healthExtras 钩子挂回
+  healthExtras: () => ({
+    browserReady: !!browser?.connected,
+    inFlight,
+    sessions: sessions.size,
+    tiers: ['lite', 'standard', 'maximum'],
+    uaPool: UA_POOL_ENABLED,
+  }),
   async fetch(req) {
     const u = new URL(req.url)
-    if (u.pathname === '/health') {
-      return json({
-        ok: true,
-        service: 'cloak-browser',
-        port: PORT,
-        browserReady: !!browser?.connected,
-        inFlight,
-        sessions: sessions.size,
-        tiers: ['lite', 'standard', 'maximum'],
-        // [R9-e-1]: UA 池开关可观测(缺省 false)
-        uaPool: UA_POOL_ENABLED,
-      })
-    }
     if (u.pathname === '/fetch') {
       if (inFlight >= MAX_CONCURRENT) return json({ ok: false, error: '并发已满' }, 503)
       inFlight++

@@ -19,7 +19,10 @@ const TYPE_SET = new Set(['bug', 'suggestion', 'praise', 'other'])
 export async function GET(req: Request) {
   return withGuard(async () => {
     const url = new URL(req.url)
-    const page = clampInt(url.searchParams.get('page'), 1, PAGE_MIN, PAGE_MAX)
+    // [R11-a-3] page 钳到 ceil(total/size) —— 修前 page 上限 10000 × size 上限 100 →
+    //  skip 可达 100 万行; 反馈表是公开写入面(可被垃圾灌大), 大表上单请求 OFFSET
+    //  逐行跳过扫描可拖慢 DB。先取 total 再钳页, 合法页行为不变, 越界页返回末页
+    const page0 = clampInt(url.searchParams.get('page'), 1, PAGE_MIN, PAGE_MAX)
     const size = clampInt(url.searchParams.get('size'), 20, SIZE_MIN, SIZE_MAX)
     const status = url.searchParams.get('status') || ''
     const type = url.searchParams.get('type') || ''
@@ -30,7 +33,11 @@ export async function GET(req: Request) {
     if (type && TYPE_SET.has(type)) where.type = type
     if (q) where.content = { contains: q }
 
-    const [rows, total] = await Promise.all([
+    const total = await db.feedback.count({ where })
+    const page = Math.max(1, Math.min(page0, Math.ceil(total / size) || 1))
+
+    // 统计概览(total/new/resolved)与列表页并行查询
+    const [rows, allCount, newCount, resolvedCount] = await Promise.all([
       db.feedback.findMany({
         where,
         orderBy: { createdAt: 'desc' },
@@ -49,11 +56,6 @@ export async function GET(req: Request) {
           updatedAt: true,
         },
       }),
-      db.feedback.count({ where }),
-    ])
-
-    // 统计概览: total / new / resolved
-    const [allCount, newCount, resolvedCount] = await Promise.all([
       db.feedback.count(),
       db.feedback.count({ where: { status: 'new' } }),
       db.feedback.count({ where: { status: 'resolved' } }),

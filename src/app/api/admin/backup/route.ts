@@ -188,8 +188,20 @@ export async function GET() {
     const stream = new ReadableStream({
       start(controller) {
         try {
-          for (let i = 0; i < body.length; i += chunkSize) {
-            controller.enqueue(encoder.encode(body.slice(i, i + chunkSize)))
+          for (let i = 0; i < body.length; ) {
+            let end = Math.min(body.length, i + chunkSize)
+            // [R11-a-1] 块边界不得切在 UTF-16 代理对中间 —— 修前按 body.length 盲切,
+            //  书名/简介/章节正文含增补平面字符(emoji/CJK 扩展 B 等)恰好骑跨 256KB 边界时,
+            //  高位代理落在上块末尾、低位代理落在下块开头, TextEncoder 对孤立代理各自输出
+            //  U+FFFD 替换符 → 导出 JSON 语法仍合法但字符被静默损坏(书名/正文变 �),
+            //  备份恢复后数据永久失真。此处检测块尾是否为高位代理(D800-DBFF), 是则把边界
+            //  右移 1 个码元让代理对完整落入同一块(仅影响边界 1 字符, 无性能影响)
+            if (end < body.length && end > i) {
+              const c = body.charCodeAt(end - 1)
+              if (c >= 0xd800 && c <= 0xdbff) end += 1
+            }
+            controller.enqueue(encoder.encode(body.slice(i, end)))
+            i = end
           }
           controller.close()
         } catch (e) {

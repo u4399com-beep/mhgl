@@ -27,7 +27,7 @@
  *
  * 启动: cd mini-services/xjp-proxy && bun run start   (bun --hot 热更, 端口固定 3015)
  */
-import { createBridgeServer, json } from '../_shared/server'
+import { createBridgeServer, createThrottledHealthProbe, getRes, htmlToText, json } from '../_shared/server'
 
 const PORT = Number(process.env.PORT || 3015)
 const UPSTREAM = 'https://www.xinjianpan.com'
@@ -111,27 +111,6 @@ function extractChapterInner(html: string): { ok: boolean; inner: string } {
   return { ok: false, inner: '' }
 }
 
-/** HTML 片段 → 纯文本: <p>/<br>断行, 剥标签, 解实体, 压空行, 掐行首空白 */
-function htmlToText(html: string): string {
-  const t = html
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/(?:p|div)>/gi, '\n')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&nbsp;/gi, ' ')
-    // ss-d2⑥: 实体解码顺序 — &amp; 必须最后解码(防 '&amp;lt;' 被二次解码成 '<')
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;|&apos;/gi, "'")
-    .replace(/&amp;/gi, '&')
-  return t
-    .split('\n')
-    .map((l) => l.trim())
-    .join('\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim()
-}
-
 // ---------- 工具 ----------
 /** 章节 URL → 校验(仅接受 xinjianpan.com /txt/{code}/{page}.html 形态, 防开放代理滥用) */
 function parseChapterUrl(u: string): { ok: boolean; norm: string } {
@@ -145,27 +124,7 @@ function parseChapterUrl(u: string): { ok: boolean; norm: string } {
   }
 }
 
-/** 带超时+瞬态重试1次的 GET(全态返回, 不抛)
- *  [R10-c-3] 增强: 对齐 deqixs/qimao 同款 ss-d2④ 口径 —— 5xx/429 属源站瞬态同样退避重试一次
- *  (重试前泄掉未消费响应体归还连接), 4xx 确定性失败不重试; 网络层异常照旧重试一次 */
-async function getRes(url: string, headers: Record<string, string>): Promise<{ ok: boolean; status: number; buf: ArrayBuffer; error?: string }> {
-  for (let attempt = 1; attempt <= 2; attempt++) {
-    try {
-      const res = await fetch(url, { headers, signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS) })
-      if ((res.status >= 500 || res.status === 429) && attempt === 1) {
-        await res.body?.cancel().catch(() => {}) // 重试前泄掉未消费响应体(连接归还, rr-c3 卫生同款)
-        await new Promise((r) => setTimeout(r, 600))
-        continue
-      }
-      return { ok: res.ok, status: res.status, buf: await res.arrayBuffer() }
-    } catch (e) {
-      if (attempt === 2) return { ok: false, status: -1, buf: new ArrayBuffer(0), error: String(e).slice(0, 120) }
-      await new Promise((r) => setTimeout(r, 600))
-    }
-  }
-  return { ok: false, status: -1, buf: new ArrayBuffer(0), error: 'unreachable' }
-}
-
+/** 章节页头组(UA+Referer+Accept; ajax2 无关, 章节页直抓用) */
 function chapterHeaders(): Record<string, string> {
   return {
     'User-Agent': UA,
@@ -181,7 +140,7 @@ type ContentResult = { ok: true; content: string } | { ok: false; error: string 
 async function fetchContent(chapterUrl: string): Promise<ContentResult> {
   const pc = parseChapterUrl(chapterUrl)
   if (!pc.ok) return { ok: false, error: `u 必须为 xinjianpan 章节页 URL(/txt/{code}/{page}.html), 收到: ${chapterUrl.slice(0, 120)}` }
-  const res = await getRes(pc.norm, chapterHeaders())
+  const res = await getRes(pc.norm, chapterHeaders(), UPSTREAM_TIMEOUT_MS)
   if (!res.ok) return { ok: false, error: `章节页上游失败(${res.status}${res.error ? ' ' + res.error : ''})` }
   const html = new TextDecoder('utf-8', { fatal: false }).decode(res.buf)
 
@@ -200,31 +159,13 @@ async function fetchContent(chapterUrl: string): Promise<ContentResult> {
 }
 
 // ---------- 路由 ----------
-let upstreamReachable = false
-let upstreamStatus: number | null = null
-let lastProbe = 0
-/** [R10-c-3] 增强: /health 并发探针在途去重(对齐 deqixs/qimao 的 ss-d2⑤) —— 并发冷启动探针
- *  共享同一 Promise, 不重复打上游; 缺失时前端并发探活(管理端健康面板轮询)会叠加探测流量 */
-let healthProbe: Promise<void> | null = null
-
-/** /health 健康检查回调: 在 60s 缓存窗口外探测上游可达性, 返回快照 */
-async function healthCheck(): Promise<Record<string, unknown>> {
-  const now = Date.now()
-  if (now - lastProbe > 60_000 && !healthProbe) {
-    healthProbe = (async () => {
-    // 可达性探针: 首页仅 ~55KB 且无业务副作用
-    const r = await getRes(`${UPSTREAM}/`, { 'User-Agent': UA })
-    const body = r.ok ? new TextDecoder('utf-8', { fatal: false }).decode(r.buf) : ''
-    upstreamReachable = r.ok && body.includes('新键盘小说网')
-    upstreamStatus = r.status
-    lastProbe = now
-    })().finally(() => {
-      healthProbe = null
-    })
-  }
-  if (healthProbe) await healthProbe
-  return { upstreamReachable, upstream: upstreamStatus }
-}
+/** [R11-d-3] /health 上游探针: 60s 缓存窗口 + 并发在途去重收敛至 _shared 的节流器;
+ *  本服务仅提供快照函数(可达性探针: 首页仅 ~55KB 且无业务副作用) */
+const healthCheck = createThrottledHealthProbe(async () => {
+  const r = await getRes(`${UPSTREAM}/`, { 'User-Agent': UA }, UPSTREAM_TIMEOUT_MS)
+  const body = r.ok ? new TextDecoder('utf-8', { fatal: false }).decode(r.buf) : ''
+  return { upstreamReachable: r.ok && body.includes('新键盘小说网'), upstream: r.status }
+})
 
 async function handle(req: Request): Promise<Response> {
   const u = new URL(req.url)

@@ -30,6 +30,8 @@
 //   fetch  = engine http(纯本地代理+直连, 无浏览器面), hostGate 2 保守
 //   clean  = 站点自带 FILTER_RULES(章节页内联脚本取证) + 通用域名尾巴; plainText 归一
 // ============================================================
+import { seedRuleIdempotent } from './_seed-lib'
+
 export {}
 export const RULE_NAME = '得奇小说网 (deqixs.cc)·直连+签名代理正文'
 export const PROXY_BASE = 'http://127.0.0.1:3014'
@@ -124,41 +126,22 @@ export const ruleConfig = {
   },
 }
 
-// 127.0.0.1 显式 IPv4: 本环境 next dev 仅监听 IPv4(bun fetch localhost 会先试 ::1 → ConnectionRefused)
-const BASE = 'http://127.0.0.1:3000'
-
 async function main() {
-  // 幂等: 同名规则先删后建
-  const listRes = await fetch(`${BASE}/api/admin/rules?take=100`)
-  const listJson = (await listRes.json()) as { ok: boolean; data?: unknown }
-  const rules = (Array.isArray(listJson.data) ? listJson.data : []) as { id: string; name: string }[]
-  const existing = rules.find((r) => r.name === RULE_NAME)
-  if (existing) {
-    const del = await fetch(`${BASE}/api/admin/rules/${existing.id}`, { method: 'DELETE' })
-    const delJson = (await del.json()) as { ok: boolean }
-    console.log('旧规则已删除:', existing.id, delJson.ok)
-  }
-  const res = await fetch(`${BASE}/api/admin/rules`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      name: RULE_NAME,
-      description:
-        '得奇小说网(deqixs.cc)杰奇系 GBK 站: list/book/toc 三段直连 + content 段走外置签名代理。' +
-        '正文层双墙: 章节页 SSR 空(懒加载渲染) + 真实内容走 chapter.js.php 三参数(token/timestamp/nonce)→ajax2.php GBK JSON; ' +
-        'ajax2 三重校验(XRW/Referer 头, token 与签发 referrer 绑定, timestamp 限时) → 每章动态三参数超出声明式引擎表达力(rr-a 真网实测)。 ' +
-        '⚠ 依赖本机转换代理 mini-services/deqixs-proxy(端口 3014, 三参数签发+GBK 解码+HTML→纯文本): ' +
-        'toc url 字段以 replaceFrom ^ 前置 http://127.0.0.1:3014/content?u= 指向代理, 代理只接受 deqixs /books/{aid}/{cid}.html 章节形态。 ' +
-        'toc 在书页单 dl.chapterlist 两段(最新12倒序+全量正序), dd.visible-xs"查看全部章节"死锚以 :not() 排除, ' +
-        '文档序乱序由引擎 reorderToc 去重+章号排序自愈。 ' +
-        '代理启动: cd mini-services/deqixs-proxy && bun run start; /health 自检 selfTestOk/upstreamReachable。',
-      enabled: true,
-      config: ruleConfig,
-    }),
+  // [R11-d-6] 幂等入库收敛至 scripts/_seed-lib.ts(description 字面量保留原位, 供 import-all extractDescription 全文提取)
+  await seedRuleIdempotent({
+    name: RULE_NAME,
+    description:
+      '得奇小说网(deqixs.cc)杰奇系 GBK 站: list/book/toc 三段直连 + content 段走外置签名代理。' +
+      '正文层双墙: 章节页 SSR 空(懒加载渲染) + 真实内容走 chapter.js.php 三参数(token/timestamp/nonce)→ajax2.php GBK JSON; ' +
+      'ajax2 三重校验(XRW/Referer 头, token 与签发 referrer 绑定, timestamp 限时) → 每章动态三参数超出声明式引擎表达力(rr-a 真网实测)。 ' +
+      '⚠ 依赖本机转换代理 mini-services/deqixs-proxy(端口 3014, 三参数签发+GBK 解码+HTML→纯文本): ' +
+      'toc url 字段以 replaceFrom ^ 前置 http://127.0.0.1:3014/content?u= 指向代理, 代理只接受 deqixs /books/{aid}/{cid}.html 章节形态。 ' +
+      'toc 在书页单 dl.chapterlist 两段(最新12倒序+全量正序), dd.visible-xs"查看全部章节"死锚以 :not() 排除, ' +
+      '文档序乱序由引擎 reorderToc 去重+章号排序自愈。 ' +
+      '代理启动: cd mini-services/deqixs-proxy && bun run start; /health 自检 selfTestOk/upstreamReachable。',
+    enabled: true,
+    config: ruleConfig,
   })
-  const json = (await res.json()) as { ok: boolean; data?: { id?: string }; message?: string }
-  console.log('入库结果:', json.ok ? `OK id=${json.data?.id}` : json.message)
-  if (!json.ok) process.exit(1)
 }
 
 if (import.meta.main) main()

@@ -10,7 +10,7 @@ import {
   clearLoginAttempts,
   loginRetryAfterSec,
 } from '@/lib/auth'
-import { readBody } from '@/lib/api'
+import { readBody, BodyTooLargeError } from '@/lib/api'
 
 function clientIp(req: Request): string {
   // R4A-1: 优先 TCP 套接字 IP(req.ip) —— 与 proxy.ts 同款 R3-30 修复, 防 XFF 头部
@@ -34,7 +34,20 @@ export async function POST(req: Request) {
       { status: 429, headers: { 'Retry-After': String(retry) } },
     )
   }
-  const body = await readBody<{ password?: unknown }>(req)
+  // [R11-a2-3] readBody 超限抛 BodyTooLargeError 原会裸 500(本路由不经 withGuard 包裹),
+  //  对齐 R5-5 契约: 超限返回 413 JSON 信封
+  let body: { password?: unknown }
+  try {
+    body = await readBody<{ password?: unknown }>(req)
+  } catch (e) {
+    if (e instanceof BodyTooLargeError) {
+      return NextResponse.json(
+        { ok: false, error: `请求体过大(超过 ${(e.maxBytes / 1024 / 1024).toFixed(1)}MB 上限)` },
+        { status: 413 },
+      )
+    }
+    throw e
+  }
   const pw = typeof body?.password === 'string' ? body.password : ''
   if (!verifyPassword(pw)) {
     return NextResponse.json({ ok: false, error: '密码错误' }, { status: 401 })

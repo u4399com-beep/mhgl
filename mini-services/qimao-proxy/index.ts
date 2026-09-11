@@ -29,7 +29,7 @@
  * 启动: cd mini-services/qimao-proxy && bun run start   (bun --hot 热更, 端口固定 3013)
  */
 import { createCipheriv, createDecipheriv, createHash } from 'node:crypto'
-import { createBridgeServer, json } from '../_shared/server'
+import { createBridgeServer, createThrottledHealthProbe, getRes, json } from '../_shared/server'
 
 const PORT = Number(process.env.PORT || 3013)
 const SIGN_KEY = 'd3dGiJc651gSQ8w1'
@@ -85,30 +85,16 @@ const selfTestOk = aesRoundtripSelfTest()
 console.log(`[qimao-proxy] self-test(AES-128-CBC 回环): ${selfTestOk ? 'PASS' : 'FAIL'} port=${PORT}`)
 
 // ---------- 上游请求 ----------
-// ss-d2④: 5xx/429 属瞬态同样退避重试一次(4xx 验签/参数类为确定性失败, 不重试)
+/** [R11-d-2] 重试骨架(瞬态 5xx/429 退避重试一次 + 网络层异常重试, ss-d2④ 口径)已收敛至
+ *  _shared/server 的 getRes —— 本函数只剩 JSON 解析与错误信封归一 */
 async function upstreamJSON(url: string, headers: Record<string, string>): Promise<{ ok: boolean; status: number; json?: any; error?: string }> {
-  for (let attempt = 1; attempt <= 2; attempt++) {
-    try {
-      const res = await fetch(url, {
-        headers: { ...headers, 'user-agent': UPSTREAM_UA },
-        signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
-      })
-      if ((res.status >= 500 || res.status === 429) && attempt === 1) {
-        await res.body?.cancel().catch(() => {}) // 重试前泄掉未消费响应体(连接归还, rr-c3 卫生同款)
-        await new Promise((r) => setTimeout(r, 600))
-        continue
-      }
-      const text = await res.text()
-      let json: any
-      try { json = JSON.parse(text) } catch { return { ok: false, status: res.status, error: `非JSON响应(${text.length}B): ${text.slice(0, 80)}` } }
-      if (!res.ok) return { ok: false, status: res.status, json, error: `上游 ${res.status}: ${JSON.stringify(json?.errors || json?.Status || '').slice(0, 120)}` }
-      return { ok: true, status: res.status, json }
-    } catch (e) {
-      if (attempt === 2) return { ok: false, status: -1, error: `上游网络错误: ${String(e).slice(0, 120)}` }
-      await new Promise((r) => setTimeout(r, 600)) // 瞬态韧性: 退避后重试一次
-    }
-  }
-  return { ok: false, status: -1, error: 'unreachable' }
+  const r = await getRes(url, { ...headers, 'user-agent': UPSTREAM_UA }, UPSTREAM_TIMEOUT_MS)
+  if (r.status === -1) return { ok: false, status: -1, error: `上游网络错误: ${r.error ?? 'unreachable'}` }
+  const text = new TextDecoder('utf-8', { fatal: false }).decode(r.buf)
+  let json: any
+  try { json = JSON.parse(text) } catch { return { ok: false, status: r.status, error: `非JSON响应(${text.length}B): ${text.slice(0, 80)}` } }
+  if (!r.ok) return { ok: false, status: r.status, json, error: `上游 ${r.status}: ${JSON.stringify(json?.errors || json?.Status || '').slice(0, 120)}` }
+  return { ok: true, status: r.status, json }
 }
 
 // ---------- 响应归一化 ----------
@@ -140,30 +126,13 @@ function normBooks(list: any[]): NormBook[] {
 }
 
 // ---------- 路由 ----------
-const seen = new Map<string, number>() // 简易路径健康缓存
-let apiReachable = false
-let apiLastCheck = 0
-/** ss-d2⑤: /health 并发探针在途去重 — 并发冷启动探针共享同一 Promise, 不重复打上游 */
-let healthProbe: Promise<void> | null = null
-
-/** /health 健康检查回调(供 _shared/server healthCheck 钩子):
- *  在 60s 缓存窗口外探测上游 search 接口可达性, 返回快照写入 /health.upstreamProbe。 */
-async function healthCheck(): Promise<Record<string, unknown>> {
-  const now = Date.now()
-  if (now - apiLastCheck > 60_000 && !healthProbe) {
-    healthProbe = (async () => {
-      const sp = { gender: '3', imei_ip: IMEI_IP, page: 1, wd: '七猫' }
-      const r = await upstreamJSON(`${API_BC}/search/v1/words?${qs({ ...sp, sign: signParams(sp) })}`, signHeaders(HEADERS_SEARCH))
-      apiReachable = r.ok && !!r.json?.data?.books
-      apiLastCheck = Date.now()
-      seen.set('api', r.status)
-    })().finally(() => {
-      healthProbe = null
-    })
-  }
-  if (healthProbe) await healthProbe
-  return { apiReachable, upstream: seen.get('api') ?? null }
-}
+/** [R11-d-3] /health 上游探针: 60s 缓存窗口 + 并发在途去重收敛至 _shared 的节流器;
+ *  原模块态 seen 缓存 Map/apiReachable/apiLastCheck/healthProbe 四件套随之消除 */
+const healthCheck = createThrottledHealthProbe(async () => {
+  const sp = { gender: '3', imei_ip: IMEI_IP, page: 1, wd: '七猫' }
+  const r = await upstreamJSON(`${API_BC}/search/v1/words?${qs({ ...sp, sign: signParams(sp) })}`, signHeaders(HEADERS_SEARCH))
+  return { apiReachable: r.ok && !!r.json?.data?.books, upstream: r.status }
+})
 
 async function handle(req: Request): Promise<Response> {
   const u = new URL(req.url)

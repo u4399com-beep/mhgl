@@ -8,14 +8,7 @@
 //  - 正文页 /novel/{slug}/{chapter}: div.chapter-viewport 内 <p data-uid> 段落(嵌套 span/em)
 //  - VIP(premium advance) 锁定章节无 viewport 容器 → 提取空按失败标记, 不污染数据(付费内容本就不采)
 //  - CF 探测脚本(challenge-platform/jsd)存在但静态请求放行, 引擎 JSD 豁免逻辑覆盖
-const BASE = 'http://localhost:3000'
-
-interface RuleSeed {
-  name: string
-  description: string
-  enabled: boolean
-  config: unknown
-}
+import { RuleSeed, seedRuleIdempotent } from './_seed-lib'
 
 const rule: RuleSeed = {
   name: 'WuxiaWorld Lite(lite.wuxiaworld.com)·英文英译站采集',
@@ -109,23 +102,8 @@ const rule: RuleSeed = {
 }
 
 async function main() {
-  // 幂等: 同名规则先删后建
-  const listRes = await fetch(`${BASE}/api/admin/rules?take=100`)
-  const listJson = await listRes.json() as { ok: boolean; data?: { rules?: { id: string; name: string }[] } }
-  const existing = (Array.isArray(listJson.data) ? listJson.data : listJson.data?.rules || []).find((r) => r.name === rule.name)
-  if (existing) {
-    const del = await fetch(`${BASE}/api/admin/rules/${existing.id}`, { method: 'DELETE' })
-    const delJson = await del.json() as { ok: boolean }
-    console.log('旧规则已删除:', existing.id, delJson.ok)
-  }
-  const res = await fetch(`${BASE}/api/admin/rules`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(rule),
-  })
-  const json = await res.json() as { ok: boolean; data?: { id?: string }; message?: string }
-  console.log('入库结果:', json.ok ? `OK id=${json.data?.id}` : json.message)
-  if (!json.ok) process.exit(1)
+  // [R11-d-6] 幂等入库收敛至 scripts/_seed-lib.ts(同名规则含历史重复全删后建; 失败 exit(1))
+  await seedRuleIdempotent(rule)
 }
 
 main()

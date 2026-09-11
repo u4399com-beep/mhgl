@@ -3444,3 +3444,167 @@ Work Log:
 
 Stage Summary:
 - R10 全轮次闭环: 主题系统补完(50409 套全可达+E2E 7 布局全过) / pilishuwu 规则真实证据链修复(置信度高) / R10-c 回归审查 3 修复(PACE 死代码复活等) / 小白图文教程 606 行+11 图 / compose 鉴权透传
+
+---
+Task ID: R11-c
+Agent: frontend-readpath-reviewer
+Task: R11-c 前台+公开读路径深审 — /api/public/** 全量 + src/components/public/** 渲染层 + prisma 公开读路径索引
+
+Work Log:
+- 辖区全量过审: 14 个 /api/public 路由逐一读毕(search/links 按留档跳过深审, 仅复核现状) + page.tsx/layout.tsx + PublicSite/ctx/seo/data/bits/Pagination/BookCard/BookCover/BookView/ReadView/SearchView/KeywordView/CategoryView/HistoryView/HomeView/CategoryShowcase/SiteHeader/SiteFooter/FeedbackWidget/BackToTop/InstallPrompt + 7 home 布局 + 4 read 布局与 shared/reading-memory/bookmarks/chapter-progress/search-history
+- API 面结论: 此前各轮加固均在位且正确 —— books/book/chapter 的 clampInt+skip 上限 10000 / 状态与排序白名单 / 站群 offset 仅无筛选时生效(含 total-offset 口径自洽) / chapter prev-next 边界(首章 prev=null 末章 next=null 实测) / txt 正文读路径转义直拼 / cover 正则+basename 双防(实测 ..%2f 与 %2e%2e 均 400) / download safeJoin+TOCTOU fd+RFC5987 文件名(实测中文书名双形态正常) / sitemap index+分页+5min 有界缓存+私网段拒绝 / feedback 剥标签+100KB body+IP 限流(GET 405) / sites 仅启用站白名单字段。无 N+1 新缺陷(categories 代表书 N+1 为 API-18 已留档可接受); JSON-LD 经 createElement+textContent 注入无逃逸面; canonical/robots(noindex 搜索/关键词/书架)正确
+- 渲染层结论: 列表 key 均用业务 id, BookCover lazy+onError 渐变兜底+换图重置, 空态/错误态/骨架全覆盖, fetch 全部 alive 竞态防护, localStorage 模块全部 try/catch+typeof window 守卫; HomeView 一处不可达空态分支(无害死代码, 不改)
+- 发现修复 ①[R11-c-1](Med·数据正确性): read-layouts/shared.tsx sanitizeReaderHtml 的 on*/href/src 属性剥离正则作用于整段 HTML 文本, 会误伤"实体转义后的展示文本" —— txt 存储章节由 chapter API 先转义(&lt; &amp; &gt;)再包 <p>, 正文里形如 " onerror=x"/" href=https://a" 的普通文字(编程/教程类小说常见)被当属性剥掉并连带吞掉尾部 &gt;, 渲染缺字。浏览器实证: 含该载荷的 txt 章节渲染成 "<img src=x 测试"(onerror=alert(1)> 整段消失)。修复: 属性剥离收窄到字面 <tag ...> span 内(sanitizeTagAttrs), 危险标签整体剥离步保持不变; bun 单测 4 例: 真标签 onclick/onerror/javascript: 必剥、实体文本逐字节保留、白名单标签零扰动、实体文本含 href= 保留
+- 发现修复 ②[R11-c-4](Low·加固): seo.ts coverSrc 对 "//host/x" 协议相对形态原样放行, <img src> 会直连第三方主机(读者 IP 泄漏面); 加 startsWith('//') → null 走渐变占位。注: 当前采集链路封面只会存 covers/ 或空串, 该形态仅管理端手工编辑可引入, 故定级 Low
+- 索引新增(只增索引, 未动表结构/字段, bun run db:push 已应用, sqlite_master 实证两索引在位):
+  · [R11-c-2] Feedback @@index([ip, createdAt]) —— 公开反馈 POST 每次都跑同 IP 5条/小时 count, 修前无 ip 索引全表扫描(反馈行只增不删)
+  · [R11-c-3] DownloadJob @@index([bookId, status, createdAt]) —— /api/public/download?book= 每次下载请求 findFirst 全表扫描(修前该表无任何 bookId 索引且行数随下载历史无界增长)
+- curl 实测(边界全过): books page=0/-5→钳1 / size=999→60 / page=999999→空数组+note 提示; book tocPage=-3→1 / tocSize=2 分页正确; search q=%25(通配符清洗); keyword 无命中; related limit=99→12 上限; sitemap page/index; cover 穿越双形态 400; feedback GET 405; download 按书 200+Content-Length 准确
+- E2E(agent-browser, dev server 死亡前完成): 前台首页(热词/分类图文卡/精选/书架/页脚链轮)渲染正常 console 零 error; 书籍详情(信息/统计条/目录/TXT下载链接)正常; 阅读页 txt 章节渲染取证到 R11-c-1 缺陷现场
+- 环境注记: 收尾阶段 dev server(3000) 出现"每轮启动后仅存活到第 1 个请求"的确定性死亡(静默无日志, 非本任务代码所致 —— 本轮前 worklog 已三轮留档同现象; dmesg 有历史 next-server OOM 记录且当前有并行 agent 会话, 判断为环境/并行会话互相重启所致); 依"勿重启"语义未持续抢占端口, R11-c-1 的浏览器级复核改以"修前浏览器取证 + 修复函数对 API 实际载荷的逐字节单测"闭环
+- 测试数据清理: 本任务创建的《R11c临时审读书》E2E 件(书/章节/下载任务/ TXT 文件)已全部删除, 库恢复原状(books=1 为既有演示数据)
+- 质量门: bun run lint 0 错 0 警; bunx tsc --noEmit 全量 0 错; 未 git commit, 未新增依赖, types.ts 零改动, 未动 src/components/public/layouts(主题系统 R10-a2 已审, 按指示不重复)
+
+Stage Summary:
+- 公开读路径整体结论: API 14 路由与 40+ 前台组件经逐行审查, 此前各轮加固完整在位, 新缺陷 2 处(1 Med 渲染数据正确性 + 1 Low 加固)已修, 缺失索引 2 处已补
+- 修复清单: R11-c-1[Med] sanitizeReaderHtml 属性剥离误伤实体转义展示文本(四种阅读布局共用, 一处修复全量生效) | R11-c-4[Low] coverSrc 放行协议相对外链
+- 索引: Feedback_ip_createdAt_idx / DownloadJob_bookId_status_createdAt_idx(均 db:push 应用并实证)
+- 遗留风险: ①HistoryView 书架对每本历史书单发 fetchBook(≤50 并发, 客户端 N+1, 注释已自述上限, 量级可控) ②dev server 间歇性死亡为既有环境现象(本轮实测呈确定性形态, 建议下轮排查并行会话/sandbox 看门狗) ③sitemap 跨页 offset 分页在 books 增删时存在固有重复/漂移(5min 缓存窗口内自洽, 协议层面可接受) ④HomeView 一处不可达空态分支死代码(无害留档)
+
+---
+Task ID: R11-a
+Agent: admin-api-reviewer (超时由 R11-a2 代记账)
+Task: R11 管理端 API 审查 — backup/restore、books、chapters/[id]、feedback 五路由族
+
+Work Log (R11-a2 依据 git diff 复核后代写; R11-a agent 超时未及写入):
+- [R11-a-1] backup GET 串流分块 UTF-16 代理对边界 — 修前按 body.length 盲切 256KB, 增补平面字符(emoji/CJK 扩展B)骑跨边界时 TextEncoder 对孤立代理各输出 U+FFFD, 导出 JSON 合法但字符静默损坏; 检测块尾高位代理(D800-DBFF)右移 1 码元
+- [R11-a-2] books GET 越界页钳制末页 — 修前 page 上限 100万×size 50 → skip 可达 5000 万行全表 OFFSET 扫描; 先 count 再钳 ceil(total/size)
+- [R11-a-3] feedback GET 同款钳制 — page 上限 10000×size 100 → skip 100 万行, 反馈表是公开灌水面; 先 count 再钳, 统计概览查询与列表并行
+- [R11-a-4] restore 章节导入 warnings 走 errText 消毒 — Prisma e.message 含查询原文/schema 路径不再回传客户端
+- [R11-a-5] restore 导入后"有且仅有一个默认站点"不变式归一化 — 事务内多默认保留 createdAt 最早者/零默认提拔最早站, 防 findFirst({isDefault}) 落空
+- [R11-a-6] chapters/[id] PUT txt 并发删除 P2025 时回写文件回滚清理 — DELETE 先删行后删文件 × 本路由先写文件后更行, 交叠窗口留下孤儿 txt; 尽力 rm 不掩盖 404 契约
+
+R11-a2 复核结论 (逐 diff 行审):
+- 六处修复全部正确: ①边界检测 end>i 守卫+末尾孤立代理退化行为不变 ②③ ceil(total/size)||1 处理 total=0, max(1, min(page0,last)) 语义准确, count/findMany 改串行换取口径一致可接受 ④errText 与 tt-b 同源 ⑤归一化块位于 sites 导入循环之后、事务之内(tx.*), merge/replace 两模式均覆盖 ⑥wroteTxtFile 仅在 writeFile 成功后置位, P2025 分支 rm(force) 不影响其他错误路径
+- 潜在边界均确认无碍: 代理对必成对故 end+=1 恒 ≤ body.length; books count 后 findMany 的并发增删仅影响恰在边界的 1 行展示, 无一致性问题
+
+Stage Summary:
+- R11-a 落地 6 修复(1 High 面数据损坏 + 2 Med 资源边界 + 1 Med 泄漏面 + 2 Med 不变式/孤儿文件), 改动 5 文件 +88/-27, 已过 lint+tsc
+- 记账说明: 本条为 R11-a2 收尾 agent 依 git diff + 逐行复核代写, R11-a 原始 agent 超时未留痕
+
+---
+Task ID: R11-a2
+Agent: admin-api-finisher
+Task: R11 管理端 API 补审 — categories/downloads/health/links/rules/seo-audit/settings/sites/stats/tasks/themes + auth.ts
+
+Work Log:
+- 逐文件过审辖区 30+ 路由(categories 3/downloads 3/health/links 2/rules 6 含 test·calibrate·calibrate-all·apply/seo-audit/settings/sites 3 非主题部分/stats/tasks 4 含 control·logs·batch·_shared/themes 复核/auth.ts+login+proxy.ts 鉴权链), >300 行文件(rules/test 570)全读; 另顺带复核 R11-a 未覆盖孤儿件 books/[id]、books/batch、chapters/batch、feedback/[id]、backup 全文、_lib/{http,batch} 基建
+- 鉴权链确认: proxy.ts 对 /api/admin/* 统一 verifySession(签名 HMAC+exp+nonce 格式+键白名单)+60/min 限流, 全部 admin 路由均以 withGuard 包裹; curl 实测 6 端点无 cookie 全 401
+- 发现修复 ①[R11-a2-1](Med·资源边界): stats GET 的 countPerDay7d 对 Chapter/Book 按自然日 7 次 count({createdAt gte/lt}), Chapter 无任何 createdAt 索引 → 仪表盘 5~10s 轮询每次对最大表(随采集无界增长)全表扫描 7 次; 同路由 TaskLog 30 天清扫 deleteMany({createdAt lt}) 亦无索引必然全表扫描(tasks/[id]/logs 同型)。补 Chapter_createdAt_idx + TaskLog_createdAt_idx(与 R11-c-2/3 同类), db:push 已应用 sqlite_master 实证; Book 表量级小(百行)booksLast7d 不补留档
+- 发现修复 ②[R11-a2-2](Low·逻辑文案): seo-audit 链轮检查 where {enabled, url contains 'http'} 恒真冗余, 且告警文案指向不存在的「友链 inLinkWheel 开关」(该标志只在 Site 上, FriendLink 无此字段, 读侧 links.ts 链轮实际取全部 enabled 友链); 统一为 enabled 口径+如实文案
+- 发现修复 ③[R11-a2-3](Low·契约): login 路由不经 withGuard, readBody 超限抛 BodyTooLargeError 原裸 500 → 捕获转 413 JSON 信封(R5-5 契约对齐); curl 实测 6MB body → 413
+- 重点区结论: rules/test 入参链完备(section 白名单/httpUrl/sanitizePageRule 字段重建·键截 40 字符/limit 钳 200/budgetTimeout 90s 硬护栏+AbortController), debugHtml 由前端 sandbox="" iframe 渲染隔离已确认(DebugHtmlViewer.tsx:274), rules/test 不需改; calibrate 两路由 siteBase loopback-only 正则实测拦 userinfo/port 欺骗形态; tasks HTTP 层: _shared normalizeTaskData 全字段白名单+钳制, control 路由 R5-7/zz-d 先序+条件原子写, batch start 条件 updateMany 与 runner 状态机兜底闭合, 运行中禁改 mode/URL(R3-41)在位; auth.ts: safeEqualStr 等长短路+timingSafeEqual(bun 空缓冲不抛已实测), 会话 12h Max-Age 与 exp 一致, 登录限流 FIFO+sweep 有界, 一次性默认密码+警告属 R10-f 已留档行为不改
+- 复核 R11-a 六修复正确(详见上一条 R11-a 记录)
+- 质量门: bun run lint 0 错 0 警; bunx tsc --noEmit 全量 0 错; curl 实测: 无鉴权 401×6 端点/登录错密 401 对密 200/books page=999999 钳末页/feedback page=-5&size=999 钳 1&100/tasks status=weird 白名单忽略/stats·seo-audit·rules 带 cookie 200/登录 6MB body 413
+- 未 git commit, 未新增依赖, 未写测试, dev server 未重启未杀(仅 HTTP 访问), db:push 仅加 2 索引无数据变更
+
+Stage Summary:
+- 管理端 API 面整体结论: 前期各轮加固(withGuard/钳制/白名单/P20xx 契约化/errText/批量上限)完整在位, 本轮新缺陷 3 处(1 Med 索引缺失 + 2 Low)已修, R11-a 6 修复复核确认
+- 修复清单: R11-a2-1[Med] Chapter/TaskLog 缺 createdAt 索引致仪表盘轮询与日志清扫全表扫描 | R11-a2-2[Low] seo-audit 链轮检查恒真条件+指向不存在的友链开关 | R11-a2-3[Low] login 超限 body 裸 500
+- 遗留风险: ①规则 config 接受原始字符串形态存储(collectRegexIssues 解析失败时静默通过), 运行时 parseRuleConfig 兜底消毒, 面可控留档 ②rules/test 502 信封含 fetchPage 错误消息(网络层细节), 管理端操作员诊断面属预期设计 ③settings PUT 逐键 upsert 非事务, 中途失败留部分写入(管理端可重试, 不改) ④.env 现无 ADMIN_PASSWORD 行(运行中 server 用编译期默认密码 audit-fix-2025), 与 R10-f compose 透传指引一致, 部署时应显式设置
+
+---
+Task ID: R11-b
+Agent: crawl-enhancer
+Task: 采集/反反爬 R11-b — fetcher 3 修复 + 4 增强开关落地(超时由 R11-b2 代记账)
+
+Work Log:
+- 注: 本 agent 超时未写 worklog, 以下由收尾 agent R11-b2 依据 git diff(src/lib/crawl/fetcher.ts)逐行复核后代记; 复核结论: 7 项改动全部正确落地, lint+tsc 已过
+- 修复: [R11-b-1](Med) fetchBinary 每次尝试独立 AbortController+timer(原共享 controller 在 800ms 退避期到点 abort, FETCH_BINARY_RETRY 开启态重试拿到已 abort 的 signal → 重试形同虚设, R10-c 留档遗留风险③); attemptOnce 内部全捕获+finally 自清 timer, 单次尝试路径与旧版逐字节等价
+- 修复: [R11-b-2](Low) fetchHttp 304 命中但缓存条目已被并发驱逐(TTL/容量, R10-c 留档遗留风险②)原直接抛"304 无缓存条目"白耗一次 curl 兜底传输; 改为降级无条件 GET 重发一次(RFC 9111 语义), 仅重试一次 latch 防死循环, 规则自带 If-* 的 304 维持旧抛错口径
+- 修复: [R11-b-3](Low) fetchViaCurl 跨 scheme 拒绝错误形态补挂 retryAfterMs(native 同形态 3xx 分支与 curl"非法 Location"形态均有挂, 唯此分支遗漏 → 429/503 跨 scheme 拒绝时限流冷却退化为 30s 兜底)
+- 增强(全部 env 缺省关, 关闭态零回归): [R11-b-EN-1] RETRY_AFTER_HONOR=1 — fetcher 错误入口对 429/503+合法 Retry-After(≥1s)即时调 hostgate.reportHostRateLimited 写 per-host 限流冷却(上限 120s 在 hostgate 侧; 503 原先完全不走限流冷却, 补缺口; 与 runner.gateFetch 429 报告幂等) | [R11-b-EN-2] CHALLENGE_ESCALATE=1 — isCfChallengeShell 强指纹(cf-chl/cf_chl_/cf-turnstile/just a moment/challenge-platform[豁免 jsd 探测脚本])命中时跳过 Cookie 重试链直接升级浏览器渲染(200 壳与 403/503 盾壳错误双路径) | [R11-b-EN-3] RESPONSE_SANITY=1 — responseSanityBad 响应体健全性启发: 长页(≥1200)去 script/style 可见 <80 字=空壳判拦 / U+FFFD ≥20 且占比 ≥1%=乱码判拦(浏览器重渲染可自愈), JSON 体({/[ 开头)与短页(<1200, 交 looksBlocked 管辖)豁免 | [R11-b-EN-4] FETCH_AL_POOL=1 — Accept-Language 方言池按目标 host djb2 确定性抽取(同站恒同值/跨站分散/zh UA 恒 zh-CN 打头), 关闭态各分支返回旧值
+- 全部改动仅 fetcher.ts(+hostgate import reportHostRateLimited); 零新增依赖, 零 types.ts/prisma 改动
+
+Stage Summary:
+- 落地清单: 3 修复(R11-b-1/2/3) + 4 增强开关(R11-b-EN-1~4, 缺省全关)
+- 收尾注记: 冒烟验证与剩余文件补审由 R11-b2 完成(见下一条记录), 本条仅代记账落地改动
+
+---
+Task ID: R11-b2
+Agent: crawl-finisher
+Task: R11-b2 增强开关冒烟验证 + 剩余文件补审(R11-b 收尾)
+
+Work Log:
+- git diff 逐行复核 R11-b 七项改动(fetcher.ts): ①fetchBinary 独立 controller/timer 正确(attemptOnce 全捕获不外抛, finally 随尝试自清, 外层 try/finally 移除安全) ②304 驱逐降级正确(continue 重算 condKey/condEntry → 无 If-* 头无条件 GET; visitedHops 不涉 redirect 判定无假环; latch 防死循环; 规则自带 If-* 口径不变) ③curl 跨 scheme retryAfterMs 补挂正确(CurlHopResult.retryAfter 在手, parseRetryAfterHeaderMs 模块级可达) ④EN-1~4 接线正确(fingerprintHeadersFor 是 acceptLanguageFor 唯一调用点且传 targetUrl; obscura.ts 同名 acceptLanguageFor(locale) 为独立函数不受影响)
+- 冒烟(bun 临时脚本 /tmp, 用后已删; 未启动 Next/真 chromium, 纯模块级):
+  · FETCH_AL_POOL 双态: 关闭态 6/6 PASS(借导出的 fingerprintHeadersFor 间接验证 — zh/ja/en 分支+default 分支(q=0.6 旧值)逐字节一致, 跨 URL 恒同); 开启态 11/11 PASS(同 host 恒定×3/跨路径恒定/56 host 方言 7/7 全分散含遗留形态/zh·en·ja 分支首选语言打头/非法 URL 确定性/带端口 host 恒定/分支选择与关闭态同构)
+  · 发现修复 [R11-b2-1](Low): EN-4 zh 方言池漏收旧版 default 分支值 'zh-CN,zh;q=0.9,en;q=0.6' — UA_POOL 实际 UAs 均无 locale 提示全落 default 分支, 开启态永远产不出遗留形态, 注释"每分支首项即原值"对 default 分支失真; 补入池第 7 项(ON 态部分 host 与关闭态逐字节一致+增加熵), 修后 56 host 7/7 分散且含遗留值 PASS
+  · RESPONSE_SANITY: responseSanityBad/isCfChallengeShell 未导出 → 从 fetcher.ts 源码提取真实函数文本(剥 TS 标注)求值验证(非手抄副本): 9/9 PASS(空壳 1547 字可见<80→bad / 乱码 25FFFD 1.79%→bad / 19FFFD 不足量→ok / 超大页 30FFFD 占比 0.015%→ok / JSON 对象+数组豁免 / 短页 84 字豁免 / 空串 / 正常长页 1226 字→ok)
+  · CHALLENGE_ESCALATE: isCfChallengeShell 10/10 PASS(challenge-platform/scripts/jsd 豁免不误报 / challenge-platform 编排路径·cf-chl·cf_chl_·cf-turnstile·just a moment·大写形态·attention required 全命中 / 普通页·空串不命中); 接线复核: 200 壳(cfChallenge)与 403/503 盾壳(cfChallengeErr)双路径均跳过 Cookie 重试直升级; trySolveTokenChallenge 求解成功时 blockedHtml 置 false 先行 return, cfChallenge 不误伤 token 挑战求解
+  · RETRY_AFTER_HONOR: hostgate.reportHostRateLimited 直接调用 10/10 PASS(5s 推后/更短值幂等不回拨/300s 钳 120s/<1s 走 30s 兜底/HTTP 日期形态解析/冷却到期结算 rateLimitedUntil=0/R5-3 minGapMs 回滚到 caller 值 777); fetcher 侧开关门控逻辑审阅确认: RETRY_AFTER_HONOR_ENABLED && (429|503) && retryAfterMs≥1000 三重条件, 关闭态不调用
+  · R11-b-2 304 端到端(fetchHttpForTest+Bun mock): 6/6 PASS(304 无缓存条目→降级重发恰 2 请求拿到 200 全量 / 病态连续 304 仍抛 status=304 且恰 2 请求 / 常规 304 缓存命中续期不回归)
+  · R11-b-1 端到端(fetchBinary+非回环本机 IP mock, 绕过其自带 SSRF 守卫未改代码): 关闭态瞬时 503 单次尝试返 null 恰 1 请求; FETCH_BINARY_RETRY=1 下 600ms 预算+800ms 退避+重试需 300ms 的场景重试成功恰 2 请求(旧共享 controller 形态该场景必败 — 退避期 600ms timer 已到点)
+- 补审(B): ①smart.ts 全文(180 行) — 仅智能分类/完结判定, 无引擎选择/降级链逻辑(与 1-a2/R9-e 结论一致, 降级链在 fetcher), R9-a-17/R9-a-18/Bug28 修复在位, 无新问题 ②hostgate.ts 全文(680 行) — PACE 关闭态路径逐点核对: paceGapFloor 关闭态恒返 st.minGapMs(与旧判定表达式等值)/reportHostLatency·reportHostChallenge 首行 no-op/reportHostSuccess 清 challengeStreak 关闭态无副作用(hostGateSnapshot 字段恒 0); R4-14 换代检测/R5-3 快照回滚/R6-2 换代快照/R9-a-16 settle 先序/R10-c-1 交互全部自洽, 无新问题 ③obscura.ts 抽查(Grep 定位局部读) — 指纹学习(fpWins: 2h TTL+LRU 200+命中 touch+UA 覆盖不学习)正确 / WebGL 池(GPU_POOLS 六 os 键含 other, GPU_BY_OS 兜底, fp.gpu 随指纹保存)正确 / newContext 错误路径(createSlot 失败关 ctx/recreateSlot Bug4 修复/R3-17 三败移槽/R4-12 shuttingDown 双重检查/R9-b-7 touchedAt 60s 交付宽限)全部在位, 无新问题
+- 质量门: bun run lint 0 错 0 警; bunx tsc --noEmit 全量 0 错; 临时脚本已全部删除; dev server(:3000)+7 mini-services(3010-3016) 全程未触碰且冒烟后复测全部 200; 未 git commit, 未新增依赖, 未动 prisma/测试
+- 唯一源码改动: [R11-b2-1] fetcher.ts AL_DIALECT_POOLS.zh 补第 7 项(4 行, ON 态专属)
+
+Stage Summary:
+- 四开关冒烟结论: FETCH_AL_POOL 双态 17/17 PASS / RESPONSE_SANITY 9/9 / CHALLENGE_ESCALATE 10/10 / RETRY_AFTER_HONOR 10/10(hostgate 侧)+fetcher 门控审阅; 另 R11-b-1/R11-b-2 两修复端到端 10/10 PASS — R11-b 全部 7 项改动实证正确
+- 补审结论: smart.ts/hostgate.ts(PACE 关闭态)/obscura.ts 抽查三区未发现 High/Med 缺陷, 零新增修复(除 R11-b2-1 Low)
+- 遗留风险: ①CHALLENGE_ESCALATE 开启态: CF 盾壳 403 跳过"新 Cookie 重试"但仍可能走一次"清罐重试"(ff-b③ 陈旧会话路径未被 cfChallengeErr 门控) — 至多多敲盾 1 次, 且对 cf_clearance 中毒有自救价值, 评估留档不改 ②RETRY_AFTER_HONOR 的 reportHostRateLimited 对无 gate 状态的 host 是 no-op(gates().get 未命中返 false) — 生产 runner 每次抓取先过闸建账故实际恒有状态, 独立调用 fetchPage 的场景不享受限流冷却 ③RESPONSE_SANITY 的可见文本统计不剥 HTML 注释(注释内长文本会稀释空壳判定, 仅致漏判不误判) ④AL 池 ON 态仅覆盖 fingerprint:true 头组路径(fetchBinary 图片链 buildHeaders 无 fingerprint 仍用基础 hardcoded AL, 与旧行为一致, 图片请求无方言需求) ⑤EN-4 注释"头序随机化不在本轮落地"维持 R9-a-11 结论
+
+---
+Task ID: R11-d
+Agent: cleanup-consolidator (超时由 R11-d2 代记账)
+Task: R11-d 清理整合优化精简 — scripts 公共库收敛 + mini-services 共享层扩展
+
+Work Log:
+- [R11-d-6] scripts/_seed-lib.ts 新建(97 行): 22 个 seed-rule-*.ts 的两段大范围复制样板收敛 —— ①幂等入库 seedRuleIdempotent(查同名→删→POST, 信封双形态兼容, 历史重复全删取多数派严格口径) ②四段实测 testSection(14 个带实测门槛的种子各持一份同款); 净删约 1300 行(scripts 总体 -1428 行)
+- [R11-d-1] mini-services/_shared/server.ts 新增 htmlToText(此前 xjp/deqixs 各持一份逐字节同款; &amp; 最后解码纪律保留)
+- [R11-d-2] getRes 统一(带超时+瞬态重试 1 次+重试前泄响应体, xjp/deqixs/qimao 三份收敛)
+- [R11-d-3] createThrottledHealthProbe(/health 上游探针 60s 节流+并发在途去重, 三服务同构样板收敛)
+- [R11-d-4] BridgeServerOptions.healthExtras 钩子: 1-c 重构后 /health 被工厂统一拦截致用户 fetch 内自定义 /health 分支不可达(cloak-browser 的 browserReady/sessions/uaPool 受害), 用钩子把服务私有观测面挂回; 实证 cloak /health 已带 browserReady/inFlight/sessions/tiers/uaPool 字段
+- [R11-d-5] fetch-relay JSON 响应信封 Response.json → _shared json() 统一(content-type 增 charset, 引擎按 res.json() 解析无影响); 其余服务同款收敛
+- 7 服务运行时全部验证: /health 全 200 + selfTestOk=true(3012 scrapling python 模块缺失为既有环境问题) + fetch-relay POST /fetch 真实代理 200 + 逐服务独立 tsc 通过
+
+Stage Summary:
+- scripts 净删约 1300 行, mini-services 三份重复实现收敛入 _shared; 服务运行时全量验证通过
+- 兼容性契约(import-all temp 抽取)声明与实证见 R11-d2
+
+---
+Task ID: R11-d2
+Agent: cleanup-finisher (main-orchestrator 代执行)
+Task: R11-d 收尾 — seed 契约实证 + 配置一致性审计 + 依赖清理 + 死代码扫描
+
+Work Log:
+- seed 抽取契约实证: 临时脚本复制 import-all 抽取逻辑(顶层字面量 const), 对整合后 biqugetw/bqg713/kanunu8 三种子构建 temp 模块并动态 import —— 3/3 PASS(rule.name 与 config 均正确导出); 类型注解(:RuleSeed)进 temp 无碍(bun 剥类型, 与整合前 interface 同型), import/函数不匹配 const 正则; 临时件已删
+- [R11-d2-1] .env.example 采集引擎段补齐 14 个缺失开关文档(桥地址 FETCH_RELAY_URL/SCRAPLING_BRIDGE_URL + 增强开关 FETCH_BINARY_RETRY/FETCH_BODY_LEN_CHECK/HOSTGATE_PACE_PROFILE/PROXY_HEALTH_SCORING + R11-b 新增 RETRY_AFTER_HONOR/CHALLENGE_ESCALATE/RESPONSE_SANITY/FETCH_AL_POOL + OBSCURA_DEVID/CLOAK_DEVID/CLOAK_UA_POOL + RELAY_MAX_INFLIGHT/RELAY_BLOCK_PRIVATE), 全部注释形态=1 示例+缺省关语义; RELAY_MAX_INFLIGHT 缺省值核实为 32
+- [R11-d2-2] 主项目依赖审计: 基于全仓 import 描述符提取(rg -oP lookbehind, 首版 sed 剥引号缺陷致全误报已弃用), 确认 17 个依赖零引用移除(radix accordion/aspect-ratio/avatar/context-menu/hover-card/menubar/navigation-menu/toast/toggle/toggle-group + cmdk/embla-carousel-react/input-otp/react-day-picker/react-hook-form/react-resizable-panels/vaul —— 对应 shadcn 组件均不存在); bun remove 同步 bun.lock; prisma(CLI)/react-dom(Next peer)甄别保留; 移除后 lint 0/0 + tsc 0 错 + dev 3000 = 200
+- docker-compose.yml 透传核验: ADMIN_PASSWORD/SESSION_SECRET/DATABASE_URL/AUTO_FILL* 均在位(R10-f-1 已补), 无缺失
+- Caddyfile 核验: 白名单 3010-3015 显式列举, cloak-browser(3016) 不在其中 —— 判定为非缺陷: cloak 由引擎服务端 127.0.0.1 直连, 无浏览器侧网关访问需求, 不加保持 SSRF 最小面(留档备查)
+- src/ 死代码扫描(只读): 真死代码(全仓 0 引用) 0 个 —— R9/R10 清理彻底; 81 个导出符号仅文件内使用(export 关键字冗余, 零功能影响, 按家规留档不批量剥)
+- [R11-f-1(代记账)] src/app/api/admin/health/route.ts SERVICES 表补 cloak(3016, optional) —— 修前反检测渲染链故障时管理端健康页零感知
+
+Stage Summary:
+- R11 清理线闭环: scripts -1300 行 + mini-services 去重 + 17 个未用依赖移除 + .env.example 开关文档补全 + health 监控补盲区
+- src/ 无真死代码; 81 个 export 冗余留档; Caddyfile 3016 缺席为有意最小面设计
+
+---
+Task ID: R11-final
+Agent: main-orchestrator (Z.ai Code)
+Task: R11 终审收尾 — 四路产出交叉核实 + R11-d2 代执行 + 浏览器终验 + 提交
+
+Work Log:
+- 三并行 agent(R11-a/b/d)超时但产出已完整落地: 逐 diff 审阅确认全部变更连贯完整(R11-a 六修复/R11-b 三修复+四开关/R11-d scripts+mini-services 整合), 引用函数(reportHostRateLimited/parseRetryAfterHeaderMs)均在位, lint+tsc 全过
+- 收尾派工 R11-a2(R11-a 六修复复核全对+补审 3 修复: stats 双表索引/seo-audit 文案对齐/login 413)+R11-b2(R11-b 七项复核全对+四开关冒烟 35/35 PASS+补修 AL 池漏收遗留值)+R11-d2(再次超时, 主控代执行)
+- R11-d2 主控代执行: seed 抽取契约实证 3/3 PASS(biqugetw/bqg713/kanunu8 整合后 temp 模块构建+导出正确) / .env.example 补 14 开关文档[R11-d2-1] / 移除 17 个零引用依赖[R11-d2-2](首版审计脚本 sed 剥引号缺陷致全误报, 改 rg -oP lookbehind 提取后甄别: prisma=CLI/react-dom=peer 保留) / src 死代码扫描: 真死 0 + 81 export 冗余留档 / Caddyfile 3016 缺席判非缺陷(SSRF 最小面, 留档)
+- [R11-f-1] src/app/api/admin/health/route.ts SERVICES 表补 cloak(3016, optional) —— 修前反检测渲染链故障时健康页零感知; curl 实证 cloak: reachable=True selfTest=True
+- 浏览器终验(agent-browser): 后台登录→仪表盘(13 导航+状态)→前台预览→书城(热词/分类/精选)→详情(0 章空态: CTA disabled+统计归零+目录空态均正常)→阅读页(R11-c-1 实证: 构造含" onerror=x/href=https://a"属性样实体文本的 txt 章节, 渲染逐字保留无吞字, 修前形态会缺字); console 0 error / 页面 0 error / 移动端 390px 渲染 OK / footer 存在
+- 终验数据清理: R11终验书+R11终验分类+txt 文件全删, 库还原(books=1/categories=1/chapters=0); /tmp 临时件清理
+- 终质量门: bun run lint 0 错 0 警 + bunx tsc --noEmit 0 错 + dev 3000=200 + 7 mini-services 健康
+
+Stage Summary:
+- R11 全轮次闭环: 管理端 API(a+a2 共 9 修复+4 索引) / 采集反反爬(b+b2 共 4 修复+4 默认关增强开关全冒烟 PASS) / 前台读路径(c 共 2 修复+2 索引) / 清理整合(d+d2: scripts -1300 行+mini-services 去重+17 依赖移除+env 文档补全)
+- 环境注记: .env 无 ADMIN_PASSWORD 行, 当前 server 用编译期默认密码 audit-fix-2025(R11-a2 留档提醒: 生产部署必须显式设置)
+- 本轮净变化: 详见 commit R11

@@ -114,19 +114,36 @@ export function contentToHtml(raw: string): string {
  *  3. 剥 javascript: URLs(href/src 含此协议的标签整段去掉)
  * 不影响正常 <p>/<br>/<a href=https...>/<img src=https...> 白名单标签
  */
+/**
+ * [R11-c-1] 属性剥离仅在"字面标签 span"内进行 —— 修前 on 星号与 href/src 剥离正则作用于整段
+ * HTML 文本, 会误伤实体转义后的展示文本: txt 存储章节由 /api/public/chapter 先把纯文本转义
+ * (&lt; &amp; &gt;)再包 <p>, 正文里形如 " onerror=x" / " href=https://a" 的普通文字
+ * (编程/教程类小说常见)会被当属性剥掉, 连带吞掉尾部 &gt;, 渲染文本缺字。实体文本在浏览器
+ * 解析后是纯文本节点, 根本不会成为属性, 只需对字面 <tag ...> span 做属性消毒, 语义等价
+ * 且防御力不减(真属性必然位于字面标签内)。
+ */
+function sanitizeTagAttrs(tag: string): string {
+  return (
+    tag
+      // 剥 on* 事件属性(onclick/onerror/onload…)——匹配 on 开头 + 字母数字 + ="..."或='...'或=`...`
+      .replace(/\s+on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|`[^`]*`|[^\s>]+)/gi, '')
+      // 剥 javascript: / vbscript: / data:text/html URL(href/src 属性值整段去掉该属性, 防 javascript:alert(1))
+      .replace(/\s+(href|src)\s*=\s*"(?:javascript|vbscript|data:text\/html)[^"]*"/gi, '')
+      .replace(/\s+(href|src)\s*=\s*'(?:javascript|vbscript|data:text\/html)[^']*'/gi, '')
+      .replace(/\s+(href|src)\s*=\s*`(?:javascript|vbscript|data:text\/html)[^`]*`/gi, '')
+      // 无引号形态: <a href=javascript:alert(1)>
+      .replace(/\s+(href|src)\s*=\s*(?:javascript|vbscript|data:text\/html)[^\s>]+/gi, '')
+  )
+}
+
 function sanitizeReaderHtml(html: string): string {
   // 1. 完整剥危险标签及其内部文本(script/style 等的内容必丢, 防 <script>alert(1)</script> 渗漏)
+  //    (此步只匹配字面 <script…> 标签, 实体转义文本 &lt;script&gt; 天然不命中, 不受影响)
   let out = html
     .replace(/<(script|style|noscript|iframe|object|embed|template)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, ' ')
     .replace(/<(script|style|noscript|iframe|object|embed|template)\b[^>]*\/?>/gi, ' ')
-  // 2. 剥 on* 事件属性(<a onclick=...> <img onerror=...>)——匹配 on 开头 + 字母数字 + ="..."或='...'或=`...`
-  out = out.replace(/\s+on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|`[^`]*`|[^\s>]+)/gi, '')
-  // 3. 剥 javascript: / vbscript: / data:text/html URL(href/src 属性值整段去掉该属性, 防 javascript:alert(1))
-  out = out.replace(/\s+(href|src)\s*=\s*"(?:javascript|vbscript|data:text\/html)[^"]*"/gi, '')
-  out = out.replace(/\s+(href|src)\s*=\s*'(?:javascript|vbscript|data:text\/html)[^']*'/gi, '')
-  out = out.replace(/\s+(href|src)\s*=\s*`(?:javascript|vbscript|data:text\/html)[^`]*`/gi, '')
-  // 无引号形态: <a href=javascript:alert(1)>
-  out = out.replace(/\s+(href|src)\s*=\s*(?:javascript|vbscript|data:text\/html)[^\s>]+/gi, '')
+  // 2./3. on* 事件属性与 javascript: URL 剥离 —— [R11-c-1] 仅作用于字面标签 span(<x …> 形态)
+  out = out.replace(/<[a-zA-Z][^>]*>/g, (tag) => sanitizeTagAttrs(tag))
   return out
 }
 

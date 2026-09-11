@@ -10,7 +10,7 @@ import { type FetchConfig, DEFAULT_FETCH_CONFIG, isValidMirrorHost } from './typ
 import { obscuraFetch, checkObscuraAvailable, clickSelectorAnywhere, buildIdentityInitScript, applyUaCdpOverride, shutdownObscura } from './obscura'
 // [R9-e-4] 增强: 请求节奏画像上报 —— hostgate 无内部依赖(无循环风险); 缺省开关关闭时
 // 上报函数为 no-op, 既有行为零变化
-import { reportHostLatency, reportHostChallenge, PACE_PROFILE_ENABLED } from './hostgate'
+import { reportHostLatency, reportHostChallenge, reportHostRateLimited, PACE_PROFILE_ENABLED } from './hostgate'
 
 // ---------- UA 池 ----------
 // C.3(y-a重放): Chrome 系版本升级至当前稳定段 137~140(原池 118~131 过旧, 属明显
@@ -172,7 +172,7 @@ export function fingerprintHeadersFor(ua: string, referer: string, targetUrl: st
   const headers: Record<string, string> = {
     'Upgrade-Insecure-Requests': '1',
   }
-  headers['Accept-Language'] = acceptLanguageFor(ua)
+  headers['Accept-Language'] = acceptLanguageFor(ua, targetUrl)
   if (family === 'chromium' || family === 'firefox') {
     headers['Sec-Fetch-Dest'] = 'document'
     headers['Sec-Fetch-Mode'] = 'navigate'
@@ -206,7 +206,54 @@ export function fingerprintHeadersFor(ua: string, referer: string, targetUrl: st
 /** Accept-Language: 按 UA 平台/语言段推导 —— zh-cn UAs → zh-CN,zh;q=0.9,en;q=0.8;
  *  en-US UAs → en-US,en;q=0.9; ja_JP UAs → ja,en-US;q=0.9,en;q=0.8。原先一律硬编码
  *  zh-CN Accept-Language, 与 en-US / ja-JP UA 不配套(破绽指纹) */
-function acceptLanguageFor(ua: string): string {
+// [R11-b-EN-4] 增强: Accept-Language 方言池(FETCH_AL_POOL=1, 缺省关闭零回归) ——
+//  同一工具全量请求发出逐字节相同的 Accept-Language, 是可聚类指纹面(与 UA 池同理);
+//  开启后按【目标 host】djb2 确定性抽取方言变体(同站恒同值, 会话内不跳变; 跨站分散),
+//  变体仅调 q 权重/次级语言, 首选语言仍与 UA locale 自洽(zh UA 永远 zh-CN 打头)。
+//  关闭时返回值与旧版逐字节一致(每分支首项即原值)。注: 头序随机化不在本轮落地 ——
+//  [R9-a-11] 已论证真实浏览器头序固定, 随机化反而偏离真值, 维持规范化排序不变
+const FETCH_AL_POOL_ENABLED = process.env.FETCH_AL_POOL === '1'
+const AL_DIALECT_POOLS: Record<string, string[]> = {
+  zh: [
+    'zh-CN,zh;q=0.9,en;q=0.8',
+    'zh-CN,zh;q=0.9',
+    'zh-CN,en;q=0.9',
+    'zh-CN,zh;q=0.8,en;q=0.7',
+    'zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7',
+    'zh-CN,en-US;q=0.9,en;q=0.8',
+    // [R11-b2-1] 修复(Low): 旧版 default 分支值(UA 无 locale 提示时, UA_POOL 全量 UAs 都落此分支)
+    // 原先不在池内 → 开启态永远产不出遗留形态, 注释"每分支首项即原值"对 default 分支失真;
+    // 补入后部分 host 保持与关闭态逐字节一致, 其余 host 获得方言分散
+    'zh-CN,zh;q=0.9,en;q=0.6',
+  ],
+  en: [
+    'en-US,en;q=0.9',
+    'en-US,en;q=0.9,zh-CN;q=0.8',
+    'en-US,en;q=0.8',
+    'en-US,en;q=0.9,ja;q=0.8',
+  ],
+  ja: [
+    'ja,en-US;q=0.9,en;q=0.8',
+    'ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7',
+    'ja,en;q=0.9',
+  ],
+}
+function alDialectIndexOf(targetUrl: string): number {
+  let host = targetUrl
+  try { host = new URL(targetUrl).host.toLowerCase() } catch { /* 非法 URL: 用原串哈希 */ }
+  let h = 5381
+  for (let i = 0; i < host.length; i++) h = ((h << 5) + h + host.charCodeAt(i)) >>> 0
+  return h
+}
+function acceptLanguageFor(ua: string, targetUrl?: string): string {
+  // [R11-b-EN-4]: 池化分支(targetUrl 缺省/非法时哈希退化为原串, 结果仍确定性)
+  if (FETCH_AL_POOL_ENABLED) {
+    const idx = alDialectIndexOf(targetUrl || '')
+    if (/zh-cn|zh-CN/i.test(ua)) return AL_DIALECT_POOLS.zh[idx % AL_DIALECT_POOLS.zh.length]
+    if (/ja-JP|ja_JP|\bja\b/i.test(ua)) return AL_DIALECT_POOLS.ja[idx % AL_DIALECT_POOLS.ja.length]
+    if (/en-US/i.test(ua)) return AL_DIALECT_POOLS.en[idx % AL_DIALECT_POOLS.en.length]
+    return AL_DIALECT_POOLS.zh[idx % AL_DIALECT_POOLS.zh.length]
+  }
   if (/zh-cn|zh-CN/i.test(ua)) return 'zh-CN,zh;q=0.9,en;q=0.8'
   if (/ja-JP|ja_JP|\bja\b/i.test(ua)) return 'ja,en-US;q=0.9,en;q=0.8'
   if (/en-US/i.test(ua)) return 'en-US,en;q=0.9'
@@ -2080,6 +2127,12 @@ async function fetchHttp(url: string, cfg: FetchConfig, ua: string, proxy = '', 
     // [R9-a-7] C.4: 重定向环早期熔断 —— 记录已访问跳 URL, 重复访问立即报错不再空耗跳数预算
     // (蜜罐陷阱常见形态: 30x 互指回环, 原 20 跳上限要白耗 20 次请求才熔断)
     const visitedHops = new Set<string>([url])
+    // [R11-b-2] 修复(Low): 304 命中时缓存条目恰被并发驱逐(TTL/容量)原直接抛
+    // "304 无缓存条目"走失败链(curl 兑底重新全量抓, 白耗一次传输+日志噪声; R10-c 留档
+    // 遗留风险②)。正确语义是降级为无条件 GET 重发一次(RFC 9111: 304 只对条件请求有效,
+    // 无缓存体可回时重新取全量)。仅重试一次且仅限本层协商的 condKey(规则自带 If-* 头的
+    // 304 形态维持旧抛错口径), 病态服务端连续 304 仍抛错防死循环
+    let retriedBare304 = false
     for (let hop = 0; ; hop++) {
       if (hop > MAX_REDIRECT_HOPS) {
         throw new Error(`HTTP 重定向超过 ${MAX_REDIRECT_HOPS} 跳上限(疑似重定向环)`)
@@ -2123,6 +2176,12 @@ async function fetchHttp(url: string, cfg: FetchConfig, ua: string, proxy = '', 
           // 条件请求命中率随时间衰减回全量抓取, B1 省带宽目标落空
           cached.at = Date.now()
           return cached.html
+        }
+        // [R11-b-2]: 缓存条目已被驱逐 → 重发一次无条件 GET(下一轮 condEntry 为 null,
+        // 不会带 If-* 头, condKey 虽重算但无害); 重试后仍 304(病态/劫持)按旧口径抛错
+        if (condKey && !retriedBare304) {
+          retriedBare304 = true
+          continue
         }
         const err304: any = new Error('HTTP 304(无缓存条目, 条件请求状态异常)')
         err304.status = 304
@@ -2460,6 +2519,11 @@ export async function fetchViaCurl(url: string, cfg: FetchConfig, ua: string, pr
         if (!upgrade) {
           const err: any = new Error(`HTTP ${r.status} 重定向跨 scheme 被拒绝(${new URL(hopUrl).protocol}→${next.protocol})(curl)`)
           err.status = r.status
+          // [R11-b-3] 修复(Low): 此错误形态原先漏挂 retryAfterMs(native 同形态错误在 3xx 分支
+          // 有挂, curl 链的"非法 Location"形态也有挂, 唯此分支遗漏), 429/503 跨 scheme 拒绝时
+          // 上层限流冷却退化为 30s 兜底而非服务端指定时长; 补齐与 native/curl 其他错误形态一致
+          const ramScheme = parseRetryAfterHeaderMs(r.retryAfter)
+          if (ramScheme !== undefined) err.retryAfterMs = ramScheme
           throw err
         }
       }
@@ -3248,6 +3312,66 @@ async function trySolveTokenChallenge(url: string, html: string, cfg: FetchConfi
   }
 }
 
+// ============================================================
+// [R11-b-EN] 反反爬增强开关组(全部缺省关闭, 关闭时代码路径与现状逐字节等价)
+// ============================================================
+// [R11-b-EN-1] RETRY_AFTER_HONOR: 429/503 响应携带合法 Retry-After(≥1s, 整数秒/HTTP 日期
+//  双形态已由 parseRetryAfterHeaderMs 解析并挂到抛错对象 retryAfterMs)时, 除既有
+//  hostRhythm 惩罚(≤20s, 429)与 runner.gateFetch 抛错路径 reportHostRateLimited(仅 429)外,
+//  在 fetcher 错误入口即时写入 hostgate per-host 限流冷却(上限钳 120s 在 hostgate 侧) ——
+//  补上 503 不走 gateFetch 限流冷却的缺口, 且同轮重试尚未结束时其他并发任务已受保护。
+//  仅采纳显式合法值(≥1s): 缺省/非法/过小不触发, 维持既有 30s 兜底口径不变
+const RETRY_AFTER_HONOR_ENABLED = process.env.RETRY_AFTER_HONOR === '1'
+// [R11-b-EN-2] CHALLENGE_ESCALATE: 响应体命中 CF 挑战页强指纹(cf-chl/challenge-platform
+//  探测脚本/cf-turnstile/"just a moment"等)时, 跳过既有的 Cookie 重试链(对新种 Cookie
+//  再请求 1~2 次对 CF 盾毫无收益, 只会多敲盾页恶化 IP 信誉), 直接升级既有 auto 浏览器
+//  渲染链(obscura→裸 Playwright, 升级仍只此一次)。非 CF 特征的通用拦截词(captcha/验证码)
+//  不触发, 维持原 Cookie 重试语义
+const CHALLENGE_ESCALATE_ENABLED = process.env.CHALLENGE_ESCALATE === '1'
+// [R11-b-EN-3] RESPONSE_SANITY: 响应体健全性启发(缺省关闭零回归) —— looksBlocked 只能
+//  识别"短页/强特征盾页", 对"长页但无正文"的形态(纯 JS 壳/SPA 骨架/双层压缩残留乱码)
+//  会当正常内容放行, HTTP 引擎下解析出空章节、auto 引擎下不升级浏览器。开启后:
+//   ① 长页(≥1200 字)去 script/style 后可见文本 <80 字 → 判空壳(按拦截处理, auto 升级
+//      浏览器渲染; http 引擎如实置 blocked 交上层失败链, 不再存空壳正文);
+//   ② U+FFFD 乱码密度异常(≥20 个且占比 ≥1%, 前 256KB 采样) → 判编码损坏(浏览器重渲染
+//      可自愈 —— 引擎侧 decodeBuffer 已尽力, 谎报 charset 只能靠浏览器嗅探纠正);
+//   ③ JSON 体(规则 API 站, '{'/'[' 开头)明确豁免, 不影响 bqg713 纯 API 站放行口径;
+//   ④ 短页(<1200 字)不参与判定, 维持 looksBlocked 既有规则管辖, 不双重判定
+const RESPONSE_SANITY_ENABLED = process.env.RESPONSE_SANITY === '1'
+
+/** [R11-b-EN-2] CF 挑战页强指纹(仅用于挑战升级判定; 与 looksBlocked 的通用拦截词库区分):
+ *  challenge-platform 需排除 CF JS Detections 探测脚本(正常页普遍内嵌, looksBlocked 已有
+ *  jsdBenign 豁免同口径), 其余强特征命中即判 CF 管理型挑战形态 */
+function isCfChallengeShell(html: string): boolean {
+  if (!html) return false
+  const lower = html.toLowerCase()
+  if (lower.includes('challenge-platform') && !lower.includes('challenge-platform/scripts/jsd')) return true
+  return /cf-chl|cf_chl_|cf-turnstile|just a moment|checking your browser|attention required/.test(lower)
+}
+
+/** [R11-b-EN-3] 响应体健全性启发(空壳/纯 JS 壳/乱码): 返回 true=不健全, 按拦截形态处理。
+ *  采样截前 256KB(与 detectTrapSignals 有界扫描同口径, 10MB 响应上限下正则开销有界) */
+function responseSanityBad(html: string): boolean {
+  if (!html || html.length < 1200) return false
+  const head = html.trimStart()
+  if (head.startsWith('{') || head.startsWith('[')) return false // JSON API 体豁免(规则解析对象)
+  const probe = html.slice(0, 262144)
+  // ① 纯 JS 壳/SPA 骨架: 去 script/style 后可见文本占比异常低(真实内容页不可能 <80 字)
+  const visible = probe
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (visible.length < 80) return true
+  // ② 编码乱码: U+FFFD 密度异常(谎报 charset/双层压缩残留; 浏览器重渲染可自愈)
+  let fffd = 0
+  let idx = probe.indexOf('\uFFFD')
+  while (idx >= 0) { fffd++; idx = probe.indexOf('\uFFFD', idx + 1) }
+  if (fffd >= 20 && fffd / probe.length >= 0.01) return true
+  return false
+}
+
 /** 单 host 完整抓取流程(原 fetchPage 本体): token 预取 → HTTP 重试链 → auto 浏览器升级。
  *  每个镜像 host 独立走一遍完整流程 —— token 预取 {url} 占位符按当前 host 的 URL 取值,
  *  逐章 token 天然按镜像域重签(与 token 钩子组合的正确性来源, verify-dd-b-mirror ④ 实证);
@@ -3406,6 +3530,18 @@ async function fetchPageOnce(url: string, cfg: FetchConfig): Promise<FetchResult
       // Token 挑战 HTTP 求解: 命中"正在验证浏览器"式 token 重定向盾时, 纯 HTTP 取 token 重放,
       // 免浏览器升级(ixdzs/101kks 系)。http 与 auto 引擎均受益
       let blockedHtml = looksBlocked(html)
+      // [R11-b-EN-3] 增强: 响应体健全性启发(RESPONSE_SANITY=1, 缺省关) —— looksBlocked 漏判的
+      // "长页无正文"形态(纯 JS 壳/SPA 骨架/乱码)按拦截处理; 关闭时本块整体不执行, 行为不变
+      if (RESPONSE_SANITY_ENABLED && !blockedHtml && responseSanityBad(html)) {
+        blockedHtml = true
+        console.warn(`[fetcher] RESPONSE_SANITY: 响应体健全性异常(空壳/纯JS壳/乱码), 按拦截处理: ${reqUrl.slice(0, 160)}`)
+      }
+      // [R11-b-EN-2] 增强: CF 挑战强指纹识别(CHALLENGE_ESCALATE=1, 缺省关) —— 命中则跳过
+      // 下方 Cookie 重试链直接升级浏览器(多敲盾页只恶化信誉, 升级本身仍只此一次)
+      const cfChallenge = CHALLENGE_ESCALATE_ENABLED && blockedHtml && isCfChallengeShell(html)
+      if (cfChallenge) {
+        console.warn(`[fetcher] CHALLENGE_ESCALATE: CF 挑战指纹, 跳过 Cookie 重试直接升级浏览器渲染: ${reqUrl.slice(0, 160)}`)
+      }
       // [R9-e-4] 增强: 节奏画像 —— 被拦/挑战页上报 hostgate(连续 ≥2 次自动放缓准入节奏,
       // 供 runner 降级参考); 缺省关闭零开销
       if (PACE_PROFILE_ENABLED && blockedHtml) reportHostChallenge(reqUrl)
@@ -3425,7 +3561,8 @@ async function fetchPageOnce(url: string, cfg: FetchConfig): Promise<FetchResult
       // auto 模式: 200 但内容疑似挑战壳 —— 若刚种下新 Cookie 或响应体是 JS 跳转壳,
       // 与 403 场景同策略追加带 Cookie 重试(有的站以 200+跳转壳代替 403), 用尽再升级浏览器
       const gotNewCookieOk = cookieJar.count(domain) > cookiesBefore
-      if ((gotNewCookieOk || isJsChallenge(html)) && cookieRetries < MAX_COOKIE_RETRIES) {
+      // [R11-b-EN-2]: cfChallenge 命中时不做 Cookie 重试(对 CF 盾无收益), 直接 break 升级
+      if (!cfChallenge && (gotNewCookieOk || isJsChallenge(html)) && cookieRetries < MAX_COOKIE_RETRIES) {
         cookieRetries++
         await new Promise((r) => setTimeout(r, 350))
         continue
@@ -3440,14 +3577,30 @@ async function fetchPageOnce(url: string, cfg: FetchConfig): Promise<FetchResult
       // [R9-a-8] B2: 403/429 惩罚记忆(429 优先尊重 Retry-After; 指数退避+抖动, 执行等待有界 3s)
       if (lastStatus === 403 || lastStatus === 429) noteHostHttpFailure(reqUrl, lastStatus, e?.retryAfterMs)
       const bodyHtml: string = e?.bodyHtml || ''
+      // [R11-b-EN-1] 增强: Retry-After 尊重(RETRY_AFTER_HONOR=1, 缺省关) —— 429/503 抛错对象
+      // 已由 fetchHttp/curl 链抢救出 retryAfterMs(整数秒/HTTP 日期双形态), 此处即时写入
+      // hostgate per-host 限流冷却(上限 120s 在 hostgate 侧; <1s 视为解析噪声不触发,
+      // 维持既有 30s 兜底口径)。与 runner.gateFetch 的 429 报告幂等(重复推后返回 false);
+      // 503 原先完全不走限流冷却(仅降额链), 本开关补上该缺口
+      if (
+        RETRY_AFTER_HONOR_ENABLED &&
+        (lastStatus === 429 || lastStatus === 503) &&
+        typeof e?.retryAfterMs === 'number' && e.retryAfterMs >= 1000
+      ) {
+        if (reportHostRateLimited(reqUrl, e.retryAfterMs)) {
+          console.warn(`[fetcher] RETRY_AFTER_HONOR: HTTP ${lastStatus} Retry-After ${Math.round(e.retryAfterMs / 1000)}s → hostgate 限流冷却: ${reqUrl.slice(0, 120)}`)
+        }
+      }
       // Token 挑战求解(错误路径): 403/412 响应体同样可能是 token 挑战页, 求解成功视同成功
       if (bodyHtml && looksBlocked(bodyHtml, { status: lastStatus })) {
         const solved = await trySolveTokenChallenge(reqUrl, bodyHtml, effCfg, ua)
         if (solved) return { html: solved, engine: 'http', blocked: false }
       }
+      // [R11-b-EN-2]: CF 挑战指纹的错误形态(403/503 盾壳)跳过下方 Cookie 重试直接升级
+      const cfChallengeErr = CHALLENGE_ESCALATE_ENABLED && isCfChallengeShell(bodyHtml)
       if (fallbackStatus.includes(lastStatus)) {
         const gotNewCookie = cookieJar.count(domain) > cookiesBefore
-        if ((gotNewCookie || isJsChallenge(bodyHtml)) && cookieRetries < MAX_COOKIE_RETRIES) {
+        if ((gotNewCookie || isJsChallenge(bodyHtml)) && !cfChallengeErr && cookieRetries < MAX_COOKIE_RETRIES) {
           cookieRetries++
           await new Promise((r) => setTimeout(r, 350))
           continue // 带刚种下的新 Cookie 重发
@@ -3541,16 +3694,23 @@ export async function fetchBinary(
   // 大文件内存保护: 封面等资源超过上限直接放弃, 防异常站点回 4GB 响应拖爆内存
   const MAX_BINARY_BYTES = 25 * 1024 * 1024
   const timeoutMs = cfg.timeout && cfg.timeout > 0 ? cfg.timeout : 20000
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), timeoutMs)
   /**
    * 单次尝试(原 try 块主体原样内移, 语义逐行不变):
    * 返回 ok=成功(带 buf/contentType); permanent=重试也救不了(SSRF 外的配置/协议类失败);
    * transient=瞬时失败(网络层异常/408/5xx, 一次重试有恢复机会)
-   */
+   * [R11-b-1] 修复(Med): controller/timer 原先在 attemptOnce 外共享 —— 首次尝试若把
+   * 超时预算耗尽(如慢 5xx 响应到点), FETCH_BINARY_RETRY 开启后的重试 fetch 拿到的是
+   * 已 abort 的 signal, 瞬间抛 AbortError → permanent → null, 重试形同虚设(R10-c 留档
+   * 遗留风险③)。改为每次尝试独立 controller+timer: 单次尝试路径超时值/中止语义与旧版
+   * 完全一致(缺省关闭零回归); 重试开启态每次尝试获得完整独立预算, 重试语义成立。
+   * 注: 单次尝试内部超时到点仍判 permanent(同预算下重试也必败, 既有口径不变);
+   * 改后变化仅在"首次尝试未超时但瞬时失败、重试时预算已所剩无几"的场景 —— 这正是
+   * 重试开关要救的形态。 */
   const attemptOnce = async (): Promise<
     { ok: true; buf: Buffer; contentType: string } | { ok: false; kind: 'permanent' | 'transient' }
   > => {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), timeoutMs)
     try {
       // 2-fetcher Bug 23: redirect:'follow' 把 Cookie 头原样带到重定向目标 —— 跨域重定向时
       // 会泄漏同站 Cookie 给重定向目标域。改为 manual, 逐跳重新 buildHeaders(每跳 Cookie 按
@@ -3640,17 +3800,17 @@ export async function fetchBinary(
       // 与 fetchHttp 超时口径一致; 其余异常(网络抖动/DNS 瞬断)按瞬时失败处理
       if (controller.signal.aborted) return { ok: false, kind: 'permanent' }
       return { ok: false, kind: 'transient' }
+    } finally {
+      // [R11-b-1]: 每次尝试自带计时器, 尝试结束即清理(原外层 finally 统一清理)
+      clearTimeout(timer)
     }
   }
-  try {
-    const first = await attemptOnce()
-    if (first.ok) return { buf: first.buf, contentType: first.contentType }
-    // [R9-e-5]: 开关关闭(缺省)或永久性失败 → 单次尝试, 与旧行为一致; 仅瞬时失败重试一次
-    if (!BINARY_TRANSIENT_RETRY || first.kind === 'permanent') return null
-    await new Promise((r) => setTimeout(r, 800))
-    const second = await attemptOnce()
-    return second.ok ? { buf: second.buf, contentType: second.contentType } : null
-  } finally {
-    clearTimeout(timer)
-  }
+  // [R11-b-1]: attemptOnce 内部全捕获不外抛, 计时器随每次尝试自清理, 外层无需 try/finally
+  const first = await attemptOnce()
+  if (first.ok) return { buf: first.buf, contentType: first.contentType }
+  // [R9-e-5]: 开关关闭(缺省)或永久性失败 → 单次尝试, 与旧行为一致; 仅瞬时失败重试一次
+  if (!BINARY_TRANSIENT_RETRY || first.kind === 'permanent') return null
+  await new Promise((r) => setTimeout(r, 800))
+  const second = await attemptOnce()
+  return second.ok ? { buf: second.buf, contentType: second.contentType } : null
 }

@@ -9,7 +9,7 @@
 // ============================================================
 import { db } from '@/lib/db'
 import { ok, fail, readBody } from '@/lib/api'
-import { withGuard, isPlainObject } from '../../../_lib/http'
+import { withGuard, isPlainObject, errText } from '../../../_lib/http'
 import { logger } from '@/lib/logger'
 import { cleanContentHtml } from '@/lib/crawl/cleaner'
 
@@ -213,6 +213,38 @@ export async function POST(req: Request) {
           imported.sites++
         }
 
+        // [R11-a-5] 导入必须维持"有且仅有一个默认站点"不变式 —— 修前照搬备份内每个
+        //  site 的 isDefault 标志: ①备份含多个 isDefault=true(旧版导出即可能如此/多次
+        //  备份内容拼合)或 ②merge 模式下与库内既有默认站叠加, 恢复后多默认站共存,
+        //  findFirst({isDefault:true})(下载成品站点信息/sitemap 站点解析等)命中结果
+        //  随实现细节漂移。事务内归一化: 已有默认取 createdAt 最早者(自然保留库内
+        //  既有默认), 其余清位; 全场无默认(备份无默认+库原空)则提拔最早站, 保证
+        //  下游 findFirst 恒不落空。warning 汇总让操作员感知归一化动作
+        {
+          const defaults = await tx.site.findMany({
+            where: { isDefault: true },
+            orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+            select: { id: true },
+          })
+          if (defaults.length > 1) {
+            const keep = defaults[0].id
+            await tx.site.updateMany({
+              where: { isDefault: true, id: { not: keep } },
+              data: { isDefault: false },
+            })
+            warnings.push('导入数据存在多个默认站点, 已保留最早创建的一个, 其余已取消默认')
+          } else if (defaults.length === 0) {
+            const first = await tx.site.findFirst({
+              orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+              select: { id: true },
+            })
+            if (first) {
+              await tx.site.update({ where: { id: first.id }, data: { isDefault: true } })
+              warnings.push('导入数据无默认站点, 已自动将最早创建的站点设为默认')
+            }
+          }
+        }
+
         // friendLinks
         for (const l of friendLinks) {
           if (!l || typeof l.id !== 'string' || !l.id) continue
@@ -342,7 +374,10 @@ export async function POST(req: Request) {
               imported.chapters++
             } catch (e) {
               // 单章失败: 在 merge 模式下尝试更新已有 (idx+bookId 唯一约束冲突时)
-              warnings.push(`章节 ${c.id} 导入失败: ${(e as Error)?.message?.slice(0, 100) || '未知错误'}`)
+              // [R11-a-4] 原实现把 e.message 原样塞进 warnings 回传客户端 —— Prisma 异常
+              //  消息含查询原文/约束名/schema 路径等内部细节(与 tt-b/errText 同型泄漏面),
+              //  改走 errText 消毒(已知错误码转友好文案, 未知码统一"操作失败"且服务端留日志)
+              warnings.push(`章节 ${c.id} 导入失败: ${errText(e)}`)
             }
           }
 

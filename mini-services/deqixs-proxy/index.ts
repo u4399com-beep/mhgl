@@ -25,7 +25,7 @@
  *
  * 启动: cd mini-services/deqixs-proxy && bun run start   (bun --hot 热更, 端口固定 3014)
  */
-import { createBridgeServer, json } from '../_shared/server'
+import { createBridgeServer, createThrottledHealthProbe, getRes, htmlToText, json } from '../_shared/server'
 
 const PORT = Number(process.env.PORT || 3014)
 const UPSTREAM = 'https://www.deqixs.cc'
@@ -91,46 +91,9 @@ function parseChapterUrl(u: string): { aid: string; cid: string } | null {
   }
 }
 
-/** ajax2 content HTML片段 → 纯文本: <br>/<p>断行, 剥标签, 解实体, 压空行, 掐行首空白 */
-function htmlToText(html: string): string {
-  const t = html
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/(?:p|div)>/gi, '\n')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&nbsp;/gi, ' ')
-    // ss-d2⑥: 实体解码顺序 — &amp; 必须最后解码。若先解 &amp; 则 '&amp;lt;' 先变 '&lt;'
-    // 再被后面的 &lt; 规则二次解码成 '<', 用户正文里的字面展示文本会被静默改写
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;|&apos;/gi, "'")
-    .replace(/&amp;/gi, '&')
-  return t
-    .split('\n')
-    .map((l) => l.trim())
-    .join('\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim()
-}
+/** ajax2 content HTML片段 → 纯文本: [R11-d-1] 整合至 _shared/server(xjp/deqixs 同款), 本文件改为导入 */
 
-/** 带超时+瞬态重试1次的 GET(全态返回, 不抛); ss-d2④: 5xx/429 属瞬态同样重试, 4xx 确定性失败不重试 */
-async function getRes(url: string, headers: Record<string, string>): Promise<{ ok: boolean; status: number; buf: ArrayBuffer; error?: string }> {
-  for (let attempt = 1; attempt <= 2; attempt++) {
-    try {
-      const res = await fetch(url, { headers, signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS) })
-      if ((res.status >= 500 || res.status === 429) && attempt === 1) {
-        await res.body?.cancel().catch(() => {}) // 重试前泄掉未消费响应体(连接归还, rr-c3 卫生同款)
-        await new Promise((r) => setTimeout(r, 600))
-        continue
-      }
-      return { ok: res.ok, status: res.status, buf: await res.arrayBuffer() }
-    } catch (e) {
-      if (attempt === 2) return { ok: false, status: -1, buf: new ArrayBuffer(0), error: String(e).slice(0, 120) }
-      await new Promise((r) => setTimeout(r, 600))
-    }
-  }
-  return { ok: false, status: -1, buf: new ArrayBuffer(0), error: 'unreachable' }
-}
+/** 带超时+瞬态重试1次的 GET(全态返回, 不抛): [R11-d-2] 整合至 _shared/server 的 getRes(显式传超时) */
 
 /** 章节页头组: UA+Referer+XRW 三件套(ajax2 网页端校验的最低要求, rr-a 实测) */
 function chapterHeaders(chapterUrl: string): Record<string, string> {
@@ -154,7 +117,7 @@ async function fetchContent(chapterUrl: string): Promise<ContentResult> {
 
   // ① 三参数签发: chapter.js.php(referrer 参数值=章节URL, 与后续 Referer 头严格一致)
   const jsUrl = `${UPSTREAM}/scripts/chapter.js.php?aid=${aid}&cid=${cid}&referrer=${encodeURIComponent(chapterUrl)}`
-  const js1 = await getRes(jsUrl, headers)
+  const js1 = await getRes(jsUrl, headers, UPSTREAM_TIMEOUT_MS)
   if (!js1.ok) return { ok: false, error: `chapter.js.php 上游失败(${js1.status}${js1.error ? ' ' + js1.error : ''})`, aid, cid }
   const jsText = new TextDecoder('utf-8', { fatal: false }).decode(js1.buf)
   const token = jsText.match(/chapterToken\s*=\s*'([^']+)'/)?.[1] ?? ''
@@ -166,7 +129,7 @@ async function fetchContent(chapterUrl: string): Promise<ContentResult> {
 
   // ② 正文: ajax2.php(GBK JSON), Referer 必须与①的 referrer 值一致(token 绑定校验)
   const q = new URLSearchParams({ aid, cid, token, timestamp, nonce })
-  const aj = await getRes(`${UPSTREAM}/modules/article/ajax2.php?${q}`, headers)
+  const aj = await getRes(`${UPSTREAM}/modules/article/ajax2.php?${q}`, headers, UPSTREAM_TIMEOUT_MS)
   if (!aj.ok) return { ok: false, error: `ajax2.php 上游失败(${aj.status}${aj.error ? ' ' + aj.error : ''})`, aid, cid }
   const bodyText = new TextDecoder(GBK, { fatal: false }).decode(aj.buf)
   let json: { status?: number; message?: string; data?: { content?: string } }
@@ -182,33 +145,20 @@ async function fetchContent(chapterUrl: string): Promise<ContentResult> {
 }
 
 // ---------- 路由 ----------
-let upstreamReachable = false
-let upstreamStatus: number | null = null
-let lastProbe = 0
-/** ss-d2⑤: /health 并发探针在途去重 — 并发冷启动探针共享同一 Promise, 不重复打上游 */
-let healthProbe: Promise<void> | null = null
-
-/** /health 健康检查回调: 在 60s 缓存窗口外探测上游可达性, 返回快照 */
-async function healthCheck(): Promise<Record<string, unknown>> {
-  const now = Date.now()
-  if (now - lastProbe > 60_000 && !healthProbe) {
-    healthProbe = (async () => {
-      // 可达性探针: chapter.js.php 仅 159B, 不打 ajax2(避免自检流量惊动上游)
-      const r = await getRes(`${UPSTREAM}/scripts/chapter.js.php?aid=${PROBE_AID}&cid=${PROBE_CID}`, {
-        'User-Agent': UA,
-        Referer: `${UPSTREAM}/books/${PROBE_AID}/${PROBE_CID}.html`,
-      })
-      const body = r.ok ? new TextDecoder('utf-8', { fatal: false }).decode(r.buf) : ''
-      upstreamReachable = r.ok && body.includes('chapterToken')
-      upstreamStatus = r.status
-      lastProbe = Date.now()
-    })().finally(() => {
-      healthProbe = null
-    })
-  }
-  if (healthProbe) await healthProbe
-  return { upstreamReachable, upstream: upstreamStatus }
-}
+/** [R11-d-3] /health 上游探针: 60s 缓存窗口 + 并发在途去重收敛至 _shared 的节流器;
+ *  快照函数: chapter.js.php 仅 159B, 不打 ajax2(避免自检流量惊动上游) */
+const healthCheck = createThrottledHealthProbe(async () => {
+  const r = await getRes(
+    `${UPSTREAM}/scripts/chapter.js.php?aid=${PROBE_AID}&cid=${PROBE_CID}`,
+    {
+      'User-Agent': UA,
+      Referer: `${UPSTREAM}/books/${PROBE_AID}/${PROBE_CID}.html`,
+    },
+    UPSTREAM_TIMEOUT_MS,
+  )
+  const body = r.ok ? new TextDecoder('utf-8', { fatal: false }).decode(r.buf) : ''
+  return { upstreamReachable: r.ok && body.includes('chapterToken'), upstream: r.status }
+})
 
 async function handle(req: Request): Promise<Response> {
   const u = new URL(req.url)

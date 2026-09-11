@@ -61,6 +61,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     }
 
     // txt 存储的章节: 正文以文件为准, 必须同步回写文件(否则编辑保存后读取仍是旧文)
+    let wroteTxtFile: string | null = null // [R11-a-6] 记录本次是否已回写文件(用于 P2025 回滚)
     if (exist.storage === 'txt' && exist.filePath) {
       const full = safeJoin(DATA_ROOT, exist.filePath)
       // API-10: 加 path.sep 边界 —— 单纯 startsWith(NOVELS_DIR) 会放行 /data/novelsevil/... 类前缀碰撞
@@ -84,6 +85,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       }
       try {
         await fs.writeFile(full, `${title}\n\n${bodyText}\n`, 'utf-8')
+        wroteTxtFile = full
       } catch {
         return fail('章节文件写入失败', 500)
       }
@@ -94,7 +96,15 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       return ok(ch)
     } catch (e: any) {
       // tt-b: 预检与 update 间的并发删除窗口(书籍级联删章节, P2025)原会裸 500 → 404 契约
-      if (e?.code === 'P2025') return fail('章节不存在, 请刷新后重试', 404)
+      if (e?.code === 'P2025') {
+        // [R11-a-6] 并发删除时序: DELETE 先删行再删文件, 本路由先写文件后更行 ——
+        //  DELETE 的 rm 完成后本路由的 writeFile 才落盘时, 章节行已不存在(下方 P2025)
+        //  但文件被我们重新写回, 留下无 DB 行引用的孤儿 txt。回滚尽力清理, 失败不掩盖 404 契约
+        if (wroteTxtFile) {
+          try { await fs.rm(wroteTxtFile, { force: true }) } catch { /* 尽力而为 */ }
+        }
+        return fail('章节不存在, 请刷新后重试', 404)
+      }
       throw e
     }
   })
