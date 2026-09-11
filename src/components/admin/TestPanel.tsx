@@ -97,7 +97,7 @@ export function TestPanel({ section, rule, fetchConfig, cleanConfig, defaultUrl 
           className="h-9 flex-1 border-zinc-700 bg-zinc-900 font-mono text-xs"
           placeholder={
             section === 'list'
-              ? '列表页地址, 支持 {page} 占位符'
+              ? '列表页地址, 支持 {page}/{offset:N} 占位符'
               : section === 'book'
                 ? '书籍信息页地址'
                 : section === 'toc'

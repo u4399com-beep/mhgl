@@ -142,7 +142,9 @@ export function TaskDialog({ open, onOpenChange, task, onSaved }: TaskDialogProp
       }
     } else {
       if (!form.listUrl.trim()) {
-        toast.error('范围模式必须填写列表页 URL (含 {page})')
+        // [R12-d-2] 文案对齐 R12-a-4: 占位符语义与服务端 validateTaskPair/TaskWizard 一致,
+        //  仅 {page}/{offset:N} 被自动替换, 其余花括号写法按字面请求
+        toast.error('范围模式必须填写列表页 URL(仅 {page}/{offset:N} 会被自动替换)')
         return
       }
       if (!/^https?:\/\//i.test(form.listUrl.trim())) {
@@ -270,7 +272,7 @@ export function TaskDialog({ open, onOpenChange, task, onSaved }: TaskDialogProp
               <div className="space-y-3 rounded-md border border-zinc-800 bg-zinc-950/60 p-3">
                 <div className="space-y-1.5">
                   <Label className="text-xs text-zinc-400">
-                    列表页 URL * <span className="text-zinc-600">支持 {'{page}'} 占位符</span>
+                    列表页 URL * <span className="text-zinc-600">支持 {'{page}'}/{'{offset:N}'} 占位符</span>
                   </Label>
                   <Input
                     className="h-9 border-zinc-700 bg-zinc-950 font-mono text-xs"

@@ -39,9 +39,13 @@ const SERVICE_META: Record<string, { label: string; optional?: boolean }> = {
   qimao: { label: '七猫代理' },
   deqixs: { label: 'deqixs 代理' },
   xjp: { label: 'xjp 代理' },
+  // [R12-f-1] 与 API 端 /api/admin/health SERVICES 表对齐: R11-f-1 补 cloak 时漏了本 UI
+  // 卡片(健康页/仪表盘双消费), R12-b-4 新增 qidian 一并对齐 —— 防"API 有感知、UI 零显示"盲区
+  cloak: { label: 'cloak 隐身渲染 (可选)', optional: true },
+  qidian: { label: 'qidian 转换代理 (可选)', optional: true },
 }
 // 渲染顺序 (固定, 与端口表一致)
-const SERVICE_ORDER = ['bqg713', 'fetch-relay', 'scrapling', 'qimao', 'deqixs', 'xjp'] as const
+const SERVICE_ORDER = ['bqg713', 'fetch-relay', 'scrapling', 'qimao', 'deqixs', 'xjp', 'cloak', 'qidian'] as const
 
 const STATUS_META: Record<HealthStatus, { label: string; dot: string; chip: string }> = {
   healthy: {

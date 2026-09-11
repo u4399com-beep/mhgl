@@ -101,16 +101,6 @@ export function listBookmarks(bookId: string): Bookmark[] {
   return safeRead(bookId)
 }
 
-/** 清空本书所有书签 */
-export function clearBookmarks(bookId: string): void {
-  if (typeof window === 'undefined') return
-  try {
-    window.localStorage.removeItem(lsKey(bookId))
-  } catch {
-    /* 隐私模式等场景忽略 */
-  }
-}
-
 /**
  * 相对时间中文 (3天前 / 2小时前 / 5分钟前 / 刚刚)
  */

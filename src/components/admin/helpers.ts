@@ -216,7 +216,6 @@ export interface DownloadJobRow {
 
 // ---------------- feat-round-7: 用户反馈 ----------------
 export type FeedbackType = 'bug' | 'suggestion' | 'praise' | 'other'
-export type FeedbackStatus = 'new' | 'read' | 'resolved' | 'ignored'
 
 export interface FeedbackRow {
   id: string
@@ -557,13 +556,6 @@ export const PHASE_META: Record<string, string> = {
   toc: '解析目录',
   content: '采集正文',
   done: '完成',
-}
-
-export const LOG_LEVEL_STYLE: Record<string, string> = {
-  info: 'text-zinc-300',
-  success: 'text-emerald-400',
-  warn: 'text-amber-400',
-  error: 'text-red-400',
 }
 
 /** 页面字段组定义 — 编辑器展示用 */

@@ -1609,6 +1609,20 @@ function assertSafeIp(ip: string, allowLoopback: boolean): { ok: true } | { ok: 
   // IPv6 范围检查
   const v6 = ipv6ToBytes(ip)
   if (v6) {
+    // [R12-c2-3] 未指定地址 :: (全零): 本机实测 bun fetch('http://[::]:P/') 直达 ::1 回环服务
+    // (Linux connect(::) 语义与 0.0.0.0 同型, 0.0.0.0/8 已在 v4 分支拒) —— 不论 allowLoopback 一律拒
+    if (v6.every((b) => b === 0)) return { ok: false, reason: `IPv6 未指定地址 :: (${ip}, 回环等价)` }
+    // [R12-c2-3] NAT64 有界嵌入(RFC 6052): 64:ff9b::/96(知名前缀)与 64:ff9b:1::/48(本地用前缀)
+    // 末 4 字节即目标 IPv4 —— 提取后走同一 v4 黑名单, 防 64:ff9b::a9fe:a9fe 形态借 NAT64 网关
+    // 触达元数据/私网(allowLoopback 语义随嵌入 v4 判定)
+    if (v6[0] === 0x00 && v6[1] === 0x64 && v6[2] === 0xff && v6[3] === 0x9b) {
+      const nat64Wk = v6.slice(4, 12).every((b) => b === 0) // 64:ff9b::/96
+      const nat64Local = v6[4] === 0x00 && v6[5] === 0x01 && v6.slice(6, 12).every((b) => b === 0) // 64:ff9b:1::/48
+      if (nat64Wk || nat64Local) {
+        const v4 = `${v6[12]}.${v6[13]}.${v6[14]}.${v6[15]}`
+        return assertSafeIp(v4, allowLoopback)
+      }
+    }
     // fe80::/10 (link-local): 首字节 0xFE, 次字节高 2 位 = 10
     if (v6[0] === 0xFE && (v6[1] & 0xC0) === 0x80) return { ok: false, reason: `IPv6 链路本地 fe80::/10 (${ip})` }
     // fc00::/7 (ULA): 首字节高 7 位 = 1111110 (0xFC or 0xFD)
@@ -1690,11 +1704,6 @@ export async function assertSafeTarget(url: string, opts?: { allowLoopback?: boo
     if (!r.ok) return { ok: false, reason: `${hostname} → ${ip}: ${r.reason}` }
   }
   return { ok: true }
-}
-
-/** 布尔便捷封装(供规则配置层 / 路由测试直接调用) */
-export async function isSafeTarget(url: string, opts?: { allowLoopback?: boolean }): Promise<boolean> {
-  return (await assertSafeTarget(url, opts)).ok
 }
 
 /** fetchPage 内 loopback 放行判定: URL 必须是操作员配置的 loopback 服务(tokenUrl /
@@ -2221,6 +2230,17 @@ async function fetchHttp(url: string, cfg: FetchConfig, ua: string, proxy = '', 
         // [R9-a-7] 环检测: 重复访问已见跳 URL 立即熔断
         const nextStr = next.toString()
         if (visitedHops.has(nextStr)) throw new Error(`HTTP 重定向环(重复访问 ${nextStr.slice(0, 120)})`)
+        // [R12-c2-2] SSRF: 重定向跳目标同样过守卫 —— 初始 URL 过了 assertSafeTarget 不代表跳
+        // 目标安全(开放重定向把引擎引向 169.254.169.254/私网 = 守卫被 3xx 整体绕过; relayHop/
+        // scrapling 桥侧已有同款校验, native 逐跳循环原先漏网)。豁免口径与外层同源:
+        // 操作员配置的 loopback 服务(tokenUrl/contentProxyUrl/relay/bridge) host:port
+        const hopSsrf = await assertSafeTarget(nextStr, { allowLoopback: loopbackBypassAllowed(nextStr, cfg) })
+        if (!hopSsrf.ok) {
+          const err: any = new Error(`HTTP ${res.status} 重定向跳目标被 SSRF 守卫拒绝: ${hopSsrf.reason}`)
+          err.status = res.status
+          attachRetryAfterMs(err, res.headers) // 3xx 错误形态, 头在才挂(与跨 scheme 拒绝分支同口径)
+          throw err
+        }
         visitedHops.add(nextStr)
         hopUrl = nextStr
         continue
@@ -2454,7 +2474,12 @@ async function curlOnce(url: string, headers: Record<string, string>, proxy: str
           return
         }
         // 非错误状态空响应体: 视为 curl 失败(3xx 无 Location / 204 等退化形态同旧口径)
-        if (last.status < 400 && !body.length) {
+        // [R12-c2-4] 修复(Med): 原条件 `status<400 && !body.length` 把「3xx+Location+空体」
+        // (重定向的常规形态, 301/302/307 响应体本就常为空)也一并拒为"响应体为空" —— 注释声明的
+        // 意图是只拒"3xx 无 Location", 代码却漏查 location → fetchViaCurl 的手工逐跳重定向循环
+        // 对空体重定向永不触达(curl 链整体失败), 与 native 链 redirect:'manual' 逐跳语义断裂。
+        // 补 `!last.location` 守卫: 3xx 带 Location 照常 resolve 交重定向循环(含 R12-c2-2 跳守卫)
+        if (last.status < 400 && !body.length && !last.location) {
           reject(new Error(`curl 响应体为空${stderr ? `: ${stderr.slice(0, 160)}` : ''}`))
           return
         }
@@ -2530,6 +2555,14 @@ export async function fetchViaCurl(url: string, cfg: FetchConfig, ua: string, pr
       const nextStr = next.toString()
       // [R9-a-7] 环检测: 重复访问已见跳 URL 立即熔断
       if (visitedHops.has(nextStr)) throw new Error(`curl 重定向环(重复访问 ${nextStr.slice(0, 120)})`)
+      // [R12-c2-2] SSRF: curl 链重定向跳同款守卫(与 fetchHttp native 逐跳同口径, 防 3xx 绕过;
+      // 豁免口径同源: 操作员配置的 loopback 服务 host:port)
+      const hopSsrf = await assertSafeTarget(nextStr, { allowLoopback: loopbackBypassAllowed(nextStr, cfg) })
+      if (!hopSsrf.ok) {
+        const err: any = new Error(`HTTP ${r.status} 重定向跳目标被 SSRF 守卫拒绝(${hopSsrf.reason})(curl)`)
+        err.status = r.status
+        throw err
+      }
       visitedHops.add(nextStr)
       hopUrl = nextStr
       continue
@@ -3372,6 +3405,15 @@ function responseSanityBad(html: string): boolean {
   return false
 }
 
+/** [R12-c2-1] 纯 JSON 体判定(trimStart 后 {/[ 打头且 JSON.parse 成功) ——
+ *  degrade-native 转换代理 {ok,len,content} 信封识别用(见 fetchPageOnce 免判注释) */
+function isPlainJsonBody(s: string): boolean {
+  const t = (s || '').trimStart()
+  const c0 = t.charCodeAt(0)
+  if (!t || (c0 !== 0x7b /* { */ && c0 !== 0x5b /* [ */)) return false
+  try { JSON.parse(t); return true } catch { return false }
+}
+
 /** 单 host 完整抓取流程(原 fetchPage 本体): token 预取 → HTTP 重试链 → auto 浏览器升级。
  *  每个镜像 host 独立走一遍完整流程 —— token 预取 {url} 占位符按当前 host 的 URL 取值,
  *  逐章 token 天然按镜像域重签(与 token 钩子组合的正确性来源, verify-dd-b-mirror ④ 实证);
@@ -3530,6 +3572,16 @@ async function fetchPageOnce(url: string, cfg: FetchConfig): Promise<FetchResult
       // Token 挑战 HTTP 求解: 命中"正在验证浏览器"式 token 重定向盾时, 纯 HTTP 取 token 重放,
       // 免浏览器升级(ixdzs/101kks 系)。http 与 auto 引擎均受益
       let blockedHtml = looksBlocked(html)
+      // [R12-c2-1] degrade-native 直连形态豁免: 请求目标是操作员配置的回环转换代理
+      // (loopbackBypassAllowed 同口径)且响应体是合法 JSON 时, {ok,len,content} 信封本身就是
+      // 预期载荷(qidian/xjp/deqixs 契约: 业务失败走 502 抛错, 200+JSON 即载荷) ——
+      // looksBlocked 的"<200 字极短页判拦/拦截图库"对短章节 JSON(如 <200 字的卷末短章)误判:
+      // engine='http' 路径有 runner 侧 JSON 放行口径(parseJsonBody)不受影响; auto 引擎则白升级
+      // 浏览器渲染回环代理(浏览器拿到 HTML 包裹的 JSON, parseJsonBody 失效 → 还会误喂
+      // hostgate 连败降额)。豁免仅限回环豁免目标, 公网 JSON API 站口径不变
+      if (blockedHtml && loopbackBypassAllowed(reqUrl, cfg) && isPlainJsonBody(html)) {
+        blockedHtml = false
+      }
       // [R11-b-EN-3] 增强: 响应体健全性启发(RESPONSE_SANITY=1, 缺省关) —— looksBlocked 漏判的
       // "长页无正文"形态(纯 JS 壳/SPA 骨架/乱码)按拦截处理; 关闭时本块整体不执行, 行为不变
       if (RESPONSE_SANITY_ENABLED && !blockedHtml && responseSanityBad(html)) {
@@ -3744,6 +3796,13 @@ export async function fetchBinary(
           const nextStr = next.toString()
           // [R9-a-7] 环检测: 重复访问已见跳 URL 立即放弃
           if (visitedHops.has(nextStr)) return { ok: false, kind: 'permanent' }
+          // [R12-c2-2] SSRF: 重定向跳目标同样过守卫(封面链 allowLoopback 恒 false, 与初始 URL 同口径;
+          // 封面 CDN 开放重定向引向内网/元数据原先不设防)
+          const hopSsrf = await assertSafeTarget(nextStr, { allowLoopback: false })
+          if (!hopSsrf.ok) {
+            console.warn(`[fetcher] fetchBinary 重定向跳 SSRF 拒绝: ${hopSsrf.reason} (${nextStr.slice(0, 120)})`)
+            return { ok: false, kind: 'permanent' }
+          }
           visitedHops.add(nextStr)
           hopUrl = nextStr
           continue

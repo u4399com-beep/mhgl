@@ -3652,3 +3652,64 @@ Stage Summary:
 - 起点规则全链路可用: 发现/书籍/目录零配置即采; 正文需操作员配置起点小程序凭证(QD_YWKEY/QD_YWGUID, 书源作者自订凭证机制同源 — 该 API 本身不提供匿名正文, 属源站硬约束非本系统缺陷)
 - 引擎新契约沉淀"degrade-native 转换代理": toc url 直指代理 + contentProxyUrl 仅作 SSRF 豁免键(hook 探测被代理故意快速拒), 与 xjp/deqixs 既有模式统一并补齐其缺失的豁免键
 - 起点规则运行手册: bun run scripts/seed-rule-qidian.ts 入库; 正文前在 mini-services/qidian-proxy 配凭证; /health.credentialsConfigured=false 一眼诊断
+
+---
+Task ID: R12-d
+Agent: admin-frontend-cleanup-reviewer (R12-d 号审查 agent)
+Task: 管理端 API + 前台 + 清理整合 三线深审
+
+Work Log:
+- 环境注记: 开工时 :3000 next dev 已死亡(进程不存在, dev.log 止于 12:52 无崩溃痕迹 — 与 R11-c 留档的"确定性静默死亡"同型; ps 中仅余 7 个 mini-service bun 包装进程)。因任务前提"3000 在跑"不成立且 curl 实证为硬要求, 以独立临时实例 next dev -p 3200(共享同一 .env/DB, 未触碰 3000/未杀任何既有进程)完成全部 API 实证, 收尾已 kill 并清理 /tmp 件。另: 会话中期发现并行 R12-c agent 在同一 worktree 活跃(根目录 .r12c-probe*.ts 陆续生成), 未触碰其文件
+- A线(管理端 API): 逐行审 tasks(GET/POST/[id] PUT·DELETE/control/logs/batch/_shared)/books(GET·POST/[id]/toc·keywords·recrawl·batch/_cover)/rules(GET·POST/[id]/test·calibrate·calibrate-all·apply/batch)/stats/backup·restore/settings/_lib(http·batch)/auth.ts/login/check + proxy.ts 鉴权链 + TaskRunner.control 状态机。结论: 各轮加固完整在位(withGuard 全覆盖 rg 实证 0 漏挂 / readBody 5MB·restore 200MB 分级 / clampInt·likeSafe·白名单·条件原子 updateMany·P20xx 契约化·control per-task 串行链+30s 超时), 新缺陷 1 处
+- 发现修复 ①[R12-d-1](Med·泄漏面): restore 顶层 catch 把 Prisma 异常 e.message.slice(0,200) 原样回传("导入失败已回滚: Invalid tx.site.upsert()…schema 路径…") —— 与 R11-a-4 修复的逐章 warnings 同型泄漏, 当时只修了章节循环漏了此顶层 catch。改走 errText 消毒(详情已在既有 logger.error 留服务端)。curl 实证: 构造双 site 同 domain 备份触发 P2002 整事务回滚 → 响应 "导入失败已回滚: 唯一约束冲突(数据已存在)" 零内部细节; bun 实测回滚后 0 残留行; 正常 merge 备份导入 ok:true 回归通过
+- 发现修复 ②[R12-d-2](Low→Med·文案一致性): B线 TaskWizard 文案一致性检查发现 R12-a-4/5 只更新了 TaskWizard 与服务端 validateTaskPair, 同功能兄弟组件未同步 —— TaskDialog(新建/编辑任务两用) 范围模式校验 toast 仍是"范围模式必须填写列表页 URL (含 {page})"(误导: {offset:N} 也合法, {cat} 等花括号字面语义未点破 — 正是 R12-a 用户踩坑点), 其"支持 {page} 占位符"标签同; RuleEditor 列表地址模板与 TestPanel 列表段占位符文案同款旧文案(引擎对规则模板与任务 URL 同口径支持 {page}/{offset:N}, runner.ts:707/测试端点 expandListPlaceholders 已证)。三文件四处对齐为"仅 {page}/{offset:N} 会被自动替换"口径
+- B线(前台): dangerouslySetInnerHTML 全仓仅 4 处阅读布局(共用 contentToHtml→sanitizeReaderHtml, R11-c-1 修复在位复核无误) + 2 处管理端静态 style 常量, 书名/简介/搜索词/标签全部 React 文本节点自动转义; BookView 简介预览 DOMParser 不物化(R3-42)在位; seo.ts JSON-LD createElement+textContent、coverSrc 协议相对拒绝(R11-c-4)在位; ctx.parseView view 白名单+page≥1 钳制 / Pagination 越界钳制 / SearchView·data.ts 空态+alive 竞态防护+降级链完整; SiteFooter 外链 rel=noopener 在位。结论: 无新缺陷
+- C线(清理): ①死代码: 全仓(含 scripts/mini-services)0 引用导出 6 个全删 —— helpers.ts FeedbackStatus·LOG_LEVEL_STYLE, bookmarks.ts clearBookmarks, chapter-progress.ts getReadChapterCount·clearReadChapters(预留注释但从未接线), fetcher.ts isSafeTarget(注释声称"供规则配置层/路由测试调用"实为 0 消费), 净 -38 行 ②重复逻辑: 自研 8 行窗口哨兵 + ≥30 行逐字节同款量化扫描 src/ 全对(22 组)与 scripts/mini-services: 唯一命中 seed-rule-dafengdagengren×daweixs 37 行 —— 为两姊妹站同构 DOM 的规则配置数据而非逻辑, 与 R11-d-6 已收敛的种子公共库(_seed-lib)分层一致, 保持种子自包含可审计性留档不收敛 ③未用依赖: import 描述符全仓复核, 铁证移除根 package.json 的 puppeteer/puppeteer-extra/puppeteer-extra-plugin-stealth —— 唯一消费方 mini-services/cloak-browser 自带 package.json+bun.lock+node_modules 三件齐备(Node 解析最近 node_modules 恒不回落根), 根内 src/scripts 零 import(obscura.ts 仅注释提及); 移除后 lint/tsc/dev/cloak(3016) 全部复测正常 ④prisma 索引: 高频查询逐模式核对 —— books 列表 updatedAt✓wordCount✓categoryId✓, toc unique(bookId,idx)✓, BookTag tag✓unique(bookId,tag)✓, Feedback 三索✓, TaskLog·Chapter createdAt✓(R11-a2), DownloadJob(bookId,status,createdAt)✓(R11-c-3); Task(≤数百行)/Rule(≤数十行)/Book(百行级) 等小表 orderBy 无索引属合理取舍, 无有实证消费的新增索引
+- 质量门: bunx tsc --noEmit 全仓 0 错; bunx eslint src/ 0 错 0 警。注: 收尾时全仓 bun run lint 报 2 错 —— 全部位于并行 R12-c 会话的临时文件 .r12c-probe4.ts(非本轮改动, 其会话仍在产出文件未便代删), 本轮全部改动文件均位于 src/ 且 scoped eslint 全绿
+- 验证面: 临时 3200 实例 curl 实证(带 heis_admin cookie): stats/tasks/rules/books/settings/backup/health 全 200; 无 cookie/伪造 cookie 401×3; restore 污染触发回滚 0 残留; public/books 深页钳制回归正常; 测试用 setting 行(r12d.probe)已删, 库无残留
+
+Stage Summary:
+- 三线结论: A线 1 Med(restore 顶层错误泄漏)已修; B线无缺陷(1 处文案一致性对齐); C线 6 死导出删除 + 3 个影子 puppeteer 依赖移除 + 索引审视零新增
+- 修复清单: R12-d-1[Med] restore 事务失败信封泄漏 Prisma 内部消息 | R12-d-2[Low] TaskDialog/RuleEditor/TestPanel 占位符文案与 R12-a 口径对齐
+- 遗留风险: ①并行会话干扰: :3000 死亡与全仓 lint 瞬时红均来自 R12-c 并行会话(其临时件在其收尾时应自清) ②scripts 两个姊妹站种子 37 行规则数据同款(有意自包含, 留档) ③DownloadJob 管理端列表按 createdAt 排序无专用索引(表量级中, 未有实证慢查询不改) ④R11-d2 遗留的 81 个 export 冗余维持留档口径
+
+---
+Task ID: R12-c2
+Agent: R12-c2 号审查 agent(前次 R12-c 超时无产出, 缩小范围重跑)
+Task: 采集引擎精审(fetcher 向) — src/lib/crawl/fetcher.ts + hostgate.ts 逐行, 反反爬与采集正确性优先
+
+Work Log:
+- 六项核查清单逐条结论(先核查后定修):
+  ① qidian 链路兼容性: 引擎侧全链核对 — contentProxyUrl 钩子探测(effCfg 已带 conditionalGet:false+proxyUrl 剥离)→502 快拒→降级直连→{ok,len,content} JSON。**误判面实锤并修复[R12-c2-1](Med)**: looksBlocked 的"<200 字极短页判拦"对短章 JSON(卷末短章信封 <200 字)判拦 → engine='http' 路径因 runner JSON 放行口径(parseJsonBody)无恙, 但 engine='auto' 会白升级浏览器渲染回环代理(浏览器拿到 HTML 包裹 JSON → parseJsonBody 失效 → 还误喂 hostgate 连败降额); 三个种子(qidian/xjp/deqixs)现均 engine='http' 故属潜伏面, 修为"请求目标是 loopbackBypassAllowed 豁免代理且响应体合法 JSON → 免判拦"(公网 JSON API 站口径不变, isPlainJsonBody 严格 JSON.parse 验证)。RESPONSE_SANITY 对 JSON 体本就有 '{'/'[' 豁免+短页不参与, 无需改; conditionalGet 对 127.0.0.1:3017 实际无影响(qidian-proxy 不发 ETag/Last-Modified, condCacheSet 无校验器即 no-op; 钩子路径已显式关)——设计如此; cookie jar 对 loopback 的累积不成立(jar 按 originHost=http://127.0.0.1:3017 分键, 每代理恒 1 键, 代理不发 Set-Cookie 则零条目, TTL 30min+prune 兜底)
+  ② contentProxyUrl × mirrorDomains: **语义正确, 实证通过** — fetchPage 镜像循环 fetchPageOnce(hostUrl) 后, 钩子 {url} 占位符拿到镜像重写后 URL(mock 实证: 首跳记录原始 URL, 次跳记录 127.0.0.1:39991 重写后 URL); 钩子失败(502)无重试风暴: 每次钩子探测 = fetchHttp 502 + curl 兜底同 URL 再试 1 次 = 2 次本地快拒(HTTP 状态错误走 curl 链是 TLS 指纹兜底设计, 快拒端点零上游放大), 降级直连 1 次成功 = 预期; 业务 502 按 cfg.retries 有限重试(每章 ≤(retries+1)×2 本地命中), 无 429/浏览器升级放大(502 ∉ browserFallbackStatus)。附带实证: mirrorDomains 指向另一 loopback 端口会被 SSRF 守卫拒(loopbackBypassAllowed 按 host:port 精确匹配, 豁免不随镜像扩散)——SSRF 最小面设计如此
+  ③ hostgate 对 127.0.0.1:3017: **无 bug, 不修** — hostGateKeyOf 用 URL.host 含非默认端口, 3014/3015/3017 三代理键互异(mock 并发实证: 3014 槽满阻塞时 3015 立即准入, 互不拖慢); 默认端口折叠口径一致(:80/:443 归并 host); hostGateLimit=2 + minGapMs=任务 interval 抖动值对大量章节采集合理——降级直连形态下每章仍经代理打 1 次真实上游, 引擎侧节奏=对真源的节流, 且代理自身信号量(2)双保险; 钩子探测/竞争路径不经闸门与 token 预取同口径(既有注释声明)
+  ④ 降级链失败语义: 全链核对 — curl 链(fetchHttp→[DNS 瞬断 2s 重试 1 次]→curl; AbortError 不落 curl)/代理池(网络层失败才指数退避冷却 30s→300s, 4xx/5xx=源站行为不冷却→逐条尝试→降级直连 1 次)/relay(仅 RelayTransportError 落 curl, 目标侧响应如实不双发)/scrapling(桥内失败 800ms 重试 1 次→null→native 1 次)/cloak(obscura→裸 Playwright 各 1 次, auto 升级仅此一次); 401/400/502 代理业务错误 ∉ browserFallbackStatus(缺省 [403,412,429,503] 与全部模板一致) → **不会触发浏览器升级**, 语义正确
+  ⑤ fetchBinary: 超时 per-attempt 独立 controller+timer([R11-b-1] 在位)/25MB 双段限流(content-length 早退+流式计数)/重试仅瞬时类(FETCH_BINARY_RETRY=1)/Cookie 逐跳归属(R4-5 在位)/封面 CDN(bookcover.yuewen.com) https 公网直连无豁免 — 唯一缺口=重定向跳不过 SSRF 守卫, 并入[R12-c2-2]修复(allowLoopback 恒 false)
+  ⑥ SSRF 守卫: **redirect 跳全局漏网实锤并修复[R12-c2-2](High)** — assertSafeTarget 只查初始 URL, fetchHttp native 逐跳循环/fetchViaCurl 逐跳/fetchBinary 逐跳对 3xx Location 目标原样 fetch/spawn(开放重定向即可把引擎引向 169.254.169.254/私网, 守卫被 3xx 整体绕过; relayHop/scrapling 桥侧本有同款校验, 三处漏网), 修为每跳 assertSafeTarget(豁免口径 loopbackBypassAllowed 同源, fetchBinary 恒 false), 错误形态带 status+Retry-After 与跨 scheme 拒绝分支一致; **IPv6 新形态实锤并修复[R12-c2-3](Low→Med)**: 实测 bun fetch('http://[::]:P/') 直达 ::1 回环服务(Linux connect(::) 语义)而 assertSafeIp 对全零 v6 放行 → 拒; NAT64 64:ff9b::/96 与 64:ff9b:1::/48 嵌入式 IPv4 提取走同一 v4 黑名单(嵌公网 IP 不误伤); DNS rebinding TOCTOU=R5-19 已知限制维持(守卫解析与 fetch 实连双查询, 60s 缓存限窗, 彻底收口需 undici dispatcher 自定义 lookup, 留档不修); 重定向跨 scheme(降级拒/升级放行)与 v4-mapped/fe80/fc00 既有口径回归通过
+  [R12-c2-4] 修复(Med, 核查④过程中实锤): curlOnce 把「3xx+Location+空体」(301/302 常规形态)误判"curl 响应体为空"整体失败 —— 注释意图只拒"3xx 无 Location", 代码漏查 location → fetchViaCurl 手工重定向循环对空体重定向永不触达, 与 native redirect:'manual' 逐跳语义断裂(TLS 指纹被封只能走 curl 的站一旦遇重定向即章节全败)。补 !last.location 守卫, 3xx+Location 交重定向循环(内含 R12-c2-2 跳守卫)
+- 冒烟 23/23 PASS(bun /tmp 临时脚本已删): hostgate 键隔离 4 / 短 JSON 免判+载荷完整 3 / 镜像×钩子占位符 2 / 重定向跳守卫 native+curl 拒·放行·curl 链跟进 5 / IPv6 六形态 7 / fetchBinary 既有回归 2; 修前形态对照: looksBlocked(短 JSON)=true 实证误判面存在, fetch([::])→::1 实证 connect 语义
+- 质量门: bun run lint 0 错 0 警 + bunx tsc --noEmit 0 错; 未 commit; 未重启 dev server
+- 相邻面留档(不在本轮两文件范围): obscura.ts/cloak(3016) 浏览器渲染链的重定向 SSRF 面由浏览器进程自行发起, 引擎侧守卫不覆盖, 后续轮次可评估 cloak 侧目标校验
+
+Stage Summary:
+- 修复清单: [R12-c2-1](Med) degrade-native 短章 JSON 免判拦(auto 引擎防浏览器白升级+hostgate 误降额) | [R12-c2-2](High) 三条传输链重定向跳 SSRF 守卫 | [R12-c2-3](Med) IPv6 未指定地址/NAT64 嵌入守卫 | [R12-c2-4](Med) curl 链空体重定向修复
+- 核查结论: ②③⑤ 链路语义健康无需改引擎(③ hostgate.ts 零 diff), ①④⑥ 各出 1-2 处真缺陷已修; 全部结论均有 bun 行为实证, 设计如此项(conditionalGet/cookie jar/钩子双传输/loopback 镜像豁免不扩散/DNS rebinding 已知限制)逐条留档
+
+---
+Task ID: R12-final
+Agent: main-orchestrator (Z.ai Code)
+Task: R12 收口 — 双 agent 产出复核 + 浏览器终验 + 提交
+
+Work Log:
+- R12-d 产出复核: restore 顶层错误消毒 diff ✓(P2002 双 site 触发实证留档) / 4 组件占位符文案对齐 ✓ / 6 死导出删除 rg 复核 0 引用 ✓ / 根 package.json 移除 puppeteer×3 复核(src/scripts 0 import, cloak-browser 自带三件套) ✓ — worklog 已自记 R12-d
+- R12-c 首次派工超时零产出 → 缩范围重派 R12-c2(fetcher/hostgate 两文件)成功: 4 修复全复核(重定向跳 SSRF 守卫三链齐补[High]/短 JSON 信封免判拦(限回环豁免目标)/IPv6 未指定地址+NAT64 嵌入 v4 黑名单/curl 空体 3xx 修复), 23/23 冒烟 PASS, worklog 已自记
+- [R12-f-1] HealthCard.tsx SERVICE_META/ORDER 补 cloak+qidian — R11-f-1 只补了 API SERVICES 表漏了 UI 卡片(实锤: 仪表盘健康图标仅 6 服务), 现浏览器实证 8 服务全显示(cloak 可达/qidian 可达)
+- 浏览器终验(agent-browser): 登录→仪表盘(8 服务健康图标)→采集规则页(起点规则在列, 描述含凭证指引)→任务向导四步走通(范围模式 URL 帮助文案与 R12-a 口径逐字一致)→真实场景复现: 按用户原操作创建 pilishuwu 范围任务(https://www.pilishuwu.com/0/list/0_0_0_0_0_0_0_{page}.html, 1-3页)→启动→任务日志实证 "列表页 P1/P2/P3: .../0_0_0_0_0_0_0_1|2|3.html"(引擎:browser 走 cloak 穿透 CF), 每页发现 20 本共 60 本, 书籍采集全链(智能分类/完结判断/封面webp/toc 91章/增量判断/下拉词)零 %7B 零 {cat} 残留 — 用户报告的两项 bug 在真实站点端到端闭环
+- 环境注记: dev server 本轮两次静默死亡(R12-d 一次 + 终验中任务爬取时一次, 与 R11-c 留档同型; dev.log 无崩溃痕迹, 疑与浏览器链爬取负载相关, 已留档观察); 均以 bash .zscripts/dev.sh 重启恢复
+- 终验清理: 2 个测试任务(范围1-3 本轮建 + 范围1-11 R12-a 遗留)已删; 采集书籍为 R12-a 既有状态维持 as-found; /tmp 临时件清理
+- 终质量门: bun run lint 0 错 0 警 + bunx tsc --noEmit 0 错 + dev 3000=200 + 8 mini-services 全健康(3017 新入列)
+
+Stage Summary:
+- R12 全轮闭环: 用户书源转换(b 线: qidian-proxy+规则+凭证文档) + 用户占位符 bug 实景复验(P1-P3 URL 全对) + 引擎深审 4 修复(含 1 High SSRF) + 管理端/清理 4 修复 + UI 健康卡对齐
+- 历史链: R9=4f3cae4 → R10=7372a8c → housekeeping=aad1bc9 → R11=4854abe → R12-a=ffeec4d → R12(本轮)
+- 遗留: ①起点正文需用户自备起点小程序凭证(源站硬约束) ②dev server 偶发静默死亡待观察 ③DNS rebinding TOCTOU 维持 R5-19 已知限制 ④浏览器链重定向 SSRF(cloak/obscura 侧)留档后续轮次

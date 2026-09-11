@@ -189,7 +189,8 @@ export function RuleEditor({ open, onOpenChange, rule, onSaved }: RuleEditorProp
                 extra={
                   <div className="space-y-1.5">
                     <Label className="text-xs text-zinc-400">
-                      列表地址模板 <span className="text-zinc-600">支持 {'{page}'} 占位符</span>
+                      {/* [R12-d-2] 文案对齐 R12-a-5: 引擎列表模板实际支持 {page}/{offset:N} 两种占位符 */}
+                      列表地址模板 <span className="text-zinc-600">支持 {'{page}'}/{'{offset:N}'} 占位符</span>
                     </Label>
                     <Input
                       className="h-9 border-zinc-700 bg-zinc-950 font-mono text-xs"

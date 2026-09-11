@@ -505,7 +505,12 @@ export async function POST(req: Request) {
       )
     } catch (e) {
       logger.error('restore transaction failed', { err: (e as Error)?.message, code: (e as { code?: string })?.code })
-      return fail(`导入失败已回滚: ${(e as Error)?.message?.slice(0, 200) || '未知错误'}`, 500)
+      // [R12-d-1] 修复(Med·泄漏面): 修前把 (e as Error).message.slice(0,200) 原样回传客户端 ——
+      //  事务内任一 upsert 失败时 Prisma 异常消息含查询原文/约束名/schema 路径等内部细节
+      //  (与 R11-a-4 修复的逐章 warnings 同型泄漏, 当时只修了章节循环漏了此顶层 catch)。
+      //  详情已在上一行 logger.error 留服务端日志, 客户端改走 errText 消毒(已知错误码转
+      //  友好文案, 未知统一"操作失败")
+      return fail(`导入失败已回滚: ${errText(e)}`, 500)
     }
 
     // R9-d-8: 状态归一化警告按发生次数去重(逐任务 push 会产生大量重复文案), 汇总为一条
