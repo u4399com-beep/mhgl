@@ -3630,3 +3630,25 @@ Work Log:
 Stage Summary:
 - 用户两项 bug 均根因修复并 E2E 实证: ①{page} 编码损坏(httpUrl 过度编码, 修后占位符全链路保真+存量双形态兼容) ②任务列表URL幽灵字段(修后任务级覆盖规则模板生效) + {cat} 残留防呆告警
 - 用户侧操作指引:pilishuwu 规则需用 R10-b 修正版(重新跑 bun run scripts/seed-rule-pilishuwu.ts 或在规则编辑器把列表 URLTemplate 改为 https://www.pilishuwu.com/0/list/0_0_0_0_0_0_0_{page}.html, 0=全部分类; 具体分类把 0 换成分类路径值); 范围任务的列表页 URL 现在真正生效且支持 {page}
+
+---
+Task ID: R12-b
+Agent: main-orchestrator (Z.ai Code)
+Task: Legado 书源(shuyuan-api.yiove.com b1ddf6c1)→系统采集规则转换 — 起点中文镜像 API 全链路落地
+
+Work Log:
+- 书源拉取: 导入站自身有 CF managed challenge, 用本系统 cloak-browser:3016 standard 层穿透(curl 直连 403 → 200, 49KB JSON); 解析得「小雨的世界·起点中文」: 底层为镜像 API full.hnxianxin.cn/qd 纯 JSON 接口(search/detail/catalog/ranking/content.php)
+- 侦察实证(全部真网): ranking/detail/catalog 三段匿名可直连(无 WAF); catalog 章节 C 字段="data:;base64,<b64>,{opts}", b64 解码即 {bookId,chapterId,v,epub,time} 签名载荷; content.php 401 需起点小程序凭证头 Ywkey/Ywguid(书源 loginUi"自订正文凭证"机制), 游客 token 端点逐路径探测 404 不存在; 封面 CDN 固定前缀 qdbimg/349573/{BookId}/180 对任意书有效(双书验证)
+- [R12-b-1] mini-services/qidian-proxy(端口 3017) 新建: /chapter?bookId&index → 目录缓存(10min TTL/FIFO 200)→行定位→C 载荷解码(URL-safe b64 归一+逗号截断, 与书源 xyDecodeChapter 同契约)→签名 content.php(凭证头注入)→信封解析(error|detail|code,msg / content|Content|Data.Content)→htmlToText 清洗; 上游在飞钳 2 信号量; url= 形态快速拒绝(degrade-native 契约); /health 带 credentialsConfigured+catalogCache(healthExtras 钩子); selfTest=catalog+解码真网验证
+- [R12-b-2] scripts/seed-rule-qidian.ts: list=ranking.php 榜单({page} 任务范围驱动, Data.Books 20本/页)/book=detail.php(BookStatus"连载"透传 smartCompleteDetect, cover const {q.bookId} 合成)/toc=catalog.php(C 载荷不进 URL — index 索引制, 代理侧重取 catalog 保证签名恒新鲜)/content=json content; fetch.contentProxyUrl=SSRF loopback 豁免键; 卷行过滤: toc url replaceFrom '^.*&Vo=true$'→'' 整体清空(引擎滤空链接), 代理侧再校验双保险
+- [R12-c-1] 修复(High, 实锤复现): xjp/deqixs 规则 toc 章节 URL 直指 127.0.0.1:301x 但 fetch 缺 contentProxyUrl → 引擎 SSRF 守卫 loopbackBypassAllowed=false → 章节抓取全拒("SSRF blocked: IPv4 回环"); bun fetchPage 直测复现。修复: 两 seed 补 contentProxyUrl(=钩子探测被代理拒→降级直连原URL→json content 取文本); 实证: xjp 真章 2244 字符/deqixs 真章 3211 字符全链穿透
+- [R12-b-8] 修复: R11-a 管理端强制登录后 3 个旧式种子(自带幂等未走 _seed-lib)全 401 失效 — _seed-lib 导出 authFetch(懒登录+401 重登重试, ADMIN_PASSWORD env→编译期缺省), xjp/80ge 换用(80ge 四段实测 ALL-4-GREEN; pilishuwu 自带登录逻辑不受影响)
+- [R12-b-7] runner 章节错误日志补响应体摘要(err.bodyHtml 压平掐 220 字符): 转换代理 401 指引 JSON 此前只见 "HTTP 502" 无从排障; 语义确认: 代理对业务失败返 502 而非 200{ok:false} — 空正文会 fetched:true 存库被增量跳过, 失败语义保持章节 fetched=false 可重试
+- [R12-b-4] Caddyfile 白名单补 3017(注释同步 3010-3017)+health 路由 SERVICES 表补 qidian(3017, optional)+.env.example 补 QD_YWKEY/QD_YWGUID/QD_UPSTREAM 文档段
+- 冒烟: 代理四路径全验(正常/卷行/hook 探测拒/参数 400); 种子四段实测 list 20 本+book 全字段+toc 1657 章卷行已滤+content 502(缺凭证正确语义); mock 3099 全链 PASS(用规则真实 config: SSRF 豁免→hook 拒→降级→json 提取→清洗, 12 段落/img 剥净/实体正确); 401 场景任务日志经 R12-b-7 可见配置指引
+- lint 0/0 + tsc 0 错; 已提交
+
+Stage Summary:
+- 起点规则全链路可用: 发现/书籍/目录零配置即采; 正文需操作员配置起点小程序凭证(QD_YWKEY/QD_YWGUID, 书源作者自订凭证机制同源 — 该 API 本身不提供匿名正文, 属源站硬约束非本系统缺陷)
+- 引擎新契约沉淀"degrade-native 转换代理": toc url 直指代理 + contentProxyUrl 仅作 SSRF 豁免键(hook 探测被代理故意快速拒), 与 xjp/deqixs 既有模式统一并补齐其缺失的豁免键
+- 起点规则运行手册: bun run scripts/seed-rule-qidian.ts 入库; 正文前在 mini-services/qidian-proxy 配凭证; /health.credentialsConfigured=false 一眼诊断
