@@ -519,7 +519,7 @@ function Step2Range({
         <div className="space-y-3 rounded-md border border-zinc-800 bg-zinc-950/60 p-3">
           <div className="space-y-1.5">
             <Label className="text-xs text-zinc-400">
-              列表页 URL * <span className="text-zinc-600">支持 {'{page}'} 占位符</span>
+              列表页 URL * <span className="text-zinc-600">支持 {'{page}'}/{'{offset:N}'} 占位符</span>
             </Label>
             <Input
               className="h-9 border-zinc-700 bg-zinc-950 font-mono text-xs"
@@ -527,7 +527,12 @@ function Step2Range({
               value={form.listUrl}
               onChange={(e) => patch({ listUrl: e.target.value })}
             />
-            <p className="text-[10px] text-zinc-600">列表地址支持 {'{page}'} 占位符, 将自动翻页采集</p>
+            {/* [R12-a-5] 占位符语义明示: 此前仅提示"{page}", 用户在 pilishuwu 任务中
+                填 {cat} 期望按分类替换 —— 引擎仅认 {page}/{offset:N}, 其余花括号字面请求 */}
+            <p className="text-[10px] text-zinc-600">
+              列表地址支持 {'{page}'}/{'{offset:N}'} 占位符, 将自动翻页采集; 此处填写的 URL 优先于规则中的列表模板,
+              {'{cat}'} 等其他花括号不会被替换, 请写成具体值(如分类路径 0 或 xuanhuan)
+            </p>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">

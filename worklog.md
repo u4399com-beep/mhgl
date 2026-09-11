@@ -3608,3 +3608,25 @@ Stage Summary:
 - R11 全轮次闭环: 管理端 API(a+a2 共 9 修复+4 索引) / 采集反反爬(b+b2 共 4 修复+4 默认关增强开关全冒烟 PASS) / 前台读路径(c 共 2 修复+2 索引) / 清理整合(d+d2: scripts -1300 行+mini-services 去重+17 依赖移除+env 文档补全)
 - 环境注记: .env 无 ADMIN_PASSWORD 行, 当前 server 用编译期默认密码 audit-fix-2025(R11-a2 留档提醒: 生产部署必须显式设置)
 - 本轮净变化: 详见 commit R11
+
+---
+Task ID: R12-a
+Agent: main-orchestrator (Z.ai Code)
+Task: 用户 bug 报告 — pilishuwu 范围任务 {page} 被编码成 %7Bpage%7D + 采集仍走规则旧模板且 {cat} 字面请求
+
+Work Log:
+- 现场定位: 用户在任务向导填 https://www.pilishuwu.com/0/list/0_0_0_0_0_0_0_{page}.html, 保存回显 %7Bpage%7D; 任务日志显示实际抓取 规则旧模板 {cat}/list/1.html。本沙箱 DB 规则/任务表为空(用户在自己实例测), 属代码缺陷非数据问题
+- 根因①[R12-a-1](High): src/app/api/_lib/http.ts httpUrl() 用 new URL().toString() 规范化, 把路径中字面 { } 强制编码为 %7B/%7D → 占位符模板存库即损坏, runner .replace('{page}') 匹配不到。修复: 规范化后定向还原 %7B/%7D → {/}(RFC 3986 中 { } 非必编码, 过度编码是 URL 解析器的保守行为; 实测普通百分号编码路径不受影响)
+- 根因②[R12-a-2](High): runner.ts 范围发现循环只读 rule.list.urlTemplate, task.listUrl 是"幽灵字段"(validateTaskPair 强制必填"范围模式必须填写列表页URL(含{page})"但执行时零消费)。修复: 模板取值优先级 task.listUrl > rule.list.urlTemplate(任务级覆盖正是该字段存在意义)
+- 兼容[R12-a-2]: 历史任务存量的 %7Bpage%7D 与 %7Boffset:N%7D(含 %3A 冒号形态)双形态同认展开(与测试端点 expandListPlaceholders 同口径), 老任务无需修数据
+- 防呆[R12-a-3]: 模板展开分页占位符后仍残留 {xxx}/%7Bxxx%7D(如 {cat})时任务日志一次性 warn 点破("引擎仅支持 {page}/{offset:N}, 请手工替换为具体值"), 只查花括号对不误伤合法百分号编码路径(%E4%B8%AD)
+- 文案[R12-a-4/R12-a-5]: validateTaskPair 错误信息与 TaskWizard 帮助文案明示占位符语义({page}/{offset:N} 自动替换 + 任务 URL 优先于规则模板 + {cat} 等需写具体值)
+- 冒烟: 模板展开逻辑 8/8 PASS(任务优先/存量编码恢复/回落规则/{cat} 残留告警/offset 三形态/百分号编码不误报); httpUrl 直测占位符保真 PASS
+- E2E 实证(本地 mock :3030): 规则模板故意指向 /ruletpl/, 任务 listUrl={page} 形态指向 /mocktpl/ → 修前日志走 /ruletpl/(幽灵字段), 修复后日志 "列表页 P1: .../list/mocktpl_1.html" 覆盖生效; {page} 存库字面保留; 完整链路 发现2本→建书→目录各10章(乱序重排+去重)→正文落库 ✓; TaskWizard UI 帮助文案渲染 + {page} 输入回显原样 ✓
+- 环境注记: dev server 进程内 globalThis 单例缓存 runner, 文件修改后 HMR 不生效, 须重启 dev server 加载(本轮实证); 调试中 kill -9 旧 next-server 后 R9 时代演示书(0 章空壳)丢失, 已用 scripts/seed.ts 重建演示数据(6 书 234 章 15 分类)
+- 排障插曲(留档): 首轮 mock 规则误用 item:'...' 字符串形态(sanitizePageRule 只认 itemSelector 对象)致列表走"无容器单值"分支(1 项+相对URL), 已修正; bun -e 对 JSON 字符串形态 config 赋值报 readonly, 临时脚本改文件形态执行
+- 沙箱数据维护: 规则表曾为空, 已重新播种 pilishuwu 规则(R10-b 实测修正版, id=cmtwvrpdr0000t1vu56nsuere)
+
+Stage Summary:
+- 用户两项 bug 均根因修复并 E2E 实证: ①{page} 编码损坏(httpUrl 过度编码, 修后占位符全链路保真+存量双形态兼容) ②任务列表URL幽灵字段(修后任务级覆盖规则模板生效) + {cat} 残留防呆告警
+- 用户侧操作指引:pilishuwu 规则需用 R10-b 修正版(重新跑 bun run scripts/seed-rule-pilishuwu.ts 或在规则编辑器把列表 URLTemplate 改为 https://www.pilishuwu.com/0/list/0_0_0_0_0_0_0_{page}.html, 0=全部分类; 具体分类把 0 换成分类路径值); 范围任务的列表页 URL 现在真正生效且支持 {page}

@@ -695,6 +695,28 @@ export class TaskRunner {
         await this.saveProgress(taskId, progress, stats)
         const listRule = cfg.rule.list
         const urls: string[] = []
+        // [R12-a-2] 修复(High): 列表 URL 模板取值优先级改为 任务 listUrl > 规则 urlTemplate。
+        //  修前 task.listUrl 是"幽灵字段": 任务向导强制要求填写(校验文案"范围模式必须填写
+        //  列表页URL(含{page})"), 但发现循环只读规则模板 —— 操作员在任务里填了正确的新
+        //  形态 URL(如 pilishuwu 筛选段分页), 实际抓取仍走规则里的旧模板(用户实测: 日志
+        //  出现字面 {cat}/list/1.html)。任务级覆盖是该字段的存在意义, 此前从未生效。
+        //  兼容: 历史任务存量的 %7Bpage%7D/%7Boffset:N%7D 编码形态(此前 httpUrl 过度编码
+        //  所致)在下方展开时双形态同认, 无需修数据即恢复
+        // {page}=页号原值; {offset:N}=第p页的列表偏移量(p-1)*N(cc-c: 番茄聚合API
+        // searchUrl 用 offset=(page-1)*10 分页, {page} 无法表达算术偏移)
+        const rawTemplate = (cfg.task.listUrl?.trim() || listRule.urlTemplate || '')
+          // 双形态展开(cc-b: 展开必须先于一切; {page} 与编码形态 %7Bpage%7D 等价,
+          // {offset:N} 另有冒号编码 %3A 形态, 与测试端点 expandListPlaceholders 同口径)
+          .replace(/\{offset:(\d+)\}/gi, (_, n: string) => `{offset:${Math.max(1, parseInt(n, 10) || 1)}}`)
+          .replace(/%7Boffset(?:%3A|:)(\d+)%7D/gi, (_, n: string) => `{offset:${Math.max(1, parseInt(n, 10) || 1)}}`)
+          .replace(/%7Bpage%7D/gi, '{page}')
+        // [R12-a-3] 防呆: 展开分页占位符后模板仍残留 {xxx}/%7Bxxx%7D 形态(如 {cat} 等
+        //  非引擎占位符), 意味着操作员期望"按分类替换"但引擎只认 {page}/{offset:N} ——
+        //  原先会拿字面 {cat} 静默请求源站(用户实测日志即此形态), 这里一次性告警点破。
+        //  只查花括号对(含编码形态), 不误伤路径中合法的百分号编码(%E4%B8%AD 等)
+        if (/\{[^{}]*\}|%7B[^%]*%7D/i.test(rawTemplate.replace(/\{page\}|\{offset:\d+\}/g, ''))) {
+          await this.log(taskId, 'warn', `列表URL模板含引擎不识别的占位符(仅支持 {page}/{offset:N}): ${rawTemplate.slice(0, 160)} —— 请将 {cat} 等手工替换为具体值`)
+        }
         // R9-d-3: 单轮发现上限熔断 —— listStart/listEnd 允许配置到 100000 页, 极端配置下
         // urls/listFields/discoveredBookUrls 三个集合无上限增长(2M 书 × ~100B ≈ 数百 MB 堆),
         // 且发现阶段不可中断收尾。达上限即停止翻页并落库已发现部分(继续走采集阶段, 可通过
@@ -708,9 +730,7 @@ export class TaskRunner {
             await this.log(taskId, 'warn', `发现书籍数已达单轮上限 ${DISCOVERY_MAX_URLS}, 停止翻页(已发现的书籍继续采集; 余量请用 bookStart/bookEnd 或续采分批处理)`)
             break
           }
-          // {page}=页号原值; {offset:N}=第p页的列表偏移量(p-1)*N(cc-c: 番茄聚合API
-          // searchUrl 用 offset=(page-1)*10 分页, {page} 无法表达算术偏移)
-          const url = (listRule.urlTemplate || '')
+          const url = rawTemplate
             .replace(/\{offset:(\d+)\}/g, (_, n: string) => String((p - 1) * Math.max(1, parseInt(n, 10) || 1)))
             .replace('{page}', String(p))
           if (!url) continue

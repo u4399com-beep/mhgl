@@ -69,7 +69,14 @@ export function httpUrl(v: unknown, maxLen = 2000): string | null {
   try {
     const u = new URL(s)
     if (u.protocol !== 'http:' && u.protocol !== 'https:') return null
-    return u.toString()
+    // [R12-a-1] 修复(High): new URL() 规范化会把路径中的字面 { } 强制编码为 %7B %7D,
+    //  而本系统把 {page}/{offset:N} 视为合法的 URL 模板占位符(任务列表页URL/测试端点
+    //  均支持) —— 编码后 runner 的 .replace('{page}', …) 匹配不到, 字面 %7Bpage%7D
+    //  被原样发往源站(用户实测: pilishuwu 范围任务 0_{page}.html 存库变 0_%7Bpage%7D.html)。
+    //  RFC 3986 中 { } 属于未保留集外但合法的 path 字符, new URL 的强制编码是过度编码;
+    //  规范化后定向还原, 占位符模板在存库/回显/替换各环节保持原样。普通 URL 中的 %7B
+    //  (真实需要编码的 {)还原为字面 { 后请求语义不变, 无回归面
+    return u.toString().replace(/%7B/g, '{').replace(/%7D/g, '}')
   } catch {
     return null
   }

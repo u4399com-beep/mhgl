@@ -132,6 +132,8 @@ export function validateTaskPair(
   listUrl: string | undefined
 ): string | undefined {
   if (mode === 'single' && !bookUrl) return '单本模式必须填写书籍页URL'
-  if (mode === 'range' && !listUrl) return '范围模式必须填写列表页URL(含{page})'
+  // [R12-a-4] 文案补充占位符语义: 引擎仅自动替换 {page}/{offset:N}(R12-a-2 起任务级
+  //  listUrl 覆盖规则模板), {cat} 等其他花括号写法不会被替换, 需写成具体值
+  if (mode === 'range' && !listUrl) return '范围模式必须填写列表页URL(仅 {page}/{offset:N} 会被自动替换)'
   return undefined
 }
