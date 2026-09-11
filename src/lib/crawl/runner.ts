@@ -1770,7 +1770,14 @@ export class TaskRunner {
             } else {
               stats.errors++
               consecutiveErrs++
-              await this.log(taskId, 'error', `章节失败 ${q.title}: ${e?.message?.slice(0, 100)}`)
+              // [R12-b-7] 错误响应体摘要: fetcher !res.ok 抛错时响应体挂 err.bodyHtml(如转换代理
+              // 的 401 配置指引 JSON), 只记 message 会让操作员只见 "HTTP 502" 无从下手;
+              // 摘要压平空白+掐 220 字符(挑战壳页也是大 HTML, 防日志刷屏; TaskLog 单条上限 1500)
+              const bodySnippet = String((e as { bodyHtml?: unknown })?.bodyHtml ?? '')
+                .replace(/\s+/g, ' ')
+                .trim()
+                .slice(0, 220)
+              await this.log(taskId, 'error', `章节失败 ${q.title}: ${e?.message?.slice(0, 100)}${bodySnippet ? ` | 响应体: ${bodySnippet}` : ''}`)
             }
           }
         })

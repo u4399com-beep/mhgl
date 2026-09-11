@@ -105,6 +105,11 @@ export const ruleConfig = {
     waitMs: 200,
     // content 段每章=代理串行 2 次上游请求(chapter.js.php+ajax2), 同站(=代理)在飞钳 2 保守起步
     hostGateLimit: 2,
+    // [R12-c-1] 修复(High): toc 章节 URL 直指本代理(127.0.0.1:3014)但原配置缺 contentProxyUrl
+    // → 引擎 SSRF 守卫 loopbackBypassAllowed 判 false → 章节抓取全拒(与 xjp 同 bug, 实证复现)。
+    // 补配置后 loopback 豁免生效; 引擎钩子探测(url=双包裹形态)被代理拒绝 → 降级直连原 URL
+    // → 代理按真实参数返回 {ok,len,content} JSON → content 字段(json)取文本(degrade-native)
+    contentProxyUrl: 'http://127.0.0.1:3014/content?u={url}',
   },
   clean: {
     removeSelectors: ['script', 'style', 'iframe', 'ins', 'noscript'],

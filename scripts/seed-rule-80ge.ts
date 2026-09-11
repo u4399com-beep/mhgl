@@ -8,6 +8,8 @@
  *   - 单一桌面 UA 全站通用(实测 wap 章节页用桌面 UA 200 且 #nr1 完整)
  */
 const API = "http://localhost:3000/api/admin";
+// [R12-b-8] 管理端鉴权: R11-a 起强制登录, 旧式自带幂等的种子统一走 _seed-lib authFetch(懒登录+401 重试)
+import { authFetch } from "./_seed-lib";
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 
 const config = {
@@ -86,17 +88,17 @@ const TOC_URL = "http://wap.80ge.info/225637/page-1.html";
 const CH1_URL = "http://wap.80ge.info/225637/76636828.html";
 
 // ---- 幂等: 同名先删后建 ----
-const listRes = await fetch(`${API}/rules?page=1&pageSize=100`);
+const listRes = await authFetch(`${API}/rules?page=1&pageSize=100`);
 const listJson = await listRes.json();
 const rules = listJson.data?.items ?? listJson.data ?? [];
 for (const r of rules) {
   if (r.name === RULE_NAME) {
-    await fetch(`${API}/rules/${r.id}`, { method: "DELETE" });
+    await authFetch(`${API}/rules/${r.id}`, { method: "DELETE" });
     console.log("删除同名旧规则:", r.id);
   }
 }
 
-const r1 = await fetch(`${API}/rules`, {
+const r1 = await authFetch(`${API}/rules`, {
   method: "POST", headers: { "Content-Type": "application/json" },
   body: JSON.stringify({
     name: RULE_NAME,
@@ -113,7 +115,7 @@ if (!ruleId) process.exit(1);
 // ---- 四段测试(带断言门槛) ----
 let failed = 0;
 async function test(section: string, url: string, seg: any, assert: (d: any) => string | null) {
-  const res = await fetch(`${API}/rules/test`, {
+  const res = await authFetch(`${API}/rules/test`, {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ section, url, rule: seg, fetch: config.fetch, clean: config.clean }),
   });

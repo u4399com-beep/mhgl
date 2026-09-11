@@ -1,6 +1,7 @@
 // ============================================================
 // 种子脚本: 新键盘小说网 (xinjianpan.com) 采集规则 (Task ss-b2 建, ss-b3 收尾规范化)
 // 用法: bun run scripts/seed-rule-xjp.ts
+// [R12-b-8] 管理端鉴权: R11-a 起强制登录, 旧式自带幂等的种子统一走 _seed-lib authFetch(懒登录+401 重试)
 // 幂等: 同名规则 PUT 原位更新(id 稳定); export{} + import.meta.main 守卫(可被 verify 脚本 import 规则配置)
 //
 // ================= 结构依据(ss-b 探针 + ss-b2 真网复核, 2026-09-04) =================
@@ -35,6 +36,8 @@
 //   clean  = 站点头尾广告行(天才一秒记住/转载请注明来源)+通用尾巴; 代理已输出纯文本, plainText 归一
 // ============================================================
 export {}
+import { authFetch } from './_seed-lib'
+
 export const RULE_NAME = '新键盘小说网 (xinjianpan.com)·直连+var c解密代理正文'
 export const PROXY_BASE = 'http://127.0.0.1:3015'
 
@@ -122,6 +125,13 @@ export const ruleConfig = {
     waitMs: 300,
     // list/book/toc 直连 + content 每章 1 次代理串行上游请求, 同站(=代理)在飞钳 2 保守起步
     hostGateLimit: 2,
+    // [R12-c-1] 修复(High): toc 章节 URL 直指本代理(127.0.0.1:3015)但原配置缺 contentProxyUrl
+    // → 引擎 SSRF 守卫 loopbackBypassAllowed 判 false → 章节抓取全拒(SSRF blocked, 实证 bun
+    // fetchPage 复现)。补配置后: 该键同时是 loopback 豁免依据(按 host:port 比对) —— 引擎
+    // contentProxyUrl 钩子先行探测(url=双包裹形态)被代理 parseChapterUrl 拒绝 → "静默降级原
+    // URL 直连" → 命中代理真实参数形态返回 {ok,len,content} JSON → content 字段(json)取文本。
+    // (degrade-native 契约详解见 seed-rule-qidian.ts 头注释, 与 qidian 规则同范式)
+    contentProxyUrl: 'http://127.0.0.1:3015/content?u={url}',
   },
   clean: {
     removeSelectors: ['script', 'style', 'iframe', 'ins', 'noscript'],
@@ -150,7 +160,7 @@ const BASE = 'http://127.0.0.1:3000'
 async function main() {
   // 幂等: 同名规则 PUT 原位更新(id 稳定) — 删旧建新会让引用该规则的任务 ruleId 悬空
   // (ss-b3 实锤: 任务运行中 DELETE 受保护返回 ok:false, 随后 POST 造成同名重复行)
-  const listRes = await fetch(`${BASE}/api/admin/rules?take=100`)
+  const listRes = await authFetch(`${BASE}/api/admin/rules?take=100`)
   const listJson = (await listRes.json()) as { ok: boolean; data?: unknown }
   const rules = (Array.isArray(listJson.data) ? listJson.data : []) as { id: string; name: string }[]
   const existing = rules.find((r) => r.name === RULE_NAME)
@@ -169,13 +179,13 @@ async function main() {
   })
   let res: Response
   if (existing) {
-    res = await fetch(`${BASE}/api/admin/rules/${existing.id}`, {
+    res = await authFetch(`${BASE}/api/admin/rules/${existing.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: payload,
     })
   } else {
-    res = await fetch(`${BASE}/api/admin/rules`, {
+    res = await authFetch(`${BASE}/api/admin/rules`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: payload,

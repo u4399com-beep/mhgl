@@ -1,0 +1,13 @@
+{
+  "name": "qidian-proxy",
+  "version": "1.0.0",
+  "private": true,
+  "description": "起点中文镜像 API(full.hnxianxin.cn/qd) 正文转换代理: 目录索引(bookId+index)→C载荷base64解码→签名content.php(起点小程序 Ywkey/Ywguid 凭证)→UTF-8纯文本, 供起点采集规则 content 段对接",
+  "scripts": {
+    "dev": "bun --hot index.ts",
+    "start": "bun index.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.0"
+  }
+}

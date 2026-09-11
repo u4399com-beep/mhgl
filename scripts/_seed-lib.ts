@@ -27,24 +27,61 @@ export interface RuleSeed {
 
 const BASE = process.env.BASE || 'http://127.0.0.1:3000'
 
+// [R12-b-6] 管理端鉴权适配: R11-a 起管理 API 全部强制登录, 种子脚本需持会话 cookie。
+// 取值顺序: ADMIN_PASSWORD 环境变量 → 编译期缺省(与 src/lib/auth.ts 同源, 沙箱/裸装环境零配置);
+// 首个 401 时登录一次并缓存 cookie(进程级), 登录失败则给出可操作报错(指明环境变量)退出。
+let authCookie: string | null = null
+
+async function ensureAuth(): Promise<string> {
+  if (authCookie) return authCookie
+  const password = process.env.ADMIN_PASSWORD?.trim() || 'audit-fix-2025'
+  const res = await fetch(`${BASE}/api/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password }),
+  })
+  const setCookie = res.headers.get('set-cookie') || ''
+  const m = setCookie.match(/heis_admin=([^;]+)/)
+  if (!res.ok || !m) {
+    console.error(`种子脚本登录失败(HTTP ${res.status}) —— 请以环境变量 ADMIN_PASSWORD=<后台密码> 重跑, 或先用正确密码确认 /api/auth/login 可用`)
+    process.exit(1)
+  }
+  authCookie = `heis_admin=${m[1]}`
+  return authCookie
+}
+
+/** 带 cookie 的 fetch(懒登录, 401 时重登一次重试; 其余语义同全局 fetch)。
+ *  [R12-b-8] 供旧式自带幂等逻辑的种子(80ge/pilishuwu/xjp)复用 —— R11-a 起管理 API
+ *  强制登录, 这三个种子未走本库 seedRuleIdempotent, 历史上直接 fetch 全部 401 失效 */
+export async function authFetch(url: string, init: RequestInit = {}): Promise<Response> {
+  const cookie = await ensureAuth()
+  const doFetch = (c: string) => fetch(url, { ...init, headers: { ...(init.headers as Record<string, string>), Cookie: c } })
+  let res = await doFetch(cookie)
+  if (res.status === 401) {
+    authCookie = null
+    res = await doFetch(await ensureAuth())
+  }
+  return res
+}
+
 /** 幂等入库: 同名规则(含历史重复)全部先删后建; POST 失败 exit(1)(与各种子原行为一致)。
  *  description 可选(历史种子 jpxs123 的 rule 对象本就无 description 字段, 语义保持) */
 export async function seedRuleIdempotent(rule: Omit<RuleSeed, 'description'> & { description?: string }): Promise<void> {
-  const listRes = await fetch(`${BASE}/api/admin/rules?take=100`)
+  const listRes = await authFetch(`${BASE}/api/admin/rules?take=100`)
   const listJson = (await listRes.json()) as { ok: boolean; data?: { id: string; name: string }[] | { rules?: { id: string; name: string }[] } }
   const raw = Array.isArray(listJson.data) ? listJson.data : (listJson.data as { rules?: { id: string; name: string }[] })?.rules || []
   for (const d of raw.filter((r) => r.name === rule.name)) {
-    const del = await fetch(`${BASE}/api/admin/rules/${d.id}`, { method: 'DELETE' })
+    const del = await authFetch(`${BASE}/api/admin/rules/${d.id}`, { method: 'DELETE' })
     const delJson = (await del.json()) as { ok: boolean }
     console.log('旧规则已删除:', d.id, delJson.ok)
   }
-  const res = await fetch(`${BASE}/api/admin/rules`, {
+  const res = await authFetch(`${BASE}/api/admin/rules`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(rule),
   })
-  const json = (await res.json()) as { ok: boolean; data?: { id?: string }; message?: string }
-  console.log('入库结果:', json.ok ? `OK id=${json.data?.id}` : json.message)
+  const json = (await res.json()) as { ok: boolean; data?: { id?: string }; message?: string; error?: string }
+  console.log('入库结果:', json.ok ? `OK id=${json.data?.id}` : (json.message || json.error || `HTTP ${res.status}`))
   if (!json.ok) process.exit(1)
 }
 
@@ -63,7 +100,7 @@ export async function testSection(
   extra: Record<string, unknown> = {},
 ): Promise<Record<string, any> | null> {
   const t0 = Date.now()
-  const res = await fetch(`${BASE}/api/admin/rules/test`, {
+  const res = await authFetch(`${BASE}/api/admin/rules/test`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
