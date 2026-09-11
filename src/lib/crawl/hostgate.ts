@@ -536,10 +536,14 @@ export function reportHostSuccess(url: string): void {
   if (!st) return
   st.failStreak = 0
   st.successStreak++
-  // [R9-e-4] 画像: 干净成功即视为站点恢复, 清空挑战/变慢连续计数(放缓窗到期自然解除,
+  // [R9-e-4] 画像: 干净成功即视为站点恢复, 清空挑战连续计数(放缓窗到期自然解除,
   // 不提前撤销 —— 已证实的盾站不因一次成功就恢复常态)
+  // [R10-c-1] 修复: 不清 slowStreak —— "响应变慢"本身是成功请求(200), 每次成功都会走到本行,
+  // 原实现把 slowStreak 一并清零, 而 reportHostLatency 的慢样本计数发生在【同一请求内先行执行】,
+  // 连续慢样本永远凑不满 PACE_SLOW_STREAK → 延迟放缓窗永不武装(增强成死代码)。
+  // 快样本重置已由 reportHostLatency 的 else 分支承担(低于阈值即清零), 此处清反成双重重置;
+  // PACE 关闭时 latency 不上报, slowStreak 恒 0, 本行本就无意义
   st.challengeStreak = 0
-  st.slowStreak = 0
   if (st.successStreak >= RECOVER_SUCCESS_STREAK && st.limit < st.baseLimit) {
     st.limit = Math.min(st.baseLimit, st.limit + 1)
     st.successStreak = 0

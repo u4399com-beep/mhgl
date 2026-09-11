@@ -3331,3 +3331,116 @@ Work Log:
 Stage Summary:
 - 浏览器实证 + API 实证双通过; R9 全轮次闭环(7 执行 agent + 主控终审)
 - 测试残留说明: 《测试之书甲》/「R9终审E2E单书任务」/「R9终审Mock规则」留库为 E2E 证据, 源指向本地 mock, 可在管理端删除
+
+---
+Task ID: R10-0
+Agent: main-orchestrator (Z.ai Code)
+Task: R10 开工 — 用户反馈两项 bug 现场定位 + 派工
+
+Work Log:
+- 用户反馈: ①重新设计的主题不可用 ②pilishuwu规则不正确 ③需要小白图文部署教程
+- 主题系统实测: ?theme=组合ID 预览渲染正常(紫罗兰列表布局完美) / PUT sites 持久化正常; 确诊=ThemesSection 只拉无参API(仅9套preset), 50400组合主题在管理UI无浏览入口; SitesSection 编辑对话框硬取 page=1&size=500(仅前491个组合可及)
+- pilishuwu 实测: 种子规则注释自认"推断选择器需实测微调"; 真实站可达但裸curl 403(CF)
+- 恢复现场: dev server 以 .zscripts/dev.sh 方式稳定运行(7 mini-services 拉起)
+
+Stage Summary:
+- 4 路并行派工: R10-a 主题系统补完 / R10-b pilishuwu 规则实测修复 / R10-c R9回归+剩余死角审查 / R10-d 小白图文部署教程
+- 注意: 当前默认站点 themeId 已被我改为 violet-minimal-list-im(测试残留), R10-a 收尾时恢复 aurora
+
+---
+Task ID: R10-d
+Agent: docs-tutorial-writer
+Task: 小白图文部署教程 docs/INSTALL-GUIDE.md（结构化步骤 + 截图 + 故障对照）
+
+Work Log:
+- 通读 README.md / DEPLOY.md(全文) / install.sh(头部 150 行 + 步骤 4~6 与成功输出段) / docker-compose.yml / .env.example，教程中每条命令与输出引文均与原文核实
+- 实核鉴权现状: docker-compose.yml 未透传 ADMIN_PASSWORD(容器不读宿主机 .env 该项), src/lib/auth.ts 现行为=未设时用编译期默认密码 audit-fix-2025 并打 [auth] 警告(DEPLOY.md「随机密码打日志」为旧描述); 教程如实按"默认密码表 + compose environment 加一行改密"写, 未臆造
+- 全景流程图: 手写 /tmp/flow.html(内联 CSS 横向 5 步流程, 白底中文编号) → agent-browser 1440x640 截图 --full
+- 应用截图 10 张全部现场重拍(统一 1440x900, agent-browser): cookies clear 拍登录页 → fill ADMIN_PASSWORD 登录 → 仪表盘 → 采集规则列表 → 新建规则编辑器(填示例值后拍) → 新建任务向导(选规则进第 2 步拍单本/范围模式) → 任务页(留库 R9终审E2E任务=已完成状态入镜) → 前台书城 → 草原上的骑兵详情页 → 阅读页第一章 → violet-minimal-list-im 主题预览; 未复用 .zscripts 旧图(旧图视口/状态不一)
+- UI 实拍核对: 后台导航 13 项/规则页工具栏(模板库/导入/导出/刷新/全量校准/新建规则)/规则行(编辑/校准/复制)/RuleEditor 四段页签+反反爬+内容清洗+测试面板/TaskWizard 四步向导/任务行六按钮, 教程按钮名与当前 UI 逐一一致
+- 撰写 docs/INSTALL-GUIDE.md(606 行, 10 章 + 附分工说明): 每步=截图+编号操作+「你会看到」+常见报错对照表; 深度细节链接 DEPLOY.md 对应 FAQ 条目编号, 不整段照抄
+- README.md 仅顶部加一行教程链接(其余未动); 未 commit; 未动 src/ 与配置; docs/images/ 新增 11 张 png; UI 操作全程未产生数据变更(对话框均取消, 主题预览仅 URL 参数)
+
+Stage Summary:
+- 交付: docs/INSTALL-GUIDE.md + docs/images/{00-flow,01-login,02-dashboard,03-rules-list,04-rule-editor,05-task-wizard,06-tasks,07-home,08-book-detail,09-reader,10-theme-preview}.png + README.md 一行链接
+- 教程/DEPLOY.md 分工: 本教程=第一次部署主干路径(买服务器→看书); DEPLOY.md=运维手册(校准/mini-services/16 条 FAQ); 速查表 10 条均标注对应 DEPLOY.md FAQ 编号
+- 已知诚实声明: 教程第五章登录密码表按当前代码实际行为写(audit-fix-2025 默认/compose 配置/本地 .env 三情形), 与 DEPLOY.md 旧"随机密码"描述不一致处以代码为准, 未改 DEPLOY.md(超本任务边界)
+
+---
+
+Agent: r10-regression-reviewer
+Task: R10-c 深度回归审查 — R9 改动回归审查 + 死角补查 + 微增强 + 清理
+
+Work Log:
+- git show --stat HEAD 锁定 R9 热区(fetcher 950/obscura 412/runner 303/cloak 332/hostgate 146), 逐文件 git diff 全量审阅; 1-a 条件请求协商(condCache 256条×256KB×TTL10min 有界+globalThis 版本化, 304 命中续期 R9-a2-2 已核实, token/challenge/contentProxy 三路径显式 conditionalGet:false, UA+Cookie 变体隔离)确认正确
+- 1-a 403/429 退避 × hostgate 交互核实: 无双重惩罚 —— fetcher hostRhythm 为 per-host 惩罚记忆(cooldown ≤20s 但单次执行等待钳 3s+抖动), hostgate 管准入并发/限流冷却(429→rateLimitedUntil), 两层互补加性且有界; 2-b 三个默认关增强开关关闭态逐路径比对旧版: FETCH_BINARY_RETRY 关=单次 attemptOnce 失败返 null(与旧 try/catch-null 等价)/FETCH_BODY_LEN_CHECK 关=strictLen 形参短路/PROXY_HEALTH_SCORING 关=random+ Fisher-Yates 原序, recordProxyOutcome 虽缺省也记录但纯内存 12 样本 FIFO 有界且仅开关开启时被消费 —— 零回归成立
+- 1-b per-context proxy 三级亲和核实: proxyKey=proxy URL 原串作 Map 键, 不同代理绝不碰撞, 同代理异写法仅多开桶(浪费不致命); 发现并修复清扫竞态(R10-c-2)
+- 1-d serializeCrashStatus/sweeper 核实: controlInner('start') rt.running 置位先于状态写 → sweeper 的 isRunning 复核覆盖启动在途窗口, DB 非 running 态本就不在扫描集, 竞态闭合; R9-d-10 autoRefresh 失败重排经 scheduleAutoRefresh 复核链无双重定时器; [R9-cl-4] shuntBookStatus 三处合并逐行等价(末章 URL 取值源逐一比对)
+- 发现修复 ①R10-c-1(High, 仅 PACE 开启态): reportHostSuccess 连 slowStreak 一并清零 —— 慢响应本身是 200 成功, runner 每次干净成功都调用本函数, 而 reportHostLatency 的慢样本计数发生在同一请求内先行执行 → 连续慢样本永远凑不满 PACE_SLOW_STREAK(3), R9-e-4 延迟放缓窗成死代码; 改为 success 只清 challengeStreak, 快样本重置已由 reportHostLatency else 分支承担; bun 冒烟实证: 递增延迟 3 连→放缓窗武装/success 不撤销/challenge 连击武装/success 清 challengeStreak 全 PASS
+- 发现修复 ②R10-c-2(Med): obscura sweepIdleProxyBrowsers 只识别 launchPromise 在飞, "launch 完成(entry.browser 已置)→createSlot 尚未 push 槽位"窗口内并发另一 proxyKey 触发清扫会误杀新实例 —— 轻则 createSlot 在已关浏览器上 newContext 抛错, 重则 entry 被删后槽位照样 push 成功, 该 chromium 从此脱离 proxyBrowsers 登记, shutdownObscura 永远关不掉(进程泄漏); 增 touchedAt 交付宽限 60s(ensureBrowser 每次交付即触摸), 真孤儿 touchedAt 陈旧不受影响
+- 发现修复 ③R10-c-5(Low): fetchHttp 成功路径 reportHostLatency(url) 归因初始 URL —— 重定向链跨域时把 B 站延迟记在 A 头上误放缓无辜源站, 改归因末跳 hopUrl(仅 PACE 开启态生效路径)
+- 死角补查 B: mini-services/_shared(server.ts BRIDGE_KEY 常量时间比较/127.0.0.1 硬绑定/idleTimeout 全部正确, userFetch 内部异常由 Bun.serve 兜底 500 不炸进程)+bqg713(纯计算无出网, token 泄漏面已控)/qimao(上游 15s×2 重试+handle 全局 try/catch→500)/deqixs(同款韧性+健康探针在途去重)/xjp —— xjp 两处落后于同族: getRes 缺 5xx/429 瞬态重试、healthCheck 缺并发探针去重, 对齐补齐(R10-c-3); 四代理错误路径/超时/退出码均无缺陷(常驻服务无显式 exit, 由进程管理器兜)
+- 死角补查 B: links.ts(computeWheelLinks 无效域名 continue 同时浪费一本书+槽位属宁缺毋滥语义内, 不改)/pseudostatic(buildBookUrl↔前台查询路由互逆成立)/api.ts(readBody CL 撒谎绕过面为 R6-3 既文档化取舍, 留档不改); downloader R9-d-5 分批边界核实: idx 恒 ≥1(runner tt-c 治愈负 idx), gt:0 游标不丢首章/同 idx 重复行不丢/空书 header+footer 正常产出/超长章名仅入正文不入文件名(saveChapterTxt 40 码点清洗) —— 无新问题
+- 清理 D: 分区文件 grep TODO/FIXME/临时 零残留(R9 清理彻底); fetcher.ts 3 处 console.log(启动/关停一次性生命周期日志)评估留档不换 logger[R10-c-4] —— 本模块 40+ 处 console.warn 主体同为单行文本, 仅换 3 处会致同文件双格式混杂
+- 质量门: bun run lint 0 错 0 警; bunx tsc --noEmit 全量 0 错; mini-services/xjp-proxy 独立 tsconfig tsc 0 错; hostgate PACE 双态 bun 冒烟 6/6 PASS(临时脚本已删); dev server 未触碰未重启; 未 git commit, 未动 prisma/依赖/测试, types.ts 零改动
+
+Stage Summary:
+- 回归审查结论: R9 修复抽审 16 处全部确认正确(R9-a2-1 curl 退出码/R9-a-6+R9-a2-3 Sec-Fetch-Site/R9-a-16 settle 先序/R9-b-1/9 生命周期锁/R9-b-10/11/12/R9-d-1/2/5/9/10/R9-cl-1/3/4); 被修正 3 处: R9-e-4 延迟放缓窗死代码(R10-c-1)/R9-b-7 代理桶清扫竞态可致 shutdown 关不掉的孤儿 chromium(R10-c-2)/R9-e-4 延迟归因错 host(R10-c-5); 三个 2-b 默认关增强关闭态与旧版逐字节一致成立
+- 新修复清单: R10-c-1[High·仅开启态] reportHostSuccess 清 slowStreak 致节奏画像延迟放缓窗永不武装 | R10-c-2[Med] 代理浏览器孤儿清扫误杀建槽窗口实例→shutdown 泄漏 chromium | R10-c-5[Low] 节奏画像延迟跨域重定向归因错 host
+- 增强项: R10-c-3 xjp-proxy 对齐同族韧性口径(5xx/429 瞬态重试一次+重试前泄响应体 + /health 并发探针在途去重)
+- 清理项: R10-c-4 fetcher console.log 评估留档(不换 logger, 理由注释留档); 临时标记零残留确认
+- 遗留风险: ①hostRhythm 惩罚仅在 fetchPageOnce 首次 HTTP 尝试前执行, 同轮 cookie/退避重试不复查节奏(重试自有 350ms/指数退避间隔, 加性影响有界) ②condCache 304 命中前条目若恰被并发驱逐(TTL/容量)会抛"304 无缓存条目"错误走失败链(概率极低, 不计惩罚不缓存污染) ③fetchBinary 共享单 controller 超时预算, 首次尝试耗尽预算后重试实际无效(开关开启态语义, 可接受) ④api.readBody Content-Length 撒谎可绕过字节上限(R6-3 文档化取舍, 依赖 Next 运行时兜底) ⑤[R9-e-2] 健康样本含 curl 兜底墙钟粗粒度信号(上游已知)
+
+---
+Task ID: R10-a2
+Agent: theme-verifier
+Task: 收尾验证 R10-a 主题系统改造(搜索 API/组合浏览器/站点主题选择器/7 布局 E2E/恢复默认主题)
+
+Work Log:
+- 逐块审阅 R10-a 五文件 diff(+583 行): ①themes API 双模式契约核实——无参仍返回 9 preset 数组(向后兼容), 分页模式 total=totalAll=50409, ?q= 搜索 preset+组合统一 matchListItem/searchThemeList 口径过滤后分页, total=过滤后总数, 越界页钳制, q 仅分页模式生效; ②theme-matrix 惰性单例缓存 THEME_LIST_CACHE 正确(确定性静态派生数据, 注释含 10MB 内存取舍说明), getThemeList 仅含组合不含 preset, 与搜索分支拼接无重复; ③ThemesSection 组合浏览器: 300ms 防抖/分页 24|48|96/fetchSeq 竞态丢弃/卡片复用预览+设默认两动作/空态提示齐全; ④SitesSection 双轨主题数据(themeKnown 缓存+themeHits 前 50 服务端命中), 未解析 themeId 按 q=ID 精确补缓存, 对话框与批量条"当前值置顶回显"兜底, 卡片解析失败退回裸 ID——未发现缺陷, 零代码修改(无 [R10-a2-N] 标记)
+- curl 实测 API 契约 8 例全 PASS: 无参=9 数组/page1size3 total=50409/越界页 99999→钳至末页 16803/q=紫罗兰 total=2016 命中 violet-*/q=violet 同/q=aurora 1201 首项=preset/q 无命中=0 空/page2 q=网格 翻页正确
+- E2E(agent-browser): 登录后台→主题模板页页头「共 50409 套: 9 精选 + 50400 组合」✓, 组合浏览器出现✓, 搜「紫罗兰」命中 2016(84 页@24/页)✓, 下一页→2/84✓; 7 种首页布局逐一 /?view=home&theme=emerald-minimal-{grid-cl,list-im,shelf-pg,min-cl,mag-pl,th-im,pili-pl} DOM 内容核验(chars 923~1608, imgs 6~19, 均无空白)且各布局内容排布互异✓; 阅读页 2 布局(classic=grid-cl/immersive=list-im, 真实书籍 cmtw8f1g5000ior3gmr1ys68h 第1章)均渲染正文✓; 站群编辑对话框: 当前值回显「紫罗兰·极简白·列表·沉浸|列表|亮色|violet-minimal-list-im」✓, 搜 rose/aurora 服务端命中✓, 保存 violet-rosegarden-grid-cl→卡片显示「玫瑰花园·网格·典书 · grid」✓, 改回 aurora→卡片「星夜幻紫 · shelf」✓; console 全程仅 1 条 hydration 属性失配告警(后台登录流程与未改动的公网首页基线均复现, Next16 dev 模式既有现象, 非主题回归), 零真实 error
+- 现场恢复: UI 改回 aurora 后再按任务要求 curl PUT /api/admin/sites/{默认站 id} {"themeId":"aurora"} 幂等确认, GET 核验 themeId=aurora✓
+- 环境注记: 接手时主应用 dev server(3000)已死(仅余 mini-services), 按 .zscripts/dev.sh 同款手法后台重启(setsid+bun run dev, 未动 7 个 mini-service), 全程未改配置
+- 质量门: bun run lint 0 错 0 警; bunx tsc --noEmit 全量 0 错; 未 git commit, 未新增依赖, 未动 src/components/public/layouts(无渲染 bug 需修)
+
+Stage Summary:
+- R10-a 改动核实结论: 5 文件改动全部正确, 主题搜索 API/组合浏览器/站点主题选择器/布局渲染经 API 契约测试+浏览器 E2E 全量验证通过, 未发现需修复缺陷
+- 7 布局验证: grid-cl/list-im/shelf-pg/min-cl/mag-pl/th-im/pili-pl 逐一通过(无空白/无错位/无 console error); 阅读页 classic+immersive 通过
+- 截图: .zscripts/r10-a2-{admin-login,themes-search,themes-page2,home-grid-cl,home-list-im,home-shelf-pg,home-min-cl,home-mag-pl,home-th-im,home-pili-pl,read-classic,read-immersive,sites-saved}.png(13 张)
+- 遗留风险: ①hydration 告警为既有 dev 现象(build 模式未见验证, 可后续专项排查) ②dev.log 被重启覆盖(仅日志, 无碍) ③dev server 由本任务后台拉起, 会话结束后若再死需按 dev.sh 重启
+
+---
+Task ID: R10-b2
+Agent: pilishuwu-verifier
+Task: 收尾验证 R10-b pilishuwu 规则重写(选择器证据审阅/DB 同步核查/mock 结构性验证/质量门)
+
+Work Log:
+- 全量审阅 git diff scripts/seed-rule-pilishuwu.ts(+114 行): R10-b 侦察结论核实成立 —— 证据文件 tool-results/r10b-www_pilishuwu_com_*.html 共 8 份真实 HTML 落盘存在(经 z-ai page_reader 通道绕过本机 CF 403), 逐份 rg 验证选择器: 列表页 li.ret-search-item/ret-works-title/author/tags/decs/mod-cover-list-thumb 各恰好命中 20 次(P1=20 项, 侧栏 rank-item 类名不同不混入); info 页 works-intro-title/author-name/intro-status/ft-new/intro-short 各命中 1 次; menu 页 works-chapter-item 命中 1360 次(与注释"1360 章实测单页全量"一致, div.vloume 模板原始拼写确认); read 页 j_readContent/j_chapterName 各 1 次
+- 关键 URL 独立复核(web-reader 抓 https://www.pilishuwu.com/0/list/0_0_0_0_0_0_0_2.html): 200, 89KB, ret-search-item=20 —— ★分页必须走 0_0_0_0_0_0_0_{page}.html 筛选段形态的修正结论独立验证通过(旧形态 /0/list/2.html 实测 0 项, 证据 P1 内翻页链 href 全为该形态, 末页 1138)
+- DB 同步核查: GET /api/admin/rules 定位规则 id=cmtw9ii3n0000or5qdvail9d3, 种子脚本 rule 对象经 bun 提取导出后与 DB config 逐段 JSON 比对 —— R10-b 超时前已完成入库, 六段(list/book/toc/content/fetch/clean)完全一致, 无需补同步
+- [R10-b2-1·Med] 发现并修复 tocLink 非法 CSS: 原稿 expression "aref*='/menu/']" 丢了 [href 左括号, cssSelect 对非法选择器静默返回 null → tocLink 永远失效, 目录抓取实际全程依赖"章节目录"文案嗅探兜底; 修正为 a[href*='/menu/'](种子脚本+API PUT 同步 DB, 其余字段原样未动, GET 复核 base64 比对一致)
+- 结构性验证(mock): 以 R10-b 抓获的真实站点 HTML 原文回放为本地 mock(/tmp/pili-mock.ts, 按真实 URL 形态映射 4 路径), 规则副本指向 mock 走管理 API 测试端点(POST /api/admin/rules/test)四段全 PASS: list=20 项(author/category"作者：/分类："前缀正确剥离, bookUrl 绝对化)/book=十日终焉+杀虫队队员+已完结+第1360章/toc=经修正后 tocLink 命中 menu 页解析 1360 章(与真实侦察数一致)/content=rawLen 2828→cleanLen 2814(广告剥离生效); 注: fetcher SSRF 守卫拦 127.0.0.1 回环(allowLoopback 白名单仅限操作员 tokenUrl/contentProxyUrl), mock 改绑公网口 IP 绕过, 未改任何守卫代码
+- 质量门: bun run lint 0 错 0 警; bunx tsc --noEmit 全量 0 错; 未 git commit, 未动 src/**, mock/临时件均在 /tmp
+- 环境注记: 接手时 dev server(3000)处于死亡态(与 R10-a2 留档一致), 曾后台拉起 bun run dev 一次但 EADDRINUSE 失败退出(原 server 随即自愈, 无残留); 本任务全程零干扰现有进程, 3300 mock 已关停
+
+Stage Summary:
+- R10-b 修正内容核实结论: 选择器/URL 全部有真实抓取证据支撑(8 份 HTML + 分页形态独立复核), 证据强度高, 唯一缺陷为 tocLink 选择器笔误(已修复)
+- DB 同步: R10-b 已自行入库且与种子脚本一致; 本次仅追加 [R10-b2-1] tocLink 修正同步(API PUT, 已核验)
+- 最终验证: 真实 HTML 回放 mock 四段测试全 PASS, 规则最终置信度: 高(列表/书籍/目录/正文选择器+分页形态均经实测, CF 引擎链路 engine=auto+browserFallbackStatus 为配置级策略, 需生产首采运行时确认)
+- 遗留: ①toc 分页 maxPages=10 为防御性配置, 当前 menu 单页全量无下一页链(哨兵不命中) ②tool-results/r10b-*.html 为 gitignored 证据件, 勿清理 ③dev server 3000 端口间歇性死亡为既有环境现象(见 R10-a2 留档), 与本任务无关
+
+---
+Task ID: R10-final
+Agent: main-orchestrator (Z.ai Code)
+Task: R10 终审收尾 — compose 密码透传修复 + 教程同步 + 浏览器终验 + 提交
+
+Work Log:
+- [R10-f-1] docker-compose.yml 补 ADMIN_PASSWORD/SESSION_SECRET 透传(R10-d 发现: 此前容器始终用编译期默认密码, 与 DEPLOY.md 指引断层; 空值回落安全)
+- docs/INSTALL-GUIDE.md 8.1 节与登录密码表同步新行为(.env 设置即生效, 手写 compose 降为备选)
+- 浏览器终验: 主题模板页「共 50409 套: 9 精选 + 50400 组合」+ 组合浏览器卡片(带 ID)渲染正常; 默认主题已恢复 aurora
+- 质量门: lint 0/0 + tsc 全量 0 错; 教程 11 图齐全, 00-flow.png 全景流程图质量复核通过
+- .gitignore 增补 .zscripts/*.png|*.log(沙箱工作产物不入库), 已跟踪的历史截图退跟踪
+
+Stage Summary:
+- R10 全轮次闭环: 主题系统补完(50409 套全可达+E2E 7 布局全过) / pilishuwu 规则真实证据链修复(置信度高) / R10-c 回归审查 3 修复(PACE 死代码复活等) / 小白图文教程 606 行+11 图 / compose 鉴权透传

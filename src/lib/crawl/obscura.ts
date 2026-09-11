@@ -922,8 +922,10 @@ interface ObscuraGlobal {
   browser?: Browser | null
   launchPromise?: Promise<Browser> | null
   /** [R9-b-7] per-proxy 独立浏览器实例表(key=proxy URL 原串) —— per-context 代理要求
-   *  browser 级挂占位全局 proxy, 不能与直连浏览器混用; 按 proxy 分桶隔离 */
-  proxyBrowsers: Map<string, { browser: Browser | null; launchPromise: Promise<Browser> | null }>
+   *  browser 级挂占位全局 proxy, 不能与直连浏览器混用; 按 proxy 分桶隔离。
+   *  [R10-c-2] 修复: 增 touchedAt(最近一次 ensureBrowser 交付实例的时刻), 供孤儿清扫
+   *  留 60s 宽限 —— 防"launch 刚完成、槽位尚未 push"窗口内被并发清扫误杀(见下方注释) */
+  proxyBrowsers: Map<string, { browser: Browser | null; launchPromise: Promise<Browser> | null; touchedAt?: number }>
   slots: PoolSlot[]
   pendingCreates: number
   waiters: Array<() => void>
@@ -985,11 +987,20 @@ export async function applyUaCdpOverride(page: Page, ua: string): Promise<CDPSes
 
 /** [R9-b-7] 清扫已无任何槽位引用的代理浏览器实例(excludeKey 除外 —— 当前正在创建的桶)。
  *  槽位总量被 MAX_CONCURRENCY 上限钉死, 故有槽位的代理桶天然有界; 本清扫只回收
- *  "代理不再被任何槽位使用”的孤儿实例, 防长任务轮换多代理时 chromium 进程累积 */
+ *  "代理不再被任何槽位使用”的孤儿实例, 防长任务轮换多代理时 chromium 进程累积
+ *  [R10-c-2] 修复: 新增 60s 交付宽限 —— 原实现只识别 launchPromise 在飞, 存在窗口:
+ *  launch 完成(entry.browser 已置、launchPromise 已清) → createSlot 还在 newContext/
+ *  addInitScript(槽位尚未 push 进 S.slots)期间, 并发另一 proxyKey 的 ensureBrowser 触发清扫
+ *  会把这个“无槽位引用”的新实例误判孤儿: 轻则 createSlot 在已关浏览器上 newContext 抛错
+ *  (瞬态失败), 重则 entry 被删后槽位照样 push 成功 —— 该浏览器从此脱离 proxyBrowsers 登记,
+ *  shutdownObscura 永远关不掉它(chromium 进程泄漏)。宽限期内不清扫, 真孤儿(槽位早已释放)
+ *  的 touchedAt 陈旧不受影响 */
 function sweepIdleProxyBrowsers(excludeKey: string): void {
+  const now = Date.now()
   for (const [key, entry] of S.proxyBrowsers) {
     if (key === excludeKey) continue
     if (entry.launchPromise) continue // 创建中, 交给 launch 后自然写入 entry.browser
+    if (entry.touchedAt && now - entry.touchedAt < 60_000) continue // 交付宽限(见上注释)
     const hasSlot = S.slots.some((s) => (s.proxyKey || '') === key)
     if (hasSlot) continue
     S.proxyBrowsers.delete(key)
@@ -1017,11 +1028,15 @@ async function ensureBrowser(proxyKey = ''): Promise<Browser> {
       entry = { browser: null, launchPromise: null }
       S.proxyBrowsers.set(proxyKey, entry)
     }
-    if (entry.browser && entry.browser.isConnected()) return entry.browser
+    if (entry.browser && entry.browser.isConnected()) {
+      entry.touchedAt = Date.now() // [R10-c-2]: 交付即触摸(孤儿判定基准, 防建槽窗口误清扫)
+      return entry.browser
+    }
     if (entry.launchPromise) return entry.launchPromise
     entry.launchPromise = launchBrowser(proxyKey)
     try {
       entry.browser = await entry.launchPromise
+      entry.touchedAt = Date.now() // [R10-c-2]: 同上
       return entry.browser
     } finally {
       entry.launchPromise = null

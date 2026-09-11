@@ -366,3 +366,31 @@ export function getThemesPage(page: number, size: number): {
   const items = all.slice(start, start + sz)
   return { page: p, size: sz, total, totalPages, items }
 }
+
+// ============================================================
+// 6. [R10-a-1] 全量列表惰性单例缓存 + q 搜索(admin/themes API 搜索分页用)
+// ============================================================
+// 取舍说明: getThemeList() 全量约 50400 项 ≈ 10MB 内存。原设计"每次请求重建即丢"在纯
+// 分页场景内存友好; 但 ?q= 搜索需要每次请求全量扫描, 反复重建 50400 项的 CPU/GC 开销
+// 反而大于一次性构建。组合描述符是确定性静态派生数据(仅由 COLOR/STYLE/LAYOUT 三张静态
+// 表笛卡尔积合成, 进程生命周期内永不变化), 故用模块级惰性单例缓存, 首次搜索后常驻复用。
+let THEME_LIST_CACHE: ThemeListItem[] | null = null
+
+/** getThemeList() 的单例缓存版 — 仅限需要全量扫描的场景(admin 搜索 API), 纯分页请继续用 getThemesPage */
+export function getThemeListCached(): ThemeListItem[] {
+  if (!THEME_LIST_CACHE) THEME_LIST_CACHE = getThemeList()
+  return THEME_LIST_CACHE
+}
+
+/** [R10-a-2] q 搜索: 按 id/name/desc 不区分大小写子串匹配(空 q 返回全量列表)
+ *  命中示例: "紫罗兰"→名称前缀配色(1008 组合) / "violet"→ID 片段 / "沉浸"→desc 中的布局/明暗词 */
+export function searchThemeList(q: string): ThemeListItem[] {
+  const needle = q.trim().toLowerCase()
+  if (!needle) return getThemeListCached()
+  return getThemeListCached().filter(
+    (t) =>
+      t.id.toLowerCase().includes(needle) ||
+      t.name.toLowerCase().includes(needle) ||
+      t.desc.toLowerCase().includes(needle)
+  )
+}

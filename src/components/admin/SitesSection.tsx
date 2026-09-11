@@ -5,7 +5,7 @@
 // 批量操作: 卡片多选 + 批量删除(默认站保护)/换主题/设偏移量/加入·移出链轮
 // (共享批量设施 batch.tsx; 链轮动作走 sites/batch wheel)
 // ============================================================
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -48,6 +48,24 @@ interface SiteTheme {
   preview: [string, string, string]
 }
 
+/** 分页搜索模式响应(带 ?q= 时 total 为过滤后总数, totalAll 恒为全库 50409) */
+interface ThemeHitsResp {
+  items: SiteTheme[]
+  total: number
+  totalAll: number
+}
+
+/** [R10-a-5] 首页布局中文标签(与 theme-matrix LAYOUTS.homeLayout 对齐, 前端独立映射) */
+const HOME_LABEL: Record<string, string> = {
+  grid: '网格',
+  list: '列表',
+  shelf: '书架',
+  magazine: '杂志',
+  minimal: '极简',
+  theater: '剧院',
+  pili: '霹雳',
+}
+
 interface SiteForm {
   name: string
   domain: string
@@ -82,7 +100,6 @@ const emptyForm: SiteForm = {
 
 export function SitesSection() {
   const [sites, setSites] = useState<SiteRow[]>([])
-  const [themes, setThemes] = useState<SiteTheme[]>([])
   const [loading, setLoading] = useState(true)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<SiteRow | null>(null)
@@ -96,17 +113,27 @@ export function SitesSection() {
   const [batchConfirmOpen, setBatchConfirmOpen] = useState(false)
   const [pendingTheme, setPendingTheme] = useState('')
   const [pendingOffset, setPendingOffset] = useState('')
-  const [themeSearch, setThemeSearch] = useState('')
+  // ---- [R10-a-5] 主题数据双轨: 不再硬编码 page=1&size=500(全库 50409 套只可达前 491 个) ----
+  // themeKnown: 已知主题缓存(9 套预设 + 历次搜索命中 + 卡片按需解析), 卡片名称/当前值回显用
+  // themeHits:  当前搜索词的服务端前 50 条命中(编辑对话框与批量条两处下拉共用数据源)
+  const [themeKnown, setThemeKnown] = useState<SiteTheme[]>([])
+  const [themeHits, setThemeHits] = useState<SiteTheme[]>([])
+  const [themeTotalAll, setThemeTotalAll] = useState(0)
+  const [themeSearch, setThemeSearch] = useState('') // 搜索框原始输入(对话框与批量条共用)
+  const [themeQuery, setThemeQuery] = useState('') // 300ms 防抖后的生效搜索词
+  const themeHitSeq = useRef(0) // 响应序号: 丢弃竞态过期响应
+  const themeKnownRef = useRef<SiteTheme[]>([])
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const [ss, ts] = await Promise.all([
+      // [R10-a-5] 仅常驻加载 9 套预设; 全库组合主题改走服务端 ?q= 搜索(见 themeQuery 副作用)
+      const [ss, ps] = await Promise.all([
         api.get<SiteRow[]>('/api/admin/sites'),
-        api.get<{ items: SiteTheme[]; total: number }>('/api/admin/themes?page=1&size=500'),
+        api.get<SiteTheme[]>('/api/admin/themes'),
       ])
       setSites(Array.isArray(ss) ? ss : [])
-      setThemes(ts?.items || (Array.isArray(ts) ? ts : []))
+      setThemeKnown(Array.isArray(ps) ? ps : [])
     } catch (e) {
       toast.error(e instanceof Error ? e.message : '加载站点失败')
     } finally {
@@ -118,14 +145,76 @@ export function SitesSection() {
     load()
   }, [load])
 
-  const filteredThemes = themeSearch.trim()
-    ? themes.filter((t) => t.id.toLowerCase().includes(themeSearch.toLowerCase()) || t.name.includes(themeSearch))
-    : themes
-  const themeOf = (id: string) => themes.find((t) => t.id === id)
+  // 已知主题并入缓存(按 id 去重, 不覆盖已有项)
+  const mergeThemes = useCallback((incoming: SiteTheme[]) => {
+    if (!incoming.length) return
+    setThemeKnown((prev) => {
+      const seen = new Set(prev.map((t) => t.id))
+      const add = incoming.filter((t) => t && t.id && !seen.has(t.id))
+      return add.length ? [...prev, ...add] : prev
+    })
+  }, [])
+
+  useEffect(() => {
+    themeKnownRef.current = themeKnown
+  }, [themeKnown])
+
+  // 搜索防抖 300ms: 输入停顿后才发起服务端搜索(对话框与批量条共用同一搜索词)
+  useEffect(() => {
+    const t = setTimeout(() => setThemeQuery(themeSearch), 300)
+    return () => clearTimeout(t)
+  }, [themeSearch])
+
+  // [R10-a-5] 服务端搜索: 取命中前 50 条为下拉数据源(空词 → 全库顺序前 50: 9 精选 + 41 组合)
+  useEffect(() => {
+    const seq = ++themeHitSeq.current
+    api
+      .get<ThemeHitsResp>('/api/admin/themes', { page: 1, size: 50, q: themeQuery.trim() || undefined })
+      .then((d) => {
+        if (seq !== themeHitSeq.current || !d) return
+        setThemeHits(Array.isArray(d.items) ? d.items : [])
+        setThemeTotalAll(Number(d.totalAll) || 0)
+        mergeThemes(Array.isArray(d.items) ? d.items : [])
+      })
+      .catch(() => {
+        // 下拉数据失败静默: 卡片/回显退回缓存或裸 ID, 不阻塞站点管理主流程
+      })
+  }, [themeQuery, mergeThemes])
+
+  // [R10-a-5] 卡片主题名回显: 站点引用了缓存之外的主题(组合主题 ID)时按 q=ID 精确解析补入缓存
+  // (站点数量有限, 每个未知 ID 仅解析一次; 解析结果与编辑对话框回显共用 themeKnown)
+  useEffect(() => {
+    const known = themeKnownRef.current
+    const unresolved = Array.from(
+      new Set(sites.map((s) => s.themeId).filter((id) => id && !known.some((t) => t.id === id)))
+    )
+    if (unresolved.length === 0) return
+    let alive = true
+    Promise.all(
+      unresolved.map(async (id) => {
+        try {
+          const d = await api.get<ThemeHitsResp>('/api/admin/themes', { page: 1, size: 50, q: id })
+          return (Array.isArray(d?.items) ? d.items : []).find((t) => t.id === id)
+        } catch {
+          return null
+        }
+      })
+    ).then((found) => {
+      if (alive) mergeThemes(found.filter((t): t is SiteTheme => !!t))
+    })
+    return () => {
+      alive = false
+    }
+  }, [sites, mergeThemes])
+
+  const themeOf = (id: string) => themeKnown.find((t) => t.id === id)
+  /** 编辑对话框当前值回显用的主题对象(解析不到时回退裸 ID 展示) */
+  const currentTheme = themeOf(form.themeId)
 
   const openCreate = () => {
     setEditing(null)
     setForm(emptyForm)
+    setThemeSearch('') // 打开对话框重置搜索词, 下拉回默认前 50 条
     setDialogOpen(true)
   }
 
@@ -146,6 +235,7 @@ export function SitesSection() {
       status: s.status,
       inLinkWheel: s.inLinkWheel ?? true,
     })
+    setThemeSearch('') // 打开对话框重置搜索词, 下拉回默认前 50 条
     setDialogOpen(true)
   }
 
@@ -222,7 +312,7 @@ export function SitesSection() {
 
   const doBatchTheme = () => {
     if (!pendingTheme) return
-    const theme = themes.find((t) => t.id === pendingTheme)
+    const theme = themeOf(pendingTheme)
     void runSitesBatch(
       { action: 'theme', payload: { themeId: pendingTheme } },
       (r) => `已将 ${r.affected ?? 0} 个站点切换到「${theme?.name || pendingTheme}」主题`
@@ -285,12 +375,35 @@ export function SitesSection() {
         >
           移出链轮
         </BatchActionButton>
+        {/* [R10-a-5] 批量换主题: 搜索框(服务端 ?q=) + 前 50 条命中下拉, 全库组合主题可达 */}
+        <Input
+          className="h-7 w-28 border-zinc-700 bg-zinc-950 text-xs"
+          placeholder="搜主题…"
+          title="支持名称/ID/风格搜索全库 5 万余套主题"
+          value={themeSearch}
+          onChange={(e) => setThemeSearch(e.target.value)}
+        />
         <Select value={pendingTheme} onValueChange={setPendingTheme}>
-          <SelectTrigger className="h-7 w-36 border-zinc-700 bg-zinc-950 text-xs">
+          <SelectTrigger className="h-7 w-40 border-zinc-700 bg-zinc-950 text-xs">
             <SelectValue placeholder="切换主题模板" />
           </SelectTrigger>
-          <SelectContent>
-            {themes.map((t) => (
+          <SelectContent className="max-h-[300px]">
+            {/* 当前已选主题不在命中列表时置顶补一项, 保证回显 */}
+            {pendingTheme && !themeHits.some((t) => t.id === pendingTheme) && (
+              <SelectItem value={pendingTheme} className="text-xs">
+                <span className="flex items-center gap-2">
+                  {themeOf(pendingTheme) && (
+                    <span className="flex overflow-hidden rounded-sm border border-zinc-700">
+                      {themeOf(pendingTheme)!.preview.map((c, i) => (
+                        <span key={i} className="h-3 w-3" style={{ backgroundColor: c }} />
+                      ))}
+                    </span>
+                  )}
+                  当前: {themeOf(pendingTheme)?.name || pendingTheme}
+                </span>
+              </SelectItem>
+            )}
+            {themeHits.map((t) => (
               <SelectItem key={t.id} value={t.id} className="text-xs">
                 <span className="flex items-center gap-2">
                   <span className="flex overflow-hidden rounded-sm border border-zinc-700">
@@ -299,9 +412,12 @@ export function SitesSection() {
                     ))}
                   </span>
                   {t.name}
+                  <span className="text-[10px] text-zinc-500">{HOME_LABEL[t.layout] || t.layout}</span>
+                  <span className={`text-[10px] ${t.dark ? 'text-zinc-400' : 'text-amber-300'}`}>{t.dark ? '暗色' : '亮色'}</span>
                 </span>
               </SelectItem>
             ))}
+            {themeHits.length === 0 && <div className="p-2 text-xs text-zinc-500">无匹配主题</div>}
           </SelectContent>
         </Select>
         <BatchActionButton running={batchRunning} disabled={!pendingTheme} className="text-violet-400 hover:text-violet-300" onClick={doBatchTheme}>
@@ -366,7 +482,7 @@ export function SitesSection() {
                       <Switch checked={s.status} onCheckedChange={(v) => toggleStatus(s, v)} />
                     </div>
 
-                  {theme && (
+                  {theme ? (
                     <div className="mt-3 flex items-center gap-2">
                       <div className="flex overflow-hidden rounded border border-zinc-700">
                         {theme.preview.map((c, i) => (
@@ -376,6 +492,13 @@ export function SitesSection() {
                       <Badge variant="outline" className="border-zinc-700 bg-zinc-950 text-[10px] text-zinc-300">
                         {theme.name} · {theme.layout}
                         {theme.dark ? ' · 暗色' : ''}
+                      </Badge>
+                    </div>
+                  ) : (
+                    // [R10-a-5] 组合主题解析失败/未返回时的兜底回显(裸 ID)
+                    <div className="mt-3 flex items-center gap-2">
+                      <Badge variant="outline" className="border-zinc-700 bg-zinc-950 font-mono text-[10px] text-zinc-400" title="主题详情解析中或不可用">
+                        主题: {s.themeId}
                       </Badge>
                     </div>
                   )}
@@ -442,19 +565,65 @@ export function SitesSection() {
               />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs text-zinc-400">前台主题 <span className="text-zinc-600">({themes.length} 套可选, 更多用 URL ?theme= 预览)</span></Label>
+              <Label className="text-xs text-zinc-400">
+                前台主题 <span className="text-zinc-600">(全库 {themeTotalAll ? `${themeTotalAll} 套` : '…'} 可选, 下拉展示命中前 50 条)</span>
+              </Label>
+              {/* [R10-a-5] 搜索防抖 300ms 后走服务端 ?q=, 不再客户端过滤固定 500 条 */}
               <Input
                 className="h-8 border-zinc-700 bg-zinc-950 text-xs"
-                placeholder="搜索主题ID或名称(如 violet/paper/grid)..."
+                placeholder="搜索主题名称/ID/风格 (如 紫罗兰/violet/grid)..."
                 value={themeSearch}
                 onChange={(e) => setThemeSearch(e.target.value)}
               />
+              {/* 当前值回显: 彩色预览 + 名称 + 布局 + 暗亮 (解析不到时退回裸 ID) */}
+              <div className="flex items-center gap-2 rounded-md border border-zinc-800 bg-zinc-950/60 px-2 py-1.5">
+                <span className="shrink-0 text-[10px] text-zinc-600">当前</span>
+                {currentTheme && (
+                  <span className="flex shrink-0 overflow-hidden rounded-sm border border-zinc-700">
+                    {currentTheme.preview.map((c, i) => (
+                      <span key={i} className="h-3 w-3" style={{ backgroundColor: c }} />
+                    ))}
+                  </span>
+                )}
+                <span className="truncate text-xs text-zinc-200">{currentTheme ? currentTheme.name : form.themeId || '未设置'}</span>
+                {currentTheme && (
+                  <>
+                    <Badge variant="outline" className="border-zinc-700 bg-zinc-950 text-[10px] text-zinc-400">
+                      {HOME_LABEL[currentTheme.layout] || currentTheme.layout}
+                    </Badge>
+                    <Badge variant="outline" className={`shrink-0 text-[10px] ${currentTheme.dark ? 'border-zinc-600 bg-zinc-800 text-zinc-300' : 'border-amber-500/40 bg-amber-500/10 text-amber-300'}`}>
+                      {currentTheme.dark ? '暗色' : '亮色'}
+                    </Badge>
+                  </>
+                )}
+                <span className="ml-auto shrink-0 truncate font-mono text-[10px] text-zinc-600">{form.themeId}</span>
+              </div>
               <Select value={form.themeId} onValueChange={(v) => setForm({ ...form, themeId: v })}>
                 <SelectTrigger className="h-9 border-zinc-700 bg-zinc-950 text-sm">
-                  <SelectValue />
+                  <SelectValue placeholder={currentTheme ? currentTheme.name : form.themeId} />
                 </SelectTrigger>
                 <SelectContent className="max-h-[300px]">
-                  {filteredThemes.map((t) => (
+                  {/* 当前主题不在命中列表时置顶补一项, 保证下拉内始终可选回当前值 */}
+                  {form.themeId && !themeHits.some((t) => t.id === form.themeId) && (
+                    <SelectItem value={form.themeId} className="text-sm">
+                      <span className="flex items-center gap-2">
+                        {currentTheme && (
+                          <span className="flex overflow-hidden rounded-sm border border-zinc-700">
+                            {currentTheme.preview.map((c, i) => (
+                              <span key={i} className="h-3 w-3" style={{ backgroundColor: c }} />
+                            ))}
+                          </span>
+                        )}
+                        当前: {currentTheme ? currentTheme.name : form.themeId}
+                        {currentTheme && (
+                          <span className="text-[10px] text-zinc-500">
+                            {HOME_LABEL[currentTheme.layout] || currentTheme.layout} · {currentTheme.dark ? '暗色' : '亮色'}
+                          </span>
+                        )}
+                      </span>
+                    </SelectItem>
+                  )}
+                  {themeHits.map((t) => (
                     <SelectItem key={t.id} value={t.id} className="text-sm">
                       <span className="flex items-center gap-2">
                         <span className="flex overflow-hidden rounded-sm border border-zinc-700">
@@ -463,11 +632,12 @@ export function SitesSection() {
                           ))}
                         </span>
                         {t.name}
-                        <span className="text-zinc-600 text-[10px]">{t.id}</span>
+                        <span className="text-[10px] text-zinc-500">{HOME_LABEL[t.layout] || t.layout}</span>
+                        <span className={`text-[10px] ${t.dark ? 'text-zinc-400' : 'text-amber-300'}`}>{t.dark ? '暗色' : '亮色'}</span>
                       </span>
                     </SelectItem>
                   ))}
-                  {filteredThemes.length === 0 && <div className="p-2 text-xs text-zinc-500">无匹配主题</div>}
+                  {themeHits.length === 0 && <div className="p-2 text-xs text-zinc-500">无匹配主题, 换个关键词试试</div>}
                 </SelectContent>
               </Select>
             </div>

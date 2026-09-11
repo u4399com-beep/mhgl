@@ -628,6 +628,10 @@ export function loadCookieJarFromDisk(): void {
     const json = fs.readFileSync(COOKIE_PERSIST_PATH, 'utf8')
     if (typeof json === 'string' && json.length > 0) {
       cookieJar.load(json)
+      // [R10-c-4] 清理评估: 本文件全部 40+ 处 console.* 保持裸用不换 logger —— 本模块为采集
+      // 基础库, 日志均为运维可读的单行文本(与既有 console.warn 主体格式一致), 且启动/关停
+      // 三个 log 是进程生命周期一次性事件; 换 logger 会输出 JSON 行, 同文件内两种格式混杂
+      // 反而降低终端可读性(理由留档, 非遗漏)
       console.log(`[fetcher] cookie jar 已从 ${COOKIE_PERSIST_PATH} 加载(${cookieJar.domainCount()} 域)`)
     }
   } catch (e: any) {
@@ -2183,7 +2187,10 @@ async function fetchHttp(url: string, cfg: FetchConfig, ua: string, proxy = '', 
       // 喂 hostgate 供"目标站响应变慢"感知; 缺省关闭零开销。仅 native 传输(中继/curl 链
       // 时延含桥接/子进程开销, 不代表目标站快慢); hopT0=0(开关关闭)时不产样本
       if (PACE_PROFILE_ENABLED && transport !== 'relay' && hopT0 > 0) {
-        reportHostLatency(url, Date.now() - hopT0)
+        // [R10-c-5] 修复: 归因 host 用末跳 hopUrl 而非初始 url —— 重定向链跨域时原实现把
+        // "A 站跳到 B 站"的延迟记在 A 头上, 节奏画像会误放缓未被证明变慢的源站; 末跳才是
+        // 实际产出响应体、延迟真正归属的目标
+        reportHostLatency(hopUrl, Date.now() - hopT0)
       }
       // [R9-a-13] B1: 记录响应校验器供下次条件请求(仅未拦正文 + 256KB 内; 挑战壳/超大响应不入缓存)
       if (condKey) {

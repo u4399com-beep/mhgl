@@ -9,3 +9,9 @@ $ bun --hot index.ts
 [xjp-proxy] self-test: PASS (合成c回环/n越界拒绝/HTML→文本/章节抽取 4项全过) port=3015
 [xjp-proxy] listening on http://127.0.0.1:3015 (/health)
 [xjp-proxy] upstream: https://www.xinjianpan.com  selfTestDetail: 合成c回环/n越界拒绝/HTML→文本/章节抽取 4项全过
+[xjp-proxy] self-test: PASS (合成c回环/n越界拒绝/HTML→文本/章节抽取 4项全过) port=3015
+[xjp-proxy] listening on http://127.0.0.1:3015 (/health)
+[xjp-proxy] upstream: https://www.xinjianpan.com  selfTestDetail: 合成c回环/n越界拒绝/HTML→文本/章节抽取 4项全过
+[xjp-proxy] self-test: PASS (合成c回环/n越界拒绝/HTML→文本/章节抽取 4项全过) port=3015
+[xjp-proxy] listening on http://127.0.0.1:3015 (/health)
+[xjp-proxy] upstream: https://www.xinjianpan.com  selfTestDetail: 合成c回环/n越界拒绝/HTML→文本/章节抽取 4项全过

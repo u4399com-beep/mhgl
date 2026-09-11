@@ -49,6 +49,12 @@ services:
       # 参与自动填充的站点 key 清单(逗号分隔; 默认不含 pili —— 霹雳书屋依赖
       # scrapling 桥, 属可选增强, 需要 --profile stealthy 场景, 见 DEPLOY.md 第五节)
       - AUTO_FILL_RULES=${AUTO_FILL_RULES:-fanqie,qimao,deqixs,80ge,jhssd,ttkan,bqg713}
+      # ── 后台鉴权 [R10-f-1] ──
+      # 透传宿主机 .env 的 ADMIN_PASSWORD / SESSION_SECRET 进容器。此前未透传,
+      # 容器内始终落到编译期默认密码(audit-fix-2025), 与 DEPLOY.md「.env 设置密码」
+      # 的指引不符; 空值时 auth.ts 自动回落默认并打 warn, 行为安全。
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
+      - SESSION_SECRET=${SESSION_SECRET:-}
     volumes:
       # SQLite 数据库 —— 备份 = 停服后整体拷贝 ./db 目录
       # ★ 1-c: 容器以 uid 1001 非 root 运行, host 目录需匹配属主:

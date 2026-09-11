@@ -145,11 +145,18 @@ function parseChapterUrl(u: string): { ok: boolean; norm: string } {
   }
 }
 
-/** 带超时+瞬态重试1次的 GET(全态返回, 不抛) */
+/** 带超时+瞬态重试1次的 GET(全态返回, 不抛)
+ *  [R10-c-3] 增强: 对齐 deqixs/qimao 同款 ss-d2④ 口径 —— 5xx/429 属源站瞬态同样退避重试一次
+ *  (重试前泄掉未消费响应体归还连接), 4xx 确定性失败不重试; 网络层异常照旧重试一次 */
 async function getRes(url: string, headers: Record<string, string>): Promise<{ ok: boolean; status: number; buf: ArrayBuffer; error?: string }> {
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
       const res = await fetch(url, { headers, signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS) })
+      if ((res.status >= 500 || res.status === 429) && attempt === 1) {
+        await res.body?.cancel().catch(() => {}) // 重试前泄掉未消费响应体(连接归还, rr-c3 卫生同款)
+        await new Promise((r) => setTimeout(r, 600))
+        continue
+      }
       return { ok: res.ok, status: res.status, buf: await res.arrayBuffer() }
     } catch (e) {
       if (attempt === 2) return { ok: false, status: -1, buf: new ArrayBuffer(0), error: String(e).slice(0, 120) }
@@ -196,18 +203,26 @@ async function fetchContent(chapterUrl: string): Promise<ContentResult> {
 let upstreamReachable = false
 let upstreamStatus: number | null = null
 let lastProbe = 0
+/** [R10-c-3] 增强: /health 并发探针在途去重(对齐 deqixs/qimao 的 ss-d2⑤) —— 并发冷启动探针
+ *  共享同一 Promise, 不重复打上游; 缺失时前端并发探活(管理端健康面板轮询)会叠加探测流量 */
+let healthProbe: Promise<void> | null = null
 
 /** /health 健康检查回调: 在 60s 缓存窗口外探测上游可达性, 返回快照 */
 async function healthCheck(): Promise<Record<string, unknown>> {
   const now = Date.now()
-  if (now - lastProbe > 60_000) {
+  if (now - lastProbe > 60_000 && !healthProbe) {
+    healthProbe = (async () => {
     // 可达性探针: 首页仅 ~55KB 且无业务副作用
     const r = await getRes(`${UPSTREAM}/`, { 'User-Agent': UA })
     const body = r.ok ? new TextDecoder('utf-8', { fatal: false }).decode(r.buf) : ''
     upstreamReachable = r.ok && body.includes('新键盘小说网')
     upstreamStatus = r.status
     lastProbe = now
+    })().finally(() => {
+      healthProbe = null
+    })
   }
+  if (healthProbe) await healthProbe
   return { upstreamReachable, upstream: upstreamStatus }
 }
 
