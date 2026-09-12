@@ -1229,6 +1229,12 @@ function hasNormalTitle(html: string): boolean {
 
 export function looksBlocked(html: string, opts?: { status?: number; serverHeader?: string }): boolean {
   if (!html) return true
+  // [R13-7] 合法 JSON 响应体整体豁免: JSON API 站(book/detail/toc/content 接口)的短响应
+  // 是正常业务信封 —— bqg713 book API 实测 198 字节合法 JSON 被"极短内容判拦"(1248 行)
+  // 误拒, book 段采集全断。合法 JSON.parse 成功的结构化数据不可能是渲染挑战页/HTML 盾页
+  // (挑战页均以 <html>/<script> 形态返回), 置于 STRONG_BLOCK_MARKERS 之前 —— 正文 JSON
+  // 中合法出现的"验证码/安全验证"等词汇不应触发 HTML 特征词库误拦
+  if (isPlainJsonBody(html)) return false
   // 2-fetcher③ 增强: HTTP 状态 + WAF Server 头联合判定 —— 403/429/503 + cloudflare/akamai/
   // incapsula/sucuri 即判拦(响应体可能为空或极短, 单凭内容特征漏判; 状态信息由调用方传入)
   if (opts?.status && (opts.status === 403 || opts.status === 429 || opts.status === 503)) {

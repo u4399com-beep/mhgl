@@ -132,6 +132,15 @@ export function t2sHtml(html: string): string {
 const ENTITY_RE = /&(?:nbsp|amp|lt|gt|quot|apos|#x[0-9a-f]+|#[0-9]+);/gi
 // [R9-cl-2] 整合: 控制字符剥离正则本文件内 4 处同款重复, 提取为具名常量(\t\n\r 保留口径不变)
 const CTRL_CHARS_RE = /[\x00-\x08\x0B\x0C\x0E-\x1F]/g
+// [R13-2] 内容块级标签集合: 白名单剥壳时这些标签的开闭边界补 \n(段落分隔), 供
+// "按换行重建段落"复原分段。覆盖容器/段落/表格/列表/标题/语义分区; 内联标签
+// (span/b/i/a/font…)不入集 —— 行内文本不因标签边界断行。hr 视觉即分隔线
+export const CONTENT_BLOCK_TAGS: ReadonlySet<string> = new Set([
+  'p', 'div', 'li', 'ul', 'ol', 'tr', 'td', 'th', 'table', 'thead', 'tbody', 'tfoot',
+  'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'section', 'article', 'header', 'footer',
+  'aside', 'nav', 'blockquote', 'pre', 'form', 'dl', 'dt', 'dd', 'figure',
+  'figcaption', 'main', 'center', 'hr',
+])
 const ENTITY_BASIC: Record<string, string> = { nbsp: ' ', amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }
 function fromCodePointSafe(cp: number): string {
   if (!Number.isFinite(cp) || cp < 0 || cp > 0x10ffff) return ''
@@ -275,9 +284,18 @@ export function cleanContentHtml(raw: string, cfgOverride?: Partial<CleanConfig>
   // 仍指向已脱离文档的旧节点 —— 外层容器(div等)先被剥壳后, 内层 span/style 等永远
   // 逃过白名单过滤泄漏进正文。改用 contents() 移动【原节点】而非字符串重解析, 快照引用
   // 保持挂载, 内层标签能继续被后续迭代处理。
-  $(`#__clean_root *`).each((_, el) => {
+  // [R13-2] 块级标签剥壳时前后补 \n: 源站正文常见 <div>段1</div><div>段2</div> 形态
+  // (默认白名单不含 div), 裸剥壳后文本节点直接拼接成"段1段2"整章粘连(段落全丢)。
+  // 块级开闭边界插入 \n 文本节点, 后续第 5 步"按换行重建段落"即可复原分段;
+  // 内联标签(span/b/a…)不受影响。cheerio before/after 对空白字符串创建纯文本节点
+  const $root = $(`#__clean_root`)
+  $root.find('*').each((_, el) => {
     const tag = (el as any).tagName?.toLowerCase()
     if (tag && !cfg.whitelist.includes(tag)) {
+      if (CONTENT_BLOCK_TAGS.has(tag)) {
+        $(el).before('\n')
+        $(el).after('\n')
+      }
       $(el).replaceWith($(el).contents())
     }
   })
@@ -304,28 +322,48 @@ export function cleanContentHtml(raw: string, cfgOverride?: Partial<CleanConfig>
       if (!keep) $(el).removeAttr(name)
     }
   })
-  let out = $(`#__clean_root`).html() || ''
+  let out = $root.html() || ''
   // 3. 广告正则清洗
   out = removeAdLines(out, cfg.adPatterns)
+  // [R13-1] 块级段落结构判定(置于 normalize 包裹之前): 旧实现第 5 步判据检查的是
+  // 【包裹后的 out】—— normalize 无条件 '<p>'+out+'</p>' 后输出必含 <p>, 第 5 步
+  // "按换行重建段落"永不触发。纯文本输入(json 提取/转换代理输出, \n 分段)因此整章
+  // 塞进单个 <p>(内部 \n 是空白文本节点, HTML 渲染折叠) —— 读者看到整章一大段。
+  // 判据含 div: 自定义白名单保留 div 时 div 本身就是块级分段
+  const hadParaStructure = /<(?:p|br|div|h[1-6]|li)\b/i.test(out)
   // 4. 规范化
   if (cfg.normalize) {
-    // Bug 15 修复: <br><br> → </p><p> 替换在【未包裹外层 <p>】的情况下产生不配对标签
-    // (输出 <div>line1</p><p>line2</div> 即 </p> 在 <div> 内但无匹配 <p> 开标签)。
-    // 修复: 替换前先用 <p>...</p> 整体包裹, 这样 <br><br> 替换产生 </p><p> 必然
-    // 配对成 <p>line1</p><p>line2</p>(外层 <p> 充当首个开标签 + 末个闭标签)。
-    // 随后清理由此产生的空 <p></p>(开头/结尾/夹在中间的空段落)。
-    out = '<p>' + out + '</p>'
+    if (!hadParaStructure) {
+      // [R13-1] 纯文本输入(无任何块级标签): 包裹只会给第 5 步重建制造外层 <p> 残骸
+      // (split('\n') 把 <p>/</p> 拆进首尾行 → <p><p>段1</p>…</p> 嵌套), 此处不动,
+      // 段落结构完全交给第 5 步按 \n 重建
+    } else {
+      // [R13-3] 已有块级结构: 仅"纯 <br> 分段"(无 p)才走包裹+替换 —— Bug 15 语义
+      // (<br><br>→</p><p> 需外层 <p> 充当首尾配对); 已含 <p> 结构时包裹产生嵌套
+      // <p><p>…</p></p>, 且 p 结构外的游离 <br><br> 替换成 </p><p> 会不配对 ——
+      // 两者都跳过, 游离 <br> 保留(渲染层 br 即换行, 语义无损)
+      const hasP = /<\s*p[\s>]|<\s*\/\s*p/i.test(out)
+      if (!hasP) {
+        // Bug 15 修复: <br><br> → </p><p> 替换在【未包裹外层 <p>】的情况下产生不配对标签
+        // (输出 <div>line1</p><p>line2</div> 即 </p> 在 <div> 内但无匹配 <p> 开标签)。
+        // 修复: 替换前先用 <p>...</p> 整体包裹, 这样 <br><br> 替换产生 </p><p> 必然
+        // 配对成 <p>line1</p><p>line2</p>(外层 <p> 充当首个开标签 + 末个闭标签)。
+        out = '<p>' + out + '</p>'
+        out = out
+          .replace(/<\s*br\s*\/?\s*>\s*<\s*br\s*\/?\s*>/gi, '</p><p>')
+      }
+    }
+    // 修复: 空段落清理由 <p></p> 扩展到 <p>空白/&nbsp;/纯<br></p>, 消除广告行删除后残留的空壳段落
+    // (<br><br>→</p><p> 替换在边界处可能产生空 <p></p>: 如开头 <br><br> → </p><p> 会产出
+    // 前置 <p></p>; 此处一并清掉。纯文本输入无标签零匹配, 共用零开销)
     out = out
-      .replace(/<\s*br\s*\/?\s*>\s*<\s*br\s*\/?\s*>/gi, '</p><p>')
-      // 修复: 空段落清理由 <p></p> 扩展到 <p>空白/&nbsp;/纯<br></p>, 消除广告行删除后残留的空壳段落
-      // (上方 <br><br>→</p><p> 替换在边界处可能产生空 <p></p>: 如开头 <br><br> → </p><p> 会产出
-      // 前置 <p></p>; 此处一并清掉)
       .replace(/<p>(?:\s|&nbsp;|<br\s*\/?\s*>)*<\/p>/gi, '')
       .replace(/<p>\s+/g, '<p>')
       .replace(/\s+<\/p>/g, '</p>')
   }
-  // 5. 若无任何p标签, 按换行重建段落
-  if (!/<(p|br)\b/i.test(out)) {
+  // 5. 若无任何块级段落标签, 按换行重建段落 —— [R13-1] 判据用包裹前状态且与 normalize
+  // 包裹互斥(纯文本输入不再被包裹污染), 旧判据检查包裹后的 out 恒含 <p>, 重建永不触发
+  if (!hadParaStructure) {
     out = out
       .split('\n')
       .map((l) => l.trim())

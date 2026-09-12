@@ -151,8 +151,12 @@ export function testRegexBudget(
 }
 
 function applyTransform(value: string, rule: FieldRule): string {
-  let v = value ?? ''
-  if (rule.stripTags) v = v.replace(/<[^>]+>/g, '')
+  // [R13-10] 变换前规整首尾空白: 块级感知 text 提取(blockAwareText)在块级边界补 \n,
+  // 尾部 \n 会让 "$"锚 replaceFrom(如 80ge 书名剥"TXT全集下载$")匹配不上 —— 实测书名
+  // 尾巴残留入库。规整语义与用户"按浏览器可见文本写正则"的直觉一致(可见文本无首尾
+  // 空白); stripTags 后露出的首尾空白同理规整。尾部 replace 后残留 \n 由末尾 v.trim() 兜底
+  let v = (value ?? '').trim()
+  if (rule.stripTags) v = v.replace(/<[^>]+>/g, '').trim()
   if (rule.replaceFrom !== undefined && rule.replaceFrom !== '') {
     // R4-19: ReDoS 防御 —— 用户配置的 replaceFrom 正则可能含灾难性回溯模式。
     // 1) 长度上限 1000 字符(safeStr 已限制, 这里再硬保险)
@@ -214,12 +218,47 @@ function cssExtract($: cheerio.CheerioAPI, scope: any, rule: FieldRule): string 
   const first = el.first()
   const attr = rule.attr || 'text'
   switch (attr) {
-    case 'text': return first.text()
+    // [R13-4] 块级感知文本提取: cheerio .text() 只拼接文本节点, 块级元素边界(压缩 HTML
+    // 无空白文本节点时)直接粘连 —— <p>段1</p><p>段2</p> 提取得"段1段2"整章一行,
+    // 清洗端无从复原。改为遍历子孙节点, 块级开闭边界/br 插入 \n, script/style 文本
+    // 不进正文; 行内标签(span/b/a…)零改动。对 name/author 等字段无害(cleanTextField
+    // 会压平 \n), intro 字段反而恢复分行语义
+    case 'text': return blockAwareText(first[0])
     case 'html': return first.html() || ''
     case 'href': return first.attr('href') || ''
     case 'src': return first.attr('src') || ''
     default: return first.attr(attr) || ''
   }
+}
+
+// [R13-4] 内容块级标签集合(与 cleaner.CONTENT_BLOCK_TAGS 同口径; parser 独立声明避免
+// 引入 cleaner→parser 循环依赖方向 —— cleaner 只被 runner/路由引用, parser 被多方引用)
+const TEXT_BLOCK_TAGS: ReadonlySet<string> = new Set([
+  'p', 'div', 'li', 'ul', 'ol', 'tr', 'td', 'th', 'table', 'thead', 'tbody', 'tfoot',
+  'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'section', 'article', 'header', 'footer',
+  'aside', 'nav', 'blockquote', 'pre', 'form', 'dl', 'dt', 'dd', 'figure',
+  'figcaption', 'main', 'center', 'hr',
+])
+
+/** 块级感知文本提取: 遍历 cheerio 底层 DOM 节点, 块级标签开闭边界插入 \n */
+function blockAwareText(node: any): string {
+  let out = ''
+  const walk = (n: any): void => {
+    if (!n) return
+    if (n.type === 'text') { out += n.data || ''; return }
+    if (n.type === 'root') { for (const c of n.children || []) walk(c); return }
+    if (n.type !== 'tag') return
+    const tag = String(n.tagName || '').toLowerCase()
+    if (tag === 'br') { out += '\n'; return }
+    // 脚本/样式内部文本不属于正文(text() 同样会泄漏 script 内容, 此处一并修正)
+    if (tag === 'script' || tag === 'style' || tag === 'noscript') return
+    const block = TEXT_BLOCK_TAGS.has(tag)
+    if (block) out += '\n'
+    for (const c of n.children || []) walk(c)
+    if (block) out += '\n'
+  }
+  walk(node)
+  return out
 }
 
 function cssExtractAll($: cheerio.CheerioAPI, scope: any, rule: FieldRule): any[] {

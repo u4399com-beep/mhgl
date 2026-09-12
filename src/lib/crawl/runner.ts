@@ -1709,7 +1709,15 @@ export class TaskRunner {
             // 兜底重建该章(内容不丢失); create 自身失败仍走外层 catch 计 error(真 DB 故障不吞)
             let chId: string | null | undefined = chId0
             if (taskCfg.storageMode === 'txt') {
-              rel = await saveChapterTxt(bookId, q.idx, q.title, cleaned.replace(/<[^>]+>/g, '').replace(/\n{3,}/g, '\n\n'))
+              // [R13-5] txt 落盘文本转换: cleaned 是清洗后的 HTML(p 段落结构), 旧实现裸剥
+              // 标签 "<p>段1</p><p>段2</p>"→"段1段2"整章粘连(HTML 模式规则 + txt 存储
+              // 段落全丢, plainText 规则因产物本就是 \n\n 文本而幸免)。与 downloader
+              // .stripHtmlToText / cleaner 纯文本模式同口径: br/块级闭标签 → \n 再剥标签
+              rel = await saveChapterTxt(bookId, q.idx, q.title, cleaned
+                .replace(/<\s*br\s*\/?>/gi, '\n')
+                .replace(/<\/(p|div|h[1-6]|li)>/gi, '\n')
+                .replace(/<[^>]+>/g, '')
+                .replace(/\n{3,}/g, '\n\n'))
               if (chId) {
                 const updated = await db.chapter.update({
                   where: { id: chId },

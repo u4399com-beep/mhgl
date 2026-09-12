@@ -89,7 +89,9 @@ const rule: RuleSeed = {
       pagination: { enabled: false, maxPages: 1 },
     },
     fetch: {
-      engine: 'http',
+      // [R13-8] 站点已上线 WAF(直连 403, 2026-09-12 实测): browser 引擎可穿透(20KB 正常页),
+      // 升级 auto —— HTTP 链 403 时按 browserFallbackStatus 自动升级浏览器(pilishuwu 同范式)
+      engine: 'auto',
       uaMode: 'rotate',
       autoCookie: true,
       referer: true,

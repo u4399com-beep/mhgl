@@ -3713,3 +3713,34 @@ Stage Summary:
 - R12 全轮闭环: 用户书源转换(b 线: qidian-proxy+规则+凭证文档) + 用户占位符 bug 实景复验(P1-P3 URL 全对) + 引擎深审 4 修复(含 1 High SSRF) + 管理端/清理 4 修复 + UI 健康卡对齐
 - 历史链: R9=4f3cae4 → R10=7372a8c → housekeeping=aad1bc9 → R11=4854abe → R12-a=ffeec4d → R12(本轮)
 - 遗留: ①起点正文需用户自备起点小程序凭证(源站硬约束) ②dev server 偶发静默死亡待观察 ③DNS rebinding TOCTOU 维持 R5-19 已知限制 ④浏览器链重定向 SSRF(cloak/obscura 侧)留档后续轮次
+
+---
+Task ID: R13
+Agent: main-orchestrator (Z.ai Code)
+Task: 章节内容段落/换行丢失修复 + 全部采集规则书源四段实测(用户报告: 内容页无段落)
+
+Work Log:
+- 用户报告"采集到的章节内容页没有段落、换行等", 要求检查测试所有采集规则的书源采集
+- 全链审查(提取→清洗→存储→渲染)实锤 7 处缺陷并全修:
+  ①[R13-1](High) cleaner.cleanContentHtml normalize 步骤无条件 '<p>'+out+'</p>' 包裹, 使第 5 步"按换行重建段落"判据(/<(p|br)\b/)永真失效 —— 纯文本输入(json 提取/转换代理输出 \n 分段)整章塞进单个 <p>(内部 \n 是空白节点渲染折叠), 即用户所见"整章大段"; 修为包裹前快照 hadParaStructure 判定且包裹/重建互斥
+  ②[R13-2](High) 白名单剥壳块级标签(div/table/td/tr/li 等, 默认白名单不含 div)裸 replaceWith(contents) 段落粘连; 修为 CONTENT_BLOCK_TAGS 集合剥壳前后补 \n 文本节点
+  ③[R13-3](Med) 已有 <p> 结构时包裹产生嵌套 <p><p>…</p></p>, p 结构外游离 <br><br> 替换产生不配对 </p><p>; 修为仅"纯 br 分段(无 p)"才走包裹+替换(Bug15 语义保留)
+  ④[R13-4](High) parser.cssExtract attr='text' 用 cheerio .text(), 压缩 HTML(无空白文本节点)下 <p>段1</p><p>段2</p> 提取得"段1段2"整章粘连; 新增 blockAwareText 遍历子孙节点按块级开闭边界/br 补 \n(顺带修正 script/style 内部文本泄漏进 text 提取的既有面)
+  ⑤[R13-5](High) runner txt 存储分支 cleaned.replace(/<[^>]+>/g,'') 裸剥标签, HTML 模式规则+txt 存储段落全丢(plainText 规则因产物即 \n\n 文本幸免); 修为与 downloader.stripHtmlToText 同口径(br/块级闭标签→\n 再剥)
+  ⑥[R13-6](Med) 渲染端 contentToHtml 存量数据兜底: 单 <p> 包裹+内部 \n 的旧 bug 产物, 文本段 \n→<br>(标签段不动防属性破坏); 存量数据免重采即恢复换行
+  ⑦[R13-7](High) fetcher.looksBlocked 对合法 JSON 响应体整体豁免(isPlainJsonBody 置于状态/特征词判定之前) —— bqg713 book API 198 字节合法 JSON 被极短页判拦误拒 book 段全断(R12-c2-1 只豁免了回环代理); 附带修正正文 JSON 含"验证码"等词的 HTML 特征词库误拦面
+- [R13-10](High, 自捕回归) R13-4 blockAwareText 给块级元素首尾补 \n, extractField 中 replace 先于 trim 使 "$"锚 replaceFrom 匹配不上(80ge 书名剥"TXT全集下载$"失效尾巴残留入库); 修为 applyTransform 变换前 trim(stripTags 后同), 对齐"按可见文本写正则"语义
+- [R13-8] dafengdagengren/daweixs 站点已上线 WAF(直连全 403, 2026-09-12 实测): browser 引擎实测可穿透(20KB/221KB 正常页), 两规则 engine http→auto(browserFallbackStatus[403] 自动升级, pilishuwu 同范式); dafeng 重入库四段 ALL-GREEN
+- [R13-9] 80ge 书名尾巴修复实证: 根因 R13-10 非 replaceFrom 配置, 种子配置保持原样, 重入库四段 ALL-4-GREEN(name 无尾巴)
+- 全规则四段统一实测(动态发现 list→book→toc→content+段落保真断言, 双层校验=种子自带四段测试+独立探针脚本): 22 规则中 19 条全链 PASS 且段落保真 PASS(80ge/aijjxs/biqugetw/book4/bqg713/dafeng/daweixs/deqixs/hodei/iidcr/jpxs123/kanunu8/piaotia/shudugu/wuxiaworld/yybsw/pilishuwu/番茄/得奇; 段落形态 <p>计数 或 plainText \n 分段均 ≥13)
+- 测试脚本两处假阳性澄清: fanqie toc 400/bqg713 toc 403 均为探针脚本未传 ctx.vars({q.*} 清空), 真实 runner 语义无恙(修正后双规则全链 PASS); ratelimit-demo 为本地校准 mock 非真实源
+- 3 条如实留档: wanben=站点对沙箱出口 IP 层封锁(浏览器无解, 种子 WANBEN_PROBE 护栏既有), zxcs=TXT 下载站无在线目录(toc/content 按站点语义禁用, 种子声明一致), daweixs=章节页间歇跳转导流首页(站点变质征兆, browser 链四段可过但 content 质量受源站污染, 建议观察)
+- pilishuwu 间歇性: 本轮早前统一实测四段全 PASS(段落 <p>=166), 后续复跑遇 CF 挑战波动作超时(cloak 3016 健康, 属源站防护强度波动非链路缺陷)
+- E2E 浏览器终验(agent-browser): 注入三形态测试章(修复后多<p>/存量单<p>+内部\n/plainText \n\n), 阅读页实测: 形态1 渲染 4 个独立<p>, 形态2 存量兜底 <br> 换行生效, 形态3 三段独立渲染(截图确认段落间距清晰); 测试数据已清(books=0)
+- 质量门: bun run lint 0/0 + bunx tsc --noEmit 0 错; dev server 中途一次静默死亡(R12 同型)已重启恢复并完成终验
+- 注: 本轮修复均为写入端根治+渲染端存量兜底, 存量章节无需重采即恢复换行(⑥), 新采集数据直接为多<p>结构
+
+Stage Summary:
+- 修复清单: R13-1/2/3(cleaner 段落三连) + R13-4(parser 块级感知 text) + R13-5(runner txt 落盘) + R13-6(contentToHtml 存量兜底) + R13-7(lookedBlocked JSON 豁免) + R13-10(applyTransform trim 时序) + R13-8/9(规则种子升级)
+- 实测结论: 19/22 规则四段全链 PASS+段落保真, 3 条为环境/站点语义限制(留档)
+- 历史链: R11=4854abe → R12=d70dd45 → R13(本轮)

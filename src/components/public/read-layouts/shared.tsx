@@ -96,7 +96,19 @@ export const LETTER_SPACING_PRESETS: { label: string; value: number }[] = [
 export function contentToHtml(raw: string): string {
   const content = (raw || '').trim()
   if (!content) return ''
-  if (/<\s*(p|div|br)\b/i.test(content)) return sanitizeReaderHtml(content)
+  if (/<\s*(p|div|br)\b/i.test(content)) {
+    // [R13-6] 存量数据兜底: 旧版 cleanContentHtml 的 normalize 包裹 bug 产物 = 单 <p>
+    // 包裹 + 内部 \n 分段(json 提取/纯文本输入), HTML 渲染中 \n 折叠成整章一大段。
+    // 判定: <p 开标签计数 < 2 且无 <br> 且含 \n → 文本节点中的 \n 转 <br> 再消毒
+    // (标签段原样保留, 只动标签之间的 \n, 不会破坏属性值)。修复后新增数据是多 <p>
+    // 结构, 不进此分支; 单段短章无 \n 同样不进
+    const pOpen = (content.match(/<p[\s>]/gi) || []).length
+    const hasBr = /<\s*br\b/i.test(content)
+    if (pOpen < 2 && !hasBr && content.includes('\n')) {
+      return sanitizeReaderHtml(content.replace(/(<[^>]+>)|\n/g, (_, tag) => (tag ? tag : '<br/>')))
+    }
+    return sanitizeReaderHtml(content)
+  }
   return content
     .split(/\n+/)
     .map((s) => s.trim())
