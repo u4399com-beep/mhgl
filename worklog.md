@@ -3986,3 +3986,58 @@ Work Log:
 Stage Summary:
 - R17 交付: ①R17-b 采集线: cleaner URL 掩码扩面(协议相对 //host 裸奔修复)+77shuku 种子 waitMs 语义纠偏, 104/104 静态验证, proxyUrl 注入链全链健康, 反反爬 5 开关适用性留档(FETCH_BODY_LEN_CHECK/PROXY_HEALTH_SCORING/RETRY_AFTER_HONOR/RESPONSE_SANITY/HOSTGATE_PACE_PROFILE) ②R17-c 文档线: INSTALL-GUIDE.md +145 行(内置规则库/出口代理 77读书案例/伪静态 6 预设/自动 TDK/preview-hint 同步/FAQ #11~#13), DEPLOY.md +40 行(环境变量速查表+密码行为修正), README.md 功能清单重写(修正「无登录鉴权」过时警告+mini-services 表补 3016/3017) ③R17-d 深审线: 4 修复(1 Med redactProxy 凭证泄漏+3 Low), 伪静态 roundtrip 289/289, builtin-rules 抽查 3/3 deep-equal ④零真未用依赖确认
 - 历史链: R12=d70dd45 → R13=07972df → R14=a9f3461 → R15=323982e → R16=99c1c48 → R17(本轮)
+
+---
+Task ID: R18-c
+Agent: resume-reconcile-fix
+Task: 采集任务重启对账修复(库中无书不跳过)
+
+Work Log:
+- 上下文核实: worklog R8-5/范围续采链 + runner.ts 恢复段(L653-682 else 分支三 Set 重建)与三个消费点(L759 discovered 发现跳过 / L817 completed 整体跳过 / L1074 ongoing 增量复查)
+- sourceUrl 形态核实: 列表发现 parseList 内 absolutize(parser.ts L789/836) → pageUrls → bookQueue → crawlOneBook bookData.sourceUrl=bookUrl 逐字入库(L1162), shuntBookStatus 以同一 bookUrl 作 Set 键(L294/301), saveProgress 逐字持久化 → 发现/入库/持久化/恢复全链同源同形态, 对账直接精确比对不做 normalize
+- 修复(runner.ts, 仅此一文件 +150/-0): ①导出纯函数 reconcileResumeSetsCore + RESUME_RECONCILE_BATCH=500 + ResumeSetsView/ReconcileDbRow/ReconcileOutcome 类型 [R18-c-1]: 三 Set 汇总去重→分批 ≤500 IN 查库(sourceUrl + _count.chapters)→判定剔除(库中无记录; 或 0 章节且 ∈ completed 的空壳完结书)→从所有所在集合原地剔除(含 discovered, 否则被 L759 发现跳过挡住"移回待采"不生效)→同步清理 bookLastChapters 陈旧末章; queryDb 抛错原样上抛且零剔除(剔除在全部批次成功之后) ②私有包装 reconcileResumeSetsWithDb [R18-c-3]: 接真库 db.book.findMany, fail-open(对账失败保留原 Set 仅 log warn), 剔除生效时按 removedFrom 计数置 dirtyDiscovered/dirtyCompleted/dirtyOngoing/dirtyLastChapters(下次 saveProgress 落对账后状态), 日志「DB 对账: 剔除 N 本库中已不存在/空壳的记录(将重新采集)」+ 前 8 条明细 ③恢复段 else 分支 totalResume>0 时调用 [R18-c-2], recrawlMode==='full' 清空分支不受影响
+- 单测(/tmp/r18c-test.ts, bun 导入 runner.ts 真函数): 22/22 ALL PASS — 5URL库有2→剔除3+空壳1、形态逐字一致(尾斜杠差异判库中无→剔除重采不误跳)、0章节仅∈discovered保留、分批边界 1203→500/500/203·500→1批·501→2批且每批≤500、fail-open 抛错零剔除、跨三集合去重、空集短路
+- 真库只读演练(/tmp/r18c-realcheck.ts, 零写操作 as-found): 唯一增量任务(1 条 completedBookUrls)对账 → 书在库有章节 → 剔除 0 条(正确保留跳过), 实证 Prisma findMany+_count 链路可用
+- 冒烟: dev server 重启后 / 200, POST /api/auth/login 200, /api/admin/tasks 200
+- 质量门: bun run lint 0/0; bunx tsc --noEmit runner.ts 0 错(项目仅剩 1 错在 src/components/public/layouts/HomeBiquge.tsx — 并行主题 agent 新增未跟踪文件, 按约束不触碰)
+
+Stage Summary:
+- 修复"采集重启后跳过而不续采": 恢复段一次性 DB 对账, progress 三组续采 URL 与 Book.sourceUrl 分批比对, 库中实际不存在(或完结语义 0 章节空壳)的 URL 从 Set 剔除+置 dirty 落库 → 列表重新发现时重新入队采集; 对账 fail-open 不因查库失败搞崩任务
+- 语义口径: 库中无记录=不存在(用户口径); 空壳(0 章节)仅对 completed 集合判重采; 形态全链同源逐字比对(已核实入库点 L1162 与发现 absolutize 同形态), 陈旧形态差异判"库中无"重采且与 crawlOneBook findFirst({sourceUrl}) 口径一致不会误跳
+- 已知边界(超本轮范围留档): 列表模式重启后「在库连载书」仍会被 discovered 集合挡在 L759 不入队, 其增量复查(feat-combo-theme-incremental 设计)实际不触发 — 与本对账无关的既有行为, 未改动
+
+
+---
+Task ID: R18-b
+Agent: theme-redesign (超时, 主控接手核实与收口)
+Task: 主题矩阵重新设计 8配色+8风格+8布局+笔趣阁经典板块首页
+
+Work Log:
+- agent 落盘完整产出后响应超时, 主控逐项核实接线与质量后收口(无补码, 仅记录)
+- 矩阵重构(theme-matrix.ts 291 行 diff): COLOR_SCHEMES 24+→正好 8 种(6亮2暗: amber琥珀暖橙[笔趣阁经典暖橙DNA]/violet紫罗兰/emerald翡翠绿/cyan青碧蓝/sakura樱粉/graphite墨雅灰金/noir暗夜黑金·dark/aurora极光暗紫·dark); STYLES 30+→正好 8 种(minimal/glasswa/paper/modern/magazine/neon/classic/pili); LAYOUTS→8 种(grid/list/shelf/mag/min/theater/pili+新增 biquge 笔趣阁经典), TOTAL_COMBOS=8×8×8=512
+- HomeBiquge.tsx(新, 590 行): 复刻 xbiquge 系经典首页 DNA — ①主色底 logo+横向导航+搜索框(提交 search 视图) ②三栏: 左分类竖导航/中间(本周强推·编辑推荐·今日更新)/右侧(点击排行 Top10 序号配色·本站推荐·最近更新) ③「最新更新」按分类分组多列小表格 ④友链占位+版权条; 数据全走既有公开 API(/api/public/categories|books?cat=|links)零新增后端; 移动端<lg 单列折叠+分类横向滚动+触控≥44px
+- 接线: themes.ts ThemeDef.layout +biquge 类型/精选 THEMES 重选 8 个(aurora/paper/mango/bamboo/rose/ocean/biquge[amber×classic×biquge 组合展示位]/pili)/getTheme+PublicSite 双层兜底(未知 id 回退 THEMES[0]); HomeView dynamic import+biquge 分支; ThemesSection 布局标签+计数动态化; SitesSection 归一化适配; themes API/ReadClassic 同步
+- 主控核实: tsc 0 错(agent 修完在途错后超时); 浏览器 E2E — ?theme=biquge 预览: [data-biquge] 6 板块(h3 标题: 编辑推荐/今日更新/点击排行榜/本站推荐/最近更新+分类导航), grouped-latest 23 行分组表格/排行 28 行/编辑推荐 115 行, 琥珀暖橙配色生效(截图确认: 红橙标题条+排行序号+米白底), 右下角「预览主题:笔趣阁经典」浮条; 默认路径渲染正常; console 0 error
+- 站点 themeId 终态=biquge(agent 验证时设置): 保留 — 用户本轮明确要求首页做成笔趣阁经典板块布局, 设为当前主题让部署即可见新布局(如需还原 aurora: 站群系统→编辑→主题)
+
+Stage Summary:
+- 主题体系从「杂多 24+配色/30+风格/7 布局(50409 套)」重新设计为「整齐 8×8×8=512 组合 + 8 精选」; 新增第 8 布局 biquge 笔趣阁经典(三栏板块+分组更新表格+排行榜, 经典小说站 DNA 完整还原)
+- 兼容: 旧主题 id 全部走 THEMES[0] 兜底不崩; 公开 API 零新增
+
+---
+Task ID: R18-d
+Agent: aijjxs-clone
+Task: aijjxs 仿站精选主题
+
+Work Log:
+- 真站侦察(直连成功): curl https://www.aijjxs.com/ 首页 57.7KB + /skin/yellow/style.css 39.9KB; 解析 :root 实测色值 --bg:#f3efe7(米黄)/--paper:#fffdf8(纸白)/--ink:#1f2937/--muted:#6b7280/--line:#e5dccd(米棕)/--brand:#0f766e(青绿)/--brand-dark:#115e59/--accent:#b45309(琥珀)/--chip:#eef9f7/--shadow:0 10px 30px rgba(17,24,39,.08)/--radius:14px; 头部 top-float 为深酒红渐变固定条 linear-gradient(180deg, rgba(85,15,28,.94)→rgba(60,8,20,.94)→rgba(38,4,12,.96))+白字分类链接(悬浮浅粉 rgba(255,214,226,.28)); 板块清单: 深红导航条(首页+15 分类)→米白「站内搜索」卡(logo+搜索+历史 chips)→hero 数据统计 KPI 4 格→最新上传(2 列可展开)→封面推荐(双列书卡)→小说分类(女生/纯美/男生/悬疑 4 组 h4+更多)→专题书单(grid3)→今日已签到→24 小时热榜→一周热榜→热门作者→页脚; 系 font="PingFang SC, Hiragino Sans GB, Microsoft YaHei"(非杰奇深蓝/绿形态, 是现代浅色板块列表站)
+- 实现 themes.ts 第 9 个精选 preset id='aijjxs'(name 久久小说(仿)): 自含全部 ThemeDef 字段, vars 逐项写死真站实测色值(bg/surface/surfaceAlt=chip/text/textMuted/primary=#0f766e/accent=#b45309/border/radius 14px/cardShadow/fontFamily 均一一对应); layout='biquge'(真站多板块列表形态最贴近), read=classic(680/1.85/17/缩进/inline 工具条); ThemeDef.headerStyle 联合类型 +aijjxs 第 7 种(矩阵 HeaderStyleKind 仍 6 种, 8×8×8=512 结构未动); desc 声明复刻来源与差异点(①导航条随页滚动非 fixed ②板块标题条主色渐变底非白底+左竖条 ③无 KPI/签到/搜索历史)
+- UI 适配: SiteHeader.tsx 新增 headerStyle==='aijjxs' 分支[R18-d-3] — 上层深酒红渐变导航条(站内分类白字链接+首页+hover:bg-white/20)+下层米白报头(SiteMark+SearchBox+Bookshelf 复用); HomeBiquge.tsx[R18-d-4] headerStyle==='aijjxs' 时跳过 BiqugeNav 防双导航/双搜索
+- dev server 排障: 端口 3000 进程死亡(tsc/eslint 高峰内存 4GB 机 OOM 疑似), dev.sh 重启恢复; agent-browser 会话偶发 spawn EAGAIN(资源紧), 全部关键断言带重试执行
+- 验证: curl 预览 URL 200(45KB, 含站点 id/内容文本, SPA 壳—主题色客户端水合后应用); agent-browser eval: 根容器 bg=rgb(243,239,231)=#f3efe7✓, header nav=linear-gradient(rgba(85,15,28,.96)…)深酒红✓, 导航 8 白字链接✓, [data-biquge] home/cats-mobile/rank/grouped-latest/friend-links✓, 青绿 #0f766e 渐变在 DOM✓; errors 0, console 仅 HMR/DevTools info; 全页截图 /tmp/aijjxs-clone.png
+- 管理端复核: POST /api/auth/login 登录→GET /api/admin/themes 默认模式 9 preset(含 aijjxs 久久小说(仿)), 分页模式 total=521(9 精选+512 组合); 后台「主题模板」页标题「8 配色 × 8 风格 × 8 布局 = 512 组合 · 9 精选」✓, 久久小说(仿)卡片在列, 组合浏览器搜索 emerald-glasswa-grid→前台预览新开 tab 渲染正常(bg=rgb(242,250,243))且 0 error
+- 站点 themeId 保持 'biquge' 未改(任务要求), aijjxs 仅走 ?theme= 预览; 质量门 bun run lint 0/0(exit 0), bunx tsc --noEmit 0 错
+
+Stage Summary:
+- aijjxs.com 仿站以第 9 个精选 preset 落地: 真站实测 10 项色值全量还原(米黄底/纸白卡/青绿主色/琥珀强调/深酒红导航条), 复用 biquge 板块布局(真站为多板块列表站, 无需新布局); 矩阵 8×8×8=512 未动, headerStyle 仅精选层扩 1 种
+- 验证全绿: 前台 vars 生效+console 0 error+截图留档, 后台 9 精选/512 组合计数与组合预览切换正常, lint/tsc 0/0; 站点主题未被改动

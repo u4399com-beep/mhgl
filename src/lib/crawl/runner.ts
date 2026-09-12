@@ -134,6 +134,95 @@ const CIRCUIT_COOLDOWN_MS = 60_000
  *  而非连败降额链; 403/验证码等其余特征维持既有降额链不变 */
 const RATE_LIMIT_HINT_RE = /429|rate[ _-]?limit|too many requests/i
 
+// ==================== [R18-c-1] 重启恢复 DB 对账(库中无书不跳过) ====================
+// 修复用户报告: 采集任务重启后"跳过而不续采"。根因: 恢复段把 progress 里的
+// discoveredBookUrls/completedBookUrls/ongoingBookUrls 原样重建为 Set, 若上轮书籍入库失败
+// (URL 进了 Set 但 Book 行没建成/没章节)、用户在书籍管理删书、或 progress 被 restore 回滚,
+// 重启后这些 URL 仍被 L759(发现跳过)/L817(完结整体跳过)跳过 → 库里缺书却永远不再采。
+// 修法: 恢复段一次性对账(不在消费点逐条查库), 库中实际不存在的 URL 从 Set 剔除 →
+// 列表重新发现时重新入队采集。
+
+/** 对账分批查询上限: 每批 IN 子句 URL 数(SQLite 本地毫秒级; 万级 URL 分批循环, 单批参数有界) */
+export const RESUME_RECONCILE_BATCH = 500
+
+/** [R18-c-1] 对账输入: 三组续采 Set + 末章记忆(传引用, 剔除直接原地 delete) */
+export interface ResumeSetsView {
+  discovered: Set<string>
+  completed: Set<string>
+  ongoing: Set<string>
+  lastChapters: Map<string, string>
+}
+
+/** [R18-c-1] 对账查询行: sourceUrl + 该书章节数(0 = 空壳书) */
+export interface ReconcileDbRow {
+  sourceUrl: string
+  chapterCount: number
+}
+
+/** [R18-c-1] 对账结果: 剔除明细 + 各集合剔除计数(供调用方置 dirty 标志) */
+export interface ReconcileOutcome {
+  removedUrls: string[]
+  removedFrom: { discovered: number; completed: number; ongoing: number; lastChapters: number }
+  batches: number
+  queriedUrls: number
+}
+
+/**
+ * [R18-c-1] 续采集合 DB 对账核心(纯逻辑, queryDb 注入便于单测):
+ *  1. 三组 Set 汇总去重 → 分批(≤RESUME_RECONCILE_BATCH)经 queryDb 查库内实际存在的
+ *     sourceUrl + 章节数, 构建 Map(库中不查到的 URL 不入 Map = 不存在);
+ *  2. 判定需重采(URL 从所有所在集合剔除, 含 discovered —— 列表模式的书同时在 discovered
+ *     中, 只剔 completed/ongoing 会被 L759 发现跳过挡住, "移回待采"不生效):
+ *     - 库中无该 sourceUrl 记录 → 剔除(用户口径: 库里实际没有的书不能跳过);
+ *     - 库中存在但 0 章节且 URL ∈ completed → 剔除(completed 语义是"整本采完", 空壳书
+ *       应重采; 仅 ∈ discovered/ongoing 的 0 章节书按原语义保留不在本对账范围);
+ *  3. 形态口径: 发现(absolutize 后)→入库(sourceUrl: bookUrl 逐字)→持久化→恢复 全链
+ *     同源同形态, 直接精确比对, 不做 normalize(形态不一致的陈旧数据会被判"库中无记录"
+ *     重采, 落到 crawlOneBook 的 findFirst({sourceUrl}) 同口径, 不会误跳过)。
+ * 抛错语义: queryDb 抛错时原样上抛且【未做任何剔除】(剔除发生在全部批次成功之后),
+ * 调用方按 fail-open 保留原 Set。 */
+export async function reconcileResumeSetsCore(
+  sets: ResumeSetsView,
+  queryDb: (batch: string[]) => Promise<ReconcileDbRow[]>,
+): Promise<ReconcileOutcome> {
+  const union = new Set<string>()
+  for (const u of sets.discovered) union.add(u)
+  for (const u of sets.completed) union.add(u)
+  for (const u of sets.ongoing) union.add(u)
+  const empty: ReconcileOutcome = {
+    removedUrls: [],
+    removedFrom: { discovered: 0, completed: 0, ongoing: 0, lastChapters: 0 },
+    batches: 0,
+    queriedUrls: 0,
+  }
+  if (union.size === 0) return empty
+  const urls = Array.from(union)
+  // 分批查库: sourceUrl 精确 IN 匹配; 同 sourceUrl 多行(列无 unique)由 Map 覆盖去重
+  const chapterCounts = new Map<string, number>()
+  let batches = 0
+  for (let i = 0; i < urls.length; i += RESUME_RECONCILE_BATCH) {
+    const batch = urls.slice(i, i + RESUME_RECONCILE_BATCH)
+    batches++
+    for (const row of await queryDb(batch)) chapterCounts.set(row.sourceUrl, row.chapterCount)
+  }
+  // 判定需重采: 库中无记录; 或 completed 语义但 0 章节(空壳完结书)
+  const stale: string[] = []
+  for (const u of urls) {
+    const ch = chapterCounts.get(u)
+    if (ch === undefined || (ch === 0 && sets.completed.has(u))) stale.push(u)
+  }
+  const removedFrom = { discovered: 0, completed: 0, ongoing: 0, lastChapters: 0 }
+  for (const u of stale) {
+    // 从所有所在集合剔除; 末章记忆同步清理(书都不在了, 陈旧末章 URL 只会污染下次比对;
+    // 重采成功后 shuntBookStatus 会按新状态重建/清理该记忆)
+    if (sets.discovered.delete(u)) removedFrom.discovered++
+    if (sets.completed.delete(u)) removedFrom.completed++
+    if (sets.ongoing.delete(u)) removedFrom.ongoing++
+    if (sets.lastChapters.delete(u)) removedFrom.lastChapters++
+  }
+  return { removedUrls: stale, removedFrom, batches, queriedUrls: urls.length }
+}
+
 // ---------- 全局单例 ----------
 const globalForRunner = globalThis as unknown as { __novelTaskRunner?: TaskRunner }
 
@@ -602,6 +691,62 @@ export class TaskRunner {
   }
 
   // ================== 主执行流 ==================
+  /** [R18-c-3] 重启恢复对账包装: 把 rt 三组续采 Set 与 Book 表对账, 剔除库中实际不存在
+   *  (或完结语义但 0 章节空壳)的 URL, 让列表重新发现时重新入队采集 —— 修"重启后跳过而
+   *  不续采"。一次性成本(分批 ≤RESUME_RECONCILE_BATCH 条 IN 查询, SQLite 本地毫秒级),
+   *  不在消费点逐条查库。fail-open: 对账抛错时保留原 Set 仅 log warn, 绝不因对账挂掉任务;
+   *  剔除发生时置对应 dirty 标志, 下一次 saveProgress 把对账后状态落库(下次重启不再对
+   *  陈旧 progress 重复做同一批剔除, 幂等无害但落库更干净)。 */
+  private async reconcileResumeSetsWithDb(taskId: string, rt: TaskRuntime): Promise<void> {
+    const before = {
+      discovered: rt.discoveredBookUrls.size,
+      completed: rt.completedBookUrls.size,
+      ongoing: rt.ongoingBookUrls.size,
+    }
+    let outcome: ReconcileOutcome
+    try {
+      outcome = await reconcileResumeSetsCore(
+        {
+          discovered: rt.discoveredBookUrls,
+          completed: rt.completedBookUrls,
+          ongoing: rt.ongoingBookUrls,
+          lastChapters: rt.bookLastChapters,
+        },
+        async (batch) => {
+          const rows = await db.book.findMany({
+            where: { sourceUrl: { in: batch } },
+            select: { sourceUrl: true, _count: { select: { chapters: true } } },
+          })
+          return rows.map((r) => ({ sourceUrl: r.sourceUrl, chapterCount: r._count.chapters }))
+        },
+      )
+    } catch (e: any) {
+      await this.log(
+        taskId,
+        'warn',
+        `DB 对账失败(保留原续采集合继续, 库中缺书仍会被跳过): ${e?.message?.slice(0, 160)}`,
+      ).catch(() => {})
+      return
+    }
+    if (outcome.removedUrls.length === 0) return
+    // 剔除生效 → 置 dirty 让下一次 saveProgress 落库对账后状态
+    if (outcome.removedFrom.discovered > 0) rt.dirtyDiscovered = true
+    if (outcome.removedFrom.completed > 0) rt.dirtyCompleted = true
+    if (outcome.removedFrom.ongoing > 0) rt.dirtyOngoing = true
+    if (outcome.removedFrom.lastChapters > 0) rt.dirtyLastChapters = true
+    await this.log(
+      taskId,
+      'info',
+      `DB 对账: 剔除 ${outcome.removedUrls.length} 本库中已不存在/空壳的记录(将重新采集) ` +
+        `[已发现 ${before.discovered}→${rt.discoveredBookUrls.size}, 已完结 ${before.completed}→${rt.completedBookUrls.size}, ` +
+        `连载中 ${before.ongoing}→${rt.ongoingBookUrls.size}; 分 ${outcome.batches} 批查 ${outcome.queriedUrls} 个URL]`,
+    ).catch(() => {})
+    // 剔除明细前 8 条(URL 截 120 字符防单条日志超 1500 字符上限裁切)
+    const preview = outcome.removedUrls.slice(0, 8).map((u) => u.slice(0, 120)).join(' , ')
+    const more = outcome.removedUrls.length > 8 ? ` …等${outcome.removedUrls.length}条` : ''
+    await this.log(taskId, 'info', `DB 对账剔除明细(前${Math.min(8, outcome.removedUrls.length)}条): ${preview}${more}`).catch(() => {})
+  }
+
   private async executeTask(taskId: string) {
     // ll-c 修复(epoch 取消窗口): rt/myEpoch 绑定必须【同步在函数入口】完成 —— 原先在
     // await ensureDirs() + await loadConfig() 两个真实异步点(fs.mkdir×3/db 查询, 毫秒级)
@@ -678,6 +823,11 @@ export class TaskRunner {
             'info',
             `范围续采恢复: 已发现 ${rt.discoveredBookUrls.size} 本 / 已完结 ${rt.completedBookUrls.size} 本 / 连载中 ${rt.ongoingBookUrls.size} 本(从 task.progress 装载; 完结书整体跳过, 连载书增量检查新章节, 新书全量采)`,
           ).catch(() => {})
+          // [R18-c-2] DB 对账: progress 集合可能与库脱节(上轮书籍入库失败/用户删书/库被
+          // restore 回滚), 先剔除库中实际不存在的 URL 再进发现阶段 —— 否则 L759 发现跳过
+          // 会把"库里没有的书"永远跳过(用户报告: 重启后不续采而是跳过)。fail-open: 对账
+          // 失败保留原 Set, 不因对账把任务搞崩
+          await this.reconcileResumeSetsWithDb(taskId, rt)
         }
       }
       // ---------- 发现书籍URL ----------

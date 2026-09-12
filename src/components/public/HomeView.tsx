@@ -1,5 +1,5 @@
 // ============================================================
-// 首页视图 — 随机下拉词 + 6 分类图文卡 + 排序切换 + 按 theme.layout 分发 6 种布局（全主题去分页, 一次拉 48 本）
+// 首页视图 — 随机下拉词 + 6 分类图文卡 + 排序切换 + 按 theme.layout 分发 8 种布局（全主题去分页, 一次拉 48 本）
 // ============================================================
 'use client'
 
@@ -11,7 +11,7 @@ import { usePublic } from './ctx'
 import { siteKeywordList, useSiteSEO, withAlpha } from './seo'
 import { EmptyState, ErrorState, SuggestTagCloud, TagCloud, BookGridSkeleton } from './bits'
 import { CategoryShowcase } from './CategoryShowcase'
-// 默认主题 aurora → shelf: 首屏保证, 保持静态 import; 其余 6 布局按需分包(ab-d 懒加载试点)
+// 默认主题 aurora → shelf: 首屏保证, 保持静态 import; 其余 7 布局按需分包(ab-d 懒加载试点)
 // —— 布局仅在本组件内引用且站点/主题经客户端 fetch 获知, SSR 首屏只会命中 shelf,
 //    非默认布局只会在数据到达后的客户端渲染分支中触发 chunk 拉取, 无首屏闪烁/CLS 回归面
 import { HomeShelf } from './layouts/HomeShelf'
@@ -21,6 +21,7 @@ const HomeMinimal = dynamic(() => import('./layouts/HomeMinimal').then((m) => m.
 const HomeMagazine = dynamic(() => import('./layouts/HomeMagazine').then((m) => m.HomeMagazine))
 const HomeTheater = dynamic(() => import('./layouts/HomeTheater').then((m) => m.HomeTheater))
 const HomePili = dynamic(() => import('./layouts/HomePili').then((m) => m.HomePili))
+const HomeBiquge = dynamic(() => import('./layouts/HomeBiquge').then((m) => m.HomeBiquge))
 import type { BookItem } from './types'
 
 interface FetchState {
@@ -168,8 +169,9 @@ export function HomeView({ page, cat }: { page: number; cat?: string }) {
           {theme.layout === 'magazine' && <HomeMagazine books={books} loading={loading} />}
           {theme.layout === 'theater' && <HomeTheater books={books} loading={loading} />}
           {theme.layout === 'pili' && <HomePili books={books} loading={loading} />}
+          {theme.layout === 'biquge' && <HomeBiquge books={books} loading={loading} />}
           {/* feat-round-7 B3: 防御性兜底 — 未知布局/loading 期无任何布局命中时用 BookGridSkeleton */}
-          {!['shelf', 'list', 'grid', 'minimal', 'magazine', 'theater', 'pili'].includes(theme.layout) && loading && (
+          {!['shelf', 'list', 'grid', 'minimal', 'magazine', 'theater', 'pili', 'biquge'].includes(theme.layout) && loading && (
             <BookGridSkeleton count={12} />
           )}
         </>

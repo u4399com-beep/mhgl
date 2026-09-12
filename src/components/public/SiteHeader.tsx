@@ -765,7 +765,7 @@ function SiteMark() {
 }
 
 export function SiteHeader() {
-  const { theme, embedMode } = usePublic()
+  const { theme, embedMode, navigate } = usePublic() // [R18-d-3] +navigate: aijjxs 深酒红导航条链接用
   const v = theme.vars
   const { cats, pending } = useCategories()
 
@@ -787,6 +787,56 @@ export function SiteHeader() {
       {v.headerStyle === 'pili' ? (
         // 白底报头 + 奶油渐变分类条（pili 霹雳书屋）
         <PiliHeader cats={cats} pending={pending} />
+      ) : v.headerStyle === 'aijjxs' ? (
+        // [R18-d-3] aijjxs 仿站双层头部(色值取自 www.aijjxs.com 实测 top-float):
+        // 上层深酒红渐变导航条(白字分类链接+浅粉悬浮) + 下层米白报头(站名+搜索+书架)
+        <div className="w-full">
+          <nav
+            aria-label="站内分类导航"
+            style={{
+              background: 'linear-gradient(180deg, rgba(85,15,28,0.96) 0%, rgba(60,8,20,0.96) 50%, rgba(38,4,12,0.97) 100%)',
+              boxShadow: 'inset 0 1px 0 rgba(255,220,230,0.18), 0 4px 10px rgba(40,5,12,0.22)',
+            }}
+          >
+            <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-center gap-x-1 px-3 py-1.5">
+              {pending ? (
+                <span className="py-1.5 text-[13px] text-white/60" aria-hidden>分类加载中…</span>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => navigate({ view: 'home' })}
+                    className="rounded-lg px-2.5 py-1.5 text-[13px] font-bold text-white transition-colors hover:bg-white/20"
+                  >
+                    首页
+                  </button>
+                  {(cats || []).map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => navigate({ view: 'category', cat: c.id })}
+                      className="rounded-lg px-2.5 py-1.5 text-[13px] font-bold text-white transition-colors hover:bg-white/20"
+                    >
+                      {c.name}
+                    </button>
+                  ))}
+                </>
+              )}
+            </div>
+          </nav>
+          <div className="mx-auto w-full max-w-6xl px-4 sm:px-6">
+            <div className="flex flex-wrap items-center justify-between gap-3 py-3">
+              <SiteMark />
+              <div className="hidden md:block"><SearchBox /></div>
+              <div className="flex items-center gap-2">
+                <BookshelfButton />
+                {/* md 以下用紧凑搜索框(与常规分支同策略) */}
+                <div className="md:hidden"><SearchBox compact /></div>
+                {embedMode && <SiteSwitcher />}
+              </div>
+            </div>
+          </div>
+        </div>
       ) : v.headerStyle === 'centered' ? (
         // 报头居中式（paper）：站名居中 + 搜索居中 + 分类导航居中
         <div className="mx-auto flex w-full max-w-5xl flex-col items-center gap-3 px-4 py-5">

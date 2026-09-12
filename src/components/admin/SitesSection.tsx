@@ -48,14 +48,14 @@ interface SiteTheme {
   preview: [string, string, string]
 }
 
-/** 分页搜索模式响应(带 ?q= 时 total 为过滤后总数, totalAll 恒为全库 50409) */
+/** 分页搜索模式响应(带 ?q= 时 total 为过滤后总数, totalAll 恒为全库精选+组合总数) */
 interface ThemeHitsResp {
   items: SiteTheme[]
   total: number
   totalAll: number
 }
 
-/** [R10-a-5] 首页布局中文标签(与 theme-matrix LAYOUTS.homeLayout 对齐, 前端独立映射) */
+/** [R10-a-5] 首页布局中文标签(与 theme-matrix LAYOUTS.homeLayout 对齐, 前端独立映射; R18-b +biquge) */
 const HOME_LABEL: Record<string, string> = {
   grid: '网格',
   list: '列表',
@@ -64,6 +64,7 @@ const HOME_LABEL: Record<string, string> = {
   minimal: '极简',
   theater: '剧院',
   pili: '霹雳',
+  biquge: '笔趣阁经典',
 }
 
 interface SiteForm {
@@ -115,7 +116,7 @@ export function SitesSection() {
   const [batchConfirmOpen, setBatchConfirmOpen] = useState(false)
   const [pendingTheme, setPendingTheme] = useState('')
   const [pendingOffset, setPendingOffset] = useState('')
-  // ---- [R10-a-5] 主题数据双轨: 不再硬编码 page=1&size=500(全库 50409 套只可达前 491 个) ----
+  // ---- [R10-a-5] 主题数据双轨: 服务端 ?q= 搜索 + 组合缓存(R18-b 起全库 8 精选 + 512 组合) ----
   // themeKnown: 已知主题缓存(9 套预设 + 历次搜索命中 + 卡片按需解析), 卡片名称/当前值回显用
   // themeHits:  当前搜索词的服务端前 50 条命中(编辑对话框与批量条两处下拉共用数据源)
   const [themeKnown, setThemeKnown] = useState<SiteTheme[]>([])

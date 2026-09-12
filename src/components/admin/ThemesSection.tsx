@@ -1,8 +1,8 @@
 'use client'
 
 // ============================================================
-// 主题模板 — 9 套精选主题卡片 / 预览 / 设为默认站点主题
-// [R10-a-4] 新增「组合主题浏览器」: 50400 套配色×风格×布局组合主题的
+// 主题模板 — 8 套精选主题卡片 / 预览 / 设为默认站点主题
+// [R10-a-4] 「组合主题浏览器」: 8 配色×8 风格×8 布局 = 512 组合主题(R18-b 精炼)的
 //   搜索(服务端 ?q=, 输入防抖 300ms) + 分页(24|48|96 条/页) + 应用入口,
 //   卡片保留「预览前台」「设为默认站点主题」两个动作(与精选卡片同逻辑)
 // ============================================================
@@ -31,6 +31,10 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { api, type SiteRow } from './helpers'
+import { COLOR_COUNT, STYLE_COUNT, LAYOUT_COUNT } from '@/lib/crawl/theme-matrix'
+
+/** [R18-b] 矩阵组合总数 — 由三维度真实计数动态相乘, 不硬编码(8×8×8=512) */
+const COMBO_COUNT = COLOR_COUNT * STYLE_COUNT * LAYOUT_COUNT
 
 interface ThemeRow {
   id: string
@@ -43,7 +47,7 @@ interface ThemeRow {
   preview: [string, string, string]
 }
 
-/** 分页模式响应(带 ?q= 搜索时 total 为过滤后总数, totalAll 恒为全库 50409) */
+/** 分页模式响应(带 ?q= 搜索时 total 为过滤后总数, totalAll 恒为全库精选+组合总数) */
 interface ThemesPageResp {
   page: number
   size: number
@@ -61,7 +65,7 @@ const READ_LABEL: Record<string, string> = {
   pili: '书屋版',
 }
 
-/** [R10-a-4] 首页布局中文标签（与 theme-matrix LAYOUTS.homeLayout 对齐, 前端独立映射） */
+/** [R10-a-4] 首页布局中文标签（与 theme-matrix LAYOUTS.homeLayout 对齐, 前端独立映射; R18-b +biquge） */
 const HOME_LABEL: Record<string, string> = {
   grid: '网格',
   list: '列表',
@@ -70,6 +74,7 @@ const HOME_LABEL: Record<string, string> = {
   minimal: '极简',
   theater: '剧院',
   pili: '霹雳',
+  biquge: '笔趣阁经典',
 }
 
 /** [R10-a-4] 组合主题浏览器每页条数档位 */
@@ -202,7 +207,7 @@ export function ThemesSection({ onPreviewSite }: ThemesSectionProps) {
     return () => clearTimeout(t)
   }, [searchInput])
 
-  // [R10-a-4] 浏览器取数: 服务端 ?q= 搜索 + 分页(空 q → 全库顺序分页, 9 精选在前)
+  // [R10-a-4] 浏览器取数: 服务端 ?q= 搜索 + 分页(空 q → 全库顺序分页, 8 精选在前)
   useEffect(() => {
     const seq = ++fetchSeq.current
     setBrowsing(true)
@@ -255,9 +260,11 @@ export function ThemesSection({ onPreviewSite }: ThemesSectionProps) {
           <h2 className="flex items-center gap-2 text-lg font-semibold text-zinc-100">
             <Palette className="h-5 w-5 text-violet-400" />
             主题模板
-            {/* [R10-a-4] 页头总数改为全库真实总数: 9 精选 + 50400 组合 */}
+            {/* [R18-b] 计数文案: 三维度真实计数动态相乘(8 配色 × 8 风格 × 8 布局 = 512 组合) */}
             <span className="text-xs font-normal text-zinc-500">
-              {totalAll > 0 ? `(共 ${totalAll} 套: ${themes.length} 精选 + ${totalAll - themes.length} 组合)` : '(主题库统计中…)'}
+              {totalAll > 0 && themes.length > 0
+                ? `${COLOR_COUNT} 配色 × ${STYLE_COUNT} 风格 × ${LAYOUT_COUNT} 布局 = ${COMBO_COUNT} 组合 · ${themes.length} 精选`
+                : '(主题库统计中…)'}
             </span>
           </h2>
           <p className="mt-0.5 text-xs text-zinc-500">
