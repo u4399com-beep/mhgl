@@ -32,7 +32,9 @@
 //   * fetch: 站点有 CF 防护(裸 HTTP 403), engine=auto + browserFallbackStatus 含 403/412/429/503
 //     自动升级 Obscura 隐身浏览器求解; uaMode=desktop 同站恒定桌面 UA 族(CF 凭证不因换 UA 失效)
 const BASE = process.env.BASE || 'http://localhost:3000'
-const PASSWORD = process.env.ADMIN_PASSWORD || 'heis-admin-2025'
+// [R15-c] 缺省密码与 src/lib/auth.ts / scripts/_seed-lib.ts 同源(旧值 heis-admin-2025 与
+// 编译期默认 audit-fix-2025 不一致, 无 ADMIN_PASSWORD 环境时必然 401)
+const PASSWORD = process.env.ADMIN_PASSWORD || 'audit-fix-2025'
 
 interface RuleSeed {
   name: string

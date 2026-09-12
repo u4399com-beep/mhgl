@@ -67,7 +67,7 @@ async function totalPages(): Promise<number> {
 }
 
 /** 取第 N 页的 URL 条目(N 从 1 起) —— books 在前, chapters 在后, 跨表合并分页 */
-async function fetchPageEntries(page: number, base: string, preset: PseudoPreset): Promise<string[]> {
+async function fetchPageEntries(page: number, base: string, preset: PseudoPreset, siteQ: string): Promise<string[]> {
   const skip = (page - 1) * PAGE_SIZE
   if (skip < 0) return []
 
@@ -86,7 +86,7 @@ async function fetchPageEntries(page: number, base: string, preset: PseudoPreset
     for (const b of books) {
       const path = buildBookPath({ id: b.id, num: b.num }, preset)
       const loc = path || `/?view=book&id=${encodeURIComponent(b.id)}`
-      entries.push(`  <url><loc>${base}${loc}</loc><lastmod>${b.updatedAt.toISOString()}</lastmod><changefreq>daily</changefreq><priority>0.8</priority></url>`)
+      entries.push(`  <url><loc>${appendSiteQ(`${base}${loc}`, siteQ)}</loc><lastmod>${b.updatedAt.toISOString()}</lastmod><changefreq>daily</changefreq><priority>0.8</priority></url>`)
     }
     // chapters 段(若 books 不满一页)
     const remaining = PAGE_SIZE - books.length
@@ -97,7 +97,7 @@ async function fetchPageEntries(page: number, base: string, preset: PseudoPreset
         select: { id: true, idx: true, updatedAt: true, book: { select: { num: true } } },
       })
       for (const c of chapters) {
-        entries.push(`  <url><loc>${chapterLoc(base, c, preset)}</loc><lastmod>${c.updatedAt.toISOString()}</lastmod><changefreq>weekly</changefreq><priority>0.6</priority></url>`)
+        entries.push(`  <url><loc>${appendSiteQ(chapterLoc(base, c, preset), siteQ)}</loc><lastmod>${c.updatedAt.toISOString()}</lastmod><changefreq>weekly</changefreq><priority>0.6</priority></url>`)
       }
     }
     return entries
@@ -112,7 +112,7 @@ async function fetchPageEntries(page: number, base: string, preset: PseudoPreset
     select: { id: true, idx: true, updatedAt: true, book: { select: { num: true } } },
   })
   for (const c of chapters) {
-    entries.push(`  <url><loc>${chapterLoc(base, c, preset)}</loc><lastmod>${c.updatedAt.toISOString()}</lastmod><changefreq>weekly</changefreq><priority>0.6</priority></url>`)
+    entries.push(`  <url><loc>${appendSiteQ(chapterLoc(base, c, preset), siteQ)}</loc><lastmod>${c.updatedAt.toISOString()}</lastmod><changefreq>weekly</changefreq><priority>0.6</priority></url>`)
   }
   return entries
 }
@@ -126,6 +126,16 @@ function chapterLoc(
   const bNum = c.book?.num ?? null
   const path = bNum ? buildReadPath({ id: '', num: bNum }, { id: c.id, idx: c.idx }, preset) : ''
   return path ? `${base}${path}` : `${base}/?view=read&chapter=${encodeURIComponent(c.id)}`
+}
+
+/**
+ * [R15-a1-6] loc 追加 site 参数 —— 前台各视图 canonical 恒带 site(bookCanonicalPath/
+ * readCanonicalPath 恒带, 首页/分类/搜索等查询串 canonical 同样带), sitemap loc 缺失会
+ * 与 canonical 形成两个不同地址(重复内容信号分裂)。base 自带查询串时用 & 连接
+ */
+function appendSiteQ(loc: string, siteQ: string): string {
+  if (!siteQ) return loc
+  return `${loc}${loc.includes('?') ? '&' : '?'}${siteQ}`
 }
 
 export async function GET(req: Request) {
@@ -149,6 +159,14 @@ export async function GET(req: Request) {
     // 伪静态预设: sitemap URL 与前台链接同形态
     const preset = await getPseudoPreset()
 
+    // [R15-a1-6] canonical 对齐的站点参数: 站点选取与前台兜底链同口径(先滤停用, 再默认站 → 第一个启用站)
+    // (显式 ?site= → 该站且须启用; 无启用站则不加参数, 与前台"站点未就绪"态一致)
+    const effSiteRow = siteId
+      ? await db.site.findUnique({ where: { id: siteId }, select: { id: true, status: true } })
+      : (await db.site.findFirst({ where: { isDefault: true, status: { not: false } }, select: { id: true, status: true }, orderBy: { createdAt: 'asc' } })
+        ?? await db.site.findFirst({ where: { status: { not: false } }, select: { id: true, status: true }, orderBy: { createdAt: 'asc' } }))
+    const siteQ = effSiteRow && effSiteRow.status !== false && effSiteRow.id ? `site=${encodeURIComponent(effSiteRow.id)}` : ''
+
     // R4A-13: 服务端 5min 缓存 —— 公共路由 120 req/min × 50k 行扫描 = 6M 行/min 饱和 DB,
     //   内存缓存命中后零 DB 查询。缓存键 = base + page/index + site, base 不变时全共享
     const cacheKey = `${base}|page=${pageParam || ''}|index=${indexParam || ''}|site=${siteId}`
@@ -167,7 +185,7 @@ export async function GET(req: Request) {
       const page = clampInt(pageParam, 1, 1, MAX_PAGES)
       const total = await totalPages()
       // 超出实际页数 → 返回空 urlset(不报错, 公共路由容错优先)
-      const entries = page > total ? [] : await fetchPageEntries(page, base, preset)
+      const entries = page > total ? [] : await fetchPageEntries(page, base, preset, siteQ)
       const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
 ${entries.join('\n')}
@@ -218,14 +236,15 @@ ${sitemapEntries.join('\n')}
     })
 
     const entries: string[] = []
-    entries.push(`  <url><loc>${base}/?view=home</loc><changefreq>daily</changefreq><priority>1.0</priority></url>`)
+    // [R15-a1-6] 首页 loc 对齐 HomeView canonical(/?site=X); 无站点时维持 /?view=home
+    entries.push(`  <url><loc>${base}/${siteQ ? `?${siteQ}` : '?view=home'}</loc><changefreq>daily</changefreq><priority>1.0</priority></url>`)
     for (const b of books) {
       const path = buildBookPath({ id: b.id, num: b.num }, preset)
       const loc = path || `/?view=book&id=${encodeURIComponent(b.id)}`
-      entries.push(`  <url><loc>${base}${loc}</loc><lastmod>${b.updatedAt.toISOString()}</lastmod><changefreq>daily</changefreq><priority>0.8</priority></url>`)
+      entries.push(`  <url><loc>${appendSiteQ(`${base}${loc}`, siteQ)}</loc><lastmod>${b.updatedAt.toISOString()}</lastmod><changefreq>daily</changefreq><priority>0.8</priority></url>`)
     }
     for (const c of chapters) {
-      entries.push(`  <url><loc>${chapterLoc(base, c, preset)}</loc><lastmod>${c.updatedAt.toISOString()}</lastmod><changefreq>weekly</changefreq><priority>0.6</priority></url>`)
+      entries.push(`  <url><loc>${appendSiteQ(chapterLoc(base, c, preset), siteQ)}</loc><lastmod>${c.updatedAt.toISOString()}</lastmod><changefreq>weekly</changefreq><priority>0.6</priority></url>`)
     }
 
     const xml = `<?xml version="1.0" encoding="UTF-8"?>

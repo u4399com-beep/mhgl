@@ -9,6 +9,7 @@ import { fetchKeyword } from './data'
 import type { KeywordData } from './types'
 import { usePublic } from './ctx'
 import { formatWords, useSiteSEO, withAlpha } from './seo'
+import { sliceCodePoints } from '@/lib/utils'
 import { BookCover } from './BookCover'
 import { EmptyState, ErrorState, Sk, StatusBadge, TagCloud } from './bits'
 
@@ -46,11 +47,14 @@ export function KeywordView({ tag }: { tag?: string }) {
     }
   }, [tag])
 
+  // [R15-a1-5] 简介摘要码点截断(emoji 代理对不劈半) + 空简介时省略尾部(修前产出悬挂逗号)
+  const kwIntro = data?.book?.intro ? sliceCodePoints(data.book.intro.replace(/\s+/g, ' ').trim(), 80) : ''
+
   useSiteSEO({
     title: tag ? `${tag} - ${site.name}` : `关键词 - ${site.name}`,
     description: tag
       ? data?.book
-        ? `${tag}主题小说推荐：《${data.book.name}》${data.book.author} 著，${formatWords(data.book.wordCount)}，${data.book.intro.slice(0, 80)}`
+        ? `${tag}主题小说推荐：《${data.book.name}》${data.book.author} 著，${formatWords(data.book.wordCount)}${kwIntro ? `，${kwIntro}` : ''}`
         : `${site.name}为您呈现“${tag}”相关的小说专题`
       : undefined,
     keywords: tag ? `${tag},${data?.book?.name || ''},${site.keywords}`.replace(/,+$/, '') : site.keywords,

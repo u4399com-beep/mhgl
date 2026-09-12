@@ -364,8 +364,11 @@ function reorderWithVolumes(items: TocItem[]): TocItem[] {
   const out: TocItem[] = []
   for (const g of orderedGroups) {
     // 卷内: 锚点条目(纯卷标题)固定最前, 其余按章号算法
+    // [R15-d1b-5](Low,perf) rest 排除判定从 anchors.includes(每成员 O(|anchors|) 线性扫,
+    // 锚点密集目录 O(n²))改 Set 哈希 O(1); anchors 数组保留原序供 push(输出逐字节一致)
     const anchors = g.members.filter((m) => extractVolumeAnchor(m.title) !== null && !(m.volume && m.volume.trim()))
-    const rest = g.members.filter((m) => !anchors.includes(m))
+    const anchorSet = new Set(anchors)
+    const rest = g.members.filter((m) => !anchorSet.has(m))
     out.push(...anchors)
     out.push(...sortByChapterNo(rest))
   }

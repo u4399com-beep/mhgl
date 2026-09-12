@@ -1,7 +1,9 @@
 "use client"
 
 import * as React from "react"
+import { useState } from "react"
 import { Loader2 } from "lucide-react"
+import { Input } from "@/components/ui/input"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -56,6 +58,9 @@ export interface ConfirmDialogProps {
   loading?: boolean
   /** 仅禁用确认钮（无 spinner） */
   confirmDisabled?: boolean
+  /** [R15-d2-3] 输入确认门槛：设置后必须在此输入框精确键入该文本确认钮才可用 ——
+   *  用于批量删除等不可恢复大操作，防误点链路（单击确认 + 陈旧引用误击）直接落地 */
+  requireTextInput?: string
 }
 
 export function ConfirmDialog({
@@ -69,14 +74,33 @@ export function ConfirmDialog({
   onConfirm,
   loading = false,
   confirmDisabled = false,
+  requireTextInput,
 }: ConfirmDialogProps) {
+  // [R15-d2-3] 输入确认状态：关闭时重置(Radix 关闭路径统一走 onOpenChange(false),
+  // 含 Esc/遮罩/取消), 下次打开必然从空串开始; 避免在 effect 内同步 setState
+  const [typed, setTyped] = useState("")
+  const handleOpenChange = (o: boolean) => {
+    if (!o) setTyped("")
+    onOpenChange(o)
+  }
+  const gated = requireTextInput !== undefined && typed !== requireTextInput
   return (
-    <AlertDialog open={open} onOpenChange={onOpenChange}>
+    <AlertDialog open={open} onOpenChange={handleOpenChange}>
       <AlertDialogContent className="border-zinc-800 bg-zinc-900">
         <AlertDialogHeader>
           <AlertDialogTitle className="text-zinc-100">{title}</AlertDialogTitle>
           <AlertDialogDescription className="text-zinc-400">{description}</AlertDialogDescription>
         </AlertDialogHeader>
+        {requireTextInput !== undefined ? (
+          <Input
+            aria-label={`输入 ${requireTextInput} 以确认`}
+            value={typed}
+            onChange={(e) => setTyped(e.target.value)}
+            placeholder={`输入「${requireTextInput}」以确认`}
+            maxLength={20}
+            className="h-9 border-zinc-700 bg-zinc-950 text-sm"
+          />
+        ) : null}
         <AlertDialogFooter>
           <AlertDialogCancel className="border-zinc-700 bg-transparent text-zinc-300 hover:bg-zinc-800">
             {cancelText}
@@ -84,7 +108,7 @@ export function ConfirmDialog({
           <AlertDialogAction
             className={CONFIRM_TONE_CLASS[tone]}
             onClick={onConfirm}
-            disabled={loading || confirmDisabled}
+            disabled={loading || confirmDisabled || gated}
           >
             {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : confirmText}
           </AlertDialogAction>

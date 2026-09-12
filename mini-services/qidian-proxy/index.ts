@@ -100,13 +100,17 @@ async function acquireUpstream(): Promise<void> {
     return
   }
   await new Promise<void>((r) => upstreamWaiters.push(r))
-  upstreamInflight++
+  // [R15-d1b-7](Low) 被唤醒即已获得 release 让渡的槽位, 不再自增 —— 旧实现"release 先减后唤
+  // + 唤醒者自增"组合下, 唤醒微任务尚未执行的间隙里快速通道(inflight<2)可抢走该槽位, 随后
+  // 唤醒者再自增导致瞬时超订(inflight 3 > 上限 2), 自律限速被击穿
 }
 
 function releaseUpstream(): void {
-  upstreamInflight = Math.max(0, upstreamInflight - 1)
+  // [R15-d1b-7](Low) 槽位直接过户给队首等待者(计数不减不增, 持有者恒计一次), 无等待者才真正释放
+  // —— 等待者仅在 inflight>=2 时入队, 过户后 inflight 保持 2, 快速通道不再可能趁隙抢入
   const next = upstreamWaiters.shift()
-  if (next) next()
+  if (next) { next(); return }
+  upstreamInflight = Math.max(0, upstreamInflight - 1)
 }
 
 function upstreamHeaders(extra?: Record<string, string>): Record<string, string> {

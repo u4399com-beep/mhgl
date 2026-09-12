@@ -211,7 +211,10 @@ export default function PublicSite({
 
   // 首屏加载期 SEO 兜底（仅站点未就绪时接管 head；站点就绪后完全退位给各视图，防止父子互覆盖）
   useSiteSEO({
-    title: '站点加载中',
+    // [R15-a1-7] 错误态标题与 robots: 修前加载失败屏仍挂「站点加载中」标题且 index,follow
+    // (错误页可被收录形成软 404); 站点就绪后本 hook 退位, 不影响正常视图 TDK
+    title: loadErr ? '站点加载失败' : '站点加载中',
+    robots: loadErr ? 'noindex,nofollow' : undefined,
     site: null,
     enabled: !site,
   })

@@ -69,7 +69,11 @@ export function bookCanonicalPath(
 ): string {
   const path = buildBookPath(book, preset)
   const base = path || `/?view=book&id=${encodeURIComponent(book.id)}`
-  return siteId ? `${base}?site=${encodeURIComponent(siteId)}` : base
+  // [R15-a1-1] site 参数拼接: 查询串回退形态的 base 自带 ?view=... 查询串, 须用 & 连接。
+  // 修前恒用 ? 拼接 → query 预设(默认)下 canonical 产出双问号畸形 URL
+  // /?view=book&id=x?site=y(bun 实证), 搜索引擎视为非法/不可解析地址
+  const joiner = base.includes('?') ? '&' : '?'
+  return siteId ? `${base}${joiner}site=${encodeURIComponent(siteId)}` : base
 }
 
 /** 阅读页规范地址(canonical/JSON-LD 用): 书号/序号齐备则伪静态, 否则按章节 cuid 查询串 */
@@ -81,7 +85,9 @@ export function readCanonicalPath(
 ): string {
   const path = book.num ? buildReadPath({ id: '', num: book.num }, chapter, preset) : ''
   const base = path || `/?view=read&chapter=${encodeURIComponent(chapter.id)}`
-  return siteId ? `${base}?site=${encodeURIComponent(siteId)}` : base
+  // [R15-a1-1] 同 bookCanonicalPath: 查询串回退形态须用 & 连接 site 参数(双问号畸形修复)
+  const joiner = base.includes('?') ? '&' : '?'
+  return siteId ? `${base}${joiner}site=${encodeURIComponent(siteId)}` : base
 }
 
 const VIEW_LIST: PublicView[] = ['home', 'book', 'read', 'search', 'keyword', 'category', 'history']

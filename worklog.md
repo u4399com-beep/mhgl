@@ -3771,3 +3771,118 @@ Stage Summary:
 - 伪静态体系全链落地: 6 预设(超 5 种要求)/生成=注册表同步构建(未命中回退查询串永不死链)/解析=宽容全形态(换预设不断链)/管理端一键切换/SEO 三件套(canonical+JSON-LD+sitemap)同形态/链轮跨站链接跟随
 - 关键决策: Book.num 应用层分配(SQLite 单自增列限制)+阅读页复用 Chapter.idx; catch-all 服务端解析而非 middleware 重写(Prisma 可用+SSR 零闪烁); Next 外部 pushState 同步缺陷以 Shell pathname 识别根治
 - 历史链: R11=4854abe → R12=d70dd45 → R13=07972df → R14(本轮)
+
+---
+Task ID: R15-b2
+Agent: builtin-rules-api-ui
+Task: 内置规则库 GET/POST API + BuiltinRulesDialog UI + RulesSection 接入
+
+Work Log:
+- A线 GET /api/admin/rules/builtin/route.ts [R15-b2]: withGuard 包裹(鉴权走 proxy.ts 既有链); 一次 db.rule.findMany({select:{id,name}}) 按名建 Map 分组后与 BUILTIN_RULES(24 条)逐条精确同名匹配, 零 N+1; 返回 {ok,data:{rules:[{key,name,description,enabled,source,config,imported,importedIds}]}}, config 原样返回供导入前预览
+- B线 POST /api/admin/rules/import-builtin/route.ts [R15-b2]: keys 容错(单条字符串可接受/all=true 或 keys 省略→全量/去重保序); 每条 findBuiltinRule→未知 key 跳过标注 error:'未知规则 key'; 创建前走与 rules/route.ts POST 完全同款校验(regexGate 四正则入口防线 + configToString 200KB 上限), 失败跳过不中断; deleteMany(同名全部)+create 包进 db.$transaction(避免"删旧成功建新失败"半程态, 与 seedRuleIdempotent 删全部同名再建口径一致); description 经 str(...,500) 与 rules POST 归一化对齐; 响应 {created,removedOld,results:[{key,name,id?,deletedOld,error?}]}; 单条 catch 用既有 errText 消毒(tt-b/R12-d-1 同款, Prisma 内部细节不进信封)
+- C线 BuiltinRulesDialog.tsx: 视觉对齐 RuleTemplateDialog(max-w-4xl/max-h-[85vh] 内层 admin-scroll/筛选条 sticky bg-zinc-950/80 backdrop-blur/卡片 border-zinc-800 bg-zinc-900/60 hover:border-violet-600/md:grid-cols-2 gap-4); 打开时 fetch GET builtin(每次打开重拉, 导入状态可能被 seed 脚本/他端改变); 关键字搜索(name/description/source); 卡片含 source 徽章(font-mono text-[10px])+状态徽章(已导入=emerald 描边灰底+title 提示同名条数/未导入=violet 描边)+line-clamp-2 描述; 导入按钮 per-key loading, 已导入显示「重新导入」+title 注明先删同名后重建; 「配置」按钮轻量展开只读 JSON pre(非嵌套 Dialog, admin-scroll max-h-56); 底部「全部导入」→ConfirmDialog 确认→单次 POST 传全量 keys 数组; 导入后 fetchRules 刷新状态徽章+onImported() 回调, toast 汇总(成功 N/失败 M, 失败明细进 description); fetch 错误统一 errMsg 转换(未登录/会话已过期→"登录已过期请重新登录"/fetch 网络错误→"网络错误"/其余透传信封 message), GET 失败态带重试按钮
+- D线 RulesSection.tsx: lucide 增 Library 图标, 「模板库」旁新增同款样式「内置规则库」按钮(title 注明来源 scripts 种子规则); BuiltinRulesDialog onImported 回调复用组件既有 load()(useCallback 刷新函数)重拉 /api/admin/rules
+- API curl 实证(登录 cookie): GET builtin 24 条全回+imported 判定正确(库无同名→全 false); 无 cookie GET/POST 双 401; POST {keys:["pilishuwu"]}→created=1, /api/admin/rules 出现同名规则(id=cmty6e0u2..., fetch.engine=auto, descLen=500 与 rules POST 归一口径一致); 再 POST 同 key→removedOld=1 幂等+新 id; GET builtin pilishuwu imported=true importedIds=[新id]; POST {keys:"nonexistent-key"}(字符串容错形态)→created=0+error:'未知规则 key'; DELETE /api/admin/rules/{id} 还原→GET builtin imported 回落全 false, 规则表回到 as-found 3 条演示规则(零残留)
+- 质量门: bun run lint 0 错 0 警 + bunx tsc --noEmit 0 错; 未改 builtin-rules.ts/seed 脚本/零新增依赖; 未重启 dev server(新增路由由 dev 自动加载, curl 已证)
+
+Stage Summary:
+- 内置规则库全链落地: GET 元数据+导入状态(单查询分组零 N+1) / POST 幂等导入(事务原子+同款校验+errText 消毒+单条失败不中断) / BuiltinRulesDialog(对齐模板库视觉+单条/全部导入+配置预览+401/网络错误处理) / RulesSection Library 按钮接入
+- API 实证 6 项全过: 24 条列表/401 防线/单条导入/幂等 removedOld=1/imported 标志翻转/未知 key 容错跳过; 测试数据已还原
+---
+Task ID: R15-a1
+Agent: tdk-audit-public
+Task: 自动TDK前台链路全面审查与缺陷修复
+
+Work Log:
+- 审查范围: seo.ts 机制面 + 全部 8 个 useSiteSEO 调用点(PublicSite/Home/Book/Read/Search/Keyword/Category/History) + ctx.tsx canonical 助手 + /api/public/book|chapter 数据源 + sitemap 输出对齐, 逐项过清单
+- [R15-a1-1](High, bun+浏览器双实证) ctx.tsx bookCanonicalPath/readCanonicalPath 查询串回退形态恒用 `?` 拼 site 参数 → query 预设(当前默认)下书籍页/阅读页 canonical 全量产出双问号畸形 URL `/?view=book&id=x?site=y`(bun 复现实证), 搜索引擎视为非法地址; 修为按 base 是否已含查询串选择 ?/& 连接; 冒烟 6 形态(query/numeric/nosite/book/read/nonum) 0 畸形
+- [R15-a1-2](Med) seo.ts geo 三件套(geo.region/geo.placename/ICBM)只 ensure 不 remove → 切站后新站缺某项时旧站值残留泄漏, 站点未就绪分支亦不清理; 修为 ensure-or-remove 对等 + site=null 时三项全清(与 canonical 无值即清理同口径)
+- [R15-a1-3](Med) BookView: ①intro 空白时 description 产出空串被 useSiteSEO 判无值移除 → 搜索引擎抓空 description, 兜底「书名,作者著」(author 空时自然退化仅书名); ②intro.slice UTF-16 截断会把 emoji 代理对劈成半字符 U+FFFD(R11 备份导出同型) → sliceCodePoints 码点截断(description 150/JSON-LD 200)并空白折叠; ③keywords+tags 全空时 join 产物空串 → 兜底 书名/作者/分类; ④错误态 noindex,follow 防软 404 收录(直接 URL 已由 catch-all 404 兜底, 此处覆盖客户端导航失败面)
+- [R15-a1-4](Med) ReadView description 原为固定句式(书名 章名 在线阅读,字数)不含正文关键词 → 改取章节正文摘要(剥标签+常见实体还原+空白折叠+码点截断 110, 空正文回退原句式), 浏览器实证 description 含「雨下得很大，敲打在旧铁皮屋顶上…」; 错误态 noindex,follow; title 层级核对: 章节名_书名 - 站名 完整
+- [R15-a1-5](Low) KeywordView intro.slice(0,80) 同型代理对劈半 + 空 intro 产出「…1.2 万字，」悬挂逗号 → 码点截断 + 空简介省略尾部
+- [R15-a1-6](Med) sitemap loc 与前台 canonical 不一致: 前台各视图 canonical 恒带 site 参数, sitemap 全裸路径(重复内容信号分裂) → sitemap 按与前台兜底链同口径解析有效站点(显式 ?site=→该站且须启用; 否则默认站→第一个启用站; 无启用站不加参数), home/book/chapter loc 经 appendSiteQ 追加 site(按 ?/& 连接), ?index=1 分支不变; curl 实证: home loc=/?site=X 与 HomeView canonical 逐字一致, ?page=1 全 240 loc 带站参 0 双问号
+- [R15-a1-7](Low) PublicSite 站点加载失败屏 title 仍挂「站点加载中」且 index,follow(错误页可收录) → 错误态 title「站点加载失败」+ noindex,nofollow; 站点就绪后 hook 退位不影响正常视图
+- [R15-a1-8](Low) CategoryView JSON-LD url 与 canonical 不同源(缺 page 参数且 cat 未编码) → 抽取 catPath 单变量两处同源
+- 检查过无问题: SearchView noindex,follow + canonical 带 q/site ✓; HistoryView noindex,nofollow ✓; CategoryView canonical 带分类参数与 page>1 页码(page=1 与首页共享) ✓; 首页无分页 UI 无重复内容面, BookView 目录翻页 canonical 收敛第 1 页(TOC 分页去重, 章节 URL 已全量进 sitemap) ✓; 视图快速切换: React 同 commit 先旧 effect cleanup(仅移除本视图 JSON-LD scripts)后新 effect, ensureMeta 复用同名节点无竞态 ✓; robots 每个启用视图恒显式设置 → 上一视图 noindex 不泄漏(浏览器实证: search noindex → 点书 index,follow 翻回) ✓; JSON-LD 随视图/数据变更重挂与卸载清理(实证 ldTypes SearchResultsPage→Book+BreadcrumbList) ✓; canonical 无值清理已有 ✓; document.title 父子退位时序无残留(子视图 loading 态自带占位 title, 不存在无 TDK 视图) ✓; 切书/翻章 key 重挂无旧 title 残留 ✓; /api/public/book|chapter 返回的 TDK 字段(intro/keywords/tags/chapters/num/idx)齐备, 未改任何 API 契约 ✓; 伪静态路径形态 sitemap 与前台一致(R14 对齐在位, 本轮仅补 site 参) ✓; 项目无 robots.txt 输出面 ✓
+- 质量门: bun run lint 0 错 0 警 + bunx tsc --noEmit 0 错; 浏览器终验(首页/书籍/阅读/搜索/书架 head 全字段正确, 视图切换无 robots/JSON-LD 残留, console 0 error)
+
+Stage Summary:
+- 修复清单: R15-a1-1[High] canonical 查询串回退双问号畸形(query 预设全量命中) | R15-a1-2[Med] geo 三件套切站残留清理 | R15-a1-3[Med] BookView 空 intro 兜底+码点截断+keywords 兜底+错误态 noindex | R15-a1-4[Med] ReadView description 取章节正文摘要+错误态 noindex | R15-a1-5[Low] KeywordView 截断劈字符+悬挂逗号 | R15-a1-6[Med] sitemap loc 追加 site 参数对齐 canonical | R15-a1-7[Low] PublicSite 错误态标题/robots | R15-a1-8[Low] CategoryView JSON-LD url 同源
+- 结论: 自动 TDK 链路 8 处真缺陷全修, 其余机制面(竞态/退位时序/JSON-LD 清理/robots 恒显式)核查健康; 改动仅落 src/components/public/** + api/public/sitemap, 未触碰 admin/伪静态引擎/其他并行会话文件(.env.example/LoginGate/RulesSection/auth.ts/seed-rule-pilishuwu 为既有改动零接触)
+---
+Task ID: R15-d2
+Agent: admin-api-audit
+Task: 管理端+公共API+本轮新代码深审修复
+
+Work Log:
+- A线(本轮新增面逐行):
+  - builtin GET [R15-b2]: 单查询 findMany({id,name}) 建名分组 + 注册表精确同名匹配, 零 N+1, 信封与 rules GET 一致 ✓; 实测 24 条 name 最长 44 字符 < 100 截断上限 → 导入后 GET 的 imported 判定与库内名恒一致(无截断错位面) ✓
+  - import-builtin POST [R15-b2→d2]: 事务内 deleteMany+create 为真原子($transaction 回调形态, 删建同事务, Prisma 交互事务隔离) ✓; regexGate/configToString 与 rules POST 逐字节同款 ✓; 未知 key 跳过/errText 消毒/单条失败不中断 ✓; [R15-d2-1](Med) 修 keys 数量无上限 —— 修前可塞 10 万个 key: 逐条 findBuiltinRule 循环 + results 明细膨胀(数 MB 信封), 与 api/_lib/batch.ts parseBatchBody 的 BATCH_MAX_IDS=500 口径不一致; 修为去重后 >500 整体 400 拒绝(不静默截断, 与批量路由同语义); curl 实证 600 keys→400 拒绝文案, 300 未知 keys→200 逐条 '未知规则 key', 单条导入+幂等不回归; all=true 全量导入=24 条 × 串行小事务, SQLite 毫秒级, 无需缓存 ✓
+  - auto-tdk POST [R15-a2]: withGuard+鉴权链/信封/钳制与 sites 系一致 ✓; 编辑态走 siteId 取库内真值防表单半态 ✓; 大库成本评估结论: db.book.count()+db.chapter.count() 为 SQLite COUNT(*) 扫描(10 万行约几十 ms), 与仪表盘 stats(GET 每次轮询同做 8 个 count+2 组 groupBy+7×2 逐日 count)同量级且更轻, 管理端 60/min 限流+按钮触发, 结论=不加缓存/上限, 现状达标; category orderBy books._count take 5 仅小表 GROUP BY ✓
+  - preview-hint GET [R15-c] 安全面复核结论(通过): ①生产构建 NODE_ENV=production 恒返回 {} (auth.ts previewHintPassword 首行短路) ✓; ②自定义密码(pw !== DEFAULT_ADMIN_PASSWORD)恒 null, 不回显 ✓; ③无副作用: 不读写 DB、不触碰 loginAttempts(登录限流配额零消耗)、仅 proxy auth 类令牌桶(独立于 login 5 次/60s 滑窗) ✓; ④密码枚举探针评估: 响应差异仅二值「生效密码==公开默认值」vs「否」—— 该信息攻击者本可向 /api/auth/login 提交一次已知默认密码等价获得(且默认值本就随仓库公开), 端点未引入新 oracle; 响应体长度差仅泄漏同一二值信息, 无逐字符/长度侧信道, 结论=可接受不修; LoginGate 挂载期拉取带 cancelled 卫语句, 拉取失败静默降级 ✓
+  - builtin-rules.ts(生成产物, 只查不改): 结构/命名/key 唯一性/注册表口径 24 条全过, max config 3KB ≪ 200KB 上限, 8 条 description>500 字符属 str(...,500) 归一化既有口径(rules POST 同款, worklog R15-b2 已声明) ✓
+  - BuiltinRulesDialog: 双击防线(按钮 disabled=importingAll||importingKey===key, handleImportAll 先关确认框再置 loading) ✓; 全部导入失败明细进 toast.description 不丢信息 ✓; aria-label(搜索)/title(按钮语义) 在位, 移动端 grid 1 列+min-w 输入框无溢出面 ✓; RulesSection Library 按钮接入与 onImported→load() 刷新链 ✓
+- B线(存量管理端 API 全家, 33 路由全扫): 鉴权覆盖完备性 — 全部 route.ts 均 withGuard 包裹 + proxy.ts matcher /api/admin/* 全局 Cookie 校验(无漏网路由, 逐一 grep 实证) ✓; 分页钳制回归 — books/feedback 页钳末页(R11-a-2/a-3 在位)、themes size≤500+页钳、admin toc 与 public 同款 skip≤10000(R4A-5 在位) ✓; errText 消毒回归 — batch×5/restore 双层(逐章 warnings+顶层 catch)在位, Prisma 内部细节零泄漏 ✓; 413 — login/restore/readBody(BodyTooLargeError→withGuard) 三链在位 ✓; 备份/恢复 — restore replace 模式依赖倒序删+600s timeout+默认站不变式归一化(R11-a-5)在位, 备份导出 cursor 分批+代理对块边界(R11-a-1)在位 ✓; tasks 进度瘦身(slimTaskProgressJson)/downloads 并发占位 TOCTOU 闭合/calibrate 回环 lockdown(C3) 抽查全过 ✓
+  - [R15-d2-2](Low) backup/restore 修 Setting 覆盖后内存缓存不失效 — 备份可整体覆盖 Setting 表(replace 先清后写), settings PUT 对 linkwheel/pseudostatic 两 key 有失效钩子而 restore 没有: 导入后读侧 60s 链轮缓存/伪静态预设缓存仍供旧值(链轮可指向已不存在的站点); 修为事务成功后 invalidateLinksCache()+invalidatePseudoPresetCache()(与 settings PUT 同口径, 幂等零成本); curl 实证 restore 200 + 缓存失效调用无异常
+- C线(公共 API 15 路由): 滥用防护 — 全体走 proxy 120 req/min 令牌桶; books/book(toc)/admin-toc skip≤10000(API-7/R4A-4/5) ✓; search/keyword 输入 likeSafe(去 %_) + take 钳制 ✓; feedback 100KB body 上限+剥 HTML+URL 数+全大写+IP 5条/h ✓; cover 正则+basename 双防穿越 ✓; download safeJoin+path.sep+TOCTOU(fd 持有)+RFC5987 文件名 ✓; sitemap 5min 服务端缓存+50 条 FIFO 驱逐+私网拒绝 ✓; 信息泄漏 — 公开 book 详情已剥离 sourceUrl(rr-d), sites 只回白名单 select 字段, 公共面无内部 id/错误细节直出(withGuard 统一 500 信封) ✓; 缓存语义 — cover max-age=86400/sitemap 600 合理, 数据类接口 no-store 动态渲染符合 SPA 实时性 ✓
+- D线(settings 白名单抽查): KEY_RE 白名单+entries≤100+VALUE_MAX 100KB 在位; 'linkwheel'→invalidateLinksCache / 'pseudostatic'→invalidatePseudoPresetCache 两钩子与 SettingsSection/LinksSection 写入 key('download'/'pseudostatic'/'linkwheel')一一对齐 ✓
+- 测试数据还原: 本轮 curl 实证产生的 pilishuwu 导入规则已删(rules 回 as-found 3 条演示规则, builtin imported 全 false)、restore 测试写入的 linkwheel Setting 行已删(settings 回 download+pseudostatic 两行), 临时文件已清; 未触碰其他并行会话文件(src/components/public/**、LoginGate、auth.ts、.env.example 等仅审未改)
+- 质量门: bun run lint 0 错 0 警 + bunx tsc --noEmit 0 错
+
+Stage Summary:
+- 修复清单: R15-d2-1[Med] import-builtin keys 数量上限(>500 整体 400, 对齐 BATCH_MAX_IDS 口径, 堵 10 万 key 信封膨胀/循环空耗) | R15-d2-2[Low] restore 成功后失效链轮/伪静态内存缓存(与 settings PUT 失效钩子同口径)
+- 审查结论: 本轮新增四线(builtin/import-builtin/auto-tdk/preview-hint)与存量 33 管理路由+15 公共路由主体健康 — 鉴权全覆盖/信封统一/分页与消毒回归零复现; preview-hint 安全面复核通过(生产恒空/自定义密码永不回显/无副作用/无新增枚举 oracle); auto-tdk 大库 count 成本评估结论=与仪表盘同量级且更轻, 不需缓存
+
+---
+Task ID: R15-d1
+Agent: crawl-chain-audit (超时, 主控接手完成)
+Task: 采集链路逐行深审 + 反反爬增强(fetcher.ts/parser.ts)
+
+Work Log:
+- agent 在 Task 返回链路超时(改动已落盘), 主控接手验证与收口
+- [R15-d1-7](High) CookieJar 键空间统一: store 主罐原以调用方 origin 串为键, get() 沿 hostname 父域链查询 → 两套键空间永不相交, host-only Set-Cookie(多数站会话 Cookie 形态)存得进但永远发不出, autoCookie 挑战重试链(gotNewCookie→重发)全部空转; 现 store/count/clear/seed 统一 hostOf 换算为 hostname 键, 副罐同键去重
+- [R15-d1-2](Med) 规则级 cfg.cookies 跨域重定向泄漏: native/curl/封面三链逐跳无条件携带源站种子 Cookie → 跨域跳把 A 站 Cookie 发给 B 站; 修为仅同 host 跳携带(hostKeyOf 判定)
+- [R15-d1-3](Med) 重定向环熔断误伤: Set 任一重复即熔断, 打断「302 种 Cookie 后跳回原 URL」真实会话链(A→B→A 第二跳带新 Cookie 通常即 200); 改 Map 同 URL 至多 2 次访问(3 次仍熔断), native/curl/封面三链同口径
+- [R15-d1-1](Med) hasNormalTitle '403'/'404' 子串误判: "第403章"章节标题被当异常标题 → CF 正常页 jsd 探针豁免失效整章误拦; 改带 \p{L}\p{N} 分隔上下文的整词判定(仅 "403 forbidden"/"error 404" 形态命中)
+- [R15-d1-5] 挑战标记扩充: CF Turnstile 新版 'verifying you are human' / 加速乐 '__jsl_clearance' / 宝塔 WAF 'btwaf' 入 STRONG_BLOCK_MARKERS
+- [R15-d1-4/6](Low,perf) isPlainJsonBody/parseJsonBody O(1) 快速拒绝(HTML 常态免全量 trim 拷贝); applyTransform 预算测试改 regexRuntimeSafe 记忆化(热路径同 replaceFrom 全进程只测一次)
+- 主控验证: lint 0/0 + tsc 0 错 + 冒烟 9 项 PASS(challenge 标记×3 / 403-404 整词×2 / 正文误伤回归×1 / CookieJar 键统一×2 / R6-5 跨域拒+host-only 兜底×2 — 首轮 3 FAIL 系测试脚本误用 store 签名(第二参为 Set-Cookie 数组)与断言违反 R6-5 host-only 兜底设计, 修正后全绿)
+
+Stage Summary:
+- fetcher.ts 7 修复(1 High 键空间分裂 + 2 Med 跨域 Cookie 泄漏/环熔断误伤 + 1 Med 标题误拦 + 2 perf + 1 挑战面扩充), parser.ts 2 perf; 全部经冒烟实证
+- 历史链: R14=a9f3461 → R15(本轮)
+
+---
+Task ID: R15-d1b
+Agent: crawl-chain-audit-b (响应丢失, 主控接手完成)
+Task: 采集链路剩余文件(runner/cleaner/downloader/sorter/qidian-proxy)逐行深审
+
+Work Log:
+- agent 改动已落盘但响应丢失(无 worklog 记录), 主控逐行复核 7 处修复 + 冒烟实证后收口
+- [R15-d1b-3](Low) runner 列表 URL {page} 占位符改 replaceAll(双段携带页号时第二段残留字面 "{page}" 被原样请求源站)
+- [R15-d1b-4](Low) runner 进度 bookLastChapters cap 50000 改保 LATEST(原保插入序头部=最早入库, 最新连载书记录被静默丢弃; 与三 URL 数组 slice(-50000) 保最新口径对齐)
+- [R15-d1b-1](Med,perf) downloader homoglyph/mixed 混淆 O(n²) 消除: Array.from(out).slice(0,-1).join('') 每次替换全量展开重拼(15KB 章≈3400 万码点迭代) → out.slice(0, out.length-ch.length) O(1) 摊销, 输出逐字节等价
+- [R15-d1b-2](Low) downloader TXT 头简介 slice(0,200) 改码点截断 sliceCodePoints( astral 字符代理对斩半产 U+FFFD)
+- [R15-d1b-5](Low,perf) sorter reorderWithVolumes anchors.includes 线性扫 O(n²) → Set 哈希, 输出逐字节一致
+- [R15-d1b-6](Med,perf) cleaner removeAdLines 广告正则编译缓存(逐章热路径 6 条×万章=6 万次重复编译; 有界 Map 400 条 FIFO 驱逐, 负缓存含非法/嵌套量词, skip 口径逐条一致)
+- [R15-d1b-7](Low) qidian-proxy 自律限速槽位过户: release 先减后唤醒+唤醒者自增的间隙里快速通道可抢槽 → 瞬时超订击穿上限 2; 改持有者恒计一次(有等待者则不减不增)
+- 主控另查: hostgate.ts 定时器单例模式(clear+rearm+unref×10)健康; _shared/server.ts 无裸 JSON.parse; proxy 池无独立文件(在 fetcher 内)
+- 验证: lint 0/0 + tsc 0 错 + 冒烟 7 项 PASS(广告命中/非法跳过/URL 保护/缓存重复一致/sorter 顺序/无锚回归)
+
+Stage Summary:
+- 7 修复(2 Med perf + 5 Low), 全部冒烟实证; R15 采集链路两 agent(d1 fetcher/parser + d1b 其余)合计 16 处修复
+
+---
+Task ID: R15-final
+Agent: main-orchestrator (Z.ai Code)
+Task: R15 收尾 — 质量门 + 浏览器 E2E 全链验证 + 数据还原 + 统一提交
+
+Work Log:
+- 质量门: bun run lint 0 错 0 警 + bunx tsc --noEmit 0 错(全轮次累计复核 3 次)
+- E2E(agent-browser): 登录门 preview-hint 展示固定密码 audit-fix-2025 → 「填入」一键填充 → 登录进后台 ✓; 采集规则 →「内置规则库」对话框渲染 24 条(已导入状态与库同步: aijjxs 显示「重新导入」) → 搜索「霹雳」→ 导入成功(toast+状态翻转+规则列表可见) → 删除还原(rules=5) ✓; 站群系统 → 编辑 →「自动生成 TDK」三字段按库况填充(空库=通用形态/有书=分类+计数形态) → 保存落库 → 前台首页 TDK 立即生效 ✓; 生成后 Esc 取消不落库(干净复现证实无自动保存 bug) ✓; 书籍页 TDK(title/desc/keywords/robots/canonical/2×JSON-LD) + 阅读页 TDK(三级标题层级+正文摘要 description — R15-a1 修复实证) ✓; 批量删除确认门槛(删除钮禁用 → 输入「删除」解锁 → Esc 取消) ✓; console 0 error ✓
+- 排障记录: ①dev server Turbopack 模块图被旧编译错误毒化(touch 无效)→ 重启恢复(本轮第 2 次, R12 以来同型静默死亡/毒化各 1 次) ②库中演示书两次被清: 抓到 R13 遗留「速读谷范围1-494」任务仍在后台爬书建书 + 两次 books/batch 删除(排查确认批量删除单击确认门槛过弱, 已加输入确认门槛 R15-d2-3; 任务已 stop+delete) ③重种两次后终态: books=6/chapters=234/tasks=0, 30s 稳定性观察无漂移 ④/?view=admin 渲染前台确认为既有设计(/ 才是后台入口), 非回归
+- 数据终态: 6 书带号 + 234 章 + 15 分类 + 5 规则(3 示例 + aijjxs/shudugu 历史实测遗留) + 1 站点(自动生成 TDK 已保存, 供预览效果直接查验)
+
+Stage Summary:
+- R15 交付: ①固定预览后台密码(.env 钉死 + preview-hint 端点 + 登录页提示/填入) ②scripts 24 站种子规则 → builtin-rules.ts 注册表(生成器求值提取) → GET/POST API + 管理端内置规则库对话框一键导入 ③自动 TDK: 前台 8 修复(含 High canonical 双问号) + 站点级自动生成 API/UI ④采集链路 16 处深审修复(1 High CookieJar 键空间分裂 + 4 Med) ⑤管理端/公共 API 深审 3 修复(含批量删除输入确认门槛)
+- 历史链: R11=4854abe → R12=d70dd45 → R13=07972df → R14=a9f3461 → R15(本轮)

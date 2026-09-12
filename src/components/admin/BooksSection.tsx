@@ -532,13 +532,14 @@ export function BooksSection({ onGoDownload }: BooksSectionProps) {
         onConfirm={doDelete}
       />
 
-      {/* 批量删除确认 */}
+      {/* 批量删除确认 —— [R15-d2-3] 输入确认门槛: 不可恢复大操作, 防误点直接落地 */}
       <ConfirmDialog
         open={batchConfirm === 'delete'}
         onOpenChange={(v) => !v && setBatchConfirm('')}
         title={`确认批量删除 ${batch.selectedCount} 本书籍?`}
         description="将删除所选书籍及其全部章节、标签与下载记录(含 TXT 文件), 该操作不可恢复。"
         confirmText="删除"
+        requireTextInput="删除"
         onConfirm={doBatchDelete}
       />
 

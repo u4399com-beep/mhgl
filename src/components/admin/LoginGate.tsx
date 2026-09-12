@@ -7,7 +7,7 @@
 // feat-a E: 渐变背景 + 玻璃质感卡片 + BookOpen 脉冲图标 + 焦点光晕 + 页脚说明
 // ============================================================
 import { useEffect, useState } from 'react'
-import { BookOpen, Loader2 } from 'lucide-react'
+import { BookOpen, KeyRound, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   Card,
@@ -27,9 +27,19 @@ export function LoginGate({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<GateState>('loading')
   const [password, setPassword] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  // [R15-c] 预览模式固定密码提示(仅 dev/沙箱且生效密码为公开默认值时服务端才下发)
+  const [previewPw, setPreviewPw] = useState('')
 
   useEffect(() => {
     let cancelled = false
+    fetch('/api/auth/preview-hint', { cache: 'no-store' })
+      .then((r) => r.json())
+      .then((j: { ok?: boolean; data?: { previewPassword?: string } }) => {
+        if (!cancelled && j?.ok && j?.data?.previewPassword) setPreviewPw(j.data.previewPassword)
+      })
+      .catch(() => {
+        /* 提示属增强能力, 拉取失败静默忽略 */
+      })
     fetch('/api/auth/check', { cache: 'no-store' })
       .then((r) => r.json())
       .then((j: { ok?: boolean; data?: { authenticated?: boolean } }) => {
@@ -139,6 +149,27 @@ export function LoginGate({ children }: { children: React.ReactNode }) {
               )}
             </Button>
           </form>
+          {previewPw ? (
+            <div
+              className="mt-4 flex items-center justify-between gap-2 rounded-md border border-violet-400/30 bg-violet-500/10 px-3 py-2"
+              data-testid="preview-password-hint"
+            >
+              <span className="truncate text-[11px] text-violet-200/90">
+                <KeyRound className="mr-1 inline size-3 align-[-1px]" aria-hidden />
+                预览模式固定密码: <code className="font-mono font-semibold text-violet-100">{previewPw}</code>
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setPassword(previewPw)
+                  toast.success('已填入预览密码, 点击登录即可')
+                }}
+                className="shrink-0 rounded border border-violet-400/40 px-2 py-0.5 text-[11px] text-violet-100 transition-colors hover:bg-violet-500/25"
+              >
+                填入
+              </button>
+            </div>
+          ) : null}
           <p className="mt-5 text-center text-[11px] text-zinc-400/80">
             🔒 会话 12 小时 · 登录信息仅本地保存
           </p>

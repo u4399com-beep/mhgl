@@ -460,9 +460,12 @@ class CookieJar {
     if (merged.size === 0) return ''
     return Array.from(merged.entries()).map(([k, v]) => `${k}=${v}`).join('; ')
   }
-  /** 当前域名已存(未过期)cookie 数(用于判断本次响应是否刚种下新 Cookie) */
+  /** 当前域名已存(未过期)cookie 数(用于判断本次响应是否刚种下新 Cookie)
+   *  [R15-d1-7] 入参与 store/get 同口径换算(origin 串 → hostname), 否则 host-only
+   *  Cookie 在 count 可见(store 主罐)但发不出(get 查 hostname 键)的分裂状态下
+   *  gotNewCookie 检测虽为真、重发请求却不带 Cookie, 挑战重试链空转 */
   count(domain: string): number {
-    const jar = this.jars.get(domain)
+    const jar = this.jars.get(hostOf(domain) || domain)
     if (!jar) {
       this.prune()
       return 0
@@ -471,7 +474,8 @@ class CookieJar {
     for (const [k, e] of jar) {
       if (this.fresh(jar, k, e)) n++
     }
-    if (jar.size === 0) this.jars.delete(domain)
+    const key = hostOf(domain) || domain
+    if (jar.size === 0) this.jars.delete(key)
     else this.prune()
     return n
   }
@@ -531,12 +535,21 @@ class CookieJar {
       }
       const cookieKey = pair.slice(0, idx).trim()
       const cookieVal = pair.slice(idx + 1).trim()
-      // 主罐: 按调用方传入的 request host 存
-      let jar = this.jars.get(domain)
-      if (!jar) { jar = new Map(); this.jars.set(domain, jar) }
+      // 主罐: 按请求 hostname 存 —— [R15-d1-7](High) 修复: 原 key 为调用方传入的 origin
+      // 串(如 'https://www.example.com'), 而 get() 沿 parentDomainChain 查询的是 hostname
+      // 键('www.example.com'/'example.com'), 两套键空间永不相交 → host-only Set-Cookie
+      // (无 domain= 属性, 多数站点的会话 Cookie 形态)存得进但永远发不出, autoCookie
+      // 挑战重试链(count 检测到新 Cookie → 重发)全部空转, 持久化 persist/load 后的条目
+      // 同样不可达; 只有带 domain= 属性的 CF 形态(落 R5-6 副罐, hostname 键)碰巧可达。
+      // 现统一为 hostname 键(浏览器 Cookie 作用域本就不含端口, 回环代理分键同理并集);
+      // count/clear/seed 同步换算(hostOf), get() 不变
+      const primaryKey = reqHost || domain
+      let jar = this.jars.get(primaryKey)
+      if (!jar) { jar = new Map(); this.jars.set(primaryKey, jar) }
       jar.set(cookieKey, { v: cookieVal, at: Date.now() })
       // 副罐: cookie 自身 domain 属性指定的域(跨子域场景); R6-5 已校验为合法父域
-      if (effectiveCookieDomain && effectiveCookieDomain !== domain) {
+      // (与主罐同域/同键时不再重复写, 修前 origin 串恒 ≠ hostname 使副罐总是多写一份)
+      if (effectiveCookieDomain && effectiveCookieDomain !== reqHost && effectiveCookieDomain !== primaryKey) {
         let jar2 = this.jars.get(effectiveCookieDomain)
         if (!jar2) { jar2 = new Map(); this.jars.set(effectiveCookieDomain, jar2) }
         jar2.set(cookieKey, { v: cookieVal, at: Date.now() })
@@ -545,8 +558,10 @@ class CookieJar {
   }
   seed(domain: string, cookieStr?: string) {
     if (!cookieStr) return
-    let jar = this.jars.get(domain)
-    if (!jar) { jar = new Map(); this.jars.set(domain, jar) }
+    // [R15-d1-7] 键空间换算与 store/get 对齐(hostOf; origin 串/hostname 双形态兼容)
+    const primaryKey = hostOf(domain) || domain
+    let jar = this.jars.get(primaryKey)
+    if (!jar) { jar = new Map(); this.jars.set(primaryKey, jar) }
     // R3-2: 应用与 store() 同口径的 ATTR_NAMES 过滤 —— 否则 seed('Path=/; Secure; HttpOnly')
     // 形态会把"Path/Secure/HttpOnly"当 cookie 名塞进罐, 后续 buildHeaders 拼出 "Path=/; Secure=..."
     // 头发送给服务端, 触发 400。手工 seed 多见于规则配置的 starter cookies, 字面量常含属性声明
@@ -559,9 +574,10 @@ class CookieJar {
       jar.set(pair.slice(0, idx).trim(), { v: pair.slice(idx + 1).trim(), at: Date.now() })
     }
   }
-  /** 清空指定 host 的罐(ff-b): 403 且无新 Cookie 时疑陈旧会话, 清空重走 autoCookie */
+  /** 清空指定 host 的罐(ff-b): 403 且无新 Cookie 时疑陈旧会话, 清空重走 autoCookie
+   *  [R15-d1-7] 入参与 store/get 同口径换算(origin 串 → hostname) */
   clear(domain: string) {
-    this.jars.delete(domain)
+    this.jars.delete(hostOf(domain) || domain)
   }
 
   /**
@@ -1215,6 +1231,14 @@ const STRONG_BLOCK_MARKERS = [
   // 繁体变体(ixdzs 系"請稍等，正在進行安全驗證..."盾页)与"正在验证浏览器"标题站
   // ——原先只配简体, 繁体盾页被漏判为正常内容直接入库
   '正在進行安全驗證', '正在驗證瀏覽器', '正在验证浏览器', '安全驗證',
+  // [R15-d1-5] 增强: 挑战页识别面扩充(逐条均有真实站点形态可验证, 且为强指纹不可能误伤正文):
+  //  - 'verifying you are human': Cloudflare 2023+ 新版 Turnstile 非交互盾页文案
+  //    ("Verifying you are human. This may take a few seconds."), 旧库仅收
+  //    'please verify you are a human' 旧变体, 新版盾页漏判为正常内容
+  //  - '__jsl_clearance': 加速乐(JiaSuLe)挑战 Cookie 名, 挑战壳内联 JS 回种 Cookie 时
+  //    响应体必含此名(静态资源路径/正文不可能出现)
+  //  - 'btwaf': 宝塔面板 WAF 拦截页特征路径(/btwaf/… 脚本与样式引用), 同上不可能误伤正文
+  'verifying you are human', '__jsl_clearance', 'btwaf',
 ]
 
 function hasNormalTitle(html: string): boolean {
@@ -1223,8 +1247,17 @@ function hasNormalTitle(html: string): boolean {
   const t = m[1].trim().toLowerCase()
   if (t.length < 2) return false
   // 修复: 补 '请稍候/请稍後'(CF 中文盾页标题)——原先这类标题被当正常标题豁免, 盾页被当正文
-  const bad = ['just a moment', 'attention required', 'access denied', 'forbidden', '请开启', '验证', '请稍候', '请稍後', '403', '404']
-  return !bad.some((k) => t.includes(k))
+  // [R15-d1-1](Med) 修复: '403'/'404' 由 includes 子串判定改为带分隔上下文的整词判定 ——
+  //  章节数字天然含 403/404 子串("第403章"/"第1404章"), 原判定把这些内容页标题误判为
+  //  异常标题, 丢掉 hasNormalTitle 豁免后产生两级真实误拦: ①CF Bot Management 正常页
+  //  内嵌 jsd 探测脚本时 jsdBenign 豁免失效 → STRONG 'challenge-platform' 命中整章误判
+  //  拦截(http 引擎章节全败 / auto 引擎白升级浏览器); ②长内容页跌入前 4000 字特征词扫描,
+  //  正文出现"验证码/verify"等词即误拦。现仅 WAF 状态页形态命中("403 forbidden"/
+  //  "error 404"/"404: xxx"等); 分隔类排除字母与数字("第1404章"的前导 1 不作分隔,
+  //  "4030"不误判), /\p{L}|\p{N}/ 为 ES2018 Unicode 属性类(bun/node 全支持)
+  const bad = ['just a moment', 'attention required', 'access denied', 'forbidden', '请开启', '验证', '请稍候', '请稍後']
+  if (bad.some((k) => t.includes(k))) return false
+  return !/(^|[^\p{L}\p{N}])40[34]([^\p{L}\p{N}]|$)/u.test(t)
 }
 
 export function looksBlocked(html: string, opts?: { status?: number; serverHeader?: string }): boolean {
@@ -2139,9 +2172,13 @@ async function fetchHttp(url: string, cfg: FetchConfig, ua: string, proxy = '', 
     // 注: Bun fetch redirect:'manual' 实测(1.3.14)返回真实 3xx 响应, 状态行/Location/
     // getSetCookie 全可读, 无 opaque-redirect 屏蔽(见 scripts/archive/probe-bun-manual-redirect.ts)
     let hopUrl = url
-    // [R9-a-7] C.4: 重定向环早期熔断 —— 记录已访问跳 URL, 重复访问立即报错不再空耗跳数预算
-    // (蜜罐陷阱常见形态: 30x 互指回环, 原 20 跳上限要白耗 20 次请求才熔断)
-    const visitedHops = new Set<string>([url])
+    // [R9-a-7] C.4: 重定向环早期熔断 —— 记录已访问跳 URL。
+    // [R15-d1-3] 修复(Med): 判定由 Set"任一重复即熔断"改为 Map"同 URL 至多 2 次访问"
+    // (允许 1 次重访)。原判定把「302 种 Cookie 后跳回原 URL」的真实会话引导链(A→B→A,
+    // 每跳 Set-Cookie 已逐跳入罐, 第二次请求带新 Cookie 通常即 200)整链打断 —— 该形态
+    // 正是逐跳 Cookie 收集(y-a)要服务的场景; 3 次访问(=2 次重访)仍熔断, 对抗性回环
+    // (A↔B 互指)代价上限从 2 跳升至 4 跳, 仍有界
+    const visitedHops = new Map<string, number>([[url, 1]])
     // [R11-b-2] 修复(Low): 304 命中时缓存条目恰被并发驱逐(TTL/容量)原直接抛
     // "304 无缓存条目"走失败链(curl 兑底重新全量抓, 白耗一次传输+日志噪声; R10-c 留档
     // 遗留风险②)。正确语义是降级为无条件 GET 重发一次(RFC 9111: 304 只对条件请求有效,
@@ -2153,7 +2190,13 @@ async function fetchHttp(url: string, cfg: FetchConfig, ua: string, proxy = '', 
         throw new Error(`HTTP 重定向超过 ${MAX_REDIRECT_HOPS} 跳上限(疑似重定向环)`)
       }
       // ff-b①: HTTP 内容链逐跳注入完整指纹头组(与 UA 自洽的 sec-ch-ua*/Sec-Fetch-*)
-      const headers = buildHeaders(hopUrl, cfg, ua, { fingerprint: true })
+      // [R15-d1-2] 修复(Med): 规则级 cfg.cookies(源站 A 的种子 Cookie)原先逐跳无条件携带,
+      // 跨域重定向时把 A 站 Cookie 泄漏给 B 站 —— 与 R9-a-1 修复的 curl -L 静态头跨域泄漏
+      // 同类缺陷(该修复只重建了罐内 Cookie 的按跳归属, cfg.cookies 漏网)。现仅同 host 跳
+      // 携带(浏览器 Cookie 作用域语义); 罐内 Cookie 本就按跳域取值不受影响, 同源链路
+      // (绝大多数站)行为逐字节不变
+      const hopCfg = hostKeyOf(hopUrl) === hostKeyOf(url) ? cfg : { ...cfg, cookies: undefined }
+      const headers = buildHeaders(hopUrl, hopCfg, ua, { fingerprint: true })
       // [R9-a-13] B1: 条件请求协商 —— 有缓存校验器时带 If-None-Match / If-Modified-Since;
       // 规则显式配置了 If-* 头时让位(cfg.headers 优先), 关闭缓存路径由调用方传 conditionalGet:false
       const condKey = (cfg as FetchCfgOpt).conditionalGet === false || headers['If-None-Match'] || headers['If-Modified-Since']
@@ -2233,9 +2276,9 @@ async function fetchHttp(url: string, cfg: FetchConfig, ua: string, proxy = '', 
             throw err
           }
         }
-        // [R9-a-7] 环检测: 重复访问已见跳 URL 立即熔断
+        // [R9-a-7] 环检测: [R15-d1-3] 同跳 URL 第 3 次访问即熔断(允许 1 次重访, 见循环前注)
         const nextStr = next.toString()
-        if (visitedHops.has(nextStr)) throw new Error(`HTTP 重定向环(重复访问 ${nextStr.slice(0, 120)})`)
+        if ((visitedHops.get(nextStr) || 0) >= 2) throw new Error(`HTTP 重定向环(重复访问 ${nextStr.slice(0, 120)})`)
         // [R12-c2-2] SSRF: 重定向跳目标同样过守卫 —— 初始 URL 过了 assertSafeTarget 不代表跳
         // 目标安全(开放重定向把引擎引向 169.254.169.254/私网 = 守卫被 3xx 整体绕过; relayHop/
         // scrapling 桥侧已有同款校验, native 逐跳循环原先漏网)。豁免口径与外层同源:
@@ -2247,7 +2290,7 @@ async function fetchHttp(url: string, cfg: FetchConfig, ua: string, proxy = '', 
           attachRetryAfterMs(err, res.headers) // 3xx 错误形态, 头在才挂(与跨 scheme 拒绝分支同口径)
           throw err
         }
-        visitedHops.add(nextStr)
+        visitedHops.set(nextStr, (visitedHops.get(nextStr) || 0) + 1)
         hopUrl = nextStr
         continue
       }
@@ -2513,8 +2556,9 @@ export async function fetchViaCurl(url: string, cfg: FetchConfig, ua: string, pr
   const timeoutMs = cfg.timeout && cfg.timeout > 0 ? cfg.timeout : 20000
   const deadline = Date.now() + timeoutMs
   const MAX_CURL_REDIRECT_HOPS = 5 // 与原 --max-redirs 5 同口径
-  // [R9-a-7] C.4: 环检测(重复跳 URL 立即熔断, 不再空耗跳数)
-  const visitedHops = new Set<string>([url])
+  // [R9-a-7] C.4: 环检测 —— [R15-d1-3] 同 URL 至多 2 次访问(允许 1 次重访, 种 Cookie 回跳
+  // A→B→A 不再被误熔断; 3 次访问仍熔断, 与 native 链同口径, 详见 fetchHttp 循环前注)
+  const visitedHops = new Map<string, number>([[url, 1]])
   let hopUrl = url
   for (let hop = 0; ; hop++) {
     if (hop > MAX_CURL_REDIRECT_HOPS) {
@@ -2526,7 +2570,10 @@ export async function fetchViaCurl(url: string, cfg: FetchConfig, ua: string, pr
     }
     // ff-b① + [R9-a-1]: curl 子进程同为 HTTP 内容链, 逐跳重建指纹头组
     // (Cookie 按该跳 URL 取罐 —— 跨域重定向不泄漏原域 Cookie; Sec-Fetch-Site 按跳自洽)
-    const headers = buildHeaders(hopUrl, cfg, ua, { fingerprint: true })
+    // [R15-d1-2] 修复(Med): 规则级 cfg.cookies 同款跨域泄漏在 curl 链补齐(与 fetchHttp
+    // 逐跳 hopCfg 同口径, 仅同 host 跳携带规则种子 Cookie)
+    const hopCfg = hostKeyOf(hopUrl) === hostKeyOf(url) ? cfg : { ...cfg, cookies: undefined }
+    const headers = buildHeaders(hopUrl, hopCfg, ua, { fingerprint: true })
     const r = await curlOnce(hopUrl, headers, proxy, remaining)
     if (cfg.autoCookie !== false && r.setCookies.length) {
       // 每跳 Set-Cookie 记到该跳 URL 的 origin 名下(与 native 逐跳同语义)
@@ -2559,8 +2606,8 @@ export async function fetchViaCurl(url: string, cfg: FetchConfig, ua: string, pr
         }
       }
       const nextStr = next.toString()
-      // [R9-a-7] 环检测: 重复访问已见跳 URL 立即熔断
-      if (visitedHops.has(nextStr)) throw new Error(`curl 重定向环(重复访问 ${nextStr.slice(0, 120)})`)
+      // [R9-a-7] 环检测: [R15-d1-3] 同跳 URL 第 3 次访问即熔断(允许 1 次重访)
+      if ((visitedHops.get(nextStr) || 0) >= 2) throw new Error(`curl 重定向环(重复访问 ${nextStr.slice(0, 120)})`)
       // [R12-c2-2] SSRF: curl 链重定向跳同款守卫(与 fetchHttp native 逐跳同口径, 防 3xx 绕过;
       // 豁免口径同源: 操作员配置的 loopback 服务 host:port)
       const hopSsrf = await assertSafeTarget(nextStr, { allowLoopback: loopbackBypassAllowed(nextStr, cfg) })
@@ -2569,7 +2616,7 @@ export async function fetchViaCurl(url: string, cfg: FetchConfig, ua: string, pr
         err.status = r.status
         throw err
       }
-      visitedHops.add(nextStr)
+      visitedHops.set(nextStr, (visitedHops.get(nextStr) || 0) + 1)
       hopUrl = nextStr
       continue
     }
@@ -3414,9 +3461,16 @@ function responseSanityBad(html: string): boolean {
 /** [R12-c2-1] 纯 JSON 体判定(trimStart 后 {/[ 打头且 JSON.parse 成功) ——
  *  degrade-native 转换代理 {ok,len,content} 信封识别用(见 fetchPageOnce 免判注释) */
 function isPlainJsonBody(s: string): boolean {
-  const t = (s || '').trimStart()
+  // [R15-d1-4](Low, perf): O(1) 快速拒绝 —— looksBlocked 对每次响应体都会调用本函数,
+  // HTML 体(常态)首字符即 '<' 且无前导空白, 原先 trimStart 对最大 10MB 串白做一次全量
+  // 拷贝; 快速路径命中时(无前导空白且首字符非 {/[)与 trimStart 后判定逐字节等价,
+  // 其余形态(带前导空白/JSON 体)维持原路径
+  const str = s || ''
+  const c00 = str.charCodeAt(0)
+  if (str && c00 !== 0x7b /* { */ && c00 !== 0x5b /* [ */ && !/\s/.test(str[0] ?? '')) return false
+  const t = str.trimStart()
   const c0 = t.charCodeAt(0)
-  if (!t || (c0 !== 0x7b /* { */ && c0 !== 0x5b /* [ */)) return false
+  if (!t || (c0 !== 0x7b && c0 !== 0x5b)) return false
   try { JSON.parse(t); return true } catch { return false }
 }
 
@@ -3776,11 +3830,14 @@ export async function fetchBinary(
       const MAX_BINARY_REDIRECT_HOPS = 5
       let hopUrl = url
       let res: Response | null = null
-      // [R9-a-7] C.4: 封面重定向环同样熔断(重复跳 URL 直接放弃, 封面非关键资源不重试)
-      const visitedHops = new Set<string>([url])
+      // [R9-a-7] C.4: 封面重定向环同样熔断 —— [R15-d1-3] 同 URL 至多 2 次访问(允许 1 次重访,
+      // 与内容链同口径; 3 次访问即放弃, 封面非关键资源不重试)
+      const visitedHops = new Map<string, number>([[url, 1]])
       for (let hop = 0; hop <= MAX_BINARY_REDIRECT_HOPS; hop++) {
         // [R9-a-6] C.1: 封面资源按图片请求形态构造 Accept(原先拿 HTML 形态 Accept 抓图, 指纹露馅)
-        const headers = buildHeaders(hopUrl, cfg, ua, { accept: 'image' })
+        // [R15-d1-2] 修复(Med): 规则级 cfg.cookies 跨域泄漏同款在封面链补齐(仅同 host 跳携带)
+        const hopCfg = hostKeyOf(hopUrl) === hostKeyOf(url) ? cfg : { ...cfg, cookies: undefined }
+        const headers = buildHeaders(hopUrl, hopCfg, ua, { accept: 'image' })
         res = await fetch(hopUrl, { headers, signal: controller.signal, redirect: 'manual' })
         // R4-5: fetchBinary 逐跳存储 Set-Cookie —— 旧行为从未调用 cookieJar.store, 重定向链中
         // 中间跳(如 CDN anti-hotlink)种下的会话 Cookie 全部丢失, 后续同域正文/章节抓取拿不到
@@ -3800,8 +3857,8 @@ export async function fetchBinary(
             if (!upgrade) return { ok: false, kind: 'permanent' }
           }
           const nextStr = next.toString()
-          // [R9-a-7] 环检测: 重复访问已见跳 URL 立即放弃
-          if (visitedHops.has(nextStr)) return { ok: false, kind: 'permanent' }
+          // [R9-a-7] 环检测: [R15-d1-3] 同跳 URL 第 3 次访问即放弃(允许 1 次重访, 见循环前注)
+          if ((visitedHops.get(nextStr) || 0) >= 2) return { ok: false, kind: 'permanent' }
           // [R12-c2-2] SSRF: 重定向跳目标同样过守卫(封面链 allowLoopback 恒 false, 与初始 URL 同口径;
           // 封面 CDN 开放重定向引向内网/元数据原先不设防)
           const hopSsrf = await assertSafeTarget(nextStr, { allowLoopback: false })
@@ -3809,7 +3866,7 @@ export async function fetchBinary(
             console.warn(`[fetcher] fetchBinary 重定向跳 SSRF 拒绝: ${hopSsrf.reason} (${nextStr.slice(0, 120)})`)
             return { ok: false, kind: 'permanent' }
           }
-          visitedHops.add(nextStr)
+          visitedHops.set(nextStr, (visitedHops.get(nextStr) || 0) + 1)
           hopUrl = nextStr
           continue
         }

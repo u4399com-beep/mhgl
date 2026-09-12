@@ -64,9 +64,19 @@ export function useSiteSEO(opts: SeoOptions) {
     ensureMeta('robots', robots || 'index,follow')
     if (siteKey) {
       const [, geoRegion, geoPlacename, icbm] = siteKey.split('|')
+      // [R15-a1-2] geo 三件套 ensure-or-remove 对等清理: 修前只 ensure 不 remove, 切站后
+      // 新站缺某项 geo 值时旧站残留 meta 继续泄漏(与 description/keywords 的 else-remove 不同对)
       if (geoRegion) ensureMeta('geo.region', geoRegion)
+      else removeMeta('geo.region')
       if (geoPlacename) ensureMeta('geo.placename', geoPlacename)
+      else removeMeta('geo.placename')
       if (icbm) ensureMeta('ICBM', icbm)
+      else removeMeta('ICBM')
+    } else {
+      // 站点未就绪(父壳兜底态): 清掉历史站点遗留的 geo 残留, 与 canonical 无值即清理同口径
+      removeMeta('geo.region')
+      removeMeta('geo.placename')
+      removeMeta('ICBM')
     }
     if (canonicalPath) {
       let link = document.head.querySelector<HTMLLinkElement>('link[rel="canonical"]')

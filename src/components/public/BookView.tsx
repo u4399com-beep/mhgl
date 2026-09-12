@@ -11,6 +11,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { Skeleton } from '@/components/ui/skeleton'
 import { fetchBook, fetchChapter, type BookDetailData } from './data'
 import { registerBookRef } from '@/lib/pseudostatic'
+import { sliceCodePoints } from '@/lib/utils'
 import { bookCanonicalPath, usePublic } from './ctx'
 import { coverSrc, fmtDate, formatWords, statusLabel, useSiteSEO, withAlpha } from './seo'
 import { BookCover } from './BookCover'
@@ -393,10 +394,22 @@ export function BookView({ bookId, tocPage }: { bookId?: string; tocPage: number
       item: `${origin}${bookCanonicalPath(book, site.id, pseudoPreset)}`,
     })
   }
+  // [R15-a1-3] 简介 TDK 组装: ①空白简介兜底 "书名,作者著"(修前 intro 为空时 description
+  // 产出空串被 useSiteSEO 判为无值移除 → 搜索引擎抓不到 description); ②截断走码点
+  // (UTF-16 slice 会把 emoji 等代理对劈成半字符 U+FFFD, 同 R11 备份导出同型修复);
+  // ③keywords 全空时兜底 书名/作者/分类, 避免书籍页零关键词 meta
+  const introText = book ? book.intro.replace(/\s+/g, ' ').trim() : ''
+  const bookDescBase = book ? introText || [book.name, book.author ? `${book.author}著` : ''].filter(Boolean).join(',') : undefined
+  const bookKeywords = book
+    ? [book.keywords, ...tags.map((t) => t.tag)].filter(Boolean).join(',') ||
+      [book.name, book.author, book.category].filter(Boolean).join(',')
+    : undefined
   useSiteSEO({
     title: book ? `${book.name} - ${site.name}` : `书籍详情 - ${site.name}`,
-    description: book ? book.intro.slice(0, 150) : undefined,
-    keywords: book ? [book.keywords, ...tags.map((t) => t.tag)].filter(Boolean).join(',') : undefined,
+    description: bookDescBase ? sliceCodePoints(bookDescBase, 150) : undefined,
+    keywords: bookKeywords || undefined,
+    // 加载/错误态不设 canonical(由 useSiteSEO 清理上一页残留); 错误态 noindex 防软 404 被收录
+    robots: error ? 'noindex,follow' : undefined,
     canonicalPath: book ? bookCanonicalPath(book, site.id, pseudoPreset) : undefined,
     site,
     jsonLd: book
@@ -406,7 +419,7 @@ export function BookView({ bookId, tocPage }: { bookId?: string; tocPage: number
             '@type': 'Book',
             name: book.name,
             author: { '@type': 'Person', name: book.author },
-            description: book.intro.slice(0, 200),
+            description: bookDescBase ? sliceCodePoints(bookDescBase, 200) : undefined,
             image: coverAbs(coverSrc(book.cover)),
             inLanguage: 'zh-CN',
             genre: book.category,

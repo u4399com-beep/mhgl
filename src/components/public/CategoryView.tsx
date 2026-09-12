@@ -64,19 +64,22 @@ export function CategoryView({ cat, page }: { cat?: string; page: number }) {
     }
   }, [cat])
 
+  // [R15-a1-8] 分类页规范地址抽取为单变量: canonical 与 JSON-LD url 同源
+  // (修前 JSON-LD url 缺 page 参数且 cat 未编码, 与 canonical 不同地址)
+  const catPath = `/?view=category&cat=${encodeURIComponent(cat || '')}${page > 1 ? `&page=${page}` : ''}&site=${site.id}`
   useSiteSEO({
     title: `${label} - ${site.name}`,
     description: `${site.name}${label}分类下的小说列表，共 ${data?.total ?? 0} 本，支持在线阅读与TXT下载`,
     keywords: `${label},${label}小说,${site.keywords}`.replace(/,+$/, ''),
     // 首页与 page=1 共享同一 canonical，避免重复收录
-    canonicalPath: `/?view=category&cat=${encodeURIComponent(cat || '')}${page > 1 ? `&page=${page}` : ''}&site=${site.id}`,
+    canonicalPath: catPath,
     site,
     jsonLd: [
       {
         '@context': 'https://schema.org',
         '@type': 'CollectionPage',
         name: `${label} - ${site.name}`,
-        url: `${typeof window !== 'undefined' ? window.location.origin : ''}/?view=category&cat=${cat || ''}&site=${site.id}`,
+        url: `${typeof window !== 'undefined' ? window.location.origin : ''}${catPath}`,
         isPartOf: { '@type': 'WebSite', name: site.name },
       },
     ],

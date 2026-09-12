@@ -161,31 +161,25 @@ function applyTransform(value: string, rule: FieldRule): string {
     // R4-19: ReDoS 防御 —— 用户配置的 replaceFrom 正则可能含灾难性回溯模式。
     // 1) 长度上限 1000 字符(safeStr 已限制, 这里再硬保险)
     // 2) 嵌套量词闸门(同 cleaner.removeAdLines): 命中"量词+右括号+量词"形态跳过
-    // 3) 执行预算: 100ms timeout via Promise.race + AbortSignal
-    //    优于直接调用 v.replace(re, ...) 在 ReDoS 模式下卡死事件循环 30s+
-    // feat-cloak-anticrawler I: 4) 编译后预算测试 testRegexBudget(200 字符样本, 100ms 预算)
+    // 3) 执行预算: 200ms timeout via testRegexBudget 样本测试
+    // feat-cloak-anticrawler I: 4) 编译后预算测试 testRegexBudget(200 字符样本, 200ms 预算)
     //    —— 在使用前先验证正则不会爆炸, 失败即跳过本次替换(零回归: 替换失败即不替换)。
     //    与嵌套量词闸门双重防线: 闸门识别已知形态, 预算测试识别未知形态。
+    // [R15-d1-6](Low, perf): 预算测试改走 regexRuntimeSafe 记忆化(同"长度上限 1000 + 嵌套
+    //    量词闸门 + 200ms 样本预算"三道闸, 判定逐条等价) —— 本函数处于逐章逐字段热路径,
+    //    原先每次调用都重新编译正则+跑 200 字符样本, 记忆化后同一 replaceFrom 全进程只测一次;
+    //    被拒正则的 console.warn 由规则保存期校验(validateRegexSafety)承担, 运行时静默跳过
     const src = rule.replaceFrom
-    if (src.length <= 1000 && !/[+*]\s*\)\s*[+*{]/.test(src)) {
+    if (regexRuntimeSafe(src)) {
       try {
-        // 预算测试: 200 字符样本跑一次, >200ms 判 ReDoS 跳过本次替换
-        // R8-8: 预算从 100ms 提升至 200ms —— 与 testRegexBudget 默认值同步, 更保守地拒绝 ReDoS
-        const budget = testRegexBudget(src, { budgetMs: 200 })
-        if (!budget.ok) {
-          console.warn(`[parser] applyTransform 跳过危险正则(ReDoS 预算超时 ${budget.elapsedMs ?? 0}ms): ${src.slice(0, 80)}`)
-          // 跳过本次替换, 不改 v(零回归: 替换失败即不替换)
-          // 但 stripTags/index 等后续步骤照常执行
-        } else {
-          // [R9-c-1] 单遍 exec 循环(safeReplaceAll)整体替代旧"短串直接 replace / 长串分块
-          // replace"双路径: 旧分块实现 out += f(slice) 按 CHUNK-OVERLAP 步进【拼接】, 相邻
-          // chunk 的 100 字符重叠区会两次进入输出 —— 长正文(>2000 字符)配置 replaceFrom 的
-          // 规则每 ~1900 字符即重复拼出 100 字符(真实数据损坏; 旧注释"重复替换幂等"对
-          // 拼接语义不成立)。单遍扫描无重叠即无重复, 也无跨块边界断匹配;
-          // ReDoS 防线保留(嵌套量词闸门 + 预算测试), 另有逐匹配耗时哨兵兜底
-          const replaced = safeReplaceAll(v, src, rule.replaceTo ?? '')
-          if (replaced !== null) v = replaced
-        }
+        // [R9-c-1] 单遍 exec 循环(safeReplaceAll)整体替代旧"短串直接 replace / 长串分块
+        // replace"双路径: 旧分块实现 out += f(slice) 按 CHUNK-OVERLAP 步进【拼接】, 相邻
+        // chunk 的 100 字符重叠区会两次进入输出 —— 长正文(>2000 字符)配置 replaceFrom 的
+        // 规则每 ~1900 字符即重复拼出 100 字符(真实数据损坏; 旧注释"重复替换幂等"对
+        // 拼接语义不成立)。单遍扫描无重叠即无重复, 也无跨块边界断匹配;
+        // ReDoS 防线保留(嵌套量词闸门 + 预算测试), 另有逐匹配耗时哨兵兜底
+        const replaced = safeReplaceAll(v, src, rule.replaceTo ?? '')
+        if (replaced !== null) v = replaced
       } catch { /* 无效正则忽略 */ }
     }
   }
@@ -397,10 +391,16 @@ export function parseJsonBody(html: string): unknown | undefined {
   if (!html) return undefined
   // [R9-c-3] 去 UTF-8 BOM: 部分 JSON API 响应体带 \uFEFF 前缀, 原实现 s[0] !== '{' 直接判非
   // JSON → 整段静默空结果(fetcher 解码层已去一次, 此处对测试面板直传 html 等入口兜底)
-  const s = html.replace(/^\uFEFF+/, '').trim()
-  if (!s || (s[0] !== '{' && s[0] !== '[')) return undefined
+  // [R15-d1-4](Low, perf): O(1) 快速拒绝 —— gateFetch/crawlOneBook 每章对最大 10MB 响应体
+  // 各调一次本函数, HTML 体(常态)首字符即 '<' 且无前导空白, 原先 .trim() 白做一次全量拷贝;
+  // 快速路径命中时与 trim 后判定逐字节等价, 其余形态(带前导空白/JSON 体)维持原路径
+  const s = html.replace(/^\uFEFF+/, '')
+  const c00 = s.charCodeAt(0)
+  if (s && c00 !== 0x7b && c00 !== 0x5b && !/\s/.test(s[0] ?? '')) return undefined
+  const t = s.trim()
+  if (!t || (t.charCodeAt(0) !== 0x7b && t.charCodeAt(0) !== 0x5b)) return undefined
   try {
-    return JSON.parse(s)
+    return JSON.parse(t)
   } catch {
     return undefined
   }

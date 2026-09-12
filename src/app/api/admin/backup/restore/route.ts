@@ -12,7 +12,8 @@ import { ok, fail, readBody } from '@/lib/api'
 import { withGuard, isPlainObject, errText } from '../../../_lib/http'
 import { logger } from '@/lib/logger'
 import { cleanContentHtml } from '@/lib/crawl/cleaner'
-import { nextBookNum } from '@/lib/pseudostatic-server'
+import { nextBookNum, invalidatePseudoPresetCache } from '@/lib/pseudostatic-server'
+import { invalidateLinksCache } from '@/lib/links'
 
 const BACKUP_VERSION = 1
 // R4A-9: restore 请求体大小上限 200MB —— 与客户端 BackupSection 的 200MB 上限对齐,
@@ -532,6 +533,13 @@ export async function POST(req: Request) {
       //  友好文案, 未知统一"操作失败")
       return fail(`导入失败已回滚: ${errText(e)}`, 500)
     }
+
+    // [R15-d2-2](Low) 备份可整体覆盖 Setting 表(replace 模式先清后写) —— settings PUT
+    //  对 linkwheel/pseudostatic 两个 key 有缓存失效钩子, restore 原先没有: 导入后
+    //  读侧 60s 链轮缓存/伪静态预设缓存仍供旧值(链轮指向已不存在的站点域名等)。
+    //  与 settings PUT 同口径失效两个内存缓存(无 TTL 依赖, 幂等零成本)
+    invalidateLinksCache()
+    invalidatePseudoPresetCache()
 
     // R9-d-8: 状态归一化警告按发生次数去重(逐任务 push 会产生大量重复文案), 汇总为一条
     const deduped = Array.from(new Set(warnings))

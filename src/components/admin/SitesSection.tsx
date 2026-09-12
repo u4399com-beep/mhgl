@@ -29,7 +29,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Check, Globe, Loader2, Pencil, Plus, RefreshCw, Star, Trash2 } from 'lucide-react'
+import { Check, Globe, Loader2, Pencil, Plus, RefreshCw, Sparkles, Star, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   BatchActionButton,
@@ -103,6 +103,8 @@ export function SitesSection() {
   const [loading, setLoading] = useState(true)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<SiteRow | null>(null)
+  // [R15-a2] 站点 TDK 自动生成 loading 态
+  const [tdkLoading, setTdkLoading] = useState(false)
   const [form, setForm] = useState<SiteForm>(emptyForm)
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState<SiteRow | null>(null)
@@ -237,6 +239,26 @@ export function SitesSection() {
     })
     setThemeSearch('') // 打开对话框重置搜索词, 下拉回默认前 50 条
     setDialogOpen(true)
+  }
+
+  // [R15-a2] 站点 TDK 自动生成: 按书库实况(分类/书籍/章节统计)组合三件套填入表单,
+  // 纯预览不落库 —— 用户可继续手改后保存; 新建站点用表单 name/domain, 编辑站点走 siteId
+  const autoTdk = async () => {
+    if (tdkLoading) return
+    if (!editing && !form.name.trim()) return toast.error('请先填写站点名称再自动生成')
+    setTdkLoading(true)
+    try {
+      const d = await api.post<{ title: string; description: string; keywords: string }>(
+        '/api/admin/sites/auto-tdk',
+        { name: form.name, domain: form.domain, siteId: editing?.id },
+      )
+      setForm((f) => ({ ...f, title: d.title, description: d.description, keywords: d.keywords }))
+      toast.success('已按书库实况生成 TDK, 可继续手改后保存')
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'TDK 生成失败')
+    } finally {
+      setTdkLoading(false)
+    }
   }
 
   const save = async () => {
@@ -654,7 +676,22 @@ export function SitesSection() {
               />
             </div>
             <div className="space-y-1.5 sm:col-span-2">
-              <Label className="text-xs text-zinc-400">SEO 标题 (T)</Label>
+              <div className="flex items-center justify-between gap-2">
+                <Label className="text-xs text-zinc-400">SEO 标题 (T)</Label>
+                {/* [R15-a2] 按书库实况(分类/书籍/章节统计)自动生成 TDK 三件套, 填入表单可手改 */}
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={tdkLoading}
+                  onClick={autoTdk}
+                  title="按书库分类/收录量自动组装标题/描述/关键词, 填入后可继续手改"
+                  className="h-6 gap-1 border-violet-500/40 px-2 text-[11px] text-violet-300 hover:bg-violet-500/15 hover:text-violet-200"
+                >
+                  {tdkLoading ? <Loader2 className="size-3 animate-spin" /> : <Sparkles className="size-3" />}
+                  自动生成 TDK
+                </Button>
+              </div>
               <Input className="h-9 border-zinc-700 bg-zinc-950 text-sm" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="默认使用站点名称" />
             </div>
             <div className="space-y-1.5 sm:col-span-2">
@@ -721,6 +758,7 @@ export function SitesSection() {
         title={`确认批量删除 ${batch.selectedCount} 个站点?`}
         description="将删除所选站点配置, 书库数据不受影响。默认站点不可删除, 将被自动跳过。"
         confirmText="删除"
+        requireTextInput="删除"
         onConfirm={doBatchDelete}
       />
 

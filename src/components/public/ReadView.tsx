@@ -19,6 +19,7 @@ import { fetchChapter } from './data'
 import type { ChapterData } from './types'
 import { readCanonicalPath, usePublic } from './ctx'
 import { formatWords, useSiteSEO, withAlpha } from './seo'
+import { sliceCodePoints } from '@/lib/utils'
 import { ErrorState } from './bits'
 import { readOf } from '@/lib/crawl/themes'
 import { ReadClassic } from './read-layouts/ReadClassic'
@@ -223,10 +224,31 @@ export function ReadView({ chapterId }: { chapterId?: string }) {
   const origin = typeof window !== 'undefined' ? window.location.origin : ''
   // 伪静态: 书号/序号齐备时 canonical/JSON-LD 跟随预设形态(与站内链接同源)
   const readSelfPath = data ? readCanonicalPath(data.book, data.chapter, site.id, pseudoPreset) : ''
+  // [R15-a1-4] description 取章节正文摘要(修前仅固定句式, 搜索引擎抓不到正文关键词):
+  // 正文为清洗后 HTML → 剥标签/实体还原/空白折叠, 码点截断防代理对劈半; 空正文回退原句式
+  const chapterText = data
+    ? data.chapter.content
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;|&apos;/g, "'")
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&amp;/g, '&')
+        .replace(/\s+/g, ' ')
+        .trim()
+    : ''
+  const chapterDesc = data
+    ? chapterText
+      ? `${data.chapter.title}：${sliceCodePoints(chapterText, 110)}`
+      : `${data.book.name} ${data.chapter.title} 在线阅读，${formatWords(data.chapter.wordCount)}。`
+    : undefined
   useSiteSEO({
     title: data ? `${data.chapter.title}_${data.book.name} - ${site.name}` : `阅读 - ${site.name}`,
-    description: data ? `${data.book.name} ${data.chapter.title} 在线阅读，${formatWords(data.chapter.wordCount)}。` : undefined,
+    description: chapterDesc,
     keywords: data?.book.keywords || undefined,
+    // 错误态 noindex 防软 404 被收录(直接 URL 由 catch-all 服务端 404 兜底, 此处覆盖客户端导航失败面)
+    robots: error ? 'noindex,follow' : undefined,
     canonicalPath: data ? readSelfPath : undefined,
     site,
     jsonLd: data

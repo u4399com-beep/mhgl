@@ -14,11 +14,12 @@ import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { ConfirmDialog } from './ConfirmDialog'
-import { Copy, Download, FileCode2, Gauge, Activity, LayoutTemplate, Loader2, Pencil, Plus, RefreshCw, Trash2, Upload } from 'lucide-react'
+import { Copy, Download, FileCode2, Gauge, Activity, LayoutTemplate, Library, Loader2, Pencil, Plus, RefreshCw, Trash2, Upload } from 'lucide-react'
 import { toast } from 'sonner'
 import { RuleEditor } from './RuleEditor'
 import { CalibrateAllDialog, CalibrateDialog } from './CalibrateDialog'
 import { RuleTemplateDialog } from './RuleTemplateDialog'
+import { BuiltinRulesDialog } from './BuiltinRulesDialog'
 import {
   BatchActionButton,
   BatchBar,
@@ -67,6 +68,9 @@ export function RulesSection() {
 
   // ---- 模板库 (feat-round-8: Feature A) ----
   const [templateOpen, setTemplateOpen] = useState(false)
+
+  // ---- 内置规则库 (R15-b2) ----
+  const [builtinOpen, setBuiltinOpen] = useState(false)
 
   // ---- 复制后高亮闪烁 (feat-round-6) ----
   const [flashId, setFlashId] = useState<string | null>(null)
@@ -318,6 +322,16 @@ export function RulesSection() {
             variant="outline"
             size="sm"
             className="h-9 gap-1.5 border-zinc-700 bg-zinc-900 text-zinc-300 hover:bg-zinc-800"
+            onClick={() => setBuiltinOpen(true)}
+            title="浏览并导入内置规则库(scripts 种子规则)"
+          >
+            <Library className="h-3.5 w-3.5" />
+            内置规则库
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-9 gap-1.5 border-zinc-700 bg-zinc-900 text-zinc-300 hover:bg-zinc-800"
             onClick={onPickImportFile}
             disabled={importing}
             title="从 JSON 文件导入规则"
@@ -488,6 +502,9 @@ export function RulesSection() {
 
       {/* 模板库 (feat-round-8: Feature A) — 创建成功后刷新规则列表 */}
       <RuleTemplateDialog open={templateOpen} onOpenChange={setTemplateOpen} onCreated={() => load()} />
+
+      {/* 内置规则库 (R15-b2) — 导入成功后刷新规则列表(复用上方 load) */}
+      <BuiltinRulesDialog open={builtinOpen} onOpenChange={setBuiltinOpen} onImported={() => load()} />
 
       {/* 极限校准(zz-c): 打开时对话框自行 GET 恢复历史状态; running 时关闭不中断后台校准 */}
       <CalibrateDialog

@@ -78,6 +78,21 @@ function resolvePassword(): string {
   return DEFAULT_PASSWORD
 }
 
+/** [R15-c] 编译期默认密码常量(与 resolvePassword 内部值同源) */
+export const DEFAULT_ADMIN_PASSWORD = 'audit-fix-2025'
+
+/**
+ * [R15-c] 预览模式密码提示 —— 仅在「非生产运行时」且「生效密码恰为公开的编译期默认值」
+ * 时返回默认密码。默认值本就随仓库公开(.env.example/文档), dev 环境回显它零新增泄漏面;
+ * 用户自定义的任何非默认密码一律返回 null 永不外泄。生产构建(NODE_ENV=production)下恒 null。
+ * 供 /api/auth/preview-hint 在沙箱预览场景展示固定后台密码, 避免登录被锁死。
+ */
+export function previewHintPassword(): string | null {
+  if (process.env.NODE_ENV === 'production') return null
+  const pw = resolvePassword()
+  return pw === DEFAULT_ADMIN_PASSWORD ? DEFAULT_ADMIN_PASSWORD : null
+}
+
 function resolveSecret(): string {
   if (G.__heisAdminSecret) return G.__heisAdminSecret
   const env = process.env.SESSION_SECRET?.trim()

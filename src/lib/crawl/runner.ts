@@ -733,7 +733,10 @@ export class TaskRunner {
           }
           const url = rawTemplate
             .replace(/\{offset:(\d+)\}/g, (_, n: string) => String((p - 1) * Math.max(1, parseInt(n, 10) || 1)))
-            .replace('{page}', String(p))
+            // [R15-d1b-3](Low) 改 replaceAll: 原 replace('{page}',...) 字符串形态只替换首个出现,
+            // 模板中出现两次 {page}(如路径+查询串双段携带页号)时第二段残留字面 "{page}" 被原样
+            // 请求源站; 上方占位符告警探针本就是全局剔除口径, 展开应与之一致
+            .replaceAll('{page}', String(p))
           if (!url) continue
           try {
             // zz-b: 当页间隔取值同时作为同 host 准入最小间隔(逐页重新随机, 取值时机在请求前);
@@ -1916,13 +1919,21 @@ export class TaskRunner {
         rt.dirtyOngoing = false
       }
       // bookLastChapters Map → Object(JSON 序列化友好); cap 50000 条
+      // [R15-d1b-4](Low) cap 改保 LATEST —— 原实现在第 50000 条处 break, 保留的是插入序头部
+      // (最早入库)的条目, 超限时最新入库的连载书末章记录被静默丢弃, 重启后那些书会误判
+      // "末章变更"触发无谓的全量比对; 三个 URL 数组兄弟字段早已按 R8-6 口径 slice(-50000)
+      // 保最新, Map 侧对齐同语义(Map 插入序尾部 = 最近追加)
       if (rt.dirtyLastChapters) {
         const lastChapObj: Record<string, string> = {}
-        let n = 0
-        for (const [k, v] of rt.bookLastChapters) {
-          if (n >= 50_000) break
-          lastChapObj[k] = v
-          n++
+        if (rt.bookLastChapters.size > 50_000) {
+          // 仅超限时一次性物化数组取尾部(常态路径零分配, 与三数组 slice(-50000) 口径一致)
+          let skip = rt.bookLastChapters.size - 50_000
+          for (const [k, v] of rt.bookLastChapters) {
+            if (skip > 0) { skip--; continue }
+            lastChapObj[k] = v
+          }
+        } else {
+          for (const [k, v] of rt.bookLastChapters) lastChapObj[k] = v
         }
         progress.bookLastChapters = lastChapObj
         rt.dirtyLastChapters = false

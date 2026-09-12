@@ -2,6 +2,7 @@
 // 小说TXT下载系统 — 混淆注入 / 广告插入 / 站点信息植入
 // ============================================================
 import { db } from '@/lib/db'
+import { sliceCodePoints } from '@/lib/utils'
 import { decodeEntitiesOnce } from './cleaner'
 import { readChapterTxt, openDownloadTxtWriter } from './storage'
 
@@ -71,7 +72,13 @@ function obfuscateText(text: string, mode: string, density: number): string {
           break
         case 'homoglyph':
           // R3-28: 码点安全截断(详见函数头注释)
-          if (HOMOGLYPHS[ch] && Math.random() < d * 8) out = Array.from(out).slice(0, -1).join('') + HOMOGLYPHS[ch]
+          // [R15-d1b-1](Med,perf) O(n²)消除: 原实现 Array.from(out).slice(0,-1).join('') 每次替换
+          // 都把已累积的全部输出展开成码点数组再拼回 —— out 越长单次成本越高, 混淆密度上限 0.3
+          // 时命中分支全跑 → 15KB 章(4500 次替换×均长 7500 码点)≈3400 万次码点迭代/章, 万章书
+          // 分钟级纯开销。改 out.slice(0, out.length - ch.length): ch 来自 for...of 码点迭代且
+          // 本分支内 out 末位必恰为 ch(循环体先 out+=ch, 替换前无追加), 剥掉 ch.length 个
+          // UTF-16 code unit ≡ 剥掉末位完整码点 —— 输出逐字节等价, 单次 O(1) 摊销
+          if (HOMOGLYPHS[ch] && Math.random() < d * 8) out = out.slice(0, out.length - ch.length) + HOMOGLYPHS[ch]
           break
         case 'punctuation':
           // 修复: 原实现把 '，' 替换成同样的 '，'(无任何效果的空操作); 改为在标点后
@@ -80,7 +87,8 @@ function obfuscateText(text: string, mode: string, density: number): string {
           break
         case 'mixed':
           if (Math.random() < 0.5) out += ZW_CHARS[Math.floor(Math.random() * ZW_CHARS.length)]
-          else if (HOMOGLYPHS[ch] && Math.random() < 0.3) out = Array.from(out).slice(0, -1).join('') + HOMOGLYPHS[ch]
+          // [R15-d1b-1](Med,perf) 同 homoglyph 分支: else-if 时 out 末位亦必为 ch(未走 ZW 追加)
+          else if (HOMOGLYPHS[ch] && Math.random() < 0.3) out = out.slice(0, out.length - ch.length) + HOMOGLYPHS[ch]
           break
       }
     }
@@ -142,7 +150,9 @@ export async function generateBookTxt(
   const siteUrl = opts.siteUrl || defaultSiteUrl || ''
   const siteTag = siteUrl ? `${siteName}(${siteUrl})` : siteName
 
-  const intro = stripHtmlToText(book.intro || '').split('\n')[0]?.slice(0, 200) || ''
+  // [R15-d1b-2](Low) 简介 UTF-16 slice(0,200) 会把第 200 位上的 astral 字符(emoji/CJK 扩展)
+  // 代理对斩半, TXT 头部简介行尾产出 U+FFFD 乱码 —— 与 storage/cleaner 既有修法同口径改码点截断
+  const intro = sliceCodePoints(stripHtmlToText(book.intro || '').split('\n')[0] || '', 200)
   const header = (opts.headerTemplate || DEFAULT_DOWNLOAD_OPTIONS.headerTemplate!)
     .replaceAll('{book}', book.name)
     .replaceAll('{author}', book.author)

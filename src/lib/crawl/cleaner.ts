@@ -387,6 +387,31 @@ export function cleanContentHtml(raw: string, cfgOverride?: Partial<CleanConfig>
 // R8-18: 占位符从 \u0000 改为 \uE000/\uE001(Unicode Private Use Area) —— \u0000(NUL)
 // 可能源站二进制污染出现, 与占位符冲突导致 URL 还原失败; PUA 区段(0xE000~0xF8FF)
 // 在合法源文本中几乎不出现, 冲突概率极低
+// [R15-d1b-6](Med,perf) 广告正则编译缓存: removeAdLines 在逐章热路径上(cleanContentHtml/
+// cleanIntro 每章各跑一遍全部 patterns), 原实现每章每条 new RegExp(p,'gi') 现场编译 ——
+// 默认 6 条 × 万章 = 6 万次重复编译(自配 30 条上限时 30 万次), 同一 pattern 字符串的编译
+// 产物恒等且 String.replace 对 /g 正则执行完毕后 lastIndex 复位(复用无状态残留), 进程内
+// 有界 Map 缓存编译结果(含"跳过/非法"负缓存, 保持原 skip 口径逐条一致), FIFO 驱逐防
+// 多规则长跑时键空间无界增长(单键即 pattern 原串, 上限 400 条内存可控)
+const AD_RE_CACHE_MAX = 400
+const adReCache = new Map<string, RegExp | null>()
+
+function compileAdPattern(p: string): RegExp | null {
+  const hit = adReCache.get(p)
+  if (hit !== undefined) return hit
+  let re: RegExp | null = null
+  // 判定口径与原逐条 skip 完全一致: 空串/超长(>300)/嵌套量词形态跳过, 编译失败跳过
+  if (p && p.length <= 300 && !/[+*]\s*\)\s*[+*{]/.test(p)) {
+    try { re = new RegExp(p, 'gi') } catch { re = null }
+  }
+  if (adReCache.size >= AD_RE_CACHE_MAX) {
+    const oldest = adReCache.keys().next().value
+    if (oldest !== undefined) adReCache.delete(oldest)
+  }
+  adReCache.set(p, re)
+  return re
+}
+
 function removeAdLines(text: string, patterns: string[]): string {
   const urls: string[] = []
   let out = text.replace(/https?:\/\/[^\s"'<>]+/gi, (m) => {
@@ -398,16 +423,10 @@ function removeAdLines(text: string, patterns: string[]): string {
     return `\uE000${idx * 10 + (idx % 9 + 1)}\uE001`
   })
   for (const p of patterns) {
-    if (!p) continue
-    // 基础 ReDoS 闸门: 超长/超复杂模式直接跳过(用户自配正则在单线程服务里跑飞会拖垮整个采集;
-    // 完整防护需 re2, 这里做低成本上限控制)
-    if (p.length > 300) continue
-    // 嵌套量词闸门: "(a+)+/(\\w*){2,}"类灾难性回溯(ReDoS)在长度闸门内仍可能卡死,
-    // 命中"量词+右括号+量词"形态直接跳过该模式
-    if (/[+*]\s*\)\s*[+*{]/.test(p)) continue
-    try {
-      out = out.replace(new RegExp(p, 'gi'), '')
-    } catch { /* 无效正则跳过 */ }
+    // [R15-d1b-6](Med,perf) 编译改走缓存(空串/超长/嵌套量词/非法正则 → null 跳过, 口径同前)
+    const re = compileAdPattern(p)
+    if (!re) continue
+    out = out.replace(re, '')
   }
   // 还原被保护的 URL(校验位验签通过且索引存在), 不合法/合并串一律丢弃
   out = out.replace(/\uE000(\d+)\uE001/g, (_, s: string) => {
