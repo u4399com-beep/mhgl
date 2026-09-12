@@ -470,6 +470,26 @@ function FetchPanel({ fetch: fc, onChange }: { fetch: FetchConfig; onChange: (p:
           </div>
         )}
 
+        {/* [R16-a-1] 出口代理(代理池)管理端入口: 引擎 fetch.proxyUrl 早已全量支持
+            (curl 链 -x, dd-a 实证; bun fetch 仅 http/https, socks5 即时失败自然落 curl),
+            此前仅能靠种子脚本/手改 JSON 配置 —— UI 缺口。典型场景: 仅国内 IP 可达的
+            站点(77shuku.info 等)必须在此填国内 IP 代理 */}
+        <div className="space-y-1.5">
+          <Label className="text-xs text-zinc-400">
+            出口代理 <span className="text-zinc-600">国内 IP 站必需 · 可选</span>
+          </Label>
+          <Input
+            className="h-9 border-zinc-700 bg-zinc-950 font-mono text-xs"
+            placeholder="http://user:pass@host:port 或 socks5h://host:port"
+            value={fc.proxyUrl || ''}
+            onChange={(e) => onChange({ proxyUrl: e.target.value || undefined })}
+          />
+          <p className="text-[11px] leading-relaxed text-zinc-600">
+            逗号分隔多条(≤10)构成轮换池, 走 curl 链生效; 目标站仅限国内 IP 访问时填国内代理,
+            留空=直连。回环地址与 localhost 由 SSRF 守卫拦截。
+          </p>
+        </div>
+
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5">
             <Label className="text-xs text-zinc-400">超时 (ms)</Label>

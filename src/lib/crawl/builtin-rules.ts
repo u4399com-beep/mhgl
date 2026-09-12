@@ -24,6 +24,209 @@ export interface BuiltinRule {
 
 export const BUILTIN_RULES: BuiltinRule[] = [
   {
+    key: "77shuku",
+    name: "77读书 (77shuku.info)",
+    description: "77shuku.info 杰奇CMS 站(Legado 书源反译, yckceo 源7819)。★需国内 IP 出口: 站点对海外/数据中心 IP 连接级丢弃(沙箱实测 timeout), 必须在 fetch.proxyUrl 配国内 IP 代理(http(s)://或socks5h://, 逗号分隔多条构成轮换池≤10, 走 curl 链生效)。列表=最近更新榜 /rank/lastupdate/(单页全量, 任务范围 1..1; 其余 7 榜 allvisit/monthvisit/weekvisit/postdate/size/allvote/goodnum/toptime 改路径即用; 分类页 /store/{1玄幻|2仙侠|3都市|4穿越|6恐怖|7科幻|8网游|9言情}_{page}.html 带分页) div#articlelist ul li(span.l2 a 书名/span.l3 作者/span.l1 分类剥[]/span.l4 a 最新章/span.l5 字数/span.l7 时间) / 书籍页 /novel/{id}/ og:novel:* meta 全套+og:image+div#intro+div#info 字数 / 目录内嵌书籍页 div.zjbox dd a(URL 含 /chapter/, 全量单页无翻页) / 正文 div#ChapterContents(去 #content_tip+行级广告词清洗: txt下载地址尾部/站名水印/导导流句)。UTF-8, 无需登录, waitMs 800 遵守书源 2req/s 频控, 移动 UA 钉住(书源同款)。\n⚠ 未实测: 本沙箱无国内代理资源, 四段为书源反译(书源作者实测过, 源 2026-09-12 仍在维护); 拿到代理后 CN_PROXY=… CN77_PROBE=1 重跑种子或管理端编辑 proxyUrl 后用四段测试面板复验。",
+    enabled: true,
+    source: "scripts/seed-rule-77shuku.ts",
+    config: {
+      "list": {
+        "enabled": true,
+        "urlTemplate": "http://www.77shuku.info/rank/lastupdate/",
+        "itemSelector": {
+          "type": "css",
+          "expression": "div#articlelist ul li"
+        },
+        "fields": {
+          "name": {
+            "type": "css",
+            "expression": "span.l2 a",
+            "attr": "text"
+          },
+          "bookUrl": {
+            "type": "css",
+            "expression": "span.l2 a",
+            "attr": "href"
+          },
+          "author": {
+            "type": "css",
+            "expression": "span.l3",
+            "attr": "text"
+          },
+          "category": {
+            "type": "css",
+            "expression": "span.l1",
+            "attr": "text",
+            "replaceFrom": "\\[|\\]",
+            "replaceTo": ""
+          },
+          "latestChapter": {
+            "type": "css",
+            "expression": "span.l4 a",
+            "attr": "text"
+          },
+          "wordCount": {
+            "type": "css",
+            "expression": "span.l5",
+            "attr": "text"
+          },
+          "updateTime": {
+            "type": "css",
+            "expression": "span.l7",
+            "attr": "text"
+          }
+        },
+        "pagination": {
+          "enabled": false,
+          "maxPages": 1
+        }
+      },
+      "book": {
+        "enabled": true,
+        "fields": {
+          "name": {
+            "type": "css",
+            "expression": "meta[property=\"og:novel:book_name\"]",
+            "attr": "content"
+          },
+          "author": {
+            "type": "css",
+            "expression": "meta[property=\"og:novel:author\"]",
+            "attr": "content"
+          },
+          "category": {
+            "type": "css",
+            "expression": "meta[property=\"og:novel:category\"]",
+            "attr": "content"
+          },
+          "status": {
+            "type": "css",
+            "expression": "meta[property=\"og:novel:status\"]",
+            "attr": "content"
+          },
+          "latestChapter": {
+            "type": "css",
+            "expression": "meta[property=\"og:novel:latest_chapter_name\"]",
+            "attr": "content"
+          },
+          "cover": {
+            "type": "css",
+            "expression": "meta[property=\"og:image\"]",
+            "attr": "content"
+          },
+          "intro": {
+            "type": "css",
+            "expression": "div#intro",
+            "attr": "html"
+          },
+          "wordCount": {
+            "type": "css",
+            "expression": "div#info span.item:contains(\"字数\")",
+            "attr": "text",
+            "replaceFrom": "^字数[:：]\\s*|字$",
+            "replaceTo": ""
+          }
+        }
+      },
+      "toc": {
+        "enabled": true,
+        "itemSelector": {
+          "type": "css",
+          "expression": "div.zjbox dd a"
+        },
+        "fields": {
+          "title": {
+            "type": "css",
+            "expression": "a",
+            "attr": "text"
+          },
+          "url": {
+            "type": "css",
+            "expression": "a",
+            "attr": "href"
+          }
+        },
+        "pagination": {
+          "enabled": false,
+          "maxPages": 1
+        }
+      },
+      "content": {
+        "enabled": true,
+        "fields": {
+          "content": {
+            "type": "css",
+            "expression": "div#ChapterContents",
+            "attr": "html"
+          }
+        },
+        "pagination": {
+          "enabled": false,
+          "maxPages": 1
+        }
+      },
+      "fetch": {
+        "engine": "http",
+        "uaMode": "custom",
+        "customUa": "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36",
+        "autoCookie": true,
+        "referer": true,
+        "timeout": 25000,
+        "retries": 2,
+        "waitMs": 800,
+        "hostGateLimit": 3,
+        "proxyUrl": ""
+      },
+      "clean": {
+        "removeSelectors": [
+          "script",
+          "style",
+          "iframe",
+          "ins",
+          "noscript",
+          "#content_tip"
+        ],
+        "adPatterns": [
+          "txt下载地址\\S*",
+          "txt下载[^<>]*",
+          "全集txt\\S*",
+          "txt全集\\S*",
+          "77shuku[^<>]*",
+          "77dushu[^<>]*",
+          "记住77[^<>]*",
+          "牢记网址[^<>]*",
+          "最新网址[^<>]*",
+          "请收藏本站[^<>]*",
+          "全文免费阅读[^<>]*",
+          "(www\\.)?[a-z0-9-]+\\.(com|net|cc|org|info|top|xyz|vip|site)(\\/\\S*)?",
+          "无弹窗",
+          "最快更新",
+          "手机版|手机端",
+          "章节报错[^<>]*",
+          "app下载[^<>]*",
+          "请分享[^<>]*"
+        ],
+        "whitelist": [
+          "p",
+          "br",
+          "b",
+          "strong",
+          "em",
+          "i",
+          "u",
+          "h1",
+          "h2",
+          "h3",
+          "h4",
+          "h5",
+          "h6"
+        ],
+        "normalize": true,
+        "plainText": false
+      }
+    },
+  },
+  {
     key: "80ge",
     name: "八零电子书 (80ge.info)·wap正文·直连",
     description: "80ge.info 八零电子书(TXT下载老站, XHTML utf-8, 零反爬直连)。qq-a2 轮: 姊妹站 qiushu.info(www 目录页章节链接指向它)对本沙箱出口 IP TCP 拉黑(2026-09 实测), 应急转场 wap.80ge.info 手机版(同 bookId/chapterId 体系, 第1章同为 76636828)。架构: list/book=www 桌面页, toc/content=wap 页; tocLink 把书籍页 txtml_{id} 链接改写为 wap/{id}/page-1.html(每页40章, 多页书走 select 下拉引擎不可表达=已知边界)。章节页 div#nr1 章内分页(_2/_3), 末页导航变'下一章'无'下一页'锚 → content 翻页无 nextLink 兜底自然收敛。单一桌面 UA 全站通用。探测样本: 修仙从绑定名师课程开始 /txtxz/225637.html(28章, 全3页/章, ~4400字/章)。",

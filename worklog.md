@@ -3886,3 +3886,24 @@ Work Log:
 Stage Summary:
 - R15 交付: ①固定预览后台密码(.env 钉死 + preview-hint 端点 + 登录页提示/填入) ②scripts 24 站种子规则 → builtin-rules.ts 注册表(生成器求值提取) → GET/POST API + 管理端内置规则库对话框一键导入 ③自动 TDK: 前台 8 修复(含 High canonical 双问号) + 站点级自动生成 API/UI ④采集链路 16 处深审修复(1 High CookieJar 键空间分裂 + 4 Med) ⑤管理端/公共 API 深审 3 修复(含批量删除输入确认门槛)
 - 历史链: R11=4854abe → R12=d70dd45 → R13=07972df → R14=a9f3461 → R15(本轮)
+
+---
+Task ID: R16-a
+Agent: main-orchestrator (Z.ai Code)
+Task: 用户指令「用国内ip代理编写采集规则 http://www.77shuku.info/rank/lastupdate/」— 77读书(杰奇CMS)规则反译落地 + 出口代理管理端入口补缺
+
+Work Log:
+- 站点侦察: www.77shuku.info/m./裸域 CNAME→77shuku.net.wajiasu.com→178.107.155.19(美国 LA, Cnservers); 77shuku.net→178.107.204.127, 77shuku.com→uucdn.cc 边缘; 沙箱直连 http/https 全 connection timeout(连接级丢弃=仅国内 IP 可达, 印证用户"需国内 IP 代理"判断); ZAI page_reader(JINA)可达但返回 application/octet-stream(站点对非国内出口返回二进制), 无法直接取 HTML
+- 规则来源定位: web_search 命中 yckceo 源仓库收录「77读书(77shuku)」→ 列表页(page_reader)定位书源 ID 7819 → curl 拉 /yuedu/shuyuan/json/id/7819.json 拿到完整 Legado 书源(legadoTeam 官方构建 2026-09-12, 注释声明实测): 杰奇CMS UTF-8, 无需登录, 搜索无频控, concurrentRate 2/1000, 移动 UA(Pixel 8/Chrome126)
+- 反译映射: rank 排行页=div#articlelist ul li(span.l2 a 书名/span.l3 作者/span.l1 分类剥[]/span.l4 a 最新章/span.l5 字数/span.l7 时间; li 非表格无 wanben 碎片陷阱, 表头行无 /novel/ 链接由 runner filter(Boolean) 天然滤) / book=og:novel:* meta 全套+og:image+div#intro+div#info span.item:contains(字数) / toc=内嵌 div.zjbox dd a(无 tocLink, runner 书籍页本身语义) / content=div#ChapterContents(removeSelectors 剥 #content_tip+行级广告词清洗, cleaner 子串抹除语义按此设计, 带 scheme URL 掩码保护不受波及)
+- 新建 scripts/seed-rule-77shuku.ts: 四段+fetch(engine http/uaMode custom 钉书源同款 UA/waitMs 800 遵守 2req/s/retries 2)+clean(15 条广告模式: txt下载地址/77shuku/77dushu/记住77/牢记网址/最新网址/请收藏本站/全文免费阅读/无弹窗/最快更新/手机版|手机端/章节报错/app下载/请分享/通用裸域名); CN_PROXY 环境变量注入 fetch.proxyUrl(凭证打码日志); CN77_PROBE=1 live 四段探针开关; 未实测声明(wanben 先例)+8 榜单/8 分类变体路径留档
+- 执行: 种子入库 OK(id=cmtyb7vql0002rhsbvtclaone) → gen-builtin-rules 重跑(规则总数 25, 失败 0, builtin-rules.ts +203 行)
+- [R16-a-1] UI 缺口修复: 引擎 fetch.proxyUrl 代理池早已全量支持(curl 链 dd-a 实证)但管理端 RuleEditor 反反爬设置 tab 无输入框(此前仅种子脚本/手改 JSON 可配) → FetchPanel 补「出口代理」输入(placeholder 示例 http(s)/socks5h 格式+≤10 条轮换池+SSRF 守卫提示)
+- E2E(agent-browser): 规则列表可见 77读书行(描述完整) → 编辑器四段正确载入(urlTemplate/itemSelector/UA custom) → 反反爬 tab 出口代理输入框渲染 → 填 http://user:pass@cn-proxy.test:8080 保存 → API 复验落库 proxyUrl 逐字一致(UI→保存→sanitize→DB 链路通) → API 还原为空+复验 → 内置规则库对话框含 77读书条目; console 0 error
+- 质量门: bun run lint 0 错 0 警 + bunx tsc --noEmit 0 错
+- 排障: dev server 再次间歇死亡(ERR_CONNECTION_REFUSED) → setsid bash .zscripts/dev.sh 重启恢复(R15 以来第 3 次)
+
+Stage Summary:
+- 77读书(77shuku.info) 杰奇CMS 规则落地: seed-rule-77shuku.ts(内置库 #25) + RuleEditor 出口代理 UI 入口补缺; 四段选择器源自 yckceo 书源 7819 实测源反译, 真网复验路径已文档化(CN_PROXY+CN77_PROBE=1 或管理端 proxyUrl+四段测试面板)
+- 关键情报留档: 站点仅国内 IP 可达(海外出口连接级丢弃), 8 榜单(/rank/{type}/) 单页全量, 8 分类(/store/{cat}_{page}.html)带分页, 目录/正文选择器全套
+- 变更: scripts/seed-rule-77shuku.ts(新) + src/lib/crawl/builtin-rules.ts(生成) + src/components/admin/RuleEditor.tsx(+20)
