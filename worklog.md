@@ -3907,3 +3907,82 @@ Stage Summary:
 - 77读书(77shuku.info) 杰奇CMS 规则落地: seed-rule-77shuku.ts(内置库 #25) + RuleEditor 出口代理 UI 入口补缺; 四段选择器源自 yckceo 书源 7819 实测源反译, 真网复验路径已文档化(CN_PROXY+CN77_PROBE=1 或管理端 proxyUrl+四段测试面板)
 - 关键情报留档: 站点仅国内 IP 可达(海外出口连接级丢弃), 8 榜单(/rank/{type}/) 单页全量, 8 分类(/store/{cat}_{page}.html)带分页, 目录/正文选择器全套
 - 变更: scripts/seed-rule-77shuku.ts(新) + src/lib/crawl/builtin-rules.ts(生成) + src/components/admin/RuleEditor.tsx(+20)
+
+---
+Task ID: R17-c
+Agent: docs-updater
+Task: 更新部署安装图文教程(R12~R16功能同步)
+
+Work Log:
+- 通读 worklog R12~R16 段落 + 三份目标文档(INSTALL-GUIDE 608行/DEPLOY 515行/README 127行), 建立缺口清单; 逐项核实代码真值后才落笔(禁止臆测): ①内置规则库=src/lib/crawl/builtin-rules.ts 实数 25 条(rg key: 逐条清点, 77shuku 在列), RulesSection 工具栏按钮文案「内置规则库」、BuiltinRulesDialog 文案(搜索 placeholder「按名称 / 描述 / 来源脚本搜索…」/「导入」/「重新导入」/「配置」/「全部导入」+确认框/「已导入」徽章与计数), 幂等语义=同名先删后建(与自动填充跳过式相区别) ②出口代理=RuleEditor FetchPanel「出口代理」输入框(旁注「国内 IP 站必需 · 可选」, placeholder http://user:pass@host:port 或 socks5h://host:port, 帮助文字「逗号分隔多条(≤10)构成轮换池, 走 curl 链生效」「回环地址与 localhost 由 SSRF 守卫拦截」逐字取自源码); CN_PROXY/CN77_PROBE 实证为 scripts/seed-rule-77shuku.ts 脚本级变量(非运行时 env, .env.example 无此二项, 如实写) ③伪静态=src/lib/pseudostatic.ts PSEUDO_PRESETS 六预设逐字(name/desc/sampleBook/sampleRead), SettingsSection 卡片标题「伪静态设置（前台阅读模块 URL 形态）」+「点选即保存」+存量回补 bun scripts/backfill-book-num.ts 提示; ★旧链接兼容真行为=parsePrettyPath 宽容解析(全形态兼容/永不断链)而非 301 跳转, 按任务要求先查源码后如实写, 未写"301 自动跳转" ④自动 TDK=SitesSection 编辑对话框 SEO 标题(T)/描述(D)/关键词(K) 三栏 + 「自动生成 TDK」按钮(title 文案逐字核实), 语义=按书库统计填表单草稿、保存才落库(Esc 不落库, R15-final 已证) ⑤preview-hint=auth.ts previewHintPassword() 生产构建恒 null + 仅密码==默认值时回显, LoginGate 提示条文案「预览模式固定密码: …」+「填入」按钮逐字核实; Docker 生产部署不显示提示(如实区分 dev/预览与生产) ⑥批量删除输入确认门槛=BooksSection 批量删除 ConfirmDialog requireTextInput="删除"(输入「删除」解锁确认钮) ⑦环境变量=.env.example 全文 + docker-compose.yml environment 透传面(ADMIN_PASSWORD/SESSION_SECRET/AUTO_FILL/AUTO_FILL_RULES/DATABASE_URL) + docker-entrypoint.sh 共置代理面(3010/3011/3013/3014/3015, qidian 3017 不在容器内) + admin 导航 13 项真实 label(AdminApp.tsx NAV)
+- docs/INSTALL-GUIDE.md 608→753 行(+145): ①6.1 工具栏表补「内置规则库」行 ②6.2 末新增「更省事：内置规则库一键导入 25 条实测规则」小节(ASCII 对话框示意图+三步用法+已导入/重新导入幂等语义表+覆盖式 vs 自动填充跳过式警示) ③新增 §6.5「让只认国内 IP 的站点也能采：出口代理（以 77读书为例）」(背景/入口路径/格式表 4 行/五步操作流/失败表现表/CN_PROXY 脚本级注记) ④新增 §6.6「换个网址风格：伪静态设置」(6 预设表格含样例 URL/切换后行为 ✓✗ 对照/旧链接宽容解析不断链/纯数字推荐) ⑤新增 §7.5「让搜索引擎喜欢你：站点 SEO 与『自动生成 TDK』」(两层 SEO 结构+四问四答表+生成≠保存警示) ⑥§5 登录密码表补预览模式行+提示条说明, §8.1 补 preview-hint 现状段 ⑦§6.4 报错表补 timeout→出口代理行, §9 速查表新增 #11(77读书超时)/#12(伪静态旧链接不断链)/#13(标题描述在哪改) ⑧§10 端口提醒 3010~3015→3010~3017, 附表 DEPLOY 定位补「环境变量速查」
+- DEPLOY.md 515→555 行(+40): ①新增「二·六、环境变量速查」整节(核心鉴权与自动填充 5 变量表/install.sh 读取组/可选高级项分组表 BRIDGE_KEY·8 引擎开关·渲染链·QD_*·RELAY_*/LOG_LEVEL; 末注 CN_PROXY/CN77_PROBE 为脚本级变量并指向 INSTALL-GUIDE 6.5) ②修正过时安全提醒: 「首启未设时随机密码打到 docker compose logs 顶部」→ 真实行为(回落编译期默认密码 audit-fix-2025 + [auth] ADMIN_PASSWORD 未设置 警告, 与 auth.ts:77 逐字对齐) ③文件清单补 .env.example 行(权威清单+指向二·六)
+- README.md 127→129 行(+2 净, 多处重写): ①功能特性 采集引擎 bullet 补规则级出口代理池/管理端 bullet 补内置规则库+输入确认门槛+伪静态设置+自动生成 TDK/前台 bullet 改 6 预设伪静态+全链自动 TDK ②修正两处过时警告「后台无登录鉴权」→ 有密码登录闸门+默认密码+改密指引(快速开始与本地开发两处) ③修正 .env.example 注释「内容即一行 DATABASE_URL」→ 实情 ④快速开始补内置规则库/出口代理一句 ⑤mini-services 表补 3016 cloak-browser 与 3017 qidian-proxy 两行+Docker 共置 bullet 澄清(5 代理共置, 3016/3017 与 scrapling 不共置)+端口暴露提醒 3010~3015→3010~3017 ⑥技术栈采集侧行 5→7 个 bun 支撑服务如实改写 ⑦目录结构注释 六→八个支撑服务 ⑧scripts 约定补 gen-builtin-rules.ts(25 条数据源)
+- 全程零代码改动, 仅改三份文档+worklog; 所有 UI 路径/按钮文案/环境变量名/行为描述均经 rg/Read 源码核实, 未核实处宁缺毋滥(如未编造 Docker 内跑 backfill 脚本的方式, 如实标注需 Bun 环境)
+
+Stage Summary:
+- 三份文档与 R12~R16 代码真值完成同步: INSTALL-GUIDE.md 608→753 行(新增 6.5 出口代理 77读书案例/6.6 伪静态 6 预设/7.5 自动 TDK/6.2 内置规则库小节/FAQ #11~#13/8.1 与 §5 preview-hint 同步), DEPLOY.md 515→555 行(新增二·六环境变量速查+修正随机密码过时描述), README.md 127→129 行(功能特性/mini-services 表 3016·3017/两处无鉴权过时警告修正)
+- 关键真值澄清(文档级沉淀): ①伪静态旧链接兼容=宽容解析永不断链, 非 301(已按源码如实写, FAQ #12 明确"不需要任何 301 配置") ②内置规则库导入=覆盖式(同名先删后建), 自动填充=跳过式, 两者方向相反已加警示 ③CN_PROXY/CN77_PROBE=77读书种子脚本级变量非运行时 env ④preview-hint 仅非生产构建且密码==默认值时显示, 生产 Docker 不显示 ⑤qidian-proxy(3017)/cloak-browser(3016) 不在 Docker 容器内共置(entrypoint 仅拉起 5 代理)
+- 核实过的关键 UI 路径清单: 后台导航 13 项(仪表盘/采集规则/采集任务/书籍管理/分类管理/站群系统/友链链轮/主题模板/TXT下载/系统设置/用户反馈/数据备份/SEO 体检, AdminApp.tsx NAV) | 采集规则→工具栏「内置规则库」(RulesSection:326) | 对话框搜索/导入/重新导入/全部导入/配置(BuiltinRulesDialog) | 规则编辑器→反反爬设置→「出口代理」(RuleEditor:479) | 系统设置→「伪静态设置（前台阅读模块 URL 形态）」(SettingsSection:97) | 站群系统→编辑站点→SEO 三栏+「自动生成 TDK」(SitesSection:692) | 登录页「预览模式固定密码」+「填入」(LoginGate:155-169) | 书籍管理→批量删除确认「输入『删除』以确认」(BooksSection:539 + ConfirmDialog.requireTextInput)
+
+
+---
+Task ID: R17-b
+Agent: 77shuku-rule-audit
+Task: 77shuku规则正确性复核+采集反反爬增强
+
+Work Log:
+- 静态离线验证脚本(bun, /tmp 临时件已删, 零网络依赖): 18 条 clean.adPatterns 逐条命中面(典型广告行全数命中: txt下载地址\S*/txt下载/全集txt/txt全集/77shuku/77dushu/记住77/牢记网址/最新网址/请收藏本站/全文免费阅读/通用域名/无弹窗/最快更新/手机版|手机端/章节报错/app下载/请分享)+误伤面(引擎级走 cleanContentHtml 真链路)+全管线杰奇章节页模拟(广告行 5 类全清/正文段落保真/#content_tip 剥除)+选择器语义(og:novel meta/‌:contains/根级自匹配/排行 li 表头过滤)+代理池形态, 104/104 PASS
+- 复核结论①(选择器, 全部实证): `attr:'content'` 走 parser.cssExtract default 分支 first.attr(parser.ts:224) ✓; `:contains("字数")` 经 cheerio css-select 原生支持, 实证 div#info 三枚 span.item 中选中含"字数"那枚+replaceFrom 剥"字数：/字"得纯数字 ✓; toc itemSelector 钉在 a 上依赖"容器项独立重解析后根级自匹配"语义确认存在: parseList 容器项经 $.html(node) 序列化→cheerio.load 重建→字段以 $(expr) 根级选取(parser.ts:815/829-833), 字段 'a' 自匹配根锚点 ✓; 排行页表头 li(无 /novel/ 链接)被 parseList 链接收紧+runner filter(Boolean) 双层过滤 ✓; tocLink 缺省→书籍页本身语义在 runner.extractToc 第 2 分支(runner.ts:1259-1263) ✓
+- 复核结论②(URL 掩码, 发现并修复[R17-b-1]Low): 掩码原仅覆盖 http/https 两形态 —— 协议相对 URL(//host/…)裸奔, 正文可见文本被通用域名正则啃成"//"(实证 "阅读地址：//77shuku.net/x"→"阅读地址：//"); 修为 (?:https?:)?\/\/ 掩码(带 scheme 匹配逐字节不变, 顺带覆盖 ftp:// 等 // 形态), 裸域名维持"广告常态照常剥除"口径; a/img 属性面经 2.5 属性消毒(非 http(s) href/src 本就剥除)确认无残余面, 实际误伤面=可见文本; 修复后协议相对保留/裸域名照删/带 scheme 不变三向回归 PASS
+- 复核结论③(行内抹除语义, 确认过激但维持不改): removeAdLines 为行内子串抹除(非按行), 实证 "他用手机版软件写作"→"他用软件写作"/"这款阅读器无弹窗广告"→"这款阅读器广告"/"他是全书最快更新的作者"→"他是全书的作者" —— 评估结论: 不加 CJK 边界约束, 因 lookbehind 会杀"本站手机版"/lookahead 会杀"手机版阅读：/最快更新最新章节"等规范广告形态(双向皆断 canonical 命中), 且种子注释已明示"整词抹除, 比书源整行丢弃更温和"设计取舍; 误伤为 2-4 字有界损伤, 低于整行删除的旧语义, 维持现状留档
+- 复核结论④(代理注入链, 全链健康零缺陷): 规则级 fetch.proxyUrl→sanitizeFetchConfig 形态校验(scheme 白名单 http/https/socks5h/socks5/socks4a/socks4, types.ts:945 与 fetcher.isValidProxySpec 同口径)→parseProxyPool 逗号分隔去重滤非法上限 10→pickProxyFor 单一收敛点(http/curl/browser 三链共用, fetcher.ts:1987)→fetchHttpWithCurlSingle; bun fetch socks5h 实证 4ms 即时抛 UnsupportedProxyProtocol(非超时)落同代理 curl 链(-x 全形态, fetcher.ts:2431); node 运行时+代理直接走 curl(undici 静默忽略 proxy 防伪装直连); SSRF 守卫只校验目标 URL 不校验代理自身(assertSafeTarget 无代理入参), 国内公网代理无误拦面; loopback 目标豁免代理(tokenUrl/contentProxyUrl 不被转发出不去)✓
+- [R17-b-2](Low, 文档正确性): 种子头部注释/fetch 段注释/description 声称"waitMs 800 遵守书源 2req/s 频控"与引擎语义不符 —— waitMs 仅 browser 引擎生效(渲染等待, fetcher.ts:1391-1452), HTTP 引擎节奏=任务 interval(缺省 1000~2000ms)+hostGateLimit 3(≥500ms/req 天然满足 2req/s); 三处文案改为准确表述, 重跑 gen-builtin-rules 同步注册表(builtin-rules.ts 仅 description 行漂移=预期产物同步, 其余 24 条零漂移)
+- 幂等实证: 修前先跑 gen-builtin-rules→builtin-rules.ts 空 diff(生成器与种子零漂移, 25 条 0 失败); 文案修正后重跑→仅 77shuku description 行同步
+- 反反爬增强评估(报告不改动): 9 开关对 77shuku 适用性 — FETCH_BINARY_RETRY(封面链, 低相关)/FETCH_BODY_LEN_CHECK(代理掐流截断检测, 推荐长跑开启)/FETCH_AL_POOL(bun native 链指纹头组, http 引擎+代理形态适用)/PROXY_HEALTH_SCORING(多代理池健康加权, 配轮换池时推荐)/RETRY_AFTER_HONOR(429 冷却, 杰奇 2req/s 频控形态适用)/CHALLENGE_ESCALATE(杰奇静态页无挑战, 恒不触发无害)/RESPONSE_SANITY(空壳页判拦, 对"代理通但源站软拒"形态有值)/relay/scrapling 桥(非必需); HOSTGATE_PACE_PROFILE 对本站适用(国内代理链延迟含代理开销属可接受噪声, 延迟抬升/挑战连发自动放缓 800~3000ms 地板与 2req/s 频控方向一致), 均为 env 级开关零改动
+- 质量门: bun run lint 0 错 0 警 + bunx tsc --noEmit 0 错; dev 3000=200; 数据库零接触(纯静态验证); 并行会话注记: fetcher.ts([R17-d-1/2] redactProxy/playwrightProxyParts)/DEPLOY.md/README.md/INSTALL-GUIDE.md/sitemap route/worklog 尾部为并行 agent 在途改动, 本轮零触碰
+
+Stage Summary:
+- 77shuku 规则离线复核闭环: 18 条广告正则命中面全过/选择器三语义(:contains/根级自匹配/attr content)实证在位/代理注入链(形态校验→池解析→轮换→socks5h 即时落 curl→SSRF 不拦代理)全链健康
+- 修复清单: [R17-b-1](Low) cleaner.removeAdLines URL 掩码扩面覆盖协议相对 URL(通用域名正则对可见文本 //host 形态的啃噬) | [R17-b-2](Low) 77shuku 种子 waitMs 频控语义澄清(注释+description 三处, 注册表同步)
+- 已报告未修复(有意识取舍): ①'手机版|手机端'/'无弹窗'/'最快更新' 行内抹除对散文的 2-4 字损伤(CJK 边界约束双向皆断规范广告命中, 维持种子注释声明的设计取舍) ②'最新地址' 变体短语未入模式组(需国内代理 live 探针确认站点真实广告文本后再补, 盲补 [^<>]* 尾巴有散文误伤面) ③HOSTGATE_PACE_PROFILE 等 9 开关为 env 级适用性建议, 未做代码改动
+- 环境注记: 77shuku 仍需国内 IP 代理才能真网复验(CN_PROXY+CN77_PROBE=1 路径已文档化), 本轮全部结论为静态离线实证
+
+---
+Task ID: R17-d
+Agent: deep-bug-hunt
+Task: 逐行抓bug(RuleEditor proxyUrl链/伪静态引擎/builtin-rules)
+
+Work Log:
+- 面A(RuleEditor proxyUrl 保存链逐行): UI onChange({proxyUrl: e.target.value||undefined})→save() 整包 config PUT/POST → rules route regexGate+configToString 原样 JSON 存储(200KB 上限) → DB 原样 → 编辑态 safeParseRuleConfig→parseRuleConfig 白名单消毒回填。③ clearing 判定: 受控 Input 仅用户真实键入才触发 onChange, 编辑未触碰字段不会意外置 undefined(逐 handler 核对 customUa/waitSelector/clickSelector/cookies/tocLink 同款模式无异常), 无丢配置面; ④ 其他 tab 保存链同构(setFetch/setSection 只 patch 编辑字段), headers 编辑器已有 rr-d2 草稿态防回弹, browserFallbackStatus/whitelist 逐键重导出属既有轻微 UX 怪癖(无数据丢失, 不改)
+- 面A① 实证(API+bun 双侧): PUT 多@凭证+12 条+尾逗号池 → API 端原样存储保序(API 层无清洗, R11-a 留档口径维持); 运行时 sanitizeFetchConfig/parseProxyPool 实证: 保序、去空去重、取前 10 条(第 10 条逐字核对)、尾逗号剥除、types.ts 与 fetcher.ts 两份实现逐字节同口径
+- 修复: [R17-d-1](Med) fetcher.redactProxy 凭证脱敏正则 [^@\s]+ 在密码含字面 @(如 http://admin:p@ss@host:8080, WHATWG/RFC3986 以最后一个 @ 定界 userinfo)时只吃到首个 @ → 日志吐 '***@ss@host:8080' 泄密码后半段(bun 实证); 改 [^/\s]* 贪婪跨 @(凭证段不可能含字面 /, URL 以首个 / 终结 authority), 多 @ 密码全段隐藏且 path/query 含 @ 的无凭证形态不误伤
+- 修复: [R17-d-2](Low) playwrightProxyParts decodeURIComponent 对合法 %XX 但非法 UTF-8 序列(密码含 %80 等)抛 URIError → 外层 catch 落 {server: proxy} 把内联凭证原样交给 Playwright(其要求 server 不带凭证, 连接即败); 改逐组件安全解码(解不开退回原编码值), 保证 server 恒无凭证
+- 面B(伪静态引擎): /tmp roundtrip 脚本 6 预设×边界 id(1/7/1001/65535/2147483646/2147483647×章 idx 四档) 生成→解析→tokenToNum 全互逆 + query 恒回退/num=0·负·null·超 Int32 不产 token(永不死链)/注册表回填链(bk1→4242)/宽容解析负样本 11 形态全 404(路径穿越/超长数字/三段下划线/b-c 前缀错位/大写前缀)/跨预设旧链接互通/cuid 形态/buildViewUrl site+page 参数/消毒兜底 —— 289/289 PASS(首轮 1 FAIL 系测试断言误写未注册 id 预期, 修正后全绿, 引擎无缺陷)
+- 面B核查(301/缓存/sitemap): ①代码库零 301/零旧 URL 重定向逻辑 —— 旧链接兼容真实现=parsePrettyPath 宽容解析直达 200(curl 实证 query 预设下 /book/9.html、/read/9/1.html 均 200), 目录式尾斜杠形态由 Next 规范化 308→去尾斜杠后正常解析(R14 记录「308 规范化」属实, 不存在也不需要 301, 与 R17-c 文档澄清一致); ②缓存失效链: settings PUT key===pseudostatic→invalidatePseudoPresetCache ✓、restore 事务后失效(R15-d2-2 在位) ✓、links 同钩子 ✓; ③sitemap 与前台 canonical 同一出口(buildBookPath/buildReadPath)+appendSiteQ 站参对齐在位; ④Book.num 边界: nextBookNum max+1 首号 1(与 clampInt ≥1 一致)、INT32_MAX 耗尽抛错、P2002 重试 3 次、num 可空回退查询串
+- 修复: [R17-d-3](Low) sitemap 5min 内存缓存键补入 preset —— 原 key=base|page|index|site 不含伪静态预设, 切换预设后最长 5min 吐旧形态 loc(旧链接宽容解析 200 不死链, 但与前台新形态 canonical 分裂); preset 仅 6 固定值不加攻击者可控熵; curl 实证切换 numeric→sitemap 立即 /book/N.html 形态、还原 query→立即回查询串形态(设置 PUT 值须传对象 {preset:'numeric'} 而非预序列化字符串, 传字符串会被 sanitizePseudoPreset 回退 query —— 测试时踩到, 属调用方契约非缺陷)
+- 面C(builtin-rules 抽查): /tmp 求值提取脚本(gen-builtin 同原理桩录制, 永不出网)抽 77shuku/kanunu8/qimao 3 条与种子信封逐字段 deep-equal: name/description/enabled/config 全等, 转义探测(\n/\u/引号/中文/{page})双侧同现, 零丢字段零变形; imported 判定口径: builtin GET 按库内 name 建分组 Map 精确同名匹配 + findBuiltinRuleByName 精确相等, 与 import-builtin 的 str(name,100).trim() 归一无截断错位面(最长 name 44 字符, R15-d2 已证), 口径一致 ✓; kanunu8 首轮「未产出信封」系子进程 import 求值与种子顶层 main() 微任务竞态(测试桩问题非生成器问题), 加 settle 延迟后 3/3 全过
+- 修复: [R17-d-4](Low) RuleEditor 出口代理帮助文案纠偏 —— 原「回环地址与 localhost 由 SSRF 守卫拦截」与实现不符: SSRF 守卫只校验目标站地址(assertSafeTarget 无代理入参, R17-b-④ 同结论), isValidProxySpec 允许 127.0.0.1/localhost 代理形态(bun 实证通过), 本机代理(mini-services 等)可正常配置; 按原文案用户会误以为本机代理被拦。改「本机回环代理可正常使用, SSRF 守卫仅校验目标站地址」
+- curl 冒烟: 登录→rules GET/PUT 多凭证代理池→GET 回读→还原逐字节一致(77读书 config as-found 逐字节核对通过); /book/9.html 200 + /book/99999999.html 404 + /book/9/ 308 + /read/9/1.html 200 + resolve API book/read 正确回 cuid/越界 null; sites API pseudoPreset 切换/还原; 数据库改动全部还原(规则 config 原样, pseudostatic 预设还原 query; dev server 中途一次静默死亡(既有同型)按规程 setsid 重启恢复)
+- 质量门: bun run lint 0 错 0 警 + bunx tsc --noEmit 0 错(修复前后各一遍); /tmp 临时脚本已清
+
+Stage Summary:
+- 修复清单: [R17-d-1](Med) redactProxy 多@密码日志泄漏(贪婪跨 @ 修正, 与 URL userinfo 定界口径对齐) | [R17-d-2](Low) playwrightProxyParts 非法 UTF-8 百分号序列 URIError 致凭证内嵌 server | [R17-d-3](Low) sitemap 缓存键补伪静态 preset(切换即时生效) | [R17-d-4](Low) 出口代理回环拦截文案纠偏(SSRF 守卫不校验代理地址)
+- 核查结论(无缺陷留档): ①proxyUrl 保存链 API 层原样存储+运行时白名单消毒保序保数(≤10)为既定口径(R11-a 留档), UI 无意外清空面 ②伪静态 6 预设生成/解析互逆 289/289, 旧链接兼容=宽容解析 200 非 301, 预设/恢复双失效钩子在位 ③内置规则 3 条抽查零漂移, imported 按名精确匹配口径一致
+- 并行会话注记: R17-b 同轮对 fetcher.ts/sitemap 相关面做过独立复核(结论与本轮一致), 其重跑 gen-builtin-rules 的注册表同步与本轮面C比对兼容(比对在同步后执行, 3/3 全等)
+
+---
+Task ID: R17-final
+Agent: main-orchestrator (Z.ai Code)
+Task: R17 收尾 — 质量门 + 浏览器 E2E 全链验证 + 依赖审计复核 + 统一提交
+
+Work Log:
+- 质量门: bun run lint 0 错 0 警 + bunx tsc --noEmit 0 错(agent 完成后主控独立复核)
+- diff 抽查: 四处代码修复逐行复核(redactProxy [^/\s]* 贪婪跨 @ 定界推理严密/cleaner 掩码扩面(?:https?:)? 带 scheme 逐字节不变/sitemap 键补 preset/RuleEditor 文案纠偏) 全部合格
+- E2E(agent-browser): 登录门 preview-hint+「填入」→ 后台 ✓; 内置规则库对话框 77读书条目描述含 R17-b-2 纠偏频控表述+「已导入/重新导入」状态 ✓; 规则编辑器反反爬 tab 出口代理 UI+R17-d-4 新文案(「本机回环代理可正常使用, SSRF 守卫仅校验目标站」)逐字生效 ✓; 系统设置伪静态 6 预设单选组齐备 → 切「纯数字」保存 → sitemap 即时输出 /book/9.html 形态(R17-d-3 实证, 无 5min 旧缓存) → 前台 /book/9.html 200 + 旧 query 形态宽容解析 200 → 还原「动态查询」→ sitemap 回 query 形态 ✓; console 0 error ✓
+- 依赖审计(R17-e, 主控代执行): import 提取+package.json 比对 → 12 个名义未用逐一人工核实全部为工具链/隐性依赖(prisma CLI/react-dom 框架/tailwind postcss 链/@types/bun-types/eslint/typescript + z-ai-web-dev-sdk(有真实 import: crawl/smart.ts+seed)/tw-animate-css(globals.css @import)); 结论=零真未用依赖, 本轮零新增依赖, 无需清理
+- 数据终态: 伪静态预设已还原动态查询(库 as-found), 规则库/设置零残留
+
+Stage Summary:
+- R17 交付: ①R17-b 采集线: cleaner URL 掩码扩面(协议相对 //host 裸奔修复)+77shuku 种子 waitMs 语义纠偏, 104/104 静态验证, proxyUrl 注入链全链健康, 反反爬 5 开关适用性留档(FETCH_BODY_LEN_CHECK/PROXY_HEALTH_SCORING/RETRY_AFTER_HONOR/RESPONSE_SANITY/HOSTGATE_PACE_PROFILE) ②R17-c 文档线: INSTALL-GUIDE.md +145 行(内置规则库/出口代理 77读书案例/伪静态 6 预设/自动 TDK/preview-hint 同步/FAQ #11~#13), DEPLOY.md +40 行(环境变量速查表+密码行为修正), README.md 功能清单重写(修正「无登录鉴权」过时警告+mini-services 表补 3016/3017) ③R17-d 深审线: 4 修复(1 Med redactProxy 凭证泄漏+3 Low), 伪静态 roundtrip 289/289, builtin-rules 抽查 3/3 deep-equal ④零真未用依赖确认
+- 历史链: R12=d70dd45 → R13=07972df → R14=a9f3461 → R15=323982e → R16=99c1c48 → R17(本轮)

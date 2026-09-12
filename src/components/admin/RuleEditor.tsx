@@ -486,7 +486,12 @@ function FetchPanel({ fetch: fc, onChange }: { fetch: FetchConfig; onChange: (p:
           />
           <p className="text-[11px] leading-relaxed text-zinc-600">
             逗号分隔多条(≤10)构成轮换池, 走 curl 链生效; 目标站仅限国内 IP 访问时填国内代理,
-            留空=直连。回环地址与 localhost 由 SSRF 守卫拦截。
+            留空=直连。
+            {/* [R17-d-4](Low) 文案纠偏: 原「回环地址与 localhost 由 SSRF 守卫拦截」与实现不符 ——
+                SSRF 守卫只作用于目标站地址(assertSafeTarget), 代理地址本身无回环拦截,
+                isValidProxySpec 允许 127.0.0.1/localhost 形态(本机代理如 mini-services 可正常配置使用);
+                按原文案填写本机代理的用户会误以为被拦 */}
+            本机回环代理(如 127.0.0.1:8080)可正常使用, SSRF 守卫仅校验目标站地址, 不限制代理地址。
           </p>
         </div>
 

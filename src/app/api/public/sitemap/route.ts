@@ -169,7 +169,10 @@ export async function GET(req: Request) {
 
     // R4A-13: 服务端 5min 缓存 —— 公共路由 120 req/min × 50k 行扫描 = 6M 行/min 饱和 DB,
     //   内存缓存命中后零 DB 查询。缓存键 = base + page/index + site, base 不变时全共享
-    const cacheKey = `${base}|page=${pageParam || ''}|index=${indexParam || ''}|site=${siteId}`
+    // [R17-d-3](Low): 缓存键补入伪静态 preset —— 原 key 不含 preset, 管理端切换预设后
+    //   最长 5min 内 sitemap 仍吐旧形态 loc(旧链接可宽容解析 200 不死链, 但与前台新形态
+    //   canonical 分裂)。preset 仅 6 个固定值, 不引入攻击者可控 key 熵; 切换即时生效
+    const cacheKey = `${base}|page=${pageParam || ''}|index=${indexParam || ''}|site=${siteId}|preset=${preset}`
     const cached = sitemapCache.get(cacheKey)
     if (cached && Date.now() - cached.ts < SITEMAP_CACHE_MS) {
       return new Response(cached.xml, {

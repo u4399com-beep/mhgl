@@ -414,7 +414,14 @@ function compileAdPattern(p: string): RegExp | null {
 
 function removeAdLines(text: string, patterns: string[]): string {
   const urls: string[] = []
-  let out = text.replace(/https?:\/\/[^\s"'<>]+/gi, (m) => {
+  // [R17-b-1] 掩码扩面: 协议相对 URL(//host/…)此前不受保护, 正文可见文本里的这类 URL
+  // 会被通用域名正则啃成 "//"(如 "阅读地址：//77shuku.net/x" → "阅读地址：//"), DEFAULT
+  // 与种子规则共用的通用域名模式全量暴露此面(白名单放行 a/img 的自定义规则本可经
+  // href/src 属性受损, 但 2.5 属性消毒本就剥除非 http(s) 属性值, 故实际残余面=可见文本)。
+  // (?:https?:)? 前缀改可选: 对已带 scheme 的 URL 匹配起点/长度逐字节不变, 纯新增
+  // //host 形态; 裸域名(无 // 前缀, 广告常态)维持照常剥除口径; 顺带覆盖 ftp:// 等
+  // 非 http(s) scheme 的 // 形态。占位符校验位/scrub 兜底机制不受影响
+  let out = text.replace(/(?:https?:)?\/\/[^\s"'<>]+/gi, (m) => {
     urls.push(m)
     // [R9-c-7] 编号带校验位: encode(n)=n*10+(n%9+1)。相邻占位符被广告正则吃掉中间
     // \uE001…\uE000 时会合并成 \uE00012\uE001 形态, 旧纯数字编号会把 urls[12](存在时!)

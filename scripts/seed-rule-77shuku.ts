@@ -34,7 +34,9 @@
 //
 // 反译要点(★=引擎语义差异需注意):
 //  - 站点形态: 杰奇CMS(jieqicms) UTF-8, 无需登录, 书源注释声明无搜索频控(实测);
-//    书源 concurrentRate 2/1000(每秒≤2 请求) → fetch.waitMs 钉 800ms
+//    书源 concurrentRate 2/1000(每秒≤2 请求) [R17-b-2] ★节奏语义澄清: fetch.waitMs 仅
+//    browser 引擎生效(渲染等待), HTTP 引擎的实际请求节奏=任务 interval(缺省 1000~2000ms)
+//    + hostGate 闸门, ≤2req/s 由任务缺省节奏兜底, 勿把 waitMs 当 HTTP 限速依赖
 //  - UA: 书源 header 钉移动 UA(Pixel 8 / Chrome 126 Mobile)且选择器组在该 UA 下实测
 //    有效 → fetch.uaMode='custom' 原样钉住, 不自作主张换桌面 UA
 //  - list(rank 排行页): 杰奇排行标准布局 div#articlelist ul li, 字段 span.l1 分类/
@@ -78,7 +80,7 @@ const PROBE = {
 export const rule: RuleSeed = {
   name: '77读书 (77shuku.info)',
   description:
-    '77shuku.info 杰奇CMS 站(Legado 书源反译, yckceo 源7819)。★需国内 IP 出口: 站点对海外/数据中心 IP 连接级丢弃(沙箱实测 timeout), 必须在 fetch.proxyUrl 配国内 IP 代理(http(s)://或socks5h://, 逗号分隔多条构成轮换池≤10, 走 curl 链生效)。列表=最近更新榜 /rank/lastupdate/(单页全量, 任务范围 1..1; 其余 7 榜 allvisit/monthvisit/weekvisit/postdate/size/allvote/goodnum/toptime 改路径即用; 分类页 /store/{1玄幻|2仙侠|3都市|4穿越|6恐怖|7科幻|8网游|9言情}_{page}.html 带分页) div#articlelist ul li(span.l2 a 书名/span.l3 作者/span.l1 分类剥[]/span.l4 a 最新章/span.l5 字数/span.l7 时间) / 书籍页 /novel/{id}/ og:novel:* meta 全套+og:image+div#intro+div#info 字数 / 目录内嵌书籍页 div.zjbox dd a(URL 含 /chapter/, 全量单页无翻页) / 正文 div#ChapterContents(去 #content_tip+行级广告词清洗: txt下载地址尾部/站名水印/导导流句)。UTF-8, 无需登录, waitMs 800 遵守书源 2req/s 频控, 移动 UA 钉住(书源同款)。\n⚠ 未实测: 本沙箱无国内代理资源, 四段为书源反译(书源作者实测过, 源 2026-09-12 仍在维护); 拿到代理后 CN_PROXY=… CN77_PROBE=1 重跑种子或管理端编辑 proxyUrl 后用四段测试面板复验。',
+    '77shuku.info 杰奇CMS 站(Legado 书源反译, yckceo 源7819)。★需国内 IP 出口: 站点对海外/数据中心 IP 连接级丢弃(沙箱实测 timeout), 必须在 fetch.proxyUrl 配国内 IP 代理(http(s)://或socks5h://, 逗号分隔多条构成轮换池≤10, 走 curl 链生效)。列表=最近更新榜 /rank/lastupdate/(单页全量, 任务范围 1..1; 其余 7 榜 allvisit/monthvisit/weekvisit/postdate/size/allvote/goodnum/toptime 改路径即用; 分类页 /store/{1玄幻|2仙侠|3都市|4穿越|6恐怖|7科幻|8网游|9言情}_{page}.html 带分页) div#articlelist ul li(span.l2 a 书名/span.l3 作者/span.l1 分类剥[]/span.l4 a 最新章/span.l5 字数/span.l7 时间) / 书籍页 /novel/{id}/ og:novel:* meta 全套+og:image+div#intro+div#info 字数 / 目录内嵌书籍页 div.zjbox dd a(URL 含 /chapter/, 全量单页无翻页) / 正文 div#ChapterContents(去 #content_tip+行级广告词清洗: txt下载地址尾部/站名水印/导导流句)。UTF-8, 无需登录, 移动 UA 钉住(书源同款); 书源 2req/s 频控由任务间隔(缺省 1000~2000ms)+hostGateLimit 3 兜底(waitMs 仅浏览器引擎生效)。\n⚠ 未实测: 本沙箱无国内代理资源, 四段为书源反译(书源作者实测过, 源 2026-09-12 仍在维护); 拿到代理后 CN_PROXY=… CN77_PROBE=1 重跑种子或管理端编辑 proxyUrl 后用四段测试面板复验。',
   enabled: true,
   config: {
     list: {
@@ -166,7 +168,9 @@ export const rule: RuleSeed = {
       referer: true,
       timeout: 25000,
       retries: 2,
-      // 书源 concurrentRate 2/1000 → 请求间隔 ≥500ms, 钉 800ms 留余量
+      // [R17-b-2] 澄清: 书源 concurrentRate 2/1000(每秒≤2 请求)——waitMs 仅 browser 引擎
+      // 渲染等待生效, HTTP 引擎节奏由任务 interval(缺省 1000~2000ms)+hostGateLimit 3 控制
+      // (≥500ms/req 天然满足书源频控); 此处钉 800ms 仅为 engine 换 browser 降级路径预留
       waitMs: 800,
       hostGateLimit: 3,
       // 国内 IP 代理入口: 种子期 CN_PROXY 环境变量注入(见头部用法), 或管理端规则

@@ -130,8 +130,8 @@ AUTO_FILL_RULES=fanqie,qimao bash install.sh                 # 只自动填充�
 | `http://<IP>:3000/` | 后台管理 |
 | `http://<IP>:3000/?view=home` | 前台站点（书城/阅读/搜索） |
 
-> ⚠️ 安全提醒：1-a 轮已加管理 API 鉴权(`ADMIN_PASSWORD` 环境变量, 详见 `.env.example`)，
-> 首启未设时随机密码打到 `docker compose logs` 顶部。仍建议放在内网，或前面加一层反向代理做 IP 白名单。
+> ⚠️ 安全提醒：1-a 轮已加管理 API 鉴权（`ADMIN_PASSWORD` 环境变量，详见 `.env.example` 与下文「二·六、环境变量速查」）。
+> 未设置时回落编译期默认密码 `audit-fix-2025` 并在启动日志给出 `[auth] ADMIN_PASSWORD 未设置` 警告 —— 生产务必在 `.env` 设置强密码。仍建议放在内网，或前面加一层反向代理做 IP 白名单。
 
 ---
 
@@ -165,6 +165,45 @@ sudo chown -R 1001:1001 ./db ./data
 > （或希望跨主机调用代理），可设 `BRIDGE_KEY=<任意共享密钥>` 环境变量给每个代理；
 > 设后非 `/health` 请求必须带 `X-Bridge-Key: <同值>` 头，否则 401（常量时间比较，
 > 不泄密）。单机部署无需设置（默认无闸门）。
+
+---
+
+## 二·六、环境变量速查（.env / docker-compose.yml）
+
+权威清单永远是项目根目录的 **`.env.example`**（每个变量都带中文注释）；`cp .env.example .env` 后按需修改。
+`docker-compose.yml` 已内置透传进容器的只有核心几项，其余变量属脚本级或本地开发级。速查如下：
+
+### 核心鉴权与自动填充（compose 已透传进容器）
+
+| 变量 | 默认 | 说明 |
+| --- | --- | --- |
+| `ADMIN_PASSWORD` | 空 → 回落 `audit-fix-2025` | 后台登录密码。**生产必改**；未设置时启动日志有 `[auth] ADMIN_PASSWORD 未设置` 警告。改完 `docker compose up -d` 重建生效，旧会话自动失效 |
+| `SESSION_SECRET` | 空 → 编译期固定常量 | 登录会话签名密钥。生产建议设置独立随机长串（`.env` 丢失时会话仍可验证是设计行为） |
+| `AUTO_FILL` | `1` | 装完自动导入站点规则并开跑「自动填充·」任务；`AUTO_FILL=0 bash install.sh` 关闭 |
+| `AUTO_FILL_RULES` | `fanqie,qimao,deqixs,80ge,jhssd,ttkan,bqg713` | 参与自动填充的站点 key 清单；`pili`（需 scrapling 桥）与 `xjp`（体量大）默认不在列 |
+| `DATABASE_URL` | `file:/app/db/custom.db` | 容器内由 compose 改写指向 `/app/db`（宿主机 `./db` 卷），无需手动设置 |
+
+### install.sh 一键脚本读取（非 Docker 部署可忽略）
+
+- 国内加速：`USE_CN_MIRROR`（总开关，空=自动探测/`1` 强制/`0` 禁用）、`REGISTRY_MIRRORS`（加速器清单覆盖）、`SKIP_REGISTRY_MIRROR=1`（不动 daemon.json）；
+- 基础镜像手动指定：`BUN_IMAGE` / `NODE_IMAGE` / `PYTHON_IMAGE`；
+- 构建期依赖源：`NPM_REGISTRY` / `PIP_INDEX_URL` / `DEBIAN_MIRROR` / `PLAYWRIGHT_DOWNLOAD_HOST`；
+- 远程一键模式：`HOST_PORT`（端口预检）/ `WAIT_TIMEOUT`（健康检查等待秒数）/ `REPO_URL` / `INSTALL_DIR`。
+
+用法详见 FAQ 第 11 条与 `.env.example` 内注释。
+
+### 可选高级项（本地开发 / 特殊部署，缺省全部回落安全默认值）
+
+| 组 | 变量 | 用途 |
+| --- | --- | --- |
+| 多主机闸门 | `BRIDGE_KEY` | 共置 bun 代理的共享密钥（设后非 `/health` 请求需带 `X-Bridge-Key` 头）；单机部署无需设置 |
+| 采集引擎增强 | `FETCH_BINARY_RETRY` `FETCH_BODY_LEN_CHECK` `RETRY_AFTER_HONOR` `CHALLENGE_ESCALATE` `RESPONSE_SANITY` `FETCH_AL_POOL` `HOSTGATE_PACE_PROFILE` `PROXY_HEALTH_SCORING` | 反反爬增强开关，全部缺省关（`=1` 开启）；语义见 `.env.example` 注释 |
+| 渲染链 | `OBSCURA_CONCURRENCY` `OBSCURA_DEVID` `CLOAK_DEVID` `CLOAK_UA_POOL` `FETCH_RELAY_URL` `SCRAPLING_BRIDGE_URL` | Obscura/cloak 隐身渲染与桥地址调优 |
+| 起点中文代理 | `QD_YWKEY` `QD_YWGUID` `QD_UPSTREAM` | mini-services/qidian-proxy(3017) 的正文凭证与上游镜像（仅起点规则正文链路需要；代理进程级变量，非主应用） |
+| 中继桥调优 | `RELAY_MAX_INFLIGHT`（缺省 32） `RELAY_BLOCK_PRIVATE` | fetch-relay 自身并发上限与私网目标拦截 |
+| 日志 | `LOG_LEVEL` | `debug` / `info`(prod 默认) / `warn` / `error` |
+
+> 另注：`scripts/seed-rule-77shuku.ts`（77读书规则种子脚本）支持两个**脚本级**变量 `CN_PROXY=<国内IP代理>`（注入该规则的出口代理）与 `CN77_PROBE=1`（入库前先跑一次四段真网探针）——它们不是运行时环境变量，不进 compose；Docker 部署用户直接在管理端规则编辑器「反反爬设置 → 出口代理」里填代理即可（图文用法见 docs/INSTALL-GUIDE.md 6.5 节）。
 
 ---
 
@@ -438,6 +477,7 @@ curl http://127.0.0.1:3040/stats
 | `Dockerfile` | 多阶段构建：bun 构建 standalone → node:22-slim 运行（含 5 个共置代理与自动填充引导） |
 | `docker-compose.yml` | 单服务编排：端口/数据卷/健康检查/自动重启/AUTO_FILL 注入（+ scrapling 可选 profile） |
 | `docker-entrypoint.sh` | 容器入口：建目录 → 幂等 `prisma db push` → 拉起 5 代理 + 自动填充引导 → 启动 server |
+| `.env.example` | 环境变量权威清单（鉴权/自动填充/镜像加速/引擎开关等，全部带中文注释），复制为 `.env` 使用，速查见「二·六」 |
 | `install.sh` | 零基础一键安装：装 Docker（多源自动切换+国内加速）→ 构建 → 等健康 → 自动填充状态 → 打印地址 |
 | `docker/autofill.mjs` | 自动填充引导脚本：等服务健康 → 幂等导入规则 → 建「自动填充·」任务并按状态机开跑 |
 | `docker/autofill-rules.json` | 自动填充站点清单（9 站：默认 7 站，pili/xjp 需 AUTO_FILL_RULES 显式加） |

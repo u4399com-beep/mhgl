@@ -2023,9 +2023,14 @@ export function pickProxyFor(url: string, cfg: FetchConfig): string {
 /** 日志用代理脱敏: 隐藏内联凭证(u:p@ → ***@) */
 function redactProxy(proxy: string): string {
   // R3-4: 原 [^@/]+ 排除 '/' 字符, 但密码含 '/'(常见于 base64/hex 编码凭证)时正则不匹配,
-  // 凭证以明文留在日志。改为 [^@\s]+ 仅排除空白(密码含 '/' ':' '?' 均安全 —— URL 凭证段
-  // 由 '://' 与 '@' 严格界定, 不可能跨越 @ 边界)
-  return proxy.replace(/^(https?|socks5h?|socks4a?):\/\/[^@\s]+@/i, '$1://***@')
+  // 凭证以明文留在日志。改为仅排除空白与 '/'。
+  // [R17-d-1](Med): R3-4 的 [^@\s]+ 在密码含字面 '@'(如 http://admin:p@ss@host:8080,
+  // WHATWG/RFC3986 均以最后一个 @ 定界 userinfo)时只吃到首个 @ → 脱敏后 '***@ss@host:8080'
+  // 把密码后半段泄进日志(bun 实证)。改 [^/\s]* 贪婪跨 @: 凭证段不可能含字面 '/'(URL 解析
+  // 以首个 / 终结 authority), 故最后一个 @ 前、首个 / 后即完整 userinfo —— 多 @ 密码全段隐藏,
+  // 无凭证但 path/query 含 @ 的形态因首个 / 截断不会误伤。与 playwrightProxyParts 的
+  // URL 解析定界口径一致
+  return proxy.replace(/^(https?|socks5h?|socks4a?):\/\/[^/\s]*@/i, '$1://***@')
 }
 
 /** Playwright per-context proxy 参数: 内联凭证拆出 username/password
@@ -2037,8 +2042,13 @@ function playwrightProxyParts(proxy: string): { server: string; username?: strin
       const out: { server: string; username?: string; password?: string } = {
         server: `${u.protocol}//${u.host}`,
       }
-      const un = decodeURIComponent(u.username)
-      const pw = decodeURIComponent(u.password)
+      // [R17-d-2](Low): decodeURIComponent 对合法 %XX 但非法 UTF-8 序列(如密码 'a%80b')
+      // 抛 URIError → 外层 catch 落入 { server: proxy } 把内嵌凭证原样交给 Playwright
+      // (playwright 要求 server 不带凭证, 连接即败)。逐组件安全解码: 解不开退回原编码值,
+      // 保证 server 恒无凭证
+      const dec = (s: string) => { try { return decodeURIComponent(s) } catch { return s } }
+      const un = dec(u.username)
+      const pw = dec(u.password)
       if (un) out.username = un
       if (pw) out.password = pw
       return out
