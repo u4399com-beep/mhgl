@@ -12,7 +12,8 @@ export async function GET(req: Request) {
 
     const ch = await db.chapter.findUnique({
       where: { id },
-      include: { book: { select: { id: true, name: true, author: true, status: true, keywords: true } } },
+      // num: 伪静态数字书号(前台生成 /read/{num}/{idx}.html 链接)
+      include: { book: { select: { id: true, num: true, name: true, author: true, status: true, keywords: true } } },
     })
     if (!ch) return fail('章节不存在', 404)
 
@@ -33,9 +34,10 @@ export async function GET(req: Request) {
       }
     }
 
+    // idx: 伪静态需要(prev/next 也按预设生成 /read/{num}/{idx}.html 链接)
     const [prev, next] = await Promise.all([
-      db.chapter.findFirst({ where: { bookId: ch.bookId, idx: { lt: ch.idx } }, orderBy: { idx: 'desc' }, select: { id: true, title: true } }),
-      db.chapter.findFirst({ where: { bookId: ch.bookId, idx: { gt: ch.idx } }, orderBy: { idx: 'asc' }, select: { id: true, title: true } }),
+      db.chapter.findFirst({ where: { bookId: ch.bookId, idx: { lt: ch.idx } }, orderBy: { idx: 'desc' }, select: { id: true, idx: true, title: true } }),
+      db.chapter.findFirst({ where: { bookId: ch.bookId, idx: { gt: ch.idx } }, orderBy: { idx: 'asc' }, select: { id: true, idx: true, title: true } }),
     ])
 
     return ok({

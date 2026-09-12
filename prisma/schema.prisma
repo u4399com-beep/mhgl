@@ -32,6 +32,9 @@ model Rule {
 // ==================== 书籍 ====================
 model Book {
   id            String    @id @default(cuid())
+  // 伪静态数字书号(应用层分配 max+1; SQLite 单自增列限制不能用 autoincrement)。
+  // 伪静态 URL /book/{num}.html 的标识符; null 时前台链接自动回退查询串形态(永不死链)
+  num           Int?      @unique
   name          String
   author        String    @default("佚名")
   categoryId    String?

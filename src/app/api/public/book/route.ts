@@ -38,6 +38,8 @@ export async function GET(req: Request) {
     return ok({
       book: {
         id: book.id,
+        // 伪静态数字书号: 前台据此生成 /book/{num}.html 链接
+        num: book.num,
         name: book.name,
         author: book.author,
         intro: book.intro,

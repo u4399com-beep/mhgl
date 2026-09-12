@@ -38,7 +38,8 @@ export async function GET(req: Request) {
           id: c.id,
           name: c.name,
           bookCount: c._count.books,
-          rep: rep ? { id: rep.id, name: rep.name, cover: rep.cover } : null,
+          // num: 伪静态数字书号(代表书链接生成用)
+          rep: rep ? { id: rep.id, num: rep.num, name: rep.name, cover: rep.cover } : null,
         }
       }),
     )

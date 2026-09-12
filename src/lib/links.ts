@@ -10,7 +10,8 @@
 //   - 宁缺毋滥: 填不满链位数就少给, 任何 URL 不重复
 // ============================================================
 import { db } from '@/lib/db'
-import { buildBookUrl } from '@/lib/pseudostatic'
+import { buildBookPath } from '@/lib/pseudostatic'
+import { getPseudoPreset } from '@/lib/pseudostatic-server'
 
 // ---------------- 链轮配置 ----------------
 
@@ -77,6 +78,7 @@ export function normalizeSiteDomain(raw: string): string {
 
 export interface WheelBook {
   id: string
+  num?: number | null
   name: string
 }
 
@@ -96,13 +98,13 @@ export async function pickRandomBooks(need: number, excludeIds: string[] = []): 
   const rows = await db.book.findMany({
     take,
     orderBy: { wordCount: 'desc' }, // 稳定排序使 JS 侧洗牌的随机性有意义
-    select: { id: true, name: true },
+    select: { id: true, num: true, name: true },
   })
   // JS 侧 Fisher-Yates 洗牌
   const shuffled: WheelBook[] = []
   for (const r of rows) {
     if (excludeSet.has(r.id)) continue
-    shuffled.push({ id: r.id, name: r.name })
+    shuffled.push({ id: r.id, num: r.num, name: r.name })
   }
   for (let i = shuffled.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1))
@@ -142,6 +144,8 @@ function shuffled<T>(arr: T[]): T[] {
  */
 export async function computeWheelLinks(cfg: WheelConfig, excludeSiteId?: string): Promise<WheelLink[]> {
   if (!cfg.enabled || cfg.count <= 0) return []
+  // 伪静态: 书籍槽链接按当前预设生成(预设=query 或书缺号时回退查询串, 永不死链)
+  const preset = await getPseudoPreset()
   const sites = await db.site.findMany({
     where: {
       status: true,
@@ -196,7 +200,8 @@ export async function computeWheelLinks(cfg: WheelConfig, excludeSiteId?: string
       const s = bookSites[bi % bookSites.length]
       const dom = normalizeSiteDomain(s.domain)
       if (!dom) continue
-      const url = `https://${dom}${buildBookUrl(b.id)}`
+      const path = buildBookPath({ id: b.id, num: b.num }, preset) || `/?view=book&id=${encodeURIComponent(b.id)}`
+      const url = `https://${dom}${path}`
       if (seenUrls.has(url)) continue
       seenUrls.add(url)
       result[bookSlotIdx[bi]] = { text: (b.name || '未知书籍').trim().slice(0, 60), url }

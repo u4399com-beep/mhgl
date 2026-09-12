@@ -3744,3 +3744,30 @@ Stage Summary:
 - 修复清单: R13-1/2/3(cleaner 段落三连) + R13-4(parser 块级感知 text) + R13-5(runner txt 落盘) + R13-6(contentToHtml 存量兜底) + R13-7(lookedBlocked JSON 豁免) + R13-10(applyTransform trim 时序) + R13-8/9(规则种子升级)
 - 实测结论: 19/22 规则四段全链 PASS+段落保真, 3 条为环境/站点语义限制(留档)
 - 历史链: R11=4854abe → R12=d70dd45 → R13(本轮)
+
+---
+Task ID: R14
+Agent: main-orchestrator (Z.ai Code)
+Task: 前端阅读模块伪静态设置 — ≥5 种预设(含纯数字/字母+数字), 站内生成+直达解析+管理端切换全链落地
+
+Work Log:
+- 需求: 用户要求"加入前端阅读模块的伪静态设置, 要求有纯数字模式、字母+数字模式等不少于5种预设"
+- 探查(Explore agent + 自读): 单路由 SPA(/?view=...)+navigate/pushState/viewToUrl 唯一出口; 全部 navigate 调用点约 40 处(多数无 num/idx 在手); 公共 API 返回字段清单; 设置存储 Setting 表+白名单 key; Book 创建点全集(runner/admin/restore/seed); links.ts 链轮; sitemap 硬编码查询串 URL; canonical 手拼 7 处
+- [R14-核心] src/lib/pseudostatic.ts 重写为纯函数引擎(客户端/服务端通用, 无 Prisma/DOM): 6 预设(query 动态查询/numeric 纯数字/alnum 字母+数字/directory 目录式/restful 简洁无后缀/compact 紧凑双段) + sanitizePseudoPreset 消毒 + buildBookPath/buildReadPath 构建 + parsePrettyPath 宽容解析(生成按预设/解析全形态兼容, 换预设旧链接永不断) + tokenToNum/tokenIsCuid + id→num/idx 内存注册表(registerBookRef/registerChapterRef, 注册表未命中自动回退查询串 = 永不死链)
+- [R14-schema] Book 加 num Int? @unique(SQLite 单自增列限制→应用层 max+1 分配, Prisma Int32 钳制); Chapter 用现成 idx(每书内 1 起序号)零改动; scripts/backfill-book-num.ts 存量回填(createdAt 序, 幂等, 当前库无书故 0 条); db push + generate 完成
+- [R14-server] pseudostatic-server.ts(预设 60s 缓存+invalidate/resolvePrettyPath token→cuid 落库解析/nextBookNum+withBookNumRetry P2002 重试); 新增 /api/public/resolve(宽容解析→真实 id, popstate 用); /api/public/sites 每行附带全局 pseudoPreset(零破坏扩展); 公共 API 补 num/idx: book(书 num)/books(num)/search(num)/related(num)/keyword(num)/categories(rep num)/chapter(book num+prev/next idx); settings PUT 加 pseudostatic key 失效钩子; sitemap 全量改伪静态形态(chapterLoc 助手, 缺号回退查询串); links.ts 链轮书籍槽按预设生成(pickRandomBooks 补 select num)
+- [R14-创建点] runner.ts 新书 withBookNumRetry+nextBookNum; admin books POST 同款; backup/restore tx 内书号分配(备份自带 num 未被占用则沿用→URL 稳定, 否则序列顺延, taken 集合+tx 内查重); seed.ts 演示书带号
+- [R14-client] ctx.viewToUrl(v, siteId, preset)委托 buildViewUrl; bookCanonicalPath/readCanonicalPath 助手; data.ts 全 fetcher 返回后喂数据进注册表(book num/toc 章节 idx/chapter+prev+next); BookView related 注册; PublicSite: presetOfSites+pseudoPreset 上下文(顺带修 TDZ: pseudoPreset 声明先于 navigate 依赖数组)/navigate+switchSite 按预设 pushState/popstate 伪静态路径→resolve API 异步恢复视图(序号防旧响应覆盖)/首载无 initialView 的 pretty 兜底 resolve; BookView/ReadView canonical+JSON-LD+面包屑跟随预设
+- [R14-catchall] src/app/[...slug]/page.tsx 服务端解析 pretty 路径(失败 notFound 404)+query 透传(site/page/theme)+PrettyPublicShell 客户端壳(server component 不能传函数 prop)
+- [R14-admin] SettingsSection 新增「伪静态设置」卡: 6 预设 radio 选择卡(名称/描述/书籍页+阅读页示例 URL/选中即保存乐观更新+toast), 存量回补指引说明
+- [R14-1](High, 浏览器实证) Next App Router 同步外部 pushState: SPA pushState('/book/1.html')后路由树仍是 page.tsx, Shell 的 useSearchParams 读不到 view 参数 → 误渲染后台管理(实测点击书籍后 DOM 被仪表盘覆盖, /api/auth/check+admin/stats 触发实证)。修: Shell 加 usePathname+parsePrettyPath, pathname 为伪静态形态时同样判 isSite(React 同位置同类型 → PublicSite 实例复用零重载); 修后 7s 静置 0 admin 标记
+- [R14-2](Low) parsePrettyPath 紧凑双段形态(/read/1001_3.html 两段)被前置 validBookToken 拦截 → null; 修: kind==='read' 且 2 段时先试 parseCompactToken 再校验单 token
+- 冒烟: 伪静态核心库 48/48 PASS(6 预设构建全形态/跨预设往返/拒绝面(路径穿越/非法 token/超 Int32)/cuid 兼容/消毒/注册表链路/翻页与 site 参数/search-home 恒查询串)
+- E2E 浏览器终验(agent-browser): 管理端 6 卡渲染+切换 numeric保存→sites API pseudoPreset=numeric; 首页点书→/book/1.html?site=..; 目录点章→/read/1/1.html; 下一章→/read/1/2.html; popstate 后退×2→resolve 恢复标题正确; 刷新/直达 pretty URL 全渲染; /book/99999.html+/hello/world→404; 跨预设宽容解析(/book/b1.html、/read/1_2.html 200, /book/1/ 308 规范化); canonical 跟随预设; sitemap book+234 章节 URL 伪静态形态; 切 alnum→/book/b1.html+/read/b1/c1.html+canonical 跟随; 恢复 query默认→站内链接回原生形态且旧伪静态 URL 直达仍 200; 移动端 375px /book/1.html 无横向溢出; console 0 error
+- 终态: 预设已恢复默认 query(零惊喜交付, 用户可在系统设置一键切换); dev server 本轮一次静默死亡(既有同型问题)重启恢复; 种子演示数据保留(5 书带号+234 章, 供伪静态效果立验)
+- 质量门: bun run lint 0 错 0 警 + bunx tsc --noEmit 0 错
+
+Stage Summary:
+- 伪静态体系全链落地: 6 预设(超 5 种要求)/生成=注册表同步构建(未命中回退查询串永不死链)/解析=宽容全形态(换预设不断链)/管理端一键切换/SEO 三件套(canonical+JSON-LD+sitemap)同形态/链轮跨站链接跟随
+- 关键决策: Book.num 应用层分配(SQLite 单自增列限制)+阅读页复用 Chapter.idx; catch-all 服务端解析而非 middleware 重写(Prisma 可用+SSR 零闪烁); Next 外部 pushState 同步缺陷以 Shell pathname 识别根治
+- 历史链: R11=4854abe → R12=d70dd45 → R13=07972df → R14(本轮)

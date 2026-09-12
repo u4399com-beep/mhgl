@@ -17,7 +17,7 @@ import { Clock, HelpCircle, Keyboard } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { fetchChapter } from './data'
 import type { ChapterData } from './types'
-import { usePublic } from './ctx'
+import { readCanonicalPath, usePublic } from './ctx'
 import { formatWords, useSiteSEO, withAlpha } from './seo'
 import { ErrorState } from './bits'
 import { readOf } from '@/lib/crawl/themes'
@@ -90,7 +90,7 @@ const SHORTCUTS_LIST: { keys: string[]; desc: string }[] = [
 ]
 
 export function ReadView({ chapterId }: { chapterId?: string }) {
-  const { site, theme } = usePublic()
+  const { site, theme, pseudoPreset } = usePublic()
   const v = theme.vars
   const [data, setData] = useState<ChapterData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -221,11 +221,13 @@ export function ReadView({ chapterId }: { chapterId?: string }) {
   const progress = useReadingProgress(undefined, chapterId)
 
   const origin = typeof window !== 'undefined' ? window.location.origin : ''
+  // 伪静态: 书号/序号齐备时 canonical/JSON-LD 跟随预设形态(与站内链接同源)
+  const readSelfPath = data ? readCanonicalPath(data.book, data.chapter, site.id, pseudoPreset) : ''
   useSiteSEO({
     title: data ? `${data.chapter.title}_${data.book.name} - ${site.name}` : `阅读 - ${site.name}`,
     description: data ? `${data.book.name} ${data.chapter.title} 在线阅读，${formatWords(data.chapter.wordCount)}。` : undefined,
     keywords: data?.book.keywords || undefined,
-    canonicalPath: data ? `/?view=read&chapter=${data.chapter.id}&site=${site.id}` : undefined,
+    canonicalPath: data ? readSelfPath : undefined,
     site,
     jsonLd: data
       ? [
@@ -238,7 +240,7 @@ export function ReadView({ chapterId }: { chapterId?: string }) {
             author: { '@type': 'Person', name: data.book.author },
             inLanguage: 'zh-CN',
             wordCount: data.chapter.wordCount,
-            url: `${origin}/?view=read&chapter=${data.chapter.id}&site=${site.id}`,
+            url: `${origin}${readSelfPath}`,
           },
         ]
       : [],

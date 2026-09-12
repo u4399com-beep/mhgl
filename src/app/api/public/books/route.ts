@@ -63,6 +63,8 @@ export async function GET(req: Request) {
         ? []
         : books.map((b) => ({
             id: b.id,
+            // 伪静态数字书号: 前台据此生成 /book/{num}.html 链接
+            num: b.num,
             name: b.name,
             author: b.author,
             intro: (b.intro || '').slice(0, 120),

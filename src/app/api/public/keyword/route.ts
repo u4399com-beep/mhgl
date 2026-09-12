@@ -36,6 +36,7 @@ export async function GET(req: Request) {
       book: mainBook
         ? {
             id: mainBook.id,
+            num: mainBook.num,
             name: mainBook.name,
             author: mainBook.author,
             intro: (mainBook.intro || '').slice(0, 200),

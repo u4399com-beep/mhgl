@@ -3,6 +3,8 @@ import { db } from '@/lib/db'
 import { ok, fail, readBody } from '@/lib/api'
 import { withGuard, isPlainObject } from '../../_lib/http'
 import { WHEEL_SETTING_KEY, invalidateLinksCache } from '@/lib/links'
+import { PSEUDO_SETTING_KEY } from '@/lib/pseudostatic'
+import { invalidatePseudoPresetCache } from '@/lib/pseudostatic-server'
 
 /** key 白名单: 字母数字下划线点横线, 1~64位 */
 const KEY_RE = /^[A-Za-z0-9_.-]{1,64}$/
@@ -52,6 +54,8 @@ export async function PUT(req: Request) {
     }
     // 链轮配置变更 → 失效读侧缓存(友链/链轮配置 60s), 页脚立即生效
     if (entries.some(([key]) => key === WHEEL_SETTING_KEY)) invalidateLinksCache()
+    // 伪静态预设变更 → 失效预设缓存(60s), 前台/链轮/sitemap 立即按新预设生成
+    if (entries.some(([key]) => key === PSEUDO_SETTING_KEY)) invalidatePseudoPresetCache()
     return ok(await readAllSettings())
   })
 }

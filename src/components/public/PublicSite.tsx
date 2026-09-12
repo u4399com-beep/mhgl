@@ -10,11 +10,12 @@
 // ============================================================
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeftCircle, Eye } from 'lucide-react'
 import { getThemeById as getTheme, THEMES } from '@/lib/crawl/themes'
+import { parsePrettyPath } from '@/lib/pseudostatic'
 import { fetchSites } from './data'
-import { parseView, PublicProvider, viewToUrl, type PublicCtxValue, type ViewParams } from './ctx'
+import { parseView, presetOfSites, PublicProvider, viewToUrl, type PublicCtxValue, type ViewParams } from './ctx'
 import { useSiteSEO, withAlpha } from './seo'
 import { SiteHeader } from './SiteHeader'
 import { SiteFooter } from './SiteFooter'
@@ -100,8 +101,31 @@ export default function PublicSite({
   }, [])
 
   // 浏览器前进/后退：同步 URL → 内部 state（pushState 写入的历史可回退恢复）
+  // 伪静态: 历史里可能是 /book/… /read/… 路径(search 无 view 参数) → 走 /api/public/resolve
+  //  异步解析回真实 id; 连续快速后退用序号防旧响应覆盖新视图
+  const resolveSeqRef = useRef(0)
   useEffect(() => {
     const onPop = () => {
+      const sp = new URLSearchParams(window.location.search)
+      const site = sp.get('site') || undefined
+      if (site && sites.some((s) => s.id === site)) setSiteId(site)
+      if (parsePrettyPath(window.location.pathname)) {
+        const seq = ++resolveSeqRef.current
+        fetch(`/api/public/resolve?path=${encodeURIComponent(window.location.pathname + window.location.search)}`)
+          .then((r) => r.json())
+          .then((j: { ok?: boolean; data?: { view: 'book' | 'read'; bookId?: string; chapterId?: string } | null }) => {
+            if (seq !== resolveSeqRef.current || !j?.ok || !j.data) return
+            setView({
+              view: j.data.view,
+              bookId: j.data.bookId || undefined,
+              chapterId: j.data.chapterId || undefined,
+              page: Number(sp.get('page')) || 1,
+              site,
+            })
+          })
+          .catch(() => {})
+        return
+      }
       const p = parseView(window.location.search)
       setView(p)
       if (p.site && sites.some((s) => s.id === p.site)) setSiteId(p.site)
@@ -110,14 +134,44 @@ export default function PublicSite({
     return () => window.removeEventListener('popstate', onPop)
   }, [sites])
 
+  // 伪静态首载兜底: 无 initialView 且路径为伪静态(Shell 重挂载等边缘场景) → resolve 恢复视图。
+  // 正常入口两态: catch-all SSR 已传 initialView(零闪烁) / 查询串路由 parseView 即得。
+  useEffect(() => {
+    if (initialView) return
+    if (!parsePrettyPath(window.location.pathname)) return
+    const seq = ++resolveSeqRef.current
+    fetch(`/api/public/resolve?path=${encodeURIComponent(window.location.pathname + window.location.search)}`)
+      .then((r) => r.json())
+      .then((j: { ok?: boolean; data?: { view: 'book' | 'read'; bookId?: string; chapterId?: string } | null }) => {
+        if (seq !== resolveSeqRef.current || !j?.ok || !j.data) return
+        setView({
+          view: j.data.view,
+          bookId: j.data.bookId || undefined,
+          chapterId: j.data.chapterId || undefined,
+          site: new URLSearchParams(window.location.search).get('site') || undefined,
+        })
+      })
+      .catch(() => {})
+    // initialView 是 mount-once 初值
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const site = useMemo(() => sites.find((s) => s.id === siteId) || null, [sites, siteId])
+  // 伪静态预设(全局设置, 站点列表接口附带); 预设≠query 时站内书籍页/阅读页链接走伪静态路径
+  // (声明先于 navigate: 依赖数组立即求值, 后置声明会触发 TDZ)
+  const pseudoPreset = useMemo(() => presetOfSites(sites), [sites])
+  // 主题解析: 预览覆盖(?theme=)优先于站点自身主题; getTheme 对非法 id 自带回退
+  const theme = useMemo(() => getTheme(themeOverride || site?.themeId) || THEMES[0], [themeOverride, site?.themeId])
+
   // 站内导航：setState + pushState（保留历史，后退可回上一视图）+ 回顶
+  // 伪静态: preset≠query 且注册表命中时 push /book/{num}.html / /read/{num}/{idx}.html
   const navigate = useCallback(
     (p: ViewParams) => {
       setView(p)
-      window.history.pushState(null, '', viewToUrl(p, siteId))
+      window.history.pushState(null, '', viewToUrl(p, siteId, pseudoPreset))
       window.scrollTo({ top: 0 })
     },
-    [siteId],
+    [siteId, pseudoPreset],
   )
 
   // embedMode 站点切换：切站点回首页并带 site 参数；同时解除主题预览覆盖(还原站点自身主题)
@@ -127,15 +181,11 @@ export default function PublicSite({
       setThemeOverride(null)
       const p: ViewParams = { view: 'home', site: id }
       setView(p)
-      window.history.pushState(null, '', viewToUrl(p, id))
+      window.history.pushState(null, '', viewToUrl(p, id, pseudoPreset))
       window.scrollTo({ top: 0 })
     },
-    [],
+    [pseudoPreset],
   )
-
-  const site = useMemo(() => sites.find((s) => s.id === siteId) || null, [sites, siteId])
-  // 主题解析: 预览覆盖(?theme=)优先于站点自身主题; getTheme 对非法 id 自带回退
-  const theme = useMemo(() => getTheme(themeOverride || site?.themeId) || THEMES[0], [themeOverride, site?.themeId])
 
   const ctxValue: PublicCtxValue | null = useMemo(
     () =>
@@ -144,6 +194,7 @@ export default function PublicSite({
             site,
             sites,
             theme,
+            pseudoPreset,
             embedMode: !!embedMode,
             // embedMode 下切换器走 navigate({view:'home', site:id}) 也可；提供 switchSite 保持语义清晰
             navigate: (p) => {
@@ -155,7 +206,7 @@ export default function PublicSite({
             },
           }
         : null,
-    [site, sites, theme, embedMode, navigate, switchSite],
+    [site, sites, theme, pseudoPreset, embedMode, navigate, switchSite],
   )
 
   // 首屏加载期 SEO 兜底（仅站点未就绪时接管 head；站点就绪后完全退位给各视图，防止父子互覆盖）

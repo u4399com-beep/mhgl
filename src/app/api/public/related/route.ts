@@ -21,6 +21,7 @@ export async function GET(req: Request) {
     const pick = (
       b: {
         id: string
+        num: number | null
         name: string
         author: string
         cover: string
@@ -31,6 +32,7 @@ export async function GET(req: Request) {
       },
     ) => ({
       id: b.id,
+      num: b.num,
       name: b.name,
       author: b.author,
       cover: b.cover,

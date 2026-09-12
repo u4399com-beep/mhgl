@@ -36,7 +36,7 @@ export async function GET(req: Request) {
     return ok({
       q,
       books: books.map((b) => ({
-        id: b.id, name: b.name, author: b.author, intro: (b.intro || '').slice(0, 150),
+        id: b.id, num: b.num, name: b.name, author: b.author, intro: (b.intro || '').slice(0, 150),
         cover: b.cover, status: b.status, wordCount: b.wordCount,
         category: b.category?.name || '未分类',
       })),

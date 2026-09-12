@@ -12,6 +12,7 @@ import { ok, fail, readBody } from '@/lib/api'
 import { withGuard, isPlainObject, errText } from '../../../_lib/http'
 import { logger } from '@/lib/logger'
 import { cleanContentHtml } from '@/lib/crawl/cleaner'
+import { nextBookNum } from '@/lib/pseudostatic-server'
 
 const BACKUP_VERSION = 1
 // R4A-9: restore 请求体大小上限 200MB —— 与客户端 BackupSection 的 200MB 上限对齐,
@@ -292,13 +293,32 @@ export async function POST(req: Request) {
         }
 
         // books + 嵌套 chapters + tags
+        // 伪静态书号分配: 备份自带 num 且未被占用则沿用(URL 稳定), 否则从 max+1 序列顺延;
+        // tx 内可见本事务已建行, taken 集合兜底同批多书同号
+        let bookNumSeq = await nextBookNum(tx)
+        const takenNums = new Set<number>()
+        const allocBookNum = async (preferred: unknown): Promise<number> => {
+          const p = Number(preferred)
+          if (Number.isInteger(p) && p >= 1 && p <= 2_147_483_647 && !takenNums.has(p) &&
+              !(await tx.book.findUnique({ where: { num: p }, select: { id: true } }))) {
+            takenNums.add(p)
+            return p
+          }
+          let n = Math.max(bookNumSeq, 1)
+          while (takenNums.has(n) || (await tx.book.findUnique({ where: { num: n }, select: { id: true } }))) n++
+          takenNums.add(n)
+          bookNumSeq = n + 1
+          return n
+        }
         for (const b of books) {
           if (!b || typeof b.id !== 'string' || !b.id) continue
           const categoryId = typeof b.categoryId === 'string' && b.categoryId ? b.categoryId : null
+          const bookNum = await allocBookNum(b.num)
           await tx.book.upsert({
             where: { id: b.id },
             create: {
               id: b.id,
+              num: bookNum,
               name: String(b.name || '').slice(0, 200) || `书籍-${b.id.slice(-4)}`,
               author: String(b.author || '佚名').slice(0, 100),
               categoryId,

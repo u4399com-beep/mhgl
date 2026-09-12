@@ -1,5 +1,7 @@
 // ============================================================
 // 前台 API fetch 封装 — 统一 { ok, data } 解包
+// 伪静态: 每个 fetcher 返回后把 book.num / chapter.idx 喂进注册表,
+//         viewToUrl 据此同步生成 /book/{num}.html / /read/{num}/{idx}.html 链接
 // ============================================================
 import type {
   BookDetail,
@@ -12,6 +14,7 @@ import type {
   SiteInfo,
   TocChapter,
 } from './types'
+import { registerBookRef, registerChapterRef } from '@/lib/pseudostatic'
 
 async function get<T>(url: string): Promise<T> {
   const res = await fetch(url, { cache: 'no-store' })
@@ -63,7 +66,10 @@ export function fetchBooks(qy: BooksQuery): Promise<BooksData> {
   sp.set('sort', qy.sort || 'latest')
   sp.set('page', String(qy.page || 1))
   sp.set('size', String(qy.size || 24))
-  return get<BooksData>(`/api/public/books?${sp.toString()}`)
+  return get<BooksData>(`/api/public/books?${sp.toString()}`).then((d) => {
+    for (const b of d.books || []) registerBookRef(b.id, b.num)
+    return d
+  })
 }
 
 export interface BookDetailData {
@@ -81,22 +87,40 @@ export function fetchBook(id: string, tocPage = 1, tocSize = 100): Promise<BookD
   const sp = new URLSearchParams({ id })
   sp.set('tocPage', String(tocPage))
   sp.set('tocSize', String(tocSize))
-  return get<BookDetailData>(`/api/public/book?${sp.toString()}`)
+  return get<BookDetailData>(`/api/public/book?${sp.toString()}`).then((d) => {
+    registerBookRef(d.book?.id, d.book?.num)
+    const bid = d.book?.id
+    for (const c of d.chapters || []) registerChapterRef(c.id, bid, c.idx)
+    return d
+  })
 }
 
 /** 章节正文 + 上一章/下一章 */
 export function fetchChapter(id: string): Promise<ChapterData> {
-  return get<ChapterData>(`/api/public/chapter?id=${encodeURIComponent(id)}`)
+  return get<ChapterData>(`/api/public/chapter?id=${encodeURIComponent(id)}`).then((d) => {
+    registerBookRef(d.book?.id, d.book?.num)
+    registerChapterRef(d.chapter?.id, d.book?.id, d.chapter?.idx)
+    // prev/next 也注册: 上一章/下一章按钮直接按伪静态生成链接
+    if (d.prev) registerChapterRef(d.prev.id, d.book?.id, d.prev.idx)
+    if (d.next) registerChapterRef(d.next.id, d.book?.id, d.next.idx)
+    return d
+  })
 }
 
 /** 全站搜索 */
 export function fetchSearch(q: string): Promise<SearchData> {
-  return get<SearchData>(`/api/public/search?q=${encodeURIComponent(q)}`)
+  return get<SearchData>(`/api/public/search?q=${encodeURIComponent(q)}`).then((d) => {
+    for (const b of d.books || []) registerBookRef(b.id, b.num)
+    return d
+  })
 }
 
 /** 关键词落地页 */
 export function fetchKeyword(tag: string): Promise<KeywordData> {
-  return get<KeywordData>(`/api/public/keyword?tag=${encodeURIComponent(tag)}`)
+  return get<KeywordData>(`/api/public/keyword?tag=${encodeURIComponent(tag)}`).then((d) => {
+    registerBookRef(d.book?.id, d.book?.num)
+    return d
+  })
 }
 
 // ---------------- 页脚友链/链轮 ----------------
@@ -246,7 +270,7 @@ export interface ShowcaseCategory {
   name: string
   bookCount: number
   /** 代表书: 字数最高带封面书; 无书时为 null */
-  rep: { id: string; name: string; cover: string } | null
+  rep: { id: string; num?: number | null; name: string; cover: string } | null
 }
 
 /**
@@ -270,10 +294,16 @@ export function fetchShowcaseCategories(): Promise<ShowcaseCategory[] | null> {
           bookCount: typeof it.bookCount === 'number' ? it.bookCount : 0,
           rep:
             repRaw && typeof repRaw.id === 'string' && typeof repRaw.name === 'string'
-              ? { id: repRaw.id, name: repRaw.name, cover: typeof repRaw.cover === 'string' ? repRaw.cover : '' }
+              ? {
+                  id: repRaw.id,
+                  num: typeof repRaw.num === 'number' ? repRaw.num : null,
+                  name: repRaw.name,
+                  cover: typeof repRaw.cover === 'string' ? repRaw.cover : '',
+                }
               : null,
         })
       }
+      for (const c of items) registerBookRef(c.rep?.id, c.rep?.num)
       return items
     } catch {
       return null // 失败静默降级: 分类图文卡整体不渲染

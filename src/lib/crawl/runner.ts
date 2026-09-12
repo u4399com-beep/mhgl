@@ -16,6 +16,7 @@ import { reorderToc } from './sorter'
 import { saveChapterTxt, saveCoverWebp, deleteBookTxt, ensureDirs } from './storage'
 import { smartCategory, smartCompleteDetect } from './smart'
 import { fetchSuggestKeywords, mergeSuggestWords } from './suggest'
+import { nextBookNum, withBookNumRetry } from '@/lib/pseudostatic-server'
 
 // feat-cloak-anticrawler B/E: 启动时加载持久化 cookie jar + 注册 SIGTERM 优雅关闭 hook
 // (cookieJar 持久化 / Obscura 关闭 / 等在飞 / exit)。模块加载即触发, 保证 fetcher 模块
@@ -1186,7 +1187,10 @@ export class TaskRunner {
       bookId = existing.id
       await this.log(taskId, 'info', `更新书籍: 《${bookName}》(${bookUrl})`)
     } else {
-      const nb = await db.book.create({ data: { ...bookData, cover: coverPath } })
+      // 伪静态: 新书分配数字书号(并发撞号 P2002 重试, 见 pseudostatic-server)
+      const nb = await withBookNumRetry(() =>
+        nextBookNum(db).then((num) => db.book.create({ data: { ...bookData, cover: coverPath, num } })),
+      )
       stats.booksCreated++
       bookId = nb.id
       await this.log(taskId, 'success', `新建书籍: 《${bookName}》`)

@@ -19,6 +19,8 @@ export interface SiteInfo {
   offset: number
   isDefault: boolean
   status: boolean
+  /** 全局伪静态预设(/api/public/sites 附带, 前台 viewToUrl 按预设生成链接) */
+  pseudoPreset?: string
 }
 
 /** 分类（/api/admin/categories 返回结构） */
@@ -31,6 +33,8 @@ export interface CategoryItem {
 /** 书籍列表项（/api/public/books 完整字段；/api/public/search 结果不含 latestChapter/updatedAt，故为可选） */
 export interface BookItem {
   id: string
+  /** 伪静态数字书号(缺 null → 前台链接回退查询串形态) */
+  num?: number | null
   name: string
   author: string
   intro: string
@@ -46,6 +50,8 @@ export interface BookItem {
 /** 书籍详情（/api/public/book 中的 book 字段; rr-d: sourceUrl 已从公开面剥离, 仅管理端 API 提供） */
 export interface BookDetail {
   id: string
+  /** 伪静态数字书号(缺 null → 前台链接回退查询串形态) */
+  num?: number | null
   name: string
   author: string
   intro: string
@@ -87,13 +93,15 @@ export interface ChapterData {
   }
   book: {
     id: string
+    /** 伪静态数字书号(阅读页链接 /read/{num}/{idx}.html 用) */
+    num?: number | null
     name: string
     author: string
     status: BookStatus | string
     keywords: string
   }
-  prev: { id: string; title: string } | null
-  next: { id: string; title: string } | null
+  prev: { id: string; idx?: number; title: string } | null
+  next: { id: string; idx?: number; title: string } | null
 }
 
 /** 搜索结果（/api/public/search） */
@@ -108,6 +116,7 @@ export interface KeywordData {
   tag: string
   book: {
     id: string
+    num?: number | null
     name: string
     author: string
     intro: string

@@ -207,8 +207,11 @@ async function main() {
       const cover = await makeCover(b.name, b.theme, `demo_${bi + 1}.webp`)
       const chapterCount = 24 + bi * 6
       const latest = `第${chapterCount}章 风起于萍末`
+      // 伪静态数字书号(演示数据也带号, 伪静态预设下直接可用)
+      const nextNum = ((await db.book.aggregate({ _max: { num: true } }))._max.num ?? 0) + 1
       const book = await db.book.create({
         data: {
+          num: nextNum,
           name: b.name,
           author: b.author,
           categoryId: cat?.id,

@@ -10,7 +10,8 @@ import { Bookmark, ChevronLeft, ChevronRight, Clock, Download, FileText, Hash, L
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Skeleton } from '@/components/ui/skeleton'
 import { fetchBook, fetchChapter, type BookDetailData } from './data'
-import { usePublic } from './ctx'
+import { registerBookRef } from '@/lib/pseudostatic'
+import { bookCanonicalPath, usePublic } from './ctx'
 import { coverSrc, fmtDate, formatWords, statusLabel, useSiteSEO, withAlpha } from './seo'
 import { BookCover } from './BookCover'
 import { EmptyState, ErrorState, SecTitle, Sk, StatusBadge, TagCloud, ChapterListSkeleton } from './bits'
@@ -221,8 +222,11 @@ function RelatedBooks({ bookId, siteId }: { bookId: string; siteId: string }) {
       .then((r) => r.json())
       .then((j: { ok?: boolean; data?: { books?: BookItem[] } }) => {
         if (!alive) return
-        if (j?.ok && Array.isArray(j.data?.books)) setBooks(j.data!.books!)
-        else setBooks([])
+        if (j?.ok && Array.isArray(j.data?.books)) {
+          // 伪静态: 注册相关推荐书籍书号, 站内跳转可直接生成伪静态链接
+          for (const b of j.data!.books!) registerBookRef(b.id, b.num)
+          setBooks(j.data!.books!)
+        } else setBooks([])
       })
       .catch(() => alive && setBooks([]))
     return () => {
@@ -298,7 +302,7 @@ interface FetchState {
 }
 
 export function BookView({ bookId, tocPage }: { bookId?: string; tocPage: number }) {
-  const { site, theme, navigate } = usePublic()
+  const { site, theme, navigate, pseudoPreset } = usePublic()
   const v = theme.vars
   const [state, setState] = useState<FetchState | null>(null)
   const tocRef = useRef<HTMLDivElement>(null)
@@ -386,14 +390,14 @@ export function BookView({ bookId, tocPage }: { bookId?: string; tocPage: number
       '@type': 'ListItem',
       position: crumbs.length + 1,
       name: book.name,
-      item: `${origin}/?view=book&id=${book.id}&site=${site.id}`,
+      item: `${origin}${bookCanonicalPath(book, site.id, pseudoPreset)}`,
     })
   }
   useSiteSEO({
     title: book ? `${book.name} - ${site.name}` : `书籍详情 - ${site.name}`,
     description: book ? book.intro.slice(0, 150) : undefined,
     keywords: book ? [book.keywords, ...tags.map((t) => t.tag)].filter(Boolean).join(',') : undefined,
-    canonicalPath: book ? `/?view=book&id=${book.id}&site=${site.id}` : undefined,
+    canonicalPath: book ? bookCanonicalPath(book, site.id, pseudoPreset) : undefined,
     site,
     jsonLd: book
       ? [
@@ -406,7 +410,7 @@ export function BookView({ bookId, tocPage }: { bookId?: string; tocPage: number
             image: coverAbs(coverSrc(book.cover)),
             inLanguage: 'zh-CN',
             genre: book.category,
-            url: `${origin}/?view=book&id=${book.id}&site=${site.id}`,
+            url: `${origin}${bookCanonicalPath(book, site.id, pseudoPreset)}`,
           },
           {
             '@context': 'https://schema.org',
