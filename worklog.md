@@ -4041,3 +4041,82 @@ Work Log:
 Stage Summary:
 - aijjxs.com 仿站以第 9 个精选 preset 落地: 真站实测 10 项色值全量还原(米黄底/纸白卡/青绿主色/琥珀强调/深酒红导航条), 复用 biquge 板块布局(真站为多板块列表站, 无需新布局); 矩阵 8×8×8=512 未动, headerStyle 仅精选层扩 1 种
 - 验证全绿: 前台 vars 生效+console 0 error+截图留档, 后台 9 精选/512 组合计数与组合预览切换正常, lint/tsc 0/0; 站点主题未被改动
+
+---
+Task ID: R19-b
+Agent: crawl-review
+Task: R18 采集线（对账代码+核心链）逐行深审与修复
+
+Work Log:
+- 通读 worklog R18-c(cc46f96)/R17-b/R17-d/R9~R12 采集相关条目建立上下文; 逐行读 runner.ts(2201 行全量)+恢复段/saveProgress/三消费点(现行号 L915 发现跳过/L973 completed 跳过/L1230 ongoing 增量复查, R18-c 描述行号因插入对账代码后移)
+- reconcileResumeSetsCore 边界实证(bun /tmp 临时脚本, 纯函数级, 34/34 PASS 用完已删): 分批 1203→500/500/203·1→1批·500→1批·501→2批每批≤500·0→空集短路零查库; 跨三集合去重剔除全集合一致+lastChapters 同键清理; 全或无语义真实成立(第 2 批抛错→上抛且零剔除, 剔除循环结构性位于全部批次之后); 空壳判定(0章∧∈completed→剔)与 0 章∧仅∈discovered/ongoing→保留分野正确; 尾斜杠形态差异判库中无→剔除重采(与 crawlOneBook findFirst({sourceUrl}) 同口径不误跳); recrawlMode==='full' 清空分支不受影响(对账仅增量分支 L826-838 触发)
+- dirty 标志落库链核实: reconcileResumeSetsWithDb 置 rt.dirtyX=true → rt 即 this.runtimes.get(taskId) 同对象 → executeTask 恢复段后首个 saveProgress(范围 L846/单本 L953 无条件调用)消费标志序列化落库; 恢复段 rt 与 controlInner runtimes.set 同引用、LRU 驱逐不触及 running 条目, 链路无断裂
+- 日志审计: 剔除计数+before/after 三集合+批次/查询量汇总一条, 前 8 条明细 URL 截 120 字符单条上限内(8×121+分隔≈1KB<1500), 纯书籍页 URL 无凭证面, 脱敏达标
+- 修复 [R19-b-1](Low): 对账查库同 sourceUrl 多行(Book.sourceUrl 无 unique, 并行任务同书竞态可建重行)原 Map 后写覆盖, findMany 无 orderBy 返回序不定 → 0 章空壳重行可能覆盖千章正主行致完结书被非确定性误判剔除; 改 Math.max 取同 URL 行章节计数最大值(保守判定), 单行场景取值逐字节不变
+- runner.ts 其余抽查: bookQueue 消费(新发现本才入队+bookStart/bookEnd 切片)/章节重试(失败章 fetched=false+增量重进队列 L1705-1714+四阶段重排 swallowExpectedDb 收口)/shuntBookStatus 三处整合语义/saveProgress 往返(slice(-50000) 保 LATEST+空集合 replacer 省略)/并发安全(epoch 入口绑定+control 链+serializeStatusWrite 定序+ghost sweeper)均既有硬化在位, 无新缺陷
+- fetcher.ts 反反爬评估(R8~R17 九开关链基础上): 修复 [R19-b-2](Low, 增强): fetchPageOnce 重试链两处固定整数倍等待(429/5xx 退避 1.5s×2^n 封顶 8s、其余错误 400ms×attempt)加 ±15% 抖动(复用本文件 jitter15, 与 noteHostHttpFailure 既有口径一致) —— 并行多任务对同站同时吃 429/5xx 时重试时刻逐字节对齐属可聚类节奏指纹, 单任务退避期望值不变零行为翻转; 评估未做: Cookie 重试 350ms 固定等待(三次等待间有请求间隔非背靠背, 抖动收益边际)/DNS 2s 重试(单发低频)/UA 池默认值(137~142 已是新版本段, pickUaFor 按域钉扎防会话跳变合理)/hostgate 节奏档案(HOSTGATE_PACE_PROFILE env 级已在位, R10-c-1 已修 slowStreak 双重重置)
+- parser/cleaner 抽查: absolutize(http(s) 过滤+自引用过滤+resolveWithBase base href 双基准分离)/pickNextHref 翻页候选链完好; cleaner removeAdLines URL 掩码 (?:https?:)?\/\/ R17-b-1 修复在位+校验位占位符防错注入
+- 精简 [R19-b-3]: smart.ts matchCategoryByText/detectCompleteFromText 全库无外部导入(rg 实证仅文件内消费), 去 export; 其余核查 fetchHttpForTest/scraplingModeOf/hostGateStats 等导出均有 scripts/archive 验证脚本或 health route 消费, 属刻意测试钩子不清理
+- 质量门: bunx tsc --noEmit 0 错 + bun run lint 0 错 0 警; dev 3000 = 200; 并行会话注记: 工作树中 DEPLOY/README/INSTALL-GUIDE/seo-audit/auth/links/logger/pseudostatic 为 R19-c 其他 agent 在途改动, 本轮零触碰
+
+Stage Summary:
+- R18-c 对账代码深审闭环: 分批边界/全或无/跨集合一致/空壳分野/dirty 落库链/末章 key 对齐/full 分支隔离/三消费点交互 34/34 实证全绿, R18-c 实现无结构性缺陷; 1 处非确定性判定收紧(重复 Book 行 Math.max)
+- 修复清单: [R19-b-1](Low) runner.reconcileResumeSetsCore 重复 sourceUrl 行后写覆盖非确定性误剔 → Math.max 保守取值 | [R19-b-2](Low/增强) fetcher.fetchPageOnce 重试退避固定等待加 ±15% 抖动(反节奏指纹) | [R19-b-3](精简) smart.ts 两个仅内部消费导出去 export
+- 反反爬结论: 低风险抖动补齐一处(重试退避), UA 池/钉扎/hostgate 节奏/9 开关默认值均评估为合理维持, 未翻转任何默认行为未新增依赖
+- 已留档不改: lastChapters 孤儿键(不在三集合)不参与对账(惰性无害, 清理需扩大查库面收益为零); bookStart/bookEnd 与续采重发现的位次漂移(R18-c 前既有语义); 50000 cap 截断头部 URL 重启需重新发现(R8-6 保 LATEST 既有取舍)
+
+---
+Task ID: R19-c
+Agent: global-review
+Task: 全局横切深审（API/文档漂移/清理精简）
+
+Work Log:
+- 上下文: 通读 worklog R17/R18 全部条目 + themes.ts/theme-matrix.ts 建立 R18 真值基线(8配色×8风格×8布局=512 组合+9 精选 aijjxs/pili/biquge 等=521, 布局 8 种含 biquge, 旧 50400 组合 id 由 THEMES[0] 兜底)
+- 文档漂移修复: ①INSTALL-GUIDE.md §7.4 — 预览示例 URL `?theme=violet-minimal-list-im` 为 50400 时代四段旧 ID(R18 矩阵下不可解析→前台静默回退 aurora, 示例实际已失效), 改为合法组合 ID `violet-minimal-list`(violet×minimal×list 三段全命中矩阵); 图注「三段组合而成」与旧四段示例自相矛盾处一并纠正; 小节补主题库规模(521 套=512 组合+9 精选)、组合 ID 命名法示例(amber-classic-biquge)、精选短 ID(biquge/pili/aijjxs)、组合浏览器搜索/翻页与「非法 ID 自动回退不白屏」小白说明 ②README.md 功能特性「前台」bullet — 原仅「主题注册表驱动，如 pili 霹雳书屋仿站」过时, 补 8×8×8=512 组合+9 精选(含笔趣阁经典/霹雳书屋仿站/aijjxs 复刻)+非法 ID 回退语义 ③DEPLOY.md 一节组成表「5 个 bun 站点代理」措辞纠偏(3011 fetch-relay 为中继桥非站点代理), 按端口逐个标注角色
+- mini-services 端口核查(逐文件): bqg713=3010/fetch-relay=3011/scrapling=3012/qimao=3013/deqixs=3014/xjp=3015/cloak=3016/qidian=3017 与 README 端口表、DEPLOY 共置清单(3010/3011/3013/3014/3015 五代理, docker-entrypoint.sh L112-116 逐行对上)、scrapling/cloak/qidian 不共置说明全部一致; 3010~3017 端口暴露提醒在位
+- API 路由深审(66 个 handler 文档全量 withGuard 覆盖扫描 + 25+ 路由逐行读): proxy.ts(Next16 proxy.ts)全局守卫 /api/admin/*(401+60req/min 令牌桶)+/api/public|auth 限流口径统一, 无漏权面; readBody 分级上限(反馈 100KB/默认 5MB/restore 200MB)与 BodyTooLargeError→413 全链在位; str/clampInt/likeSafe/httpUrl/safeJoin 消毒面无缺口; P2002/P2003/P2025→400/409/404 契约、预检-写并发窗口、批量 parseBatchBody 白名单/去重/≤500、任务 normalizeTaskData 全量/增量双模式、备份导出代理对切边界、restore 默认站不变式归一化与缓存失效钩子(links/pseudostatic)均既有硬化在位; 未发现新鉴权/状态码/校验缺陷
+- [R19-c-1](Med, 修复) seo-audit 主题校验回归: route 以 `new Set(THEMES.map(t=>t.id))`(仅 9 preset)判主题存在性, R18-b 起合法 themeId 扩至 512 组合 id — 站点配置任一组合主题(如 aurora-glasswa-grid)会被 SEO 体检误报 error「主题不存在」误扣 10 分; 改走 getThemeById 唯一入口(preset+组合全覆盖, 与 sites POST/PUT 同口径), 移除 themeIds Set 参数; 实证: PUT 站点 themeId=amber-classic-biquge → 体检 passed「主题已注册 (amber-classic-biquge)」0 issues, 还原 aijjxs(as-found 逐字恢复)
+- 公开面一致性: sitemap URL 形态仅由伪静态预设派生(buildBookPath/buildReadPath+R17-d-3 preset 缓存键), 与主题/布局完全解耦 ✓; robots.txt Disallow /api/admin/ + next.config /sitemap.xml rewrite 在位 ✓; themeId 无效兜底链实证: getThemeById 未知→undefined→PublicSite/getTheme 双层 || THEMES[0], admin sites POST 默认 aurora/PUT 400 拒未知, restore 宽容透传由前台兜底(分层合理) ✓; 公开冒烟 8 端点(/、/?view=home、sitemap、sites、categories、robots、/book/1.html、resolve)全 200
+- 死代码与精简: [R19-c-4] 四处仅内部消费的导出去 export(rg 全库零外部引用实证): logger.ts child()(连函数体删除, Logger.child 实例方法保留)/auth.ts SESSION_MAX_AGE_MS/pseudostatic.ts parseCompactToken/links.ts normalizeSiteDomain+pickRandomBooks; prisma schema 12 模型与消费面对齐(索引注释逐条对应读路径), 无僵尸表/字段
+- 移交主题线(只读不改): ①themes/route.ts L92 注释「8 精选+512 组合」应为 9 精选(L85 已写 9 个, 同文件自相矛盾, 计数逻辑本身动态无错) ②themes.ts 头注释 L2「8 套完全不同风格的前台主题」应为 9 套(R18-d 加 aijjxs 后未同步) ③theme-matrix.ts getThemesPage()/getThemeList()/getThemeListCached() 中 getThemesPage 为全库零引用死导出(getThemeList 仅被 cache/search 内部消费)
+- scripts/ 与依赖审计: 42 个根级脚本均有职责归属(24 seed-rule-*=builtin-rules.ts #25 数据源/verify-*docker 断言/ratelimit-site/mock/seed/backfill/export-autofill/fix-dd-b-stale-task, archive/ 不参与质量门)无僵尸; builtin-rules.ts 实数 25 条与文档「25 条」一致; R18 提交零 package.json/bun.lock 变更=零新增依赖, 维持 R17-e「零真未用依赖」结论
+- 排障: dev server 3000 两次静默死亡(与既有同型, 疑 4GB 机 tsc/eslint 内存挤压), 按 R15 以来规程 setsid bash .zscripts/dev.sh 重启恢复; 并行会话注记: R19-b(crawl-review)同轮修改 runner/fetcher/smart 并追加 worklog, 本轮零触碰其文件
+- 质量门: bunx tsc --noEmit 0 错 + bun run lint 0 错 0 警(全部代码修复落盘后终验); 数据库零残留(站点 themeId 还原 as-found)
+
+Stage Summary:
+- 修复清单: [R19-c-1](Med) seo-audit 主题校验未纳入 R18 组合矩阵 → 512 组合主题被误报「主题不存在」扣分, 改走 getThemeById 唯一入口 | [R19-c-2](Low·文档) INSTALL-GUIDE §7.4 预览示例为 50400 时代失效旧 ID + 图注自相矛盾, 更新为 521 套新体系与合法示例 | [R19-c-3](Low·文档) README 前台 bullet/DEPLOY 组成表主题与服务角色描述过时纠偏 | [R19-c-4](精简) 4 文件 5 个仅内部消费导出去 export(logger.child 连体删除)
+- 核查结论: admin 鉴权/限流/输入校验/错误契约全量合格无新缺陷; sitemap/robots 与主题布局解耦; themeId 兜底链(preset→组合→THEMES[0])完整; mini-services 8 服务端口与文档/entrypoint 三方一致; prisma schema 零漂移; R18 零新增依赖
+- 移交清单(主题线, 均为注释级漂移或死导出, 无运行时影响): themes/route.ts L92「8 精选」/themes.ts L2「8 套」两处注释未同步 9 精选; theme-matrix.ts getThemesPage 死导出
+
+---
+Task ID: R19-a
+Agent: theme-review(超时, 主控接手核实与补完收口)
+Task: R18 主题线逐行深审与修复(矩阵/精选/HomeBiquge/管理端)
+
+Work Log:
+- agent 响应超时, 落盘改动已在工作树但未写 worklog; 主控逐文件核实其 diff 完整自洽后收口, 并补完其未覆盖的审查面(HomeBiquge/HomeView/矩阵完整性)
+- agent 已完成(核实合格): [R19-a-1](Low) SitesSection 搜主题输入框 title 硬编码「全库 5 万余套」(50400 时代陈旧数字, 现全库 521, 误导 100 倍) → 动态 themeTotalAll; [R19-a-2] 三处「8 精选」注释漂移校正为 9(themes route L92/themes.ts L2/ThemesSection+SitesSection 注释, R18-d 加 aijjxs 后未同步, 与 R19-c 移交清单对齐); [R19-a-3] theme-matrix getThemesPage() 死导出删除(全库零引用, 分页逻辑内联在 admin/themes 惰性切片 sliceCombos)
+- 主控补完: ①HomeBiquge.tsx 591 行逐行审 — 书籍/章节链接全部走 bookNavProps/navigate 内部导航(ctx viewToUrl 伪静态感知型, 与其他布局同模式), 唯一外链 <a> 为友链(noopener noreferrer 齐备); grouped-latest pending 派生逻辑(topCats 空/cats 未载/全空三分支)正确; effect 依赖 topCats(useMemo 稳定)无竞态; ②HomeView 8 布局分发完整含 biquge 分支; ③矩阵完整性 bun 实证: 8配色×8风格×8布局 512/512 全组合 getThemeById 解析成功、id 零重复、9 精选 getTheme 全命中、未知 id 回退 THEMES[0] 兜底有效 — ALL PASS
+- 留档不改: BiqugeRank「点击排行榜」按 wordCount 排序且样本为最新 48 本 — 与 HomePili(R16 轮产物)完全同先例, Book 无点击字段、公开 API 仅 latest/words 两排序, 经典站惯例标签, 改动需跨布局一致性决策
+- 质量门: bun run lint 0/0 + bunx tsc --noEmit 0 错(改动全部在树后主控独立跑)
+
+Stage Summary:
+- R18 主题线审查闭环: agent 3 修复(陈旧库存提示动态化 + 注释漂移校正×2 + 死导出清理) + 主控补完审查(HomeBiquge 链接生成模式与数据逻辑无缺陷、矩阵 512/512 完整性实证)
+- 主题线无运行时缺陷; 全部为文案/注释/死代码级清理
+
+---
+Task ID: R19-final
+Agent: main-orchestrator (Z.ai Code)
+Task: R19 收尾 — E2E 全链验证 + 数据终态 + 统一提交
+
+Work Log:
+- E2E(agent-browser, 全链): ①/?view=home biquge 首页 6 板块齐(home/nav/cats-mobile/rank/grouped-latest/friend-links), 排行 9 行/分组更新 8 行与库内 9 书吻合 ②「立即阅读」点击 → 书籍视图正常落站 ③经 settings API 切伪静态纯数字 → sitemap 即时输出 /book/8.html 形态 + biquge 首页链接跟随(/book/8.html?site=) + 直达 200 + 书页内容渲染(标题+章节) → 还原动态查询 ④?theme=aijjxs 预览: 深酒红渐变导航条(rgba(85,15,28,…) 真站实测色值)+板套齐全+BiqugeNav 正确跳过(防双导航) ⑤后台登录 → 主题模板页「8 配色 × 8 风格 × 8 布局 = 512 组合 · 9 精选」+ 久久小说/笔趣阁卡片 + 组合浏览器「全库 521 套」+ 精确搜索 amber-classic-biquge 命中 1 套卡片正确 ⑥console 0 error / page errors 0 全程
+- 勘误留档: pseudoPreset 为全局 Setting(键 pseudostatic, 60s 缓存+保存失效钩子)非 Site 字段, admin/sites PUT 忽略该未知字段属正常设计(R17 E2E 走的即系统设置页)
+- 数据终态: 站点 themeId=biquge(用户 R18 指令「首页做成笔趣阁经典板块布局」的文档化决策, R18-b worklog 同口径; R19-c 曾发现 as-found=aijjxs 并按 as-found 还原, 主控按用户指令终态定为 biquge); 伪静态=动态查询(还原); 其余库零残留
+- 质量门: bun run lint 0 错 0 警 + bunx tsc --noEmit 0 错(三 agent 改动全在树后主控独立复核)
+- diff 抽查: R19-b(jitter15 两处退避抖动/reconcile 同 URL 多行 Math.max 确定化/smart 去 export×2) + R19-c(seo-audit getThemeById 唯一入口/4 文件死导出清理/三文档 521 套同步) + R19-a(3 修复) 逐行复核全部合格
+
+Stage Summary:
+- R19 交付(审查轮, 12 文件代码+3 文档): Med 1(seo-audit 主题校验误报修复) + Low 2(SitesSection 陈旧库存提示/对账重行非确定性) + 反反爬增强 1(重试退避 ±15% 抖动去同拍共振指纹) + 清理 8 处(死导出×6/注释漂移×2/文档 521 套同步×3 文件)
+- 主题矩阵 8×8×8=512 完整性实证 + biquge/aijjxs 双主题 E2E 全绿; 采集对账(R18-c)边界复核 34/34 全绿
+- 历史链: R12=d70dd45 → R13=07972df → R14=a9f3461 → R15=323982e → R16=99c1c48 → R17=27a3016 → R18=cc46f96 → R19(本轮)

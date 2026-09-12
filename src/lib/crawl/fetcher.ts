@@ -3742,19 +3742,23 @@ async function fetchPageOnce(url: string, cfg: FetchConfig): Promise<FetchResult
         // 再到此处, 边界 429 会跳过退避直接 break 升级浏览器。改为独立 backoffRetries 计数器,
         // 与 cookieRetries 解耦; maxBackoffRetries = min(2, retries) 上限确保退避不无限。
         // 503 不参与(常为 CF 挑战壳, 保留升级浏览器语义); 超时不在此路径(isFetchTimeout 另行喂 hostGate)
+        // [R19-b-2] 退避等待加 ±15% 抖动(复用 jitter15): 原固定 1.5s/3s 整数倍 —— 并行多任务
+        // 对同站同时吃 429/5xx 时, 各任务重试时刻逐字节对齐(同拍共振是可聚类节奏指纹),
+        // 与本文件 noteHostHttpFailure/jitter15 既有抖动口径一致; 单任务退避期望值不变
         const maxBackoffRetries = Math.min(2, cfg.retries ?? 0)
         if (
           (lastStatus === 429 || lastStatus === 500 || lastStatus === 502 || lastStatus === 504) &&
           backoffRetries < maxBackoffRetries
         ) {
           backoffRetries++
-          const delay = Math.min(1500 * Math.pow(2, backoffRetries - 1), 8000)
+          const delay = jitter15(Math.min(1500 * Math.pow(2, backoffRetries - 1), 8000))
           await new Promise((r) => setTimeout(r, delay))
           continue
         }
         break
       }
-      await new Promise((r) => setTimeout(r, 400 * attempt))
+      // [R19-b-2] 其余错误重试等待同款 ±15% 抖动(原固定 400ms×attempt 整数倍, 同上共振面)
+      await new Promise((r) => setTimeout(r, jitter15(400 * attempt)))
     }
   }
 

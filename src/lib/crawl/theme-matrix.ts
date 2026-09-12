@@ -8,10 +8,9 @@
 // 不预生成全部 512 个 ThemeDef 对象, 而是按需合成:
 //   getThemeById(themeId)      — 单一组合合成完整 ThemeDef
 //   getThemeList()             — 全部 512 组合的轻量描述符(id/name/desc/preview)
-//   getThemesPage(page, size)  — 分页
 //
 // 主题 ID 格式: `{colorId}-{styleId}-{layoutId}` (e.g. "amber-glasswa-grid")
-// 与 themes.ts 中的 8 个手写 preset 共存: getThemeById 先查 preset, 未命中再走合成;
+// 与 themes.ts 中的 9 个手写 preset 共存: getThemeById 先查 preset, 未命中再走合成;
 // 旧版主题 ID(如 50400 时代的 "violet-glasswa-grid-cl")不再可解析, 调用方
 // (PublicSite/SiteHeader/admin sites)按约定回退默认主题, 不崩不白屏。
 // ============================================================
@@ -356,23 +355,8 @@ export function getThemeList(): ThemeListItem[] {
   return out
 }
 
-/** 分页返回主题列表(1-based, 1..N) */
-export function getThemesPage(page: number, size: number): {
-  page: number
-  size: number
-  total: number
-  totalPages: number
-  items: ThemeListItem[]
-} {
-  const all = getThemeList()
-  const total = all.length
-  const totalPages = Math.max(1, Math.ceil(total / Math.max(1, size)))
-  const p = Math.max(1, Math.min(totalPages, Math.floor(page) || 1))
-  const sz = Math.max(1, Math.min(500, Math.floor(size) || 50))
-  const start = (p - 1) * sz
-  const items = all.slice(start, start + sz)
-  return { page: p, size: sz, total, totalPages, items }
-}
+// [R19-a-3] getThemesPage() 已删除: 全库零引用死导出(分页逻辑内联在 admin/themes route
+// 的 sliceCombos 惰性切片中), R19-c 横切审移交本线清理。
 
 // ============================================================
 // 6. [R10-a-1] 全量列表惰性单例缓存 + q 搜索(admin/themes API 搜索分页用)
@@ -381,7 +365,9 @@ export function getThemesPage(page: number, size: number): {
 // (50400 组合时代的 10MB 取舍说明已随矩阵精炼失效, 保留缓存以稳定 API 复用路径。)
 let THEME_LIST_CACHE: ThemeListItem[] | null = null
 
-/** getThemeList() 的单例缓存版 — 仅限需要全量扫描的场景(admin 搜索 API), 纯分页请继续用 getThemesPage */
+/** getThemeList() 的单例缓存版 — 仅限需要全量扫描的场景(admin 搜索 API)
+ *  [R19-a-3] 精简: getThemesPage 分页函数已随 R18-b 矩阵精炼失去全部调用方
+ *  (分页逻辑内联在 admin/themes route 的惰性切片 sliceCombos 中), 删除死导出 */
 export function getThemeListCached(): ThemeListItem[] {
   if (!THEME_LIST_CACHE) THEME_LIST_CACHE = getThemeList()
   return THEME_LIST_CACHE

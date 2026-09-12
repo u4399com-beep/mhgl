@@ -25,7 +25,7 @@
 | 数据库 | SQLite（`db/custom.db`），容器首启自动 `prisma db push` 建表，**无需手动初始化** |
 | 持久化 | 宿主机 `./db`（数据库）与 `./data`（封面/正文/下载产物）两个目录挂载进容器，**删容器不丢数据** |
 | 采集引擎 | 容器内使用内置 **native HTTP 采集引擎（全功能）**，开箱即用 |
-| mini-services | 5 个 bun 站点代理（3010/3011/3013/3014/3015）**随主容器共置自动启动**；仅 Python 版 `scrapling-bridge` 不启用（见文末第四节） |
+| mini-services | 5 个 bun 支撑代理（3010 bqg713 站点代理 / 3011 fetch-relay 中继 / 3013 qimao / 3014 deqixs / 3015 xjp 站点代理）**随主容器共置自动启动**；仅 Python 版 `scrapling-bridge` 不启用（见文末第四节） |
 
 硬件建议：首次构建约需 **4GB 内存 / 4GB 磁盘**（ll-a 真实构建实测: Turbopack 构建峰值超 2GB, 2GB 内存机器会被 OOM 杀）；运行期占用很小（单 SQLite + node 进程）。
 支持架构：x86_64 与 arm64（镜像在部署机上现场构建，按机器架构自动适配）。

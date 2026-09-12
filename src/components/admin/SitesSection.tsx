@@ -116,7 +116,7 @@ export function SitesSection() {
   const [batchConfirmOpen, setBatchConfirmOpen] = useState(false)
   const [pendingTheme, setPendingTheme] = useState('')
   const [pendingOffset, setPendingOffset] = useState('')
-  // ---- [R10-a-5] 主题数据双轨: 服务端 ?q= 搜索 + 组合缓存(R18-b 起全库 8 精选 + 512 组合) ----
+  // ---- [R10-a-5] 主题数据双轨: 服务端 ?q= 搜索 + 组合缓存(R18-b 起全库 9 精选 + 512 组合; R19-a-2 文案 8→9 校正) ----
   // themeKnown: 已知主题缓存(9 套预设 + 历次搜索命中 + 卡片按需解析), 卡片名称/当前值回显用
   // themeHits:  当前搜索词的服务端前 50 条命中(编辑对话框与批量条两处下拉共用数据源)
   const [themeKnown, setThemeKnown] = useState<SiteTheme[]>([])
@@ -402,7 +402,9 @@ export function SitesSection() {
         <Input
           className="h-7 w-28 border-zinc-700 bg-zinc-950 text-xs"
           placeholder="搜主题…"
-          title="支持名称/ID/风格搜索全库 5 万余套主题"
+          // [R19-a-1] 库存提示动态化: 修前硬编码「全库 5 万余套主题」为 R18-b 矩阵精炼前
+          // (50 配色×42 风格×24 布局=50400)的陈旧数字, 现全库=9 精选+512 组合=521, 提示误导 100 倍
+          title={themeTotalAll > 0 ? `支持名称/ID/风格搜索全库 ${themeTotalAll} 套主题` : '支持名称/ID/风格搜索全库主题'}
           value={themeSearch}
           onChange={(e) => setThemeSearch(e.target.value)}
         />

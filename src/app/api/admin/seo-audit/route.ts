@@ -9,7 +9,11 @@
 import { db } from '@/lib/db'
 import { ok, fail } from '@/lib/api'
 import { withGuard, str } from '../../_lib/http'
-import { THEMES } from '@/lib/crawl/themes'
+// [R19-c-1] 主题有效性校验改走 getThemeById 唯一入口 —— R18-b 主题矩阵重设计后,
+// 合法 themeId = 9 个精选 preset + 512 个组合 id(`{配色}-{风格}-{布局}`), 原
+// `new Set(THEMES.map(t => t.id))` 仅含 preset, 站点配置合法组合主题(如
+// `aurora-glasswa-grid`)会被 SEO 体检误报 error「主题不存在」误扣 10 分
+import { getThemeById } from '@/lib/crawl/themes'
 
 type Severity = 'error' | 'warning' | 'info'
 type Category = 'tdk' | 'domain' | 'content' | 'links' | 'theme' | 'geo' | 'sitemap' | 'offset' | 'tech'
@@ -61,7 +65,6 @@ async function auditSite(
   },
   bookCount: number,
   linkWheelCount: number,
-  themeIds: Set<string>,
 ): Promise<SiteReport> {
   const issues: Issue[] = []
   const passed: string[] = []
@@ -123,7 +126,8 @@ async function auditSite(
   }
 
   // ---- Theme ----
-  if (!themeIds.has(site.themeId)) {
+  // [R19-c-1] 与 sites POST/PUT 同口径: getThemeById 涵盖 preset + 512 组合, 未知 id 才报错
+  if (!getThemeById(site.themeId)) {
     issues.push({ severity: 'error', category: 'theme', message: `主题 ${site.themeId} 不存在`, fix: '在站点设置中选择已注册的主题' })
   } else {
     passed.push(`主题已注册 (${site.themeId})`)
@@ -188,7 +192,6 @@ export async function GET(req: Request) {
     const siteFilter = str(url.searchParams.get('site'), 64).trim()
 
     const sites = await db.site.findMany({ take: 500 })
-    const themeIds = new Set(THEMES.map((t) => t.id))
 
     // 友链链轮统计 — 与读侧 src/lib/links.ts:266 的链轮友链取数口径完全对齐(enabled 即入轮,
     // FriendLink 表并无 per-link 的 inLinkWheel 字段, 该标志只在 Site 上)
@@ -218,7 +221,6 @@ export async function GET(req: Request) {
         },
         totalBooks,
         linkWheelCount,
-        themeIds,
       )
       reports.push(report)
     }

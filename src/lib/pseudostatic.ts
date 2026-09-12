@@ -323,8 +323,9 @@ export function parsePrettyPath(pathname: string): ParsedPrettyPath | null {
   return { view: 'read', bookToken: rawBook, chapterToken: rawCh }
 }
 
-/** 紧凑双段解析(供 parsePrettyPath 内部之外复用: /read/1001_3) */
-export function parseCompactToken(token: string): { bookToken: string; chapterToken: string } | null {
+/** 紧凑双段解析(供 parsePrettyPath 内部使用: /read/1001_3)
+ *  [R19-c-4] 取消导出 —— 全库无外部引用, 仅 parsePrettyPath 内部消费 */
+function parseCompactToken(token: string): { bookToken: string; chapterToken: string } | null {
   const i = token.indexOf('_')
   if (i <= 0 || i === token.length - 1) return null
   const b = token.slice(0, i)

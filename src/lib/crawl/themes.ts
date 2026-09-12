@@ -1,5 +1,5 @@
 // ============================================================
-// 主题模版注册表 — 8 套完全不同风格的前台主题 (R18-b 精选)
+// 主题模版注册表 — 9 套精选前台主题 (R18-b 精选 8 套, R18-d +aijjxs 第 9 套)
 // 样式 / 颜色 / 布局 / 阅读版式 全部差异化, 均适配 TDK / SEO / GEO
 //
 // 双布局维度:
@@ -370,7 +370,7 @@ export function getTheme(id: string | null | undefined): ThemeDef {
 }
 
 /** 组合主题解析入口(R18-b: 8 配色 × 8 风格 × 8 布局 = 512 组合)
- *  - 先查 8 个手写 preset( THEMES ) —— 命中即返回(向后兼容)
+ *  - 先查 9 个手写 preset( THEMES ) —— 命中即返回(向后兼容)
  *  - 否则按 `{colorId}-{styleId}-{layoutId}` 解析组合主题(8×8×8=512)
  *  - 全部未命中返回 undefined, 由调用方回退 THEMES[0](aurora) 兜底:
  *    PublicSite `|| THEMES[0]` / getTheme `|| THEMES[0]` / admin sites 归一化 'aurora'

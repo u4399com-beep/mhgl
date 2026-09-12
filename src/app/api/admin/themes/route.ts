@@ -1,6 +1,6 @@
 // 主题模板列表
 // - feat-combo-theme-incremental: 双模式 API
-//   默认(无 query): 返回 THEMES(8 个 preset)数组, 兼容 ThemesSection 卡片网格
+//   默认(无 query): 返回 THEMES(9 个 preset)数组, 兼容 ThemesSection 卡片网格
 //   ?page=N&size=M: 返回 { page, size, total, totalAll, totalPages, items: [presets + combos] }
 //   preset 在 items 头部, 512 组合紧跟其后, 每页可取任意 size(默认 50, 上限 500)
 //   组合主题用惰性切片生成(不长期驻留内存), 仅计算本页所需项后即丢
@@ -89,7 +89,7 @@ export async function GET(req: Request) {
     const page = Math.max(1, num(pageRaw, 1))
     const size = Math.max(1, Math.min(500, num(sizeRaw, 50)))
     const presetCount = THEMES.length
-    const totalAll = presetCount + TOTAL_COMBOS // [R10-a-3] 全库总数(8 精选 + 512 组合, 随矩阵动态派生)
+    const totalAll = presetCount + TOTAL_COMBOS // [R10-a-3] 全库总数(9 精选 + 512 组合, 随矩阵动态派生; R19-a-2 文案 8→9 校正)
 
     // [R10-a-3] 搜索模式: q 非空 → preset + 组合统一过滤后分页
     // 组合侧走 theme-matrix 的惰性单例缓存(全量 512 项构建一次常驻, 取舍见该函数注释)

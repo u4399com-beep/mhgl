@@ -197,13 +197,19 @@ export async function reconcileResumeSetsCore(
   }
   if (union.size === 0) return empty
   const urls = Array.from(union)
-  // 分批查库: sourceUrl 精确 IN 匹配; 同 sourceUrl 多行(列无 unique)由 Map 覆盖去重
+  // 分批查库: sourceUrl 精确 IN 匹配。
+  // [R19-b-1] 同 sourceUrl 多行(Book.sourceUrl 列无 unique, 并行任务同书竞态可建重行):
+  //  原实现 Map.set 后写覆盖, findMany 无 orderBy 时返回序不定 → "0 章空壳重行"可能覆盖
+  //  "千章正主行", 完结书被非确定性误判空壳剔除重采。改取同 URL 行数最大值(保守判定:
+  //  只要任一行有章节即视为非空壳), 单行正常场景取值不变, 重复行场景判定确定化
   const chapterCounts = new Map<string, number>()
   let batches = 0
   for (let i = 0; i < urls.length; i += RESUME_RECONCILE_BATCH) {
     const batch = urls.slice(i, i + RESUME_RECONCILE_BATCH)
     batches++
-    for (const row of await queryDb(batch)) chapterCounts.set(row.sourceUrl, row.chapterCount)
+    for (const row of await queryDb(batch)) {
+      chapterCounts.set(row.sourceUrl, Math.max(chapterCounts.get(row.sourceUrl) ?? -1, row.chapterCount))
+    }
   }
   // 判定需重采: 库中无记录; 或 completed 语义但 0 章节(空壳完结书)
   const stale: string[] = []

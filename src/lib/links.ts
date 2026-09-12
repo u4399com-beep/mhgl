@@ -57,8 +57,9 @@ const DOMAIN_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])
  * 站点域名规范化(双保险): 去 scheme / 去路径与查询 / 去首尾杂字符, 小写输出。
  * 用于把 DB 中的 domain 兜底成纯 host 再拼跨站绝对地址; 非法返回 ''(调用方跳过该站)。
  * 例: "https://www.a.com/path?x=1" → "www.a.com"; "www.B.com:3000/" → "www.b.com:3000"
+ * [R19-c-4] 取消导出 —— 全库无外部引用, 仅本模块 computeWheelLinks 内部消费
  */
-export function normalizeSiteDomain(raw: string): string {
+function normalizeSiteDomain(raw: string): string {
   let s = (raw || '').trim().toLowerCase()
   if (!s) return ''
   // 保险 1: URL 解析取 host(含端口)
@@ -88,8 +89,9 @@ export interface WheelBook {
  *  10k 书库下 1.5M 行扫描/请求 × 120 req/min = 180M 行/min, SQLite 饱和。
  *  改为单次 findMany take need*3(冗余应对 excludeIds 命中) → JS 侧洗牌 + 去重, 单次查询替代 N×M 次串行查询。
  *  书库不足 take 时 findMany 返回全部行, 链位填不满则少给(宁缺毋滥语义不变)。
+ * [R19-c-4] 取消导出 —— 全库无外部引用, 仅本模块 computeWheelLinks 内部消费
  */
-export async function pickRandomBooks(need: number, excludeIds: string[] = []): Promise<WheelBook[]> {
+async function pickRandomBooks(need: number, excludeIds: string[] = []): Promise<WheelBook[]> {
   const out: WheelBook[] = []
   if (need <= 0) return out
   const excludeSet = new Set(excludeIds)

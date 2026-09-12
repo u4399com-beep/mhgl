@@ -193,8 +193,3 @@ export const logger: Logger = G.__heisLogger
 export function withReqId(reqId: string): Logger {
   return logger.withReqId(reqId)
 }
-
-/** 创建携带额外上下文的子 logger (如 logger.child({ module: 'fetcher' })) */
-export function child(bindings: Record<string, unknown>): Logger {
-  return logger.child(bindings)
-}

@@ -1,6 +1,7 @@
 // ============================================================
 // 站点头部 — 站名 + 搜索框(带建议下拉) + 分类导航(计数 pill) + (embedMode)站点切换器
-// 按 theme.vars.headerStyle 呈现 5 种结构差异
+// 按 theme.vars.headerStyle 呈现 7 种取值(5 类结构分支: pili 仿站双层 / aijjxs 仿站双层 /
+// centered 居中 / split 分列 / 常规两行=solid·gradient·transparent 共用)
 // ============================================================
 'use client'
 

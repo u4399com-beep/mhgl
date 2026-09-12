@@ -23,7 +23,8 @@ const CATEGORY_KEYWORDS: [string, string[]][] = [
   ['现实', ['现实', '职场', '创业', '商战', '生活', '家庭', '医生', '教师']],
 ]
 
-export function matchCategoryByText(text: string, existingCategories?: string[]): string | null {
+// [R19-b-3] 精简: 全库无外部导入(仅本文件 smartCategory 内部使用), 去 export 防误用面
+function matchCategoryByText(text: string, existingCategories?: string[]): string | null {
   const t = (text || '').slice(0, 3000)
   if (!t) return null
   // 1. 直接命中已有分类名
@@ -127,7 +128,8 @@ function wordMatches(t: string, w: string): boolean {
   return t.includes(w)
 }
 
-export function detectCompleteFromText(text: string): 'completed' | 'ongoing' | 'unknown' {
+// [R19-b-3] 精简: 全库无外部导入(仅本文件 smartCompleteDetect 内部使用), 去 export 防误用面
+function detectCompleteFromText(text: string): 'completed' | 'ongoing' | 'unknown' {
   // 小写化后匹配: 中英文词表统一大小写不敏感(中文词不受 toLowerCase 影响)
   const t = (text || '').slice(0, 2000).toLowerCase()
   if (!t) return 'unknown'
