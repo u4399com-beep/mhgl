@@ -5,43 +5,68 @@
 import { db } from '@/lib/db'
 
 // ---------------- 智能分类 ----------------
+// [R22-c-3] 词表修订(真实库误分类实证驱动):
+// - 玄幻去 '逆天'(年代/都市重生文简介高频"逆天改命", 实证《重生老太…》靠它与'重生'打平
+//   且按表序误归玄幻), 增 '神祇'/'神国'(全民流/神祇流实证《全民神祇…》修前归类失败落 null)
+// - 都市 ' urb '→'urban' + 增 '七零'/'八零'/'九零'(年代文); 军事 ' war '→'war' ——
+//   带空格词按 R9-a-17 原样匹配永不命中真实简介(死关键词), R22-c-2 词界方案下不再需要
+// - 新增耽美行(置于轻小说之前: 与'校园'打平时耽美优先)
 const CATEGORY_KEYWORDS: [string, string[]][] = [
-  ['玄幻', ['玄幻', '修罗', '斗气', '魔法学院', '异界', '大陆', '废材', '逆天', '神帝', '武魂']],
+  ['玄幻', ['玄幻', '修罗', '斗气', '魔法学院', '异界', '大陆', '废材', '神帝', '武魂', '神祇', '神国']],
   ['奇幻', ['奇幻', '史诗', '骑士', '法师', '精灵', '龙族', '矮人', '魔兽']],
   ['武侠', ['武侠', '江湖', '剑客', '侠', '武林', '门派', '轻功', '内力', '镖局']],
   ['仙侠', ['仙侠', '修真', '修仙', '筑基', '金丹', '元婴', '渡劫', '灵气', '仙人', '道法']],
-  ['都市', ['都市', '重生', '赘婿', '神豪', '总裁', '兵王', '神医', ' urb ', '打工', '逆袭', '求婚', '离婚']],
+  ['都市', ['都市', '重生', '赘婿', '神豪', '总裁', '兵王', '神医', 'urban', '打工', '逆袭', '求婚', '离婚', '七零', '八零', '九零']],
   ['言情', ['言情', '甜宠', '恋爱', '霸总', '婚恋', '公主', '新娘', '嫁', '爱恋', '心动']],
   ['历史', ['历史', '穿越', '朝代', '大唐', '大明', '大清', '三国', '水浒', '宋朝', '始皇', '皇帝', '王朝']],
-  ['军事', ['军事', '抗战', ' war ', '士兵', '特种兵', '战场', '部队', '军官']],
+  ['军事', ['军事', '抗战', 'war', '士兵', '特种兵', '战场', '部队', '军官']],
   ['游戏', ['游戏', '网游', '电竞', '副本', '升级', '系统', '玩家', '战队', '开黑']],
   ['科幻', ['科幻', '星际', '末世', '丧尸', '机甲', '飞船', '外星', '末日', 'AI', '人工智能', '虫族']],
   ['悬疑', ['悬疑', '推理', '侦探', '凶案', '犯罪', '谜团', '刑警', '法医', '命案']],
   ['灵异', ['灵异', '鬼', '阴阳', '风水', '盗墓', '僵尸', '驱魔', '诡异']],
   ['体育', ['体育', '足球', '篮球', '奥运', '冠军', '教练', '联赛']],
+  ['耽美', ['耽美', '纯爱', '原耽', '主受', '攻受']],
   ['轻小说', ['轻小说', '萌妹', '校园', '社团', '二次元', '青梅', '学妹', '学姐']],
   ['现实', ['现实', '职场', '创业', '商战', '生活', '家庭', '医生', '教师']],
 ]
 
+/**
+ * [R22-c-2] 分类匹配文本归一化: 全角拉丁/标点(FF01-FF5E)→半角、全角空格→半角空格、
+ * 统一小写 —— 修前 'ＡＩ觉醒'(全角)命不中 'AI'、"War"(首字母大写)命不中 ' war '。
+ * 中文经此变换不变; 长度逐字不变(1:1 映射), 截断 3000 与原实现等价。
+ */
+function normalizeCategoryText(text: string): string {
+  return (text || '')
+    .replace(/\u3000/g, ' ')
+    .replace(/[\uFF01-\uFF5E]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xfee0))
+    .toLowerCase()
+    .slice(0, 3000)
+}
+
 // [R19-b-3] 精简: 全库无外部导入(仅本文件 smartCategory 内部使用), 去 export 防误用面
 function matchCategoryByText(text: string, existingCategories?: string[]): string | null {
-  const t = (text || '').slice(0, 3000)
+  const t = normalizeCategoryText(text)
   if (!t) return null
-  // 1. 直接命中已有分类名
+  // 1. 直接命中已有分类名(同样归一化, 英文分类名大小写不敏感)
   if (existingCategories?.length) {
     for (const c of existingCategories) {
-      if (t.includes(c)) return c
+      const cn = normalizeCategoryText(c)
+      if (cn && t.includes(cn)) return c
     }
   }
   // 2. 关键词评分
   let best: { name: string; score: number } | null = null
   for (const [name, kws] of CATEGORY_KEYWORDS) {
     let score = 0
-    for (const kw of kws) {
-      // [R9-a-17] 修复: 含空格的关键词(' urb '/' war ')空格本身是防子串误伤的边界,
-      // trim() 会把它退化成裸子串('urb' 命中 urban/suburb/turban)。带空白词保留原样匹配
-      const needle = /\s/.test(kw) ? kw : kw.trim()
-      if (t.includes(needle)) score += needle.length >= 2 ? 2 : 1
+    for (const rawKw of kws) {
+      const kw = rawKw.trim()
+      if (!kw) continue
+      // [R22-c-2] 纯 ASCII 字母数字词走 \b 词边界匹配(复用本文件 wordMatches, 大小写不敏感):
+      // 'urban' 不再命中 suburban/turban(承接 R9-a-17 防误伤意图且恢复关键词可用性 ——
+      // 修前 ' urb ' 带空格原样匹配在真实简介中永假, 'AI' 大小写敏感漏 'ai');
+      // 中文词无词边界概念仍走 includes
+      const hit = /^[a-z0-9]+$/i.test(kw) ? wordMatches(t, kw) : t.includes(kw)
+      if (hit) score += kw.length >= 2 ? 2 : 1
     }
     if (score > 0 && (!best || score > best.score)) best = { name, score }
   }
@@ -74,7 +99,9 @@ export async function smartCategory(
   const kw = matchCategoryByText(`${bookName}\n${intro}`, names)
   if (kw) return { category: kw, method: 'keyword' }
 
-  // 3. LLM 兜底(带超时保护: LLM 挂起/网络黑洞不能拖住整本书的采集流水线)
+  // 3. LLM 兜底([R22-c-4] 分类表为空时跳过: 提示词无从选分类, LLM 回答必然匹配失败,
+  // 只会白耗一次网络调用+15s 超时预算; 关键词命中仍可在上一步放行 —— 首个分类由关键词表自举)
+  if (!names.length) return { category: null, method: 'none' }
   try {
     const ZAI = (await import('z-ai-web-dev-sdk')).default
     const zai = await ZAI.create()

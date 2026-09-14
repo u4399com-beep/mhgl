@@ -290,7 +290,11 @@ function uaArchFor(ua: string, platform: string): string {
 /** sec-ch-ua-model: 移动设备型号(Android Chromium 真实发送, iOS Safari 不发 Client Hints
  *  故此分支在 iOS UA 上永不触达); 桌面空串(Chromium 真实行为)。
  *  - Pixel 8/9 / Samsung SM-S921B/SM-S926B / M2102J2SC → 从 UA 提取设备型号段
- *  - 构建号形态(M2102J2SC Build/...)截首段防 Build 字串污染模型 */
+ *  - 构建号形态(M2102J2SC Build/...)截首段防 Build 字串污染模型
+ *  [R22-e-5] 修复(Low, 指纹自洽): MIUI 双段 locale UA 形态 'Linux; U; Android 13; zh-cn;
+ *  M2102J2SC Build/…)' —— 单段正则的 [^);]+ 不可跨 ';' 整体失配, 修前该 UA 返回【空串
+ *  model】(真机此头发送 'M2102J2SC', 空型号是可聚类指纹破绽); 现单段失配时用双段正则
+ *  取 locale 段之后的型号段。标准 'Android X; <model>)' 单段形态逐字节不变 */
 function uaModelFor(ua: string, mobile: boolean, _platform: string): string {
   if (!mobile) return ''
   // Android Chromium: 抽取 "Android X; <model>" 段
@@ -300,6 +304,9 @@ function uaModelFor(ua: string, mobile: boolean, _platform: string): string {
     const short = model.split(/\s+Build\//i)[0].trim()
     return short
   }
+  // [R22-e-5]: 双段形态 'Android X; <locale>; <model> Build/…)' → 取型号段
+  const m2 = ua.match(/Android\s+\d+;\s*[^;)]+;\s*([^);]+)\)/i)
+  if (m2) return m2[1].trim().split(/\s+Build\//i)[0].trim()
   return ''
 }
 
@@ -1175,7 +1182,9 @@ function decodeBuffer(buf: ArrayBuffer, contentType?: string): string {
  *  - 或含 http-equiv="refresh" 且内容很短(<1200)
  * 典型: 反爬中间页只输出一段脚本跳到真实地址 / 首次访问种 Cookie 后刷新
  */
-export function isJsChallenge(html: string): boolean {
+// [R22-e-8] 精简: 去 export(R21-e-5 同款口径, rg 全库含 scripts/archive 零外部 import,
+//  仅注释/文档提及) —— 供文件内 isJsChallenge/looksBlocked 互相调用与 fetchPageOnce 消费
+function isJsChallenge(html: string): boolean {
   if (!html) return false
   const s = html.trim()
   if (!s) return false
@@ -1239,7 +1248,9 @@ function hasNormalTitle(html: string): boolean {
   return !/(^|[^\p{L}\p{N}])40[34]([^\p{L}\p{N}]|$)/u.test(t)
 }
 
-export function looksBlocked(html: string, opts?: { status?: number; serverHeader?: string }): boolean {
+// [R22-e-8] 精简: 去 export(R21-e-5 同款口径, rg 全库含 scripts/archive 零外部 import,
+//  仅注释提及) —— 文件内 fetchPageOnce/looksBlocked 自消费, 判定语义不变
+function looksBlocked(html: string, opts?: { status?: number; serverHeader?: string }): boolean {
   if (!html) return true
   // [R13-7] 合法 JSON 响应体整体豁免: JSON API 站(book/detail/toc/content 接口)的短响应
   // 是正常业务信封 —— bqg713 book API 实测 198 字节合法 JSON 被"极短内容判拦"(1248 行)
@@ -1403,12 +1414,34 @@ async function renderWithBrowserRaw(url: string, cfg: FetchConfig, ua: string): 
   })
   const timeoutMs = cfg.timeout && cfg.timeout > 0 ? cfg.timeout : 20000
   try {
+    // [R22-e-3] Cookie 注入迁移(修前缺陷): extraHTTPHeaders 是 context 级【全请求】附加 ——
+    //  修前罐中/规则 Cookie 以 Cookie 头形态挂上去, 会发给页面加载的每一个跨域子资源与
+    //  iframe(cdn/统计域), 既把目标站会话 Cookie 泄漏给第三方域, 又与浏览器自身 Cookie 栈
+    //  产生同名重复/覆盖(CF 站浏览器自解出的 cf_clearance 可能被无凭证的注入头压掉)。
+    //  现改 ctx.addCookies 按【目标 origin】作用域种入(host-only, 与真实浏览器 Cookie 语义
+    //  一致, 同源请求照常携带); addCookies 失败(畸形 cookie 名等)回退 setExtraHTTPHeaders
+    //  旧形态保证种子 Cookie 不丢, 双失败则与 Obscura 路径同态(无种子 Cookie)不阻断渲染。
+    //  其余头组(Accept/Accept-Language/Referer)维持 extraHTTPHeaders 既有口径不动
+    const baseHeaders = buildHeaders(url, cfg, ua)
+    const cookieHeaderValue = baseHeaders.Cookie
+    if (cookieHeaderValue) delete baseHeaders.Cookie
     const ctx = await browser.newContext({
       userAgent: ua,
       viewport: { width: 1366, height: 768 },
-      extraHTTPHeaders: buildHeaders(url, cfg, ua),
+      extraHTTPHeaders: baseHeaders,
       ...(proxy ? { proxy: playwrightProxyParts(proxy) } : {}),
     })
+    if (cookieHeaderValue) {
+      try {
+        const origin = originHost(url)
+        const pwCookies = Array.from(mergedCookiePairs([cookieHeaderValue]).entries())
+          .map(([name, value]) => ({ name, value, url: origin }))
+        if (pwCookies.length) await ctx.addCookies(pwCookies)
+        else await ctx.setExtraHTTPHeaders({ ...baseHeaders, Cookie: cookieHeaderValue })
+      } catch {
+        try { await ctx.setExtraHTTPHeaders({ ...baseHeaders, Cookie: cookieHeaderValue }) } catch { /* 旧行为不可达时按无种子 Cookie 渲染 */ }
+      }
+    }
     // 反自动化检测脚本
     await ctx.addInitScript(() => {
       Object.defineProperty(navigator, 'webdriver', { get: () => undefined })
@@ -1492,6 +1525,26 @@ function orderHeadersLikeBrowser(headers: Record<string, string>, family: string
   return out
 }
 
+/** [R22-e-6] Cookie 键值对合并(重复 helper 收敛: buildHeaders 拼头与 [R22-e-3] 裸 Playwright
+ *  addCookies 注入共用同一解析)。同名键后者覆盖(调用方按 [cfg.cookies, jar] 顺序传参,
+ *  服务端最新 Set-Cookie 优先, 与既有语义一致)。控制字符(\r\n\0)在入口剥除 —— 修前规则串
+ *  /罐中值若混入控制字符, native fetch 构造 Headers 直接抛 TypeError 硬断链路(curl 链有
+ *  逐头清洗, native 链漏网); 空名键跳过 */
+function mergedCookiePairs(sources: Array<string | undefined>): Map<string, string> {
+  const merged = new Map<string, string>()
+  for (const src of sources) {
+    if (!src) continue
+    for (const pair of src.split(';')) {
+      const idx = pair.indexOf('=')
+      if (idx > 0) {
+        const name = pair.slice(0, idx).trim().replace(/[\r\n\0]+/g, '')
+        if (name) merged.set(name, pair.slice(idx + 1).trim().replace(/[\r\n\0]+/g, ''))
+      }
+    }
+  }
+  return merged
+}
+
 /** 头组构造(HTTP 内容链专用; ff-b 增强①: opts.fingerprint=true 时注入完整浏览器指纹头组)
  *  - 指纹纪律: 仅 fetchHttp(逐跳)/fetchViaCurl 传入 fingerprint —— 裸 Playwright 链
  *    (renderWithBrowser)与 fetchBinary 刻意不传: 真浏览器自发自洽的原生 sec-ch-ua/Sec-Fetch-*,
@@ -1527,14 +1580,8 @@ function buildHeaders(url: string, cfg: FetchConfig, ua: string, opts?: { finger
   if (chainReferer) headers.Referer = chainReferer
   else if (cfg.referer !== false && origin) headers.Referer = origin
   // Cookie 合并去重: 同名键以罐中值(服务端最新 Set-Cookie)为准, 避免拼出 "a=1; a=9" 重复 Cookie 头
-  const merged = new Map<string, string>()
-  for (const src of [cfg.cookies, cookieJar.get(originHost(url))]) {
-    if (!src) continue
-    for (const pair of src.split(';')) {
-      const idx = pair.indexOf('=')
-      if (idx > 0) merged.set(pair.slice(0, idx).trim(), pair.slice(idx + 1).trim())
-    }
-  }
+  // [R22-e-6]: 解析收敛到 mergedCookiePairs(控制字符剥除, native 链 Headers 不再被脏值炸抛)
+  const merged = mergedCookiePairs([cfg.cookies, cookieJar.get(originHost(url))])
   if (merged.size) headers.Cookie = Array.from(merged.entries()).map(([k, v]) => `${k}=${v}`).join('; ')
   // [R9-a-11] 指纹链按真实浏览器头序规范化(仅 HTTP 内容链; 裸 Playwright 链交真浏览器自洽)
   if (opts?.fingerprint) return orderHeadersLikeBrowser(headers, family)
@@ -1543,6 +1590,21 @@ function buildHeaders(url: string, cfg: FetchConfig, ua: string, opts?: { finger
 
 function originHost(url: string): string {
   try { return new URL(url).origin } catch { return '' }
+}
+
+/** [R22-e-4] 跨 host 跳剥离规则种子 Cookie(R15-d1-2 的同类缺口补齐): R15-d1-2 只剥了
+ *  cfg.cookies 字段, 规则经 cfg.headers 显式配置的 Cookie 头在跨域重定向跳时仍会原样发给
+ *  新 host —— 静态头跨域泄漏的漏网面(grep builtin-rules 现无规则使用 headers.Cookie,
+ *  纯加固零回归; 罐内 Cookie 由 buildHeaders 按跳域自取不受影响)。
+ *  native(fetchHttp)/curl(fetchViaCurl)/binary(fetchBinary) 三链逐跳共用本 helper */
+function stripRuleSeedCookie(cfg: FetchConfig): FetchConfig {
+  const headers = cfg.headers
+  const hasCookieHeader = !!headers && Object.keys(headers).some((k) => k.toLowerCase() === 'cookie')
+  if (!cfg.cookies && !hasCookieHeader) return { ...cfg }
+  const nextHeaders = hasCookieHeader
+    ? Object.fromEntries(Object.entries(headers || {}).filter(([k]) => k.toLowerCase() !== 'cookie'))
+    : headers
+  return { ...cfg, cookies: undefined, headers: nextHeaders }
 }
 
 // ---------- SSRF 守卫 (审计 C2 修复 / 2-fetcher Part A) ----------
@@ -1868,10 +1930,24 @@ const globalForProxyState = globalThis as unknown as { __novelProxyState_v1?: Ma
 const proxyState: Map<string, ProxyState> = globalForProxyState.__novelProxyState_v1 ?? new Map()
 globalForProxyState.__novelProxyState_v1 = proxyState
 
+// [R22-e-2] 状态 Map 有界化: proxyState 以【代理串】为键, 单池 ≤10 条但多规则/多任务各配
+// 不同代理串时条目只增不减(修前无上限, 长驻进程多套代理配置累积泄漏; 同 hostRhythm 512/
+// domainUa 200 同款 FIFO 上限口径)。256 = 25 个满配代理池的容量, 远超现实配置密度
+const PROXY_STATE_CAP = 256
+
 /** 获取(或初始化)某代理的运行时状态 */
 function getProxyState(proxy: string): ProxyState {
   let s = proxyState.get(proxy)
-  if (!s) { s = { useCount: 0, failedUntil: 0, consecutiveFailures: 0 }; proxyState.set(proxy, s) }
+  if (!s) {
+    // FIFO 淘汰: 超上限时按插入序删最旧(使用中的代理下次 get 会重建, 仅丢健康度历史)
+    while (proxyState.size >= PROXY_STATE_CAP) {
+      const oldest = proxyState.keys().next().value
+      if (oldest === undefined) break
+      proxyState.delete(oldest)
+    }
+    s = { useCount: 0, failedUntil: 0, consecutiveFailures: 0 }
+    proxyState.set(proxy, s)
+  }
   return s
 }
 
@@ -2194,7 +2270,8 @@ async function fetchHttp(url: string, cfg: FetchConfig, ua: string, proxy = '', 
       // 同类缺陷(该修复只重建了罐内 Cookie 的按跳归属, cfg.cookies 漏网)。现仅同 host 跳
       // 携带(浏览器 Cookie 作用域语义); 罐内 Cookie 本就按跳域取值不受影响, 同源链路
       // (绝大多数站)行为逐字节不变
-      const hopCfg = hostKeyOf(hopUrl) === hostKeyOf(url) ? cfg : { ...cfg, cookies: undefined }
+      // [R22-e-4]: cfg.headers.Cookie 同类跨域泄漏补齐(stripRuleSeedCookie 三链共用)
+      const hopCfg = hostKeyOf(hopUrl) === hostKeyOf(url) ? cfg : stripRuleSeedCookie(cfg)
       const headers = buildHeaders(hopUrl, hopCfg, ua, { fingerprint: true })
       // [R9-a-13] B1: 条件请求协商 —— 有缓存校验器时带 If-None-Match / If-Modified-Since;
       // 规则显式配置了 If-* 头时让位(cfg.headers 优先), 关闭缓存路径由调用方传 conditionalGet:false
@@ -2383,7 +2460,10 @@ async function checkCurl(): Promise<boolean> {
 const CURL_CHROME_TLS12_CIPHERS = 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:ECDHE-RSA-AES128-SHA:ECDHE-RSA-AES256-SHA:AES128-GCM-SHA256:AES256-GCM-SHA384:AES128-SHA:AES256-SHA'
 
 /** [R9-a-14] C.2: host 稳定伪随机(djb2) → 传输画像索引。同 host 每次同画像
- *  (防同站会话内 h2/h1.1 + JA3 混杂翻转), 跨 host 三画像分散(默认h2 / --http1.1 / Chrome TLS1.2 套件表) */
+ *  (防同站会话内 h2/h1.1 + JA3 混杂翻转), 跨 host 三画像分散(默认h2 / --http1.1 / Chrome TLS1.2 套件表)
+ *  [R22-e-7] HTTP/2 指纹边界说明: 本层只控制 ALPN/HTTP 版本与 TLS1.2 套件表 —— HTTP/2
+ *  SETTINGS 帧参数(Akamai fingerprint2 类画像)随系统 curl 二进制固定, 进程内不可调,
+ *  升级系统 curl 才会改变 h2 指纹画像(如实留档, 非遗漏) */
 function curlTlsProfileIndex(host: string): number {
   let h = 5381
   for (let i = 0; i < host.length; i++) h = ((h << 5) + h + host.charCodeAt(i)) >>> 0
@@ -2570,8 +2650,9 @@ export async function fetchViaCurl(url: string, cfg: FetchConfig, ua: string, pr
     // ff-b① + [R9-a-1]: curl 子进程同为 HTTP 内容链, 逐跳重建指纹头组
     // (Cookie 按该跳 URL 取罐 —— 跨域重定向不泄漏原域 Cookie; Sec-Fetch-Site 按跳自洽)
     // [R15-d1-2] 修复(Med): 规则级 cfg.cookies 同款跨域泄漏在 curl 链补齐(与 fetchHttp
-    // 逐跳 hopCfg 同口径, 仅同 host 跳携带规则种子 Cookie)
-    const hopCfg = hostKeyOf(hopUrl) === hostKeyOf(url) ? cfg : { ...cfg, cookies: undefined }
+    // 逐跳 hopCfg 同口径, 仅同 host 跳携带规则种子 Cookie); [R22-e-4]: cfg.headers.Cookie
+    // 同类泄漏同批补齐(stripRuleSeedCookie 三链共用)
+    const hopCfg = hostKeyOf(hopUrl) === hostKeyOf(url) ? cfg : stripRuleSeedCookie(cfg)
     const headers = buildHeaders(hopUrl, hopCfg, ua, { fingerprint: true })
     const r = await curlOnce(hopUrl, headers, proxy, remaining)
     if (cfg.autoCookie !== false && r.setCookies.length) {
@@ -3138,14 +3219,36 @@ async function extractToken(body: string, pattern: string): Promise<string> {
   } catch { return '' }
 }
 
+// [R22-e-1] token 预取 URL 解析({url} 占位符全量替换, 2-fetcher Bug 11 口径)——
+//  prefetchToken 与 invalidateTokenCache 共用同一展开, 防两处各写一份 replace 逻辑漂移
+function resolveTokenRealUrl(tokenUrl: string, targetUrl: string): string {
+  return tokenUrl.includes('{url}') ? tokenUrl.split('{url}').join(encodeURIComponent(targetUrl)) : tokenUrl
+}
+
+// [R22-e-1] token 缓存键构造(prefetchToken 写入与失效删除共用同一函数, 修前键串内联在
+//  prefetchToken 中, 失效方无法等价重算出同键) —— 键 = 目标 origin|展开后预取 URL|提取式
+function tokenCacheKeyFor(targetUrl: string, cfg: FetchConfig): string {
+  return `${originHost(targetUrl)}|${resolveTokenRealUrl((cfg.tokenUrl || '').trim(), targetUrl)}|${(cfg.tokenPattern || '').trim()}`
+}
+
+// [R22-e-1] token 失效重取路径(修前缺失): 预取 token 注入即进 30s 进程内缓存, 会话型
+//  token 中途失效(签名过期/服务端轮换/出口 IP 变更)时, 缓存窗口内后续章节全部复用毒 token
+//  吃 403 —— 触发 hostRhythm 403 惩罚窗+退避白耗重试, 而同一次 fetchPageOnce 的重试链
+//  reqUrl 已定永远复用旧 token, 无重取机会。现目标端 403 且本次请求注入了 token 时删除缓存
+//  条目, 下一次抓取自然重新预取。幂等(条目不存在 no-op); 403 若为 UA/WAF 拦截所致则多花
+//  一次预取请求(预取端通常为操作员本机转换代理 127.0.0.1:301x, 成本可忽略)
+function invalidateTokenCache(targetUrl: string, cfg: FetchConfig): void {
+  if (!(cfg.tokenUrl || '').trim() || !(cfg.tokenPattern || '').trim()) return
+  tokenCache().delete(tokenCacheKeyFor(targetUrl, cfg))
+}
+
 /** token 预取(带 30s 进程内缓存): 失败返回 ''(静默降级, 不硬断链路) */
 async function prefetchToken(targetUrl: string, cfg: FetchConfig, ua: string): Promise<string> {
   const tokenUrl = (cfg.tokenUrl || '').trim()
   const pattern = (cfg.tokenPattern || '').trim()
   if (!tokenUrl || !pattern) return ''
-  let real = tokenUrl
-  // 2-fetcher Bug 11: 全量替换 {url}(原 replace 只替首个, 多占位符模板第二个起漏替换)
-  if (real.includes('{url}')) real = real.split('{url}').join(encodeURIComponent(targetUrl))
+  // [R22-e-1]: {url} 展开收敛到 resolveTokenRealUrl(与失效路径共用)
+  const real = resolveTokenRealUrl(tokenUrl, targetUrl)
   // 2-fetcher Part A: SSRF 守卫 —— tokenUrl 是操作员配置的预取端点(常为 127.0.0.1:301x
   // 转换代理), 允许 loopback; 但仍拒绝云元数据/私网(防恶意规则把 tokenUrl 指 10.0.0.1)
   const ssrf = await assertSafeTarget(real, { allowLoopback: true })
@@ -3156,7 +3259,8 @@ async function prefetchToken(targetUrl: string, cfg: FetchConfig, ua: string): P
   // 缓存键用【解析后】预取 URL(bb-g 修复): 原 tokenUrl 原串含 {url} 占位符时, 同 host 30s 内
   // 所有目标 URL 共享同一缓存槽 —— 第二章复用第一章的 f(url) token 必被目标端 403。
   // 固定 tokenUrl(会话型)时 real === tokenUrl, 缓存语义不变
-  const cacheKey = `${originHost(targetUrl)}|${real}|${pattern}`
+  // [R22-e-1]: 键构造收敛到 tokenCacheKeyFor(与失效删除共用同一函数)
+  const cacheKey = tokenCacheKeyFor(targetUrl, cfg)
   const cached = tokenCache().get(cacheKey)
   if (cached && Date.now() - cached.at < TOKEN_CACHE_TTL_MS) return cached.token
   // R4-1: in-flight 去重 —— TTL 过期瞬间 N 个并行章节请求同时 miss cache, 原实现每个都
@@ -3400,6 +3504,17 @@ async function trySolveTokenChallenge(url: string, html: string, cfg: FetchConfi
 
 // ============================================================
 // [R11-b-EN] 反反爬增强开关组(全部缺省关闭, 关闭时代码路径与现状逐字节等价)
+// [R22-e-7] 开启建议评估(逐项过审, 维持缺省全关不变 —— 仅把结论留档供运维选型):
+//  ① 可安全开启(纯自愈/纯减伤, 不改变成功路径响应形态):
+//    RETRY_AFTER_HONOR(尊重服务端 Retry-After 写 hostgate 冷却, 纯减伤)
+//    FETCH_BINARY_RETRY(封面瞬时失败一次重试, 永久失败不重试)
+//    FETCH_BODY_LEN_CHECK(截断检测, 仅无压缩响应参与比对, 误报面=零)
+//    CHALLENGE_ESCALATE(CF 强指纹跳过无效 Cookie 重试, 升级链为既有路径)
+//  ② 建议按需灰度(有可辩护的误拦面):
+//    RESPONSE_SANITY(JS 壳/乱码判拦 —— 重 JS 渲染型源站可能误拦, 先灰度观察)
+//    FETCH_AL_POOL(AL 方言分散, 同站恒定/跨站分散, 指纹面更分散但改变 AL 形态)
+//  ③ 场景开关: PROXY_HEALTH_SCORING(仅配置了代理池时有意义)/HOSTGATE_PACE_PROFILE
+//    (节奏观测面, 低开销, 排障期开启)/PATH_JITTER|pathJitter(规则级字段)
 // ============================================================
 // [R11-b-EN-1] RETRY_AFTER_HONOR: 429/503 响应携带合法 Retry-After(≥1s, 整数秒/HTTP 日期
 //  双形态已由 parseRetryAfterHeaderMs 解析并挂到抛错对象 retryAfterMs)时, 除既有
@@ -3502,12 +3617,15 @@ async function fetchPageOnce(url: string, cfg: FetchConfig): Promise<FetchResult
 
   // 通用 token 预取(bb-d): tokenUrl+tokenPattern 配置齐全时先取 token, 再按 tokenInjection
   // 注入('url'=URL 占位符替换/查询参数追加, 'header'=请求头); 未配置/预取失败原样直连
+  // [R22-e-1]: tokenInjected 供 403 失效重取判定(注入过 token 的请求吃 403 → 删预取缓存)
+  let tokenInjected = false
   let reqUrl = url
   let effCfg: FetchConfig = cfg
   if ((cfg.tokenUrl || '').trim() && (cfg.tokenPattern || '').trim()) {
     // R4-1: prefetchToken 现可 reject(in-flight promise 异常上抛), 失败时静默降级直连(零回归)
     const token = await prefetchToken(url, cfg, ua).catch(() => '')
     if (token) {
+      tokenInjected = true
       if (cfg.tokenInjection === 'header') {
         // 请求头名同样清洗控制字符与冒号(与 curl 头注入防护同口径)
         const name = (cfg.tokenHeaderName || 'X-Token').replace(/[\r\n\0:]+/g, '').trim() || 'X-Token'
@@ -3686,6 +3804,10 @@ async function fetchPageOnce(url: string, cfg: FetchConfig): Promise<FetchResult
       recordFailureClass(reqUrl, classifyHttpFailure(e))
       // [R9-a-8] B2: 403/429 惩罚记忆(429 优先尊重 Retry-After; 指数退避+抖动, 执行等待有界 3s)
       if (lastStatus === 403 || lastStatus === 429) noteHostHttpFailure(reqUrl, lastStatus, e?.retryAfterMs)
+      // [R22-e-1] token 失效重取路径: 注入了 token 的请求吃到 403 → 删除 30s 预取缓存条目,
+      // 下一次抓取自然重新预取(本请求的重试链 reqUrl 已定不做热替换, 与 Cookie 重试语义
+      // 互不干扰; 幂等, 条目不存在 no-op)
+      if (tokenInjected && lastStatus === 403) invalidateTokenCache(url, cfg)
       const bodyHtml: string = e?.bodyHtml || ''
       // [R11-b-EN-1] 增强: Retry-After 尊重(RETRY_AFTER_HONOR=1, 缺省关) —— 429/503 抛错对象
       // 已由 fetchHttp/curl 链抢救出 retryAfterMs(整数秒/HTTP 日期双形态), 此处即时写入
@@ -3837,8 +3959,9 @@ export async function fetchBinary(
       const visitedHops = new Map<string, number>([[url, 1]])
       for (let hop = 0; hop <= MAX_BINARY_REDIRECT_HOPS; hop++) {
         // [R9-a-6] C.1: 封面资源按图片请求形态构造 Accept(原先拿 HTML 形态 Accept 抓图, 指纹露馅)
-        // [R15-d1-2] 修复(Med): 规则级 cfg.cookies 跨域泄漏同款在封面链补齐(仅同 host 跳携带)
-        const hopCfg = hostKeyOf(hopUrl) === hostKeyOf(url) ? cfg : { ...cfg, cookies: undefined }
+        // [R15-d1-2] 修复(Med): 规则级 cfg.cookies 跨域泄漏同款在封面链补齐(仅同 host 跳携带);
+        // [R22-e-4]: cfg.headers.Cookie 同类泄漏同批补齐(stripRuleSeedCookie 三链共用)
+        const hopCfg = hostKeyOf(hopUrl) === hostKeyOf(url) ? cfg : stripRuleSeedCookie(cfg)
         const headers = buildHeaders(hopUrl, hopCfg, ua, { accept: 'image' })
         res = await fetch(hopUrl, { headers, signal: controller.signal, redirect: 'manual' })
         // R4-5: fetchBinary 逐跳存储 Set-Cookie —— 旧行为从未调用 cookieJar.store, 重定向链中

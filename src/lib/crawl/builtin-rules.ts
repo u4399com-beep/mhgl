@@ -2127,6 +2127,7 @@ export const BUILTIN_RULES: BuiltinRule[] = [
           "本站内容来源于网络[^。<>]*",
           "本站所有小说[^<>]*",
           "请记住本站[^<>]*",
+          "加入书签[^<>]*",
           "(www\\.)?[a-z0-9-]+\\.(com|net|cc|org|info|top|xyz|vip|site)(\\/\\S*)?",
           "本章未完.*?点击下一页继续阅读"
         ],

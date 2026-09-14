@@ -4306,3 +4306,138 @@ Work Log:
 
 Stage Summary:
 - 运维结论(替代 R21-tl 事故段表述): next-server 死亡=OOM(2.26GB 尖峰+chrome 挤压), 非沙箱回收; 处置=清 chrome+subshell 模式启动+watchdog 兜底, 服务已稳定
+
+---
+Task ID: R22-d
+Agent: browseract-eval
+Task: 评估 BrowserAct 浏览器能否/值不值得作为反反爬链路第 6 级引擎(纯调研, 零代码改动/零依赖安装)
+
+Work Log:
+- 检索方法: z-ai SDK web_search 6 轮 + page_reader 直读官网/ToS/data-api 页 + 直接抓取 docs.browseract.com/llms.txt 文档索引后按 .md 源文件批量精读 20+ 篇(概览/能力/定价/计费/API OpenAPI v3/代理/HITL 节点/FAQ/Agent CLI 全套) + GitHub browser-act/skills README; 只读参考 fetcher.ts 引擎链(3012 Scrapling/3016 cloak)与 types.ts engine 枚举; 临时文件全在 /tmp/r22d_* 已清
+- (a) 产品事实卡片: BrowserAct = 云端 AI 网页抓取/浏览器自动化 SaaS, 双实体运营(ToS 署名 Hongkong Ziniao Technology Co., Limited, 前实体 CYBER BYET PTE. LTD.; 媒体报道亦见 ECOCREATE TECHNOLOGY PTE. LTD., 新加坡/香港系); 产品形态三层: ①Cloud 无代码 Bot 平台(自然语言 Agent Built / 可视化 Workflow Built 两种构建, 每 Bot 绑定单一站点, Agent Built Bot 不可复制/共享) ②REST API v3(api.browseract.com, 仅"运行已发布 Bot"族端点, 无创建 Bot 端点) ③Agent CLI(uv+Python3.12, browser-act-cli, chrome/chrome-direct 本地免费, stealth 指纹浏览器/stealth-extract/solve-captcha/动态代理需 API key 走云端计费); 分发: 官网+AWS Marketplace+AppSumo+Product Hunt; 与同类定位差: Browser-Use=开源本地 agent 框架 / BitBrowser·AdsPower=反指纹多账号管理浏览器 / Scrapling·cloak-browser=自托管抓取库, BrowserAct=托管式"建一次 Bot 长期跑"的数据提取 SaaS
+- 核心能力(官方口径): 真 Chromium 云浏览器+stealth 指纹(Canvas/WebGL/字体/navigator.webdriver 归一+TLS 签名轮换); 代理=托管动态住宅(按 run 轮换, 5000 credits/GB)/静态(按月)/自定义(BYO, 支持 http+socks5); CAPTCHA 自动处理 reCAPTCHA v2/v3/Enterprise+Cloudflare Turnstile+CF Challenge+DataDome+HUMAN(PerimeterX), 官网宣称 99%+ 成功率(厂商口径未验证); Human Interaction 节点/CLI remote-assist 为可选人工兜底, 非强制 → 无人值守可行(通过一票否决项); 输出=结构化字段(JSON/CSV/XML/MD), API 侧拿不到任意 URL 的原始 HTML(唯一例外: CLI stealth-extract --content-type html 可回渲染后 HTML); 并发 Free 2/Basic 10/Essential 20/Advanced 40, 单任务上限 7h, API 宣称无限流, Standard Browser 模式单 Bot 同时仅 1 任务; 调度走 Make/n8n/Zapier/MCP, 无内置 cron; 运行期自修复(监控 agent 支持页变恢复)
+- 接入可行性(关键判定): ①Cloud API 是异步任务型而非渲染 API —— POST /v3/bots/{bot_id}/runs(Bearer key, input 须符 bot input_schema)→ task_id → 轮询 GET /v3/bots/runs/{task_id} 或 webhook(callback URL 禁私网/本地地址, 自托管后端只能轮询); 返回结构化字段非原始 HTML, 与 parser.ts 规则引擎(CSS 选择器/regex 直接吃 HTML)形状不匹配 ②无 Bot 创建/发布 API → 每接入一个站点都要人工进 Dashboard 建站专属 Bot, 与我们 seed-rule 单一数据源自动化流程冲突 ③CLI stealth-extract <url> --content-type html 是唯一"URL→HTML"原语, 形状上可桥接, 但 stealth 能力全走云端 key 计费且其 credit 消耗文档未载(证据缺口), 默认 --timeout 60s 提示单页延迟为十秒级; Bot run 则是分钟级异步任务 ④延迟无官方 SLA(证据缺口), 并发上限 2~40 不适配每日数千~数万页吞吐
+- 成本估算(按官方价目): credits 统一计费, Workflow Bot 5 credits/步, 一章页最少 Visit+Extract(+Wait)≈10-15 credits; 1 credit 单价 $0.00096(Basic 年付下限口径, 官网"as low as $0.0032/步")~$0.0016(Basic 月付), 即 $0.0064~0.024/页; 我方场景 3k 页/日≈9 万页/月=$576~2,160/月, 3 万页/日≈$5,760~21,600/月; 最高档 Advanced($120/月)仅含 10 万 credits 且月度清零不可滚存, 大规模需叠加 Credit Packs(同样月末清零); 免费层 200 credits≈13~20 页; 动态代理另计 $3.2/GB(可用 BYO 自定义代理规避); 对照 cloak-browser 自托管边际成本≈0 → 量级差 3~4 个数量级
+- 风险与合规: ToS 明文禁止"用本服务爬取违反其 ToS/robots/法律的网站" → 起点/番茄等明示反爬的硬目标恰是 BrowserAct 最能增值的场景, 对其使用即违反 BrowserAct 自身 ToS, 封号即损失预充 credits; 全部目标站数据/流量经第三方云(港/新实体)中转, 采集源与内容画像暴露给厂商; 账号处置为厂商 sole discretion 无 SLA; 支付走 Stripe/PayPal 实名
+- 证据缺口(如实): ①stealth-extract/stealth 浏览器会话的具体 credit 单价未在已读文档中载明 ②单页延迟无官方数据(仅 --timeout 60s 默认值与异步任务模型旁证) ③CAPTCHA 99%+ 为厂商宣称无法免费验证 ④"无 Bot 创建 API"基于 v3 OpenAPI 全量端点清单的 absence 判定(高置信)
+
+Stage Summary:
+- 结论: 不接入 —— ①形状不匹配(Cloud API 仅结构化字段输出无原始 HTML, 无 Bot 创建 API, 每站需人工 Dashboard 建站专属 Bot, 与 seed-rule 自动化流程冲突) ②成本不可行($0.0064~0.024/页 vs cloak-browser 边际 0, 我方吞吐下 $576~21,600/月) ③吞吐不适配(并发 2~40+单页十秒级+无延迟 SLA) ④合规风险(对反爬 ToS 站点使用即违反 BrowserAct ToS, 封号损失预充值; 数据经第三方出境)
+- BrowserAct 相对 cloak-browser 的真实增量仅两点: 内置 CAPTCHA 求解(reCAPTCHA/Turnstile/CF Challenge/DataDome/PerimeterX)与全托管免运维+住宅代理池; 但其价值场景(反爬最强站)恰是合规风险最大场景, 且可通过cloak-browser+打码平台自建方案获得部分等价能力
+- 复评触发条件(暂缓项留档): 若未来出现"某 Cloudflare 加固站为独占高价值内容源且 cloak-browser+Scrapling 持续失败", 可单独试用 CLI stealth-extract 作人工兜底(非 fetcher.ts 引擎位, 预估数十页/日成本可控); 若接入则改造面=新桥接 mini-service(包 browser-act-cli, uv+Python3.12 运行时, BROWSERACT_API_KEY env)或 Bun 直连 v3 API+轮询, fetcher.ts 降级链插位+FetchConfig 新增 browseract 开关/代理区域字段+credit 消耗监控 —— 本轮均不实施
+- 纪律: 零仓库文件改动/零依赖安装/零 git 操作, 临时文件 /tmp/r22d_* 已清
+---
+Task ID: R22-c
+Agent: smart-category-audit
+Task: 智能分类功能专项检查+修复(smart.ts 独占)+消费链只读勘察
+
+Work Log:
+- 链路勘察(全只读): 入书分类决策链=runner.ts crawlOneBook L1238(categoryName=detail解析→列表字段, cleanTextField 30) → L1239-1245 taskCfg.smartCategory 时调 smartCategory(bookName, intro, sourceCategory) → smart.ts 四级决策(source 模糊映射既有分类 → 简介含既有分类名直中 → 关键词评分表 → LLM 兜底15s超时) → runner L1246-1283 category.upsert(P2002 3次退避) → bookData.categoryId → L1327-1360 建书/更新落库; 后台展示/管理=CategoriesSection(CRUD+批量删/重排)+books/batch category 动作(updateMany, 空串→null); 重采链=books/[id]/recrawl L47 与 batch recrawl L120 均 smartCategory:false 意图"保留已有分类"
+- 数据形态核验(bun:sqlite readonly, 零写): 库中 2 书/1 分类"玄幻"/1 站(80ge)/1 任务(smartCategory=1, 仍 running); 《重生老太…》(年代重生文)被归"玄幻"——实证为玄幻关键词'逆天'(逆天改命)与都市'重生'打平 2:2 按表序误判; 《全民神祇…》category=null——词表零命中+生产 LLM 未回命中分类; 无空白/异常 category 值(0 条)
+- 功能探针(bun mock.module 拦截 @/lib/db+z-ai-web-dev-sdk, 纯函数级零DB零真网): 12 样本(经典玄幻/真实两书/耽美/纯数字/全角ＡＩ/英文大小写/既有分类直中/源站分类/urban误伤防线/空输入)修前跑出 4 处缺陷实证, 修后 12/12 符合设计; 完结判定半区回归 7/7 PASS(本轮改动零波及)
+- 修复 [R22-c-2](Med, smart.ts): matchCategoryByText 文本归一化 normalizeCategoryText(全角 FF01-FF5E→半角+全角空格+小写) —— 修前 'ＡＩ觉醒' 命不中 'AI'、首字母大写 "War" 命不中 ' war '; 纯 ASCII 关键词改走 wordMatches \b 词边界(复用完结判定同款), 弃 R9-a-17 空格边界方案(' urb '/' war ' 带空格原样匹配在真实简介中永假=死关键词, urban 语义由 \burban\b 恢复且 suburban/turban 仍不误伤——探针 S11 实证)
+- 修复 [R22-c-3](Med, smart.ts): 关键词表修订——玄幻去'逆天'(真实库误分类实证)+增'神祇'/'神国'(全民流); 都市 ' urb '→'urban'+增'七零'/'八零'/'九零'(年代文); 军事 ' war '→'war'; 新增耽美行(耽美/纯爱/原耽/主受/攻受, 置于轻小说前使'耽美+校园'打平时耽美优先)
+- 修复 [R22-c-4](Low, smart.ts): LLM 兜底在分类表为空时提前返回 none(提示词无从选项, 回答必然匹配失败, 只省一次网络调用+15s 超时预算; 关键词命中仍在上一步放行, 首个分类由关键词表自举不受影响)
+- 质量门: bun run lint 0 错 0 警 + bunx tsc --noEmit 0 错(串行); 完结判定词表/wordMatches/Bug28 修复全数在位未动; 智能分类相关死代码零(matchCategoryByText/detectCompleteFromText 去 export 系 R19-b-3 既定, 全库仅文件内消费维持); smart.ts mode 755→644 按 R20/R21 先例归一; /tmp 探针用毕已删; 数据库零写入/prisma 零写/未重启 dev server/零新增依赖
+- 消费链缺陷(不属本 agent 辖区, 已列精确建议待主控落地): runner.ts 增量更新路径无条件回写 categoryId(含 null)——会覆盖用户手改分类/在源站无分类字段且智能分类失败时把既有分类清成 null(数据破坏风险, books/[id]/recrawl 的"重采保留已有分类"注释只对源站无分类字段成立)
+
+Stage Summary:
+- 修复清单: [R22-c-2](Med) 分类匹配全角/大小写归一+英文关键词 \b 词界(死关键词 ' urb '/' war ' 复活且防误伤保持) | [R22-c-3](Med) 词表实证修订(玄幻-逆天+神祇/神国, 都市+urban/七零/八零/九零, 军事+war, 新增耽美行) | [R22-c-4](Low) 空分类表跳过 LLM 兜底
+- 探针矩阵 12/12 PASS(修前 4 缺陷实证→修后归位)+完结判定回归 7/7 PASS; 质量门 lint 0/0+tsc 0 错
+- 待主控落地(消费链): runner.ts L1334-1347 增量路径分类保持(建议见回报 (d) 节); 另注: runner 对 smartCategory 的调用语义与 UI 文案"无分类时自动归类"存在偏差(源分类会被关键词/LLM 重归一), 属设计取舍已在回报中说明未改
+---
+Task ID: R22-g
+Agent: docs-rewrite
+Task: 重写小白安装部署图文教程（DEPLOY.md / docs/INSTALL-GUIDE.md / README.md 三文件再升级）
+
+Work Log:
+- 真值核对先行（零编造）: 逐项读源码核对 package.json scripts(dev tee dev.log/build/start/db:push 带 --accept-data-loss/db:generate/db:migrate/db:reset) / .zscripts/dev.sh 六步流程(bun 检查→install→db:push→后台起 dev→等 3000 就绪 60×1s+curl 健康检查→扫描启动 mini-services, _shared 无 dev script 故恰为 8 服务, 日志 .zscripts/mini-service-<名>.log) / dev-watchdog.sh(30s 探测 127.0.0.1:3000, 仅不可达才 setsid bun run dev, 内部硬编码 /home/z/my-project 已在文档警示) / .env.example(DATABASE_URL=file:./db/custom.db/ADMIN_PASSWORD=audit-fix-2025/SESSION_SECRET) / src/lib/auth.ts(默认密码 audit-fix-2025/会话 12h/登录限流 5 次/60s/预览提示仅非生产且密码=默认值) / mini-services 8 服务端口(3010 bqg713/3011 fetch-relay/3012 scrapling Python/3013 qimao/3014 deqixs/3015 xjp/3016 cloak 仅 dev script/3017 qidian, 全部 127.0.0.1) / builtin-rules 27 条(逐 key+name 全量核对, 修 R21 文档遗留的"25 条"陈旧计数→27) / TaskWizard(STEPS=选规则/配范围/调度/确认, 范围模式列表 URL 必填*, {page}/{offset:N} 占位符+其余花括号字面量警示, 三档节奏 慢 1-2线程 3-5s/标准 2-3线程 1-2s/快 3-5线程 0.5-1s, autoRefresh 默认 30min 钳 5~1440, 重采 incremental/full, 智能分类/完结/建议) / Task 状态机 pending/running/paused/stopped/done/error+重启孤儿回收 paused(runner recoverOnBoot 实证) / backup.ts BACKUP_BIG_BOOKS_THRESHOLD=200(大库降级元数据导出) / TasksSection 3s 轮询+启动/暂停/停止/监控按钮 / install.sh 输出文案([完成] 小说管理系统部署完成!) / docker-compose(非 root uid1001+chown 1001:1001+healthcheck+AUTO_FILL 默认 7 站) / 校准模拟源站 3040 / seed.ts 空库守卫演示数据
+- docs/INSTALL-GUIDE.md 全量重写(1053→1490 行): 新增第 0 章(一页看懂: mermaid 架构图+ASCII 对照版+旅程 mermaid 流程图+名词小词典); 第 1 章新增硬件 OOM 史警示框(2.26GB dev 尖峰实录)+Bun 三 OS 安装命令表(Linux curl/macOS brew/Windows PowerShell/npm 兜底)+Git 四平台+新手终端速成(ssh/nano/粘贴); 第 2 章 HTTPS/SSH/zip 三方式+国内加速表; 第 3 章新增 bunfig.toml npmmirror 镜像源加速; 第 4 章逐变量含义表; 第 5 章 Prisma 图解+db:push --accept-data-loss 与 db:reset 双警示; 第 6 章 dev.sh 六步流程 ASCII 盒图+生产 nohup+dev-watchdog OOM 自愈专节(机制/≤35s/启用/路径硬编码警示)+Docker 简述; 第 7 章 密码来源对照+限流 5 次/60s; 第 8 章采集全流程扩为 9 节(导入 27 条内置规则→建站点(前台按 Site 渲染依据 api/public/sites+HomeView site.id 实证)→四步向导逐格讲→{page}/{offset:N} 翻页原理三站点对照例(含 aijjxs 0 基页码 {offset:1} 真实用例)→任务状态机 mermaid stateDiagram→暂停/停止/续采准确语义表(重启回收 paused/增量跳过已采)→规则测试面板排错三步→mini-service 依赖对照表+出口代理写法→主题/伪静态/SEO 导览→报错速查); 第 9 章运维(备份双轨+200 本大库降级/日志排查地图 6 类日志/健康自检 curl+compose healthy/升级四连/磁盘); 第 10 章 FAQ 16→21 条(新增页面偶发 502 OOM 自愈/采集 0 本书排查/备份 JSON 大库/时区/升级后任务 paused 语义/起点正文凭证与镜像失效注记), 全部转为 ### 标题使锚点可跳转; 第 11 章附录 A~F(目录树/端口表含 3040/环境变量表/打印贴墙命令速查卡/三文档分工/检查清单)
+- DEPLOY.md 重写(566→544 行, 生产向重组): 新增一、部署方式选型表(四路线对比+数据形态恒等); 保留验证状态诚实声明三层; Docker 章节(一键/手动/非 root chown/自动填充/密码源/环境变量速查); 新增三、本机直跑生产部署(no nohup/tmux/systemd 三选一守护+watchdog 定位声明+mini-services 常驻); 升级/回滚含 git checkout 回滚; 备份双轨+200 阈值; 新增六、安全加固清单表; mini-services Docker 定位; 运维 FAQ 13 条深度条目(新手 21 条交叉引用教程); 校准全节保留; 交付物清单含 .zscripts 两脚本
+- README.md 重写(129→116 行, 门面定位): 快速开始压缩为 Docker 3 行+Bun 4 行双路线代码块; 功能特性更新(27 条规则/违禁词/校准/OOM 守护/SSR TDK); mini-services 表启动命令按真实 scripts 修正(cloak 用 dev); 目录结构补 .zscripts/docs/scripts/ratelimit-site.ts; 常用命令表; 免责声明保留
+- 一致性自检: 三文件 intra-doc 锚点全量脚本校验 0 失配; "25 条"陈旧计数 0 残留; 所有命令与仓库脚本逐一对应(未发明命令); mermaid 2 图+stateDiagram 1 图(GitHub 可渲染)+ASCII 兜底
+- 纪律: 仅改三个独占文件+worklog; 零代码改动/零依赖/零 git commit/未重启任何服务/数据库零接触
+
+Stage Summary:
+- 三文件交付: docs/INSTALL-GUIDE.md 1490 行(0~11 章+附录 A~F, 21 条 FAQ, 3 mermaid+10 ASCII 图+10 截图位) / DEPLOY.md 544 行(十节生产运维专篇) / README.md 116 行(门面+10 行内快速开始)
+- 相对 R21 增量: 25→27 条规则计数修正(README/教程/DEPLOY 全量) / 新增 OOM 自愈 watchdog 专节与 502 FAQ / 新增 {offset:N} 翻页原理详解(0 基页码实例) / 新增任务状态机与暂停续采语义 / 新增建站点步骤(前台渲染依赖实证) / 新增 bunfig.toml 镜像源 / 新增三 OS Bun 安装表 / FAQ 16→21 条且锚点可跳转 / 附录新增命令速查卡与端口表(含 3040) / DEPLOY 新增选型表+systemd 守护+安全加固清单 / README 快速开始压缩至 10 行内
+- 核对过的事实清单: package.json 8 scripts / dev.sh 六步与日志路径 / watchdog 30s 仅端口不可达拉起+硬编码路径 / .env.example 三核心变量 / auth.ts 默认密码 audit-fix-2025+12h+5 次/60s / 8 个 mini-service 端口 3010~3017 与绑定 127.0.0.1(cloak 无 start script) / builtin-rules 27 条全 key+name / 备份阈值 200 / 向导四步+{page}/{offset:N}+三档节奏参数+autoRefresh 30min 钳 5~1440 / 任务状态机与重启回收 paused / install.sh 输出文案 / compose 非 root uid1001+AUTO_FILL 默认 7 站 / 校准 3040 三档 / 时区无 TZ 配置(容器 UTC 事实陈述)
+
+---
+Task ID: R22-f
+Agent: runner-audit
+Task: runner.ts 逐行深度审查+精简(状态机/续采对账/发现循环/内存/错误恢复/进度日志/边界配置)
+
+Work Log:
+- 通读 runner.ts 全量(修前 2210 行)+交叉核对 worklog R18-b/R18-c(发现 L4007"已知边界"留档: 范围任务重启后在库连载书被 discovered 集合挡住不入队, feat-combo-theme-incremental 增量复查跨重启不触发属刻意留档)与 feat-contentproxy-resume/feat-combo-theme-incremental 原始设计记录, 确认续采口径为"只处理新增书籍"是既有决策非回归
+- 状态机审查结论: 暂停/停止/换代(epoch)在发现循环(L907-910 循环头+暂停等待)/书籍循环/crawlOneBook 四处 waitIfPaused+stopped 检查/章节重排阶段A~E 入口/正文批次循环(循环头+DB live 守卫)全覆盖; sleepGap 600ms 切片可中断; end 块/finally/崩溃 catch 三重 epoch+stopped+paused 让位在位; stop→disposeRuntime 后旧循环靠 orphan rt.stopped 退出(不依赖 epoch 漂移, 语义闭合); 佐证: 真库在跑任务(80ge) progress 字段形态(phase/contentDone 50/1335/ongoingBookUrls+bookLastChapters 1 条/空数组被 replacer 省略)与代码逐点吻合
+- 修复清单:
+  ①[R22-f-1](Med, L1826-1872) 正文批次循环 DB live 读取失败死锁 —— 修前 Bug 19 的修复在 findUnique 抛错时置 rt.paused=true+continue, 但下一轮迭代先经循环顶暂停等待(同 rt.paused 门控), 该标志仅有 control('start') 恢复(需操作员)与 live 读取成功后清除(在暂停等待让路前不可达)两个复位点 → 一次瞬时 DB 故障(SQLite busy)即令批次循环永久静默停摆, 注释承诺的"60s 自愈"不成立且 ghost sweeper 因 isRunning()=true 不回收; 修后不触碰 rt.paused, 改有界 sleepGap(2000) 退避重读(期间不 splice 批次, 保留"无法确认非暂停就不推进"语义), 失败告警加 liveReadFailed 节流(状态翻转才打一条), DB 恢复 2s 内自动续采
+  ②[R22-f-2](Low, L486-493) pruneRuntimesIfNeeded "僵尸暂停驱逐"死分支 —— 旧 isPausedStale 含 !rt.running 恒假(control('pause') 不清 running), R3-10 宣称的 paused+1h 未活跃驱逐从未生效, 僵尸暂停可把 runtimes Map 顶满 200 后无候选可驱逐; 修后仅以 paused+1h 未活跃判定(驱逐后 resume 走全新启动路径从 progress 重建, 语义等价); 顺手勘误两处"保畬"错别字→保留
+  ③[R22-f-3](Low, L1107-1114) 队列恰好排空瞬间按暂停的幽灵 running —— 旧实现 end 块三让位条件含 !rt.paused, 跳过 done 写且不留任何状态写, DB 停留 running 而循环已退出, 只能靠 ghost sweeper ≤5min 兜底; 修后 else if(rt.paused && !isStale()) 显式落 'paused'(stop 场景不进本分支, epoch 漂移仍不写)
+  ④[R22-f-4](Low, L899-906/L949-958) 发现阶段连续空页熔断 —— 旧实现 listStart..listEnd 逐页请求到底(配 10 万页=10 万次无效请求), DISCOVERY_MAX_URLS 只计新增书籍数对全空页永不触发; 新增 DISCOVERY_EMPTY_PAGE_BREAK=10: 连续 10 页"解析成功但 0 条书籍"判定越过站点末页提前终止翻页; 口径刻意只按"当页解析 0 条"计数(不按"新增 0 本"—— 续采轮全页都是已发现书籍不可误熔断), 抓取失败(404/限流冷却恢复期)走逐页 error 路径不计数
+  ⑤[R22-f-5](Low, L888-893) 空模板防呆 —— 任务 listUrl 与规则 urlTemplate 均空时(API 直建任务/规则缺 list 段, parseRuleConfig 缺省 urlTemplate=''), 发现循环每页 url='' 静默空转零日志, 发现 0 本难排查; 补一次性 warn 点破
+  ⑥[R22-f-6](注释纠偏) L935-938/L1042-1044/L799-801 三处"续采只处理新增/未采完书籍""'blocked'/'empty-toc' 不入集合(下次重试可恢复)"过时/失实表述, 改按实际口径(未采完书同被 discovered 跳过挡住, 属 R18-c 已知边界留档)
+- /tmp 纯逻辑验证(/tmp/r22f-test.ts, bun, 用毕已删): 20/20 PASS —— 对账 9 例(空集零查询/恰好500=1批/501=2批/1203=500+500+203/同URL两行0+1000章 Math.max 保守保留/无记录剔全集合+lastChapters 同步清理/0章节∈completed 剔除而仅∈discovered 保留/queryDb 抛错原样上抛零剔除/跨三集合去重单次查询) + 页号展开防呆 9 例(%7Bpage%7D 双形态/{offset:0} 钳1/%7Boffset%3A10%7D/{page} 双出现 replaceAll/{offset:1} 0基页码 R21-tl 口径/{cat} 告警/合法模板与 %E4 编码不误伤/{OFFSET:5} 归一) + 空页熔断计数 2 例(连续10空页恰第20页触发/续采非空页不触发); 注: reconcileResumeSetsCore 经 R21-e-5 去 export, 验证脚本逐字复刻当前实现体
+- API 只读核验: 登录+GET /api/admin/tasks 实测任务字段形态(mode/listUrl/recrawlMode/status/progress JSON)与状态机理解逐点吻合, 零写操作
+- 其余审查结论(零修复留档): ①内存: bookQueue/urls 有 DISCOVERY_MAX_URLS 500k 上界, listFields 函数作用域轮末释放, existChapters 10k/50k 两级钳, rt 四集合跨轮无上界但受站点书量约束+持久化 50k slice(-50000) 保最新(R8-6) ②进度: saveProgress 每列表页/每书/每 50 章, dirty 标志跳过未变集合 ③边界: listStart>listEnd/bookStart>bookEnd 越界 slice 钳空数组安全落地, interval/threads 经 randInt+clampMin 钳 ≥1, hostGate 与 threads 双维独立 ④章节重排 P2002/P2025 swallowExpectedDb 收口/聚合统计 .catch 收口/跨源去重/连载增量末章 R8-20 规范化比较均既有硬化在位
+- 质量门: bunx eslint src/lib/crawl/runner.ts 0 错; bunx tsc --noEmit src/ 0 错(全库 6 个 error 均在 scripts/verify-r22-rules.ts —— 并行 agent 新增文件; 全库 bun run lint 的 1 个 error 在 cleaner.ts —— 并行 agent 在途文件, 均非本轮辖区); 数据库零写/未跑任何采集任务/未重启 dev server/零新增依赖; 真库在跑任务(80ge)全程未触碰
+
+Stage Summary:
+- 修复 5 项: [R22-f-1](Med) 批次循环 DB 读失败静默死锁→2s 有界退避自愈 | [R22-f-2](Low) 僵尸暂停 LRU 驱逐死分支激活 | [R22-f-3](Low) 排空瞬间暂停的幽灵 running 显式落 paused | [R22-f-4](Low) 发现循环连续 10 空页熔断(防 listEnd 误配 10 万次无效请求) | [R22-f-5](Low) 空模板防呆告警
+- 精简: +68/-13 行(净 +55, 均为修复注释与防护逻辑; 零死代码可删 —— 全部 import 符号与模块级函数经逐一核实均在位消费; 2 处"保畬"错别字+3 处过时注释勘误)
+- 审查结论: 状态机/对账(Math.max 保守判定/分批边界/fail-open)/错误恢复(swallowExpectedDb/熔断/hostGate 降额)/边界配置经逐行核实无新增缺陷; "范围任务重启不重访在库未采完书籍(连载增量复查不触发)"为 R18-c 刻意留档边界, 本轮仅注释对齐未改语义, 如需"续采补未采完书"请主控决策(改动点=发现循环跳过条件+queued 语义, 牵动 autoRefresh 轮请求量)
+---
+Task ID: R22-a
+Agent: main-orchestrator(补完: 原 agent 超时, 脚本 triage+主控跑批)
+Task: 27 条内置采集规则全量四段复测 + \n/&nbsp; 空白实体清洗专项
+
+Work Log:
+- 原 R22-a agent 超时, 留下 scripts/verify-r22-rules.ts 半成品(6 处 tsc 错); 主控修复(R22-a-fix: 自引用 as typeof json 收窄 never / noUncheckedIndexedAccess 首元素断言 / isEnv 交叉类型), tsc 归零
+- 后台整跑进程被沙箱静默回收 → 改前台分批跑(脚本支持 ruleKey 定向): 4 批共 27 条, 全程新实证
+- 复测结论: 21 条全四段 PASS(含主控修复后 kanunu8/hodei) + 5 条 ENV 新鲜实证(77shuku=CN代理超时/wanben=IP层封锁/ratelimit-demo=3040未启动/qidian=镜像TLS证书过期(R21已留档)/bqg713 content=上游慢致90s护栏超时, 3010 服务自检 selfTestOk=true, 其余3段PASS) + 1 条已知设计边界(fanqie book=聚合API detail 空对象, runner 列表字段补偿, R21 ll-c2 留档)
+- 清洗专项(全量表面审计): 字段级/正文级 &nbsp;/U+00A0/全角空格残留=0(本轮 R22-b 修复生效); 空行形态 tight/standard 达标; 发现并修复 2 处规则级缺陷: kanunu8 松散空行289处→R22-b-9 清洗器段间坍缩根治; hodei「加入书签，方便阅读」噪声行→R22-a-1 种子 adPatterns 补丁+重生成注册表
+- kanunu8/hodei 修复后复跑均全四段 PASS
+
+Stage Summary:
+- 27 条规则: 21 全 PASS + 5 ENV(带新鲜实证, 均与 R21 分类一致) + 1 设计边界; 复测资产 scripts/verify-r22-rules.ts 可复跑(bun scripts/verify-r22-rules.ts [ruleKey...])
+- 结果 JSON: /tmp/verify-r22-results.json(临时, 已随清理删除)
+---
+Task ID: R22-b
+Agent: main-orchestrator(补完: 原 agent 在 cleaner.ts 完成后超时)
+Task: 正文清洗链逐行审查 + \n/&nbsp;/空行/噪声专项修复
+
+Work Log:
+- 原 R22-b agent 完成 cleaner.ts 全部 7 项修复后在 parser.ts 审查前超时; 主控 triage: 改动完整规范, 仅 1 处未用变量 lint 错 → 修复(R22-b-8 移除残留 prev 声明)
+- 落地修复清单(均在 cleaner.ts): [R22-b-1] cleanTextField 单步 \s+→' '(单个裸 U+00A0/\u3000/U+2028/2029 入库根修); [R22-b-2] 行级 UNICODE_SPACE_RE(\u00a0\u1680\u2000-\u200a\u202f\u205f\u3000→普通空格, 正文纯文本+简介双出口); [R22-b-3] br 带属性形态识别(换行链+br-br 段落切分双处, <br class=x> 修前丢段); [R22-b-4] 孤立 \r 归一(极旧 Mac 形态整段粘连根修); [R22-b-5] 空壳清理循环化(嵌套块级/内联壳/段首 &nbsp; 实体缩进/块间 br 垫片); [R22-b-6] 命名实体覆盖面 6→40+(mdash/hellip/ldquo/ensp/emsp/thinsp/zwsp 等, 修前字段出口残留字面量); [R22-b-7] 孤立代理区码点显式拒绝(&#xd800; 产出非法转义根修); [R22-b-9](主控) 段间原始空白坍缩 </p>\s+<p(kanunu8 289 处松散空行根治)
+- parser.ts 主控补审(结构级): 清洗职责在 cleaner 层分离清晰, extractField→applyTransform→runner cleanTextField 链路无实体/空白漏点; R21 26/26 边界探针结论仍有效
+- 离线夹具烟测: 14 项(字段级 U+00A0/\u3000/U+2028/实体双转义/孤立代理/br属性/\r 归一/嵌套空壳/段首缩进/广告行/简介) 13 直接过 + 1 项主控夹具预期写错(HTML 模式段间裸 \n 为渲染惰性空白, 非缺陷) → 零回归确认
+
+Stage Summary:
+- 用户点名的 \n、&nbsp; 转换清洗全链路闭环: 实体解码覆盖面/裸 Unicode 空白/空行形态/噪声行四维全修复, 存库字节级干净
+---
+Task ID: R22-e
+Agent: main-orchestrator(补完: 原 agent 改动完成后超时)
+Task: fetcher.ts 逐行深度审查 + 反反爬增强 + 精简
+
+Work Log:
+- 原 R22-e agent 完成 fetcher.ts 全部 8 项修复后超时(未及写 worklog); 主控逐 hunk 审查确认实现完整(非半成品), lint/tsc 全绿
+- 落地修复清单(均在 fetcher.ts): [R22-e-1] token 失效重取路径(30s 预取缓存内 token 中毒 → 403 时删缓存重预取, 键构造/URL 展开收敛共用函数); [R22-e-2] proxyState 状态 Map 有界化(多规则多任务下无界增长根修); [R22-e-3] 浏览器引擎 Cookie 注入迁移(extraHTTPHeaders 全请求附加→ctx.addCookies 按 origin 作用域, 修跨域子资源泄漏+CF 同名覆盖, 双回退保底); [R22-e-4] 跨 host 跳规则种子 Cookie 泄漏补齐(stripRuleSeedCookie 三链共用); [R22-e-5] MIUI 双段 locale UA 解析修复(指纹自洽); [R22-e-6] Cookie 键值合并 helper 收敛+控制字符剥除(native 链 Headers 脏值炸抛根修); [R22-e-7] HTTP/2 指纹边界说明+9 开关逐项开启建议留档(维持默认全关); [R22-e-8] 死导出清理(rg 全库含 archive 零引用实证)
+- 全量 +147 行, 8 个修复标签齐备
+
+Stage Summary:
+- 反反爬链路 8 处实质增强/修复, 重点: token 中毒自愈、Cookie 作用域正确化、代理状态有界化; 引擎降级链行为无回归(27 条复测同步验证)
+---
+Task ID: R22-z
+Agent: main-orchestrator
+Task: R22 收官: 质量门 + E2E + 提交
+
+Work Log:
+- 质量门: bun run lint 0 错 0 警 + bunx tsc --noEmit 0 错(全库); mode 755 伪差异按先例还原 644
+- 浏览器 E2E: 登录门渲染 → audit-fix-2025 登录 → 仪表盘 16 模块侧栏全渲染 → 前台预览真实书库(星河鹭起 3 书)渲染 → page errors 0 / console errors 0; 浏览器关闭+chrome 进程组清杀(OOM 前科防复发)
+- 多 agent 编成: R22-c(智能分类)✅ R22-d(BrowserAct 评估)✅ R22-f(runner 审查)✅ R22-g(教程重写)✅ R22-a/b/e 超时由主控 triage 补完✅
+- 主控直落: [R22-c-1](High) runner.ts 增量更新不回写 categoryId(用户手改分类防冲掉/防 null 清空, 自愈回填); [R22-a-1] hodei 噪声补丁; [R22-b-8/9] 清洗器收尾
+- 提交: 本节随 R22 全量工作树提交
+
+Stage Summary:
+- R22 交付: 27 条规则全量复测闭环(21 PASS+5 ENV+1 设计边界) + 清洗链 9 项修复(\n/&nbsp; 专项) + fetcher 8 项增强 + runner 6 项修复 + 智能分类 4 项修复(词表死键复活/全角归一/耽美行/LLM 空表跳过) + BrowserAct 评估(结论: 不接入) + 三文档重写(1490/544/116 行) + 数据破坏级缺陷 1 个(High) 根修

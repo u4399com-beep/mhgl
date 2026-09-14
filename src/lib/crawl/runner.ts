@@ -483,8 +483,15 @@ export class TaskRunner {
     for (const [k, rt] of this.runtimes) {
       if (evicted >= MAX_EVICT) break
       const last = rt.lastActiveAt || 0
-      const isPausedStale = rt.paused && !rt.running && (now - last) > PAUSED_STALE_MS
-      // 优先驱逐无熔断冷却记忆的终态条目; 冷却中的终态条目也优先保畬(60s 窗口短, 不碍 LRU)
+      // [R22-f-2](Low) 修"僵尸暂停驱逐"永不触发的死分支: 旧判定 isPausedStale = rt.paused &&
+      //  !rt.running && …, 但 control('pause') 只置 rt.paused 不清 rt.running(运行中任务的
+      //  暂停态, running 保持 true 直至 stop/自然终态), !rt.running 恒假 → R3-10 注释宣称的
+      //  "paused + 1h 未活跃一并驱逐"从未生效, 僵尸暂停条目可把 runtimes Map 顶到 200 上限
+      //  后无候选可驱逐(全部 running=true)。修后仅以 paused + 1h 未活跃判定; 驱逐后操作员
+      //  resume 走 control('start') 全新启动路径(从 progress 重建集合, 进度以最近检查点为准),
+      //  语义等价可恢复
+      const isPausedStale = rt.paused && (now - last) > PAUSED_STALE_MS
+      // 优先驱逐无熔断冷却记忆的终态条目; 冷却中的终态条目也优先保留(60s 窗口短, 不碍 LRU)
       // R3-10: paused 态 + 1h 未活跃也驱逐(僵尸暂停, 操作员不会再来 resume)
       if (!rt.running && (!rt.circuitTrippedAt || (now - rt.circuitTrippedAt) >= CIRCUIT_COOLDOWN_MS) || isPausedStale) {
         this.runtimes.delete(k)
@@ -500,7 +507,7 @@ export class TaskRunner {
     const rt = this.runtimes.get(taskId)
     if (!rt) return
     if (rt.running) return // 活跃任务(epoch/暂停态在用), 不释放
-    if (rt.circuitTrippedAt && Date.now() - rt.circuitTrippedAt < CIRCUIT_COOLDOWN_MS) return // 冷却窗口内, 保畬记忆
+    if (rt.circuitTrippedAt && Date.now() - rt.circuitTrippedAt < CIRCUIT_COOLDOWN_MS) return // 冷却窗口内, 保留记忆
     this.runtimes.delete(taskId)
   }
 
@@ -790,7 +797,8 @@ export class TaskRunner {
       // 创建的 TaskRuntime, 初始为空 Set(冷启动场景)。已运行过的任务从 DB progress 装载已发现/
       // 已采集 URL 列表 → Set, 让范围任务重启时按 Set 跳过已处理的书籍(免再抓书籍页/目录/正文)。
       // recrawlMode==='full' 任务启动时清空两 Set(完全覆盖重采语义: 用户明确要重采全部书籍);
-      // 增量模式保留 Set 让续采只处理新增/未采完的书籍
+      // 增量模式保留 Set 让续采只处理新增书籍(已发现未采完的书同被跳过 —— R18-c 已知边界
+      // 留档: 在库连载书增量复查跨重启不触发, 与发现循环跳过同口径)
       if (cfg.task.recrawlMode === 'full') {
         rt.discoveredBookUrls = new Set<string>()
         rt.completedBookUrls = new Set<string>()
@@ -878,11 +886,25 @@ export class TaskRunner {
         if (/\{[^{}]*\}|%7B[^%]*%7D/i.test(rawTemplate.replace(/\{page\}|\{offset:\d+\}/g, ''))) {
           await this.log(taskId, 'warn', `列表URL模板含引擎不识别的占位符(仅支持 {page}/{offset:N}): ${rawTemplate.slice(0, 160)} —— 请将 {cat} 等手工替换为具体值`)
         }
+        // [R22-f-5] 防呆: 双来源模板均为空(任务向导强制范围模式填 listUrl, 但 API 直建任务/
+        //  规则缺 list 段时可达 —— parseRuleConfig 缺省 list.urlTemplate='')。发现循环每页
+        //  url='' 走 continue 空转(零请求零日志), 任务静默"发现 0 本"难以排查, 此处点破
+        if (!rawTemplate) {
+          await this.log(taskId, 'warn', '列表URL模板为空(任务 listUrl 与规则 urlTemplate 均未配置), 发现阶段无 URL 可抓, 请补全后重跑')
+        }
         // R9-d-3: 单轮发现上限熔断 —— listStart/listEnd 允许配置到 100000 页, 极端配置下
         // urls/listFields/discoveredBookUrls 三个集合无上限增长(2M 书 × ~100B ≈ 数百 MB 堆),
         // 且发现阶段不可中断收尾。达上限即停止翻页并落库已发现部分(继续走采集阶段, 可通过
         // bookStart/bookEnd 或续采分批处理余量), 防内存无界。量级: 500000 × 100B ≈ 50MB 安全余量
         const DISCOVERY_MAX_URLS = 500_000
+        // [R22-f-4] 连续空页熔断 —— 页码越过站点真实末页后源站通常返回"解析成功但 0 条书籍"
+        //  的空列表页, 旧实现会把 listStart..listEnd 逐页请求到底(配置 10 万页 = 10 万次无效
+        //  请求+日志), DISCOVERY_MAX_URLS 只计新增书籍数对全空页永不触发。连续 10 空页判定
+        //  已越过末页, 提前终止翻页(已发现部分照常进入采集)。口径: 只按"当页解析出 0 条"
+        //  计数, 不按"新增 0 本"计数 —— 续采轮 list 页全是已发现书籍(新增 0 但页面非空)不可
+        //  误熔断; 抓取失败(404/网络/限流冷却恢复期)走逐页 error 路径不计数, 防误熔断
+        const DISCOVERY_EMPTY_PAGE_BREAK = 10
+        let consecutiveEmptyPages = 0
         for (let p = cfg.task.listStart; p <= cfg.task.listEnd; p++) {
           if (rt.stopped || isStale()) break
           while (rt.paused && !rt.stopped && !isStale()) await sleep(600)
@@ -912,7 +934,9 @@ export class TaskRunner {
             // feat-contentproxy-resume(范围任务续采): 已发现过的书籍 URL 不再加入 bookQueue
             // (节省后续书籍页/目录/正文抓取; 已采集过的书籍会被 completedBookUrls 跳过整本)
             // 本地 Set 用于本轮内去重(同一 URL 在多页/同页重复出现只入队一次); 跨任务重启时
-            // 由 progress.discoveredBookUrls 装载, 范围任务续采只处理新增/未采完书籍
+            // 由 progress.discoveredBookUrls 装载。注意:"续采只处理新增书籍"是刻意口径 ——
+            // 已发现未采完的书(含在库连载书的跨重启增量复查)同样被本跳过挡住, 属 R18-c
+            // 已知边界留档(其 feat-combo-theme-incremental 增量复查跨重启不触发)
             let newlyDiscovered = 0
             let alreadyDiscovered = 0
             for (const u of pageUrls) {
@@ -924,6 +948,16 @@ export class TaskRunner {
               urls.push(u)
               newlyDiscovered++
               rt.dirtyDiscovered = true // R8-5: mark dirty after mutation
+            }
+            // [R22-f-4] 空页计数与熔断(口径见上方常量注)
+            if (pageUrls.length === 0) {
+              consecutiveEmptyPages++
+              if (consecutiveEmptyPages >= DISCOVERY_EMPTY_PAGE_BREAK) {
+                await this.log(taskId, 'warn', `连续 ${consecutiveEmptyPages} 页列表无书籍(P${p}), 判定已越过站点末页, 提前终止翻页(已发现 ${urls.length} 本继续采集; 如需更多请检查 listUrl 模板与 listEnd 配置)`)
+                break
+              }
+            } else {
+              consecutiveEmptyPages = 0
             }
             for (const it of parsed.items) {
               const u = it.fields.url || it.fields.bookUrl
@@ -1006,7 +1040,9 @@ export class TaskRunner {
           // feat-combo-theme-incremental: 状态分流由 crawlOneBook 内部完成 ——
           // detectedStatus==='completed' 时 crawlOneBook 已将 bookUrl 加入 rt.completedBookUrls;
           // detectedStatus==='ongoing'/'unknown' 时加入 rt.ongoingBookUrls + 记录末章 URL。
-          // 'blocked'/'empty-toc'/'stopped' 不入任何集合(下次重试可恢复)。本处仅触发
+          // 'blocked'/'empty-toc'/'stopped' 不入任何集合(章节保持未采态, 本进程后续增量轮
+          // 可补; 范围任务【重启】后的重访受 discovered 跳过语义约束 —— R18-c 已知边界留档)。
+          // 本处仅触发
           // saveProgress 把 Set/Map 落库, 不再硬塞 completedBookUrls(避免连载书被误判完结整体跳过)
           if (bookResult === 'ok') {
             await this.saveProgress(taskId, progress, stats)
@@ -1072,6 +1108,13 @@ export class TaskRunner {
           if (cfg?.task.autoRefresh) {
             this.scheduleAutoRefresh(taskId, cfg.task.refreshIntervalMin, cfg.task.name)
           }
+        } else if (rt.paused && !isStale()) {
+          // [R22-f-3](Low) 队列恰好排空瞬间用户按下暂停: 上方三让位条件含 !rt.paused → 旧实现
+          //  跳过 done 写且不留任何状态写, DB 停留 'running' 而循环已退出(内存 paused) ——
+          //  幽灵 running 只能靠 ghost sweeper ≤5min 兜底回收为 paused。修后显式落 'paused'
+          //  (尊重暂停意图, 终态即刻一致; epoch 漂移时不写, 终态权归新循环; stop 场景不进本
+          //  分支 —— control('stop') 已置 rt.paused=false 且自写 'stopped')
+          await this.serializeStatusWrite(taskId, 'paused').catch(() => {})
         }
         await this.saveProgress(taskId, progress, stats)
       }
@@ -1334,6 +1377,12 @@ export class TaskRunner {
       } else {
         const upd: any = { ...bookData }
         if (coverPath) upd.cover = coverPath
+        // [R22-c-1](High·数据破坏, R22-c 智能分类审查移交主控落地): 增量更新不回写分类 ——
+        // 修前 bookData 恒含 categoryId(可能为 null), 每次增量刷新都无条件覆盖既有分类:
+        // 用户手改的分类被冲掉; 源站无分类字段且智能分类未命中时更是把既有分类清成 null。
+        // 新语义: 既有分类(用户手改/历史归类)恒保留; 旧书无分类且本次归出新分类时回填(自愈);
+        // 两者皆无时 null 不写。完全覆盖(full)路径不动 —— 全量重建本就重置一切属设计内
+        if (existing.categoryId || !categoryId) delete upd.categoryId
         if (detectedStatus !== 'unknown') {
           upd.status = detectedStatus
         } else {
@@ -1771,6 +1820,8 @@ export class TaskRunner {
     // tt-c: 任务级连续错误熔断 —— 连续真实章节失败(源站超时/抓取异常, 不含无链接/HostGate限流/停止中止)
     // 达阈值即中止本书后续请求: 防止站点改版/被反爬拦截时引擎无休止硬敲(烧站点+烧出口IP),
     // 同时把任务推向 error 终态(autoRefresh 任务会按计划自动重试, 站点恢复后自愈)
+    // [R22-f-1]: live 状态读失败节流标志(仅状态翻转时打一条, 防 DB 长故障期每 2s 一条刷屏)
+    let liveReadFailed = false
     let consecutiveErrs = 0
     while (queue.length > 0) {
       if (rt.stopped || rt.epoch !== myEpoch) break
@@ -1782,8 +1833,15 @@ export class TaskRunner {
       let interval = nextInterval()
       // Bug 19: DB 读取独立 try/catch —— 修前 findUnique 抛错时被外层 catch 吞, 顺带走到
       // queue.splice 处理一个批次(无法确认任务非暂停即推进采集, 与"暂停不处理批次"语义冲突)。
-      // 现读取失败时安全默认 rt.paused=true(不确认非暂停就不处理), continue 跳过本次迭代;
-      // 下次迭代重读成功则清除暂停标志恢复采集(60s 循环周期内自愈)
+      // [R22-f-1](Med) 修复 Bug 19 修复自身引入的静默死锁: 旧实现读取失败时置 rt.paused=true
+      //  再 continue, 但下一轮迭代先经过循环顶部暂停等待(同 rt.paused 门控) —— 该标志仅有
+      //  两个复位点: control('start') 恢复(需操作员介入)与本函数 live 读取成功后的清除,
+      //  而后者在暂停等待让路前永不可达 → 一次瞬时 DB 故障(SQLite busy/连接抖动)即令批次
+      //  循环在暂停等待处永久阻塞且无任何后续日志(ghost sweeper 也因 isRunning()===true
+      //  不回收, DB 又是 running) —— 注释承诺的"60s 循环周期内自愈"实际不成立。修后:
+      //  不触碰 rt.paused(操作员暂停/恢复内存信号不被污染), 有界退避 2s 后重读; 期间不
+      //  splice 批次(保留 Bug 19 的"无法确认非暂停就不推进采集"语义), 停止/暂停/换代在
+      //  sleepGap 内照常即时生效, DB 恢复后 2s 内自动续采
       let live
       try {
         live = await db.task.findUnique({
@@ -1791,13 +1849,15 @@ export class TaskRunner {
           select: { threadMin: true, threadMax: true, intervalMin: true, intervalMax: true, status: true },
         })
       } catch {
-        // DB 读取失败: 安全默认暂停, 跳过本批次(不确认非暂停就不推进采集)
-        if (!rt.paused) {
-          rt.paused = true
-          await this.log(taskId, 'warn', '任务状态读取失败(DB 故障), 批次循环临时挂起(稍后自动重试)').catch(() => {})
+        // DB 读取失败: 跳过本批次不推进采集(不确认非暂停就不处理), 有界退避后重试
+        if (!liveReadFailed) {
+          liveReadFailed = true
+          await this.log(taskId, 'warn', '任务状态读取失败(DB 故障), 批次推进挂起(2s 退避重试, DB 恢复后自动续采)').catch(() => {})
         }
+        await sleepGap(2000, rt, myEpoch)
         continue
       }
+      if (liveReadFailed) liveReadFailed = false
       if (live) {
         // DB 状态守卫: 外部把任务改 paused/stopped(recoverOnBoot/管理操作)时, 内存循环同步停下,
         // 防止"内存运行中/DB已暂停"的僵尸状态各自为政
@@ -1809,8 +1869,10 @@ export class TaskRunner {
           }
           continue
         }
-        // Bug 19: DB 读取成功且非暂停/停止 —— 清除可能的 DB 故障临时挂起标志, 恢复采集
-        // (修前不滑除, 一次 DB 故障永久挂起任务直到手动 resume)
+        // [R22-f-1] 兜底复位内存暂停标志: [R22-f-1] 后 rt.paused 不再由 DB 读取失败置位,
+        // 只可能来自外部 DB 暂停同步(上方 live.status==='paused' 分支, 该分支 continue 不会
+        // 走到这里)或恰在本轮迭代间隙落地的操作员暂停(微秒窗口) —— 读到非暂停态即复位,
+        // 竞态代价最多多推进一个批次, 下一轮 live 守卫立即重新同步
         if (rt.paused) rt.paused = false
         threads = randInt(clampMin(live.threadMin, live.threadMax), live.threadMax)
         interval = randInt(clampMin(live.intervalMin, live.intervalMax), live.intervalMax)

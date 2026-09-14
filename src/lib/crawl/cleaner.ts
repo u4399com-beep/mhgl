@@ -129,7 +129,16 @@ export function t2sHtml(html: string): string {
  *  展示的转义字面量被吃掉; 单遍正则一次消费后扫描指针越过已替换文本, &amp;lt;
  *  恒解码为字面量 "&lt;"(与浏览器对已解码文本的展示语义一致)。数字实体复用
  *  fromCodePointSafe(越界/孤立代理区返回空) */
-const ENTITY_RE = /&(?:nbsp|amp|lt|gt|quot|apos|#x[0-9a-f]+|#[0-9]+);/gi
+// [R22-b-6] 命名实体覆盖面扩展: 修前仅 6 个基础实体+数字/十六进制, 常见命名实体
+// (&mdash; &hellip; &ldquo; &middot; &ensp; 等)在纯文本/字段/简介出口残留字面量
+// "&mdash;" 字符串进库 —— HTML 模式经 cheerio 解析层已全量解码, 两出口口径不一致
+// (实测 cleanTextField('书名&mdash;续') → '书名&mdash;续')。新增集与 parser.htmlToDoc
+// 的 XML 序列化映射表(mdash/ndash/ldquo/rdquo/lsquo/rsquo/hellip/middot/copy/reg/
+// trade/times/divide/laquo/raquo/deg/euro/pound/yen)对齐, 另补空格三兄弟(ensp/emsp/
+// thinsp)/bull/plusmn/sect/para/cent/分数/上标/箭头/shy/zwsp; shy/zwsp 解码产物为
+// 不可见字符, 由随后的 INVISIBLE_CHARS_RE 剥离(各路径解码后均紧跟该剥离)。单遍语义
+// 不变: &amp;mdash; 恒解码为字面量 "&mdash;" 不链式
+const ENTITY_RE = /&(?:nbsp|ensp|emsp|thinsp|amp|lt|gt|quot|apos|mdash|ndash|lsquo|rsquo|ldquo|rdquo|hellip|middot|bull|copy|reg|trade|deg|plusmn|times|divide|laquo|raquo|euro|pound|yen|cent|sect|para|frac12|frac14|frac34|sup2|sup3|larr|rarr|uarr|darr|harr|shy|zwsp|#x[0-9a-f]+|#[0-9]+);/gi
 // [R9-cl-2] 整合: 控制字符剥离正则本文件内 4 处同款重复, 提取为具名常量(\t\n\r 保留口径不变)
 const CTRL_CHARS_RE = /[\x00-\x08\x0B\x0C\x0E-\x1F]/g
 // [R21-c-2] 不可见 Unicode 剥离: 零宽字符(\u200b-\u200d ZWSP/ZWNJ/ZWJ)/方向标记(\u200e\u200f)/
@@ -139,6 +148,12 @@ const CTRL_CHARS_RE = /[\x00-\x08\x0B\x0C\x0E-\x1F]/g
 // 躲避广告正则命中、读者复制出隐形字符。downloader.obfuscateText 的零宽混淆发生在清洗之后的
 // TXT 导出侧, 与本剥离互不影响
 const INVISIBLE_CHARS_RE = /[\u00ad\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/g
+// [R22-b-2] Unicode 空格家族(不含行终止符与 \t —— 按行消费时行分隔符已拆走): 裸写的
+// \u00a0(nbsp)/\u1680/\u2000-\u200a/\u202f/\u205f/\u3000(全角空格)。与实体解码口径对齐:
+// ENTITY_BASIC 把 &nbsp; 解码为普通空格 ' ', 但源站【裸写】的同族字符此前原样残留(字段级
+// 书名/作者中部、正文/简介行中部实测), 破坏精确匹配/去重/检索且各出口字节不一致。行级
+// 归一为普通空格(行首尾由既有 trim 吃掉)
+const UNICODE_SPACE_RE = /[\u00a0\u1680\u2000-\u200a\u202f\u205f\u3000]/g
 // [R13-2] 内容块级标签集合: 白名单剥壳时这些标签的开闭边界补 \n(段落分隔), 供
 // "按换行重建段落"复原分段。覆盖容器/段落/表格/列表/标题/语义分区; 内联标签
 // (span/b/i/a/font…)不入集 —— 行内文本不因标签边界断行。hr 视觉即分隔线
@@ -179,21 +194,41 @@ function stripHtmlTags(html: string): string {
 function htmlToPlainLines(html: string): string {
   if (!html) return ''
   const text = html
+    // [R22-b-4] \r 归一: 修前仅靠按行 trim 吃掉行尾 \r(\r\n 形态正确), 孤立 \r(源站
+    // 极旧 Mac 形态)整段粘成一行且行中部残留 \r 进库; 统一先归一为 \n 再走换行链
+    .replace(/\r\n?/g, '\n')
     .replace(/<(script|style|noscript|iframe|object|embed)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, ' ')
     .replace(/<(script|style|noscript|iframe|object|embed)\b[^>]*\/>/gi, ' ')
     // R5-16: 截断/未闭合的 script|style|... 段 —— 贪婪匹配到串尾, 杜绝 JS 代码/样式漏进纯文本
     .replace(/<(script|style|noscript|iframe|object|embed)\b[^>]*>[\s\S]*$/gi, ' ')
-    .replace(/<\s*br\s*\/?>/gi, '\n')
+    // [R22-b-3] br 匹配放宽到带属性形态: 修前 <\s*br\s*\/?> 只认裸 <br>/<br/>, 源站
+    // <br class="x">/<br style="…"/> 不被换行、随后被标签剥离静默删除 → 相邻行粘连成一段
+    // (纯文本出口实测丢段); \b 防误配 <brx>, [^>]* 容忍任意属性(属性内 > 的畸形标签与
+    // 旧口径同样受限, 由标签剥离兜底)
+    .replace(/<\s*br\b[^>]*>/gi, '\n')
     .replace(CONTENT_BLOCK_TAG_LINEBREAK_RE, '\n')
   return decodeEntitiesOnce(stripHtmlTags(text))
     .replace(CTRL_CHARS_RE, '')
     .replace(INVISIBLE_CHARS_RE, '')
 }
-const ENTITY_BASIC: Record<string, string> = { nbsp: ' ', amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }
+const ENTITY_BASIC: Record<string, string> = {
+  nbsp: ' ', amp: '&', lt: '<', gt: '>', quot: '"', apos: "'",
+  // [R22-b-6] 常见命名实体(见 ENTITY_RE 注释)
+  ensp: '\u2002', emsp: '\u3000', thinsp: '\u2009', mdash: '\u2014', ndash: '\u2013',
+  lsquo: '\u2018', rsquo: '\u2019', ldquo: '\u201c', rdquo: '\u201d', hellip: '\u2026',
+  middot: '\u00b7', bull: '\u2022', copy: '\u00a9', reg: '\u00ae', trade: '\u2122',
+  deg: '\u00b0', plusmn: '\u00b1', times: '\u00d7', divide: '\u00f7', laquo: '\u00ab',
+  raquo: '\u00bb', euro: '\u20ac', pound: '\u00a3', yen: '\u00a5', cent: '\u00a2',
+  sect: '\u00a7', para: '\u00b6', frac12: '\u00bd', frac14: '\u00bc', frac34: '\u00be',
+  sup2: '\u00b2', sup3: '\u00b3', larr: '\u2190', rarr: '\u2192', uarr: '\u2191',
+  darr: '\u2193', harr: '\u2194', shy: '\u00ad', zwsp: '\u200b',
+}
 function fromCodePointSafe(cp: number): string {
-  if (!Number.isFinite(cp) || cp < 0 || cp > 0x10ffff) return ''
+  // [R22-b-7] 孤立代理区(0xD800-0xDFFF)显式拒绝: 修前注释声称"String.fromCodePoint 对代理区
+  // 抛 RangeError"不实 —— 规范只对越界/非整数抛错, 代理区码点原样返回孤立代理(bun 实测),
+  // 随后 JSON 序列化产出非法转义/入库链路可能损坏。数字实体 &#xd800; 类输入一律拒绝返回空
+  if (!Number.isFinite(cp) || cp < 0 || cp > 0x10ffff || (cp >= 0xd800 && cp <= 0xdfff)) return ''
   try {
-    // 孤立代理区(0xD800-0xDFFF) String.fromCodePoint 直接抛 RangeError
     return String.fromCodePoint(cp)
   } catch {
     return ''
@@ -228,7 +263,9 @@ export function cleanContentHtml(raw: string, cfgOverride?: Partial<CleanConfig>
     text = removeAdLines(text, cfg.adPatterns)
     text = text
       .split('\n')
-      .map((l) => l.trim())
+      // [R22-b-2] 行中部裸 \u00a0/\u3000 等归一为普通空格(与 &nbsp; 实体解码口径一致),
+      // 行首尾由 trim 吃掉 —— 纯文本出口不再有非常规空白字节
+      .map((l) => l.replace(UNICODE_SPACE_RE, ' ').trim())
       .filter(Boolean)
       .join('\n\n')
     // 不再结尾二次 t2sText: 入口 t2sHtml 已转完 —— 转换非幂等(含「乾」的文本第二遍
@@ -384,17 +421,44 @@ export function cleanContentHtml(raw: string, cfgOverride?: Partial<CleanConfig>
         // 修复: 替换前先用 <p>...</p> 整体包裹, 这样 <br><br> 替换产生 </p><p> 必然
         // 配对成 <p>line1</p><p>line2</p>(外层 <p> 充当首个开标签 + 末个闭标签)。
         out = '<p>' + out + '</p>'
+        // [R22-b-3] br-br 识别同步放宽到带属性形态(与换行链/空壳清理同一 br 口径)
         out = out
-          .replace(/<\s*br\s*\/?\s*>\s*<\s*br\s*\/?\s*>/gi, '</p><p>')
+          .replace(/<\s*br\b[^>]*>\s*<\s*br\b[^>]*>/gi, '</p><p>')
       }
     }
     // 修复: 空段落清理由 <p></p> 扩展到 <p>空白/&nbsp;/纯<br></p>, 消除广告行删除后残留的空壳段落
     // (<br><br>→</p><p> 替换在边界处可能产生空 <p></p>: 如开头 <br><br> → </p><p> 会产出
     // 前置 <p></p>; 此处一并清掉。纯文本输入无标签零匹配, 共用零开销)
-    out = out
-      .replace(/<p>(?:\s|&nbsp;|<br\s*\/?\s*>)*<\/p>/gi, '')
-      .replace(/<p>\s+/g, '<p>')
-      .replace(/\s+<\/p>/g, '</p>')
+    // [R22-b-5] 空壳清理再扩展(循环至不再变化, 嵌套壳逐层剥; 无壳输入恰好一轮判定退出):
+    //  ① 空块级壳 <h2></h2>/<li></li>/<div><br></div>(自定义白名单放行该标签时)/
+    //     <blockquote>/<center>/<ul>/<ol> —— 空白/&nbsp;/纯<br> 内容的块级元素渲染为带
+    //     margin 的幽灵空行, 此前只有 <p> 版本被清(实测 <h2></h2> 存活);
+    //     td/th/table 不入集(保持表格结构完整性)。反向引用 \1 防跨标签错配;
+    //  ② 空内联壳 <p><b></b></p>/<b>&nbsp;</b> —— 广告正则吃掉 <b>广告文本</b> 的文本后
+    //     白名单内联壳残留(实测 <p><b></b></p> 存活), 剥空内联后下一轮剥空 <p>;
+    //  ③ <p> 首尾的空白/&nbsp;/<br> 修剪扩到 &nbsp; 实体形态 —— cheerio 序列化把 \u00a0
+    //     还原成 &nbsp; 字面量, 修前 <p>\s+ 类正则对它失明, 段首 &nbsp; 缩进残留入库(实测);
+    //     同口径清理 <p> 内首尾 <br>(渲染为段内首/尾空行噪声);
+    //  ④ 块间游离 <br> 垫片与首尾裸 <br> —— <div><br></div>(div 非白名单)剥壳后残留
+    //     </p>\n<br>\n<p> 形态(实测), 渲染为段间空白行; 首尾裸 br 同为噪声。仅处理与
+    //     <p>/<\/p> 相邻或串首尾的垫片, 不触碰正文行内的真实换行 br
+    // [R22-b-8] 收尾: 移除循环残留的未用 prev 声明(收敛判定走 next===out 比对, lint 修复)
+    for (; ; ) {
+      const next = out
+        .replace(/<(p|div|h[1-6]|li|ul|ol|blockquote|center)\b[^>]*>(?:\s|&nbsp;|<br\b[^>]*>)*<\/\1>/gi, '')
+        .replace(/<(b|strong|em|i|u|span|font|small|big|sub|sup|s|del|ins|mark|a)\b[^>]*>(?:\s|&nbsp;|<br\b[^>]*>)*<\/\1>/gi, '')
+        .replace(/<p>(?:\s|&nbsp;|<br\b[^>]*>)+/gi, '<p>')
+        .replace(/(?:\s|&nbsp;|<br\b[^>]*>)+<\/p>/gi, '</p>')
+        .replace(/<\/p>\s*(?:<br\b[^>]*>\s*)+(?=<p[\s>])/gi, '</p>')
+        .replace(/^(?:\s|&nbsp;|<br\b[^>]*>)+/i, '')
+        .replace(/(?:\s|&nbsp;|<br\b[^>]*>)+$/i, '')
+      if (next === out) break
+      out = next
+    }
+    // [R22-b-9] 段间原始空白坍缩: br-br 包裹产物在 </p> 与 <p> 之间残留源站原始换行
+    //  (kanunu8 实测 </p>\n\n\n<p> 形态 289 处) —— 浏览器渲染为无(块级间空白惰性), 但
+    //  存库冗余、纯文本表面化后呈 3+ 连续空行、审计口径不过。坍缩到零间距, 渲染零差异
+    out = out.replace(/<\/(p|h[1-6]|li|blockquote)>\s*(?=<)/gi, '</$1>')
   }
   // 5. 若无任何块级段落标签, 按换行重建段落 —— [R13-1] 判据用包裹前状态且与 normalize
   // 包裹互斥(纯文本输入不再被包裹污染), 旧判据检查包裹后的 out 恒含 <p>, 重建永不触发
@@ -499,10 +563,12 @@ export function cleanTextField(raw: string | undefined | null, maxLength?: numbe
   v = v.replace(INVISIBLE_CHARS_RE, '')
   // 繁体→简体(检测未命中原样返回)
   v = t2sText(v)
-  v = v
-    .replace(/[\r\n\t]+/g, ' ')
-    .replace(/\s{2,}/g, ' ')
-    .trim()
+  // [R22-b-1] 字段级空白归一: 修前两步(\r\n\t→' ' 再 \s{2,}→' ')会残留【单个】非常规空白 ——
+  // 实测书名/作者中部的裸 \u00A0、\u3000(全角空格)与 \u2028/\u2029(行/段分隔符)原样入库,
+  // 而同源的 &nbsp; 实体经解码已是普通空格(ENTITY_BASIC), 两口径不一致且破坏精确匹配/去重/检索。
+  // 改单步 \s+→' ': JS \s 恒等覆盖 Unicode 空格家族+行终止符, 既有两步的全部折叠结果逐字节
+  // 不变, 纯增量清掉单个非常规空白(修后 '第\u00A0一\u00A0章'→'第 一 章')
+  v = v.replace(/\s+/g, ' ').trim()
   if (maxLength && v.length > maxLength) {
     // 按码点截断(UTF-16 slice 会把 emoji 等 astral 字符代理对斩半产出乱码 U+FFFD)
     v = sliceCodePoints(v, maxLength)
@@ -514,7 +580,8 @@ export function cleanTextField(raw: string | undefined | null, maxLength?: numbe
 export function cleanIntro(raw: string | undefined | null, maxLength = 2000): string {
   if (!raw) return ''
   // [R21-c-3] 块级开+闭边界 → \n(与正文链同口径, 未闭合 <p>/<div> 链简介不再粘连)
-  let v = String(raw).replace(/<\s*br\s*\/?>/gi, '\n').replace(CONTENT_BLOCK_TAG_LINEBREAK_RE, '\n')
+  // [R22-b-4] 孤立 \r 归一(与 htmlToPlainLines 同口径, 行拆分前统一换行语义)
+  let v = String(raw).replace(/\r\n?/g, '\n').replace(/<\s*br\b[^>]*>/gi, '\n').replace(CONTENT_BLOCK_TAG_LINEBREAK_RE, '\n')
   // [R21-c-4] 标签剥离改引号感知
   v = stripHtmlTags(v)
   v = decodeEntitiesOnce(v)
@@ -526,7 +593,8 @@ export function cleanIntro(raw: string | undefined | null, maxLength = 2000): st
   v = removeAdLines(v, DEFAULT_CLEAN_CONFIG.adPatterns)
   v = v
     .split('\n')
-    .map((l) => l.trim())
+    // [R22-b-2] 行中部裸 \u00a0/\u3000 等归一为普通空格(与 cleanTextField/正文纯文本出口同口径)
+    .map((l) => l.replace(UNICODE_SPACE_RE, ' ').trim())
     .filter(Boolean)
     .join('\n')
   if (v.length > maxLength) v = sliceCodePoints(v, maxLength)
