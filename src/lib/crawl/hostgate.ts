@@ -269,11 +269,17 @@ function settleRateLimitExpiry(st: HostState): void {
     // R5-3: 冷却到期时回滚 minGapMs 到冷却前快照 ——
     // reportHostRateLimited 触发后, acquire 路径会把 minGapMs 抬到 cooldownImpliedGap(如 30s);
     // 冷却到期若不回滚, 同 caller(同 minGapMs 值)继续走 else 分支 max(30000, 500)=30000,
-    // 一次 429 永久毒杀该 caller 的节奏。回滚到 minGapMsBeforeCooldown(若已记录)
-    if (st.minGapMsBeforeCooldown > 0) {
-      st.minGapMs = st.minGapMsBeforeCooldown
-      st.minGapMsBeforeCooldown = 0
-    }
+    // 一次 429 永久毒杀该 caller 的节奏。回滚到 minGapMsBeforeCooldown。
+    // [R21-d-1] 修复: 原实现 `if (minGapMsBeforeCooldown > 0)` 把快照值 0 当"未记录"跳过 ——
+    // 但 reportHostRateLimited 首次推后冷却时【无条件】记录当时 minGapMs(minGapMs=0 的 caller
+    // 快照就是 0, 属合法已记录值)。minGapMs=0 的 caller(interval 0 的任务/未传节奏的调用方)
+    // 吃一次 429 后: 冷却期内 acquire 把 st.minGapMs 抬到 cooldownImpliedGap, 到期回滚被跳过,
+    // 同 caller 继续走 MAX 合并分支 → minGapMs 永久卡在冷却抬升值(30s 级), 单次 429 毒杀该
+    // host 全部后续准入(实测 bun 复现: 回滚后应 0 实际 1000)。改为无条件回滚 ——
+    // 不变式: 每个非零 rateLimitedUntil 都由 reportHostRateLimited 首推时写入快照(写值含 0 合法),
+    // 冷却期内 caller 换代时 R6-2 同步刷新快照, 故快照恒为"当前 caller 期望值", 回滚恒安全。
+    st.minGapMs = st.minGapMsBeforeCooldown
+    st.minGapMsBeforeCooldown = 0
   }
 }
 

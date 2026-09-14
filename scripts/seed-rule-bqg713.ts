@@ -42,6 +42,13 @@
 //       网络错误/超时/403/5xx 换组内下一镜像重试, 404/2xx/3xx 不触发; token 预取按重写后
 //       URL 重签), fetch.mirrorDomains 配三备援域(顺序=优先级)。2026-08-31 dd-b 真网探测
 //       三域全活(同章同 token 链路 200+同长 txt), 规则由此钉死单域的历史遗留闭环
+//   → R21-b 根治(2026-09-14 真网实证): apibi.cc 已死(恒403), apiqu.cc 按章节粒度被投毒
+//     (成人诱饵文本, 水印 'biquio点cc'+'srsp.cc'); 真实正文 = www.bqg413.cc / apige.cc 的
+//     明文 txt 字段(无 RC4, /api/hm 为纯遥测信标, 不参与解锁)。正文改走 3010 /unlock 端点
+//     (deqixs degrade-native 契约): fetch.contentProxyUrl 为 SSRF loopback 豁免键,
+//     引擎探测自指→404→降级直连 toc 合成的 /unlock URL → 主机池逐台取章+诱饵水印校验
+//     → {ok,content}; tokenUrl 三件套移除(unlock 内部自签 enaes token, 无需预取)。
+//     逆向证据与主机池契约详见 mini-services/bqg713-proxy/index.ts 头注释。
 //
 // 引擎侧配套(Task aa-c): types.ts FieldRule.type 增加 'json'(JSON点路径)/'const'(常量模板
 // {字段名}/{index}/{q.查询参数}), itemSelector json 数组路径支持逗号并集; sanitize 白名单同步;
@@ -52,9 +59,9 @@ export {}
 const rule: RuleSeed = {
   name: '笔趣阁bqg713(www.bqg713.cc)·纯JSON API站采集',
   description:
-    'www.bqg713.cc 纯JSON API站(SPA壳+hash路由无SSR)。列表 /api/index 并集路径(hotlist,sort1~6)/书籍 /api/book/目录 /api/booklist(纯章节名数组, chapterid=下标+1, const模板合成章节API URL)/正文 apibi.cc/api/chapter(txt字段, AES-CBC token 参数)。' +
-    '正文段经外置转换代理 mini-services/bqg713-proxy:3010 对接引擎 tokenUrl {url} 钩子(按章签发AES token), 章节 URL 指向站点真实 API 域名 apibi.cc(www 域 /api/chapter 被 WAF 403 属历史误配)。' +
-    'dd-b: fetch.mirrorDomains 配三备援域 apibi.cc,apiqu.cc,apige.cc(主域网络错误/超时/403/5xx 引擎自动切镜像, token 按镜像域重签)。',
+    'www.bqg713.cc 纯JSON API站(SPA壳+hash路由无SSR; 已301迁域 www.bqg413.cc, 引擎跟随重定向)。列表 /api/index 并集路径(hotlist,sort1~6)/书籍 /api/book/目录 /api/booklist(纯章节名数组, chapterid=下标+1)。' +
+    '[R21-b] 诱饵正文根治: 章节镜像 apibi.cc 已死(恒403)/apiqu.cc 按章节粒度被投毒(成人诱饵文本, 水印 biquio点cc+srsp.cc), 旧 tokenUrl+txt 链路命中被毒镜像; 真实正文 = www.bqg413.cc / apige.cc 的明文 txt 字段(无 RC4, /api/hm 为纯遥测信标)。' +
+    '现正文走 mini-services/bqg713-proxy:3010 /unlock 端点(deqixs degrade-native 契约): fetch.contentProxyUrl 为 SSRF loopback 豁免键, 探测自指→404→引擎降级直连 toc 合成的 /unlock URL → 主机池(www.bqg413.cc→apige.cc+家族动态学习)逐台取章, 诱饵水印校验(长度下限+水印签名)剔除毒镜像后返回 {ok,content}。',
   enabled: true,
   config: {
     list: {
@@ -95,9 +102,9 @@ const rule: RuleSeed = {
       fields: {
         title: { type: 'json', expression: '.' },
         // {q.id}=目录页(/api/booklist?id=xxx)查询参数; {index}=1基序号(=chapterid)
-        // cc-d2: 章节正文改指站点真实 API 域名 apibi.cc(www 域被 WAF 403);
-        // 保留明文 id/chapterid 参数形态 —— 外置代理按其合成 token, 引擎注入后带 token 同发
-        url: { type: 'const', expression: 'https://apibi.cc/api/chapter?id={q.id}&chapterid={index}' },
+        // R21-b: 章节URL合成走 3010 /unlock(deqixs degrade-native 契约) —— 引擎 contentProxyUrl
+        // 探测自指→404→降级直连本 URL; url 参数裸形态(& 不编码), 代理侧内外层合并解析 id/chapterid
+        url: { type: 'const', expression: 'http://127.0.0.1:3010/unlock?url=https://apige.cc/api/chapter?id={q.id}&chapterid={index}' },
       },
       // JSON目录API单次全量返回, 无HTML翻页
       pagination: { enabled: false, maxPages: 1 },
@@ -107,8 +114,8 @@ const rule: RuleSeed = {
       fields: {
         // 章节名=chaptername( runner 以目录title入库, 此字段供测试面板/后续对账 )
         title: { type: 'json', expression: 'chaptername' },
-        // 正文=txt(纯文本\n分段) — 章节URL已改指 apibi.cc + token 注入(cc-d2)
-        content: { type: 'json', expression: 'txt' },
+        // R21-b: 正文=/unlock 端点返回的 content 字段(主机池诱饵校验后的真实正文纯文本\n分段)
+        content: { type: 'json', expression: 'content' },
       },
       pagination: { enabled: false, maxPages: 1 },
     },
@@ -121,26 +128,26 @@ const rule: RuleSeed = {
       retries: 2,
       waitMs: 500,
       browserFallbackStatus: [403, 429, 503],
-      // ── cc-d2: AES-token 外置转换代理对接(bb-d tokenUrl {url} 占位符钩子) ──
-      // 预取 /rewrite?url=<enc(当前请求URL)> → JSON .token 字段(按章 AES-CBC 签发)
-      // → tokenInjection=url 无占位符时引擎自动追加 &token=<enc> 查询参数。
-      // list/book/toc 段 URL 无 id/chapterid 双参数 → proxy 404 → 引擎静默降级直连(明文API不受影响);
-      // 预取带 30s 进程内缓存且缓存键含 real URL(bb-g 修复), 逐章 token 不串台
-      tokenUrl: 'http://127.0.0.1:3010/rewrite?url={url}',
-      tokenPattern: 'token',
-      tokenInjection: 'url',
+      // ── R21-b: 正文诱饵根治链(deqixs degrade-native 契约) ──
+      // contentProxyUrl 双重职责: ①toc 合成的 loopback /unlock URL 的 SSRF 豁免键
+      // ②引擎逐 fetch 探测(自指双包裹→404→降级直连) —— 探测失败是契约的一部分。
+      // 章节正文由 /unlock 主机池(www.bqg413.cc→apige.cc+家族动态学习)取真实 txt,
+      // 诱饵水印校验剔除毒镜像; tokenUrl 三件套移除(unlock 内部自签 enaes, 无需预取)。
+      contentProxyUrl: 'http://127.0.0.1:3010/unlock?url={url}',
       // ── dd-b: 镜像域名自动故障切换(引擎级, transport 层) ──
       // URL host + 本列表构成镜像组; 主域网络错误/超时/403/5xx 时按序重写 host 重试
-      // (404/2xx/3xx 不触发, 至多组大小次); 每个 host 走完整 fetch 流程,
-      // token 预取 {url} 占位符自动拿到重写后 URL → 逐章 token 按镜像域重签。
-      // 2026-08-31 dd-b 真网探测三域全活(同章 200 + 同长 txt)后落置
-      mirrorDomains: 'apibi.cc,apiqu.cc,apige.cc',
+      // (404/2xx/3xx 不触发, 至多组大小次)。R21-b 更新: 剔除已死 apibi.cc 与被投毒 apiqu.cc,
+      // 池=新主域 www.bqg413.cc + 健康镜像 apige.cc(真网实证恒 200 真实正文)
+      mirrorDomains: 'www.bqg413.cc,apige.cc',
     },
     clean: {
       removeSelectors: ['script', 'style', 'iframe', 'ins', 'noscript'],
       adPatterns: [
         '(www\\.)?bqg7[0-9]{1,2}\\.(cc|com)\\S*',
         '(www\\.)?[a-z0-9-]+\\.(com|net|cc|org|info|top|xyz|vip|site)(\\/\\S*)?',
+        // R21-b: 诱饵水印纵深清洗(正常链路已被 /unlock 水印校验剔除, 此处兜底)
+        'biquio\\S*',
+        'srsp\\.cc\\S*',
         '请收藏本站.*?手机版',
         '一秒记住.*?免费读',
         '本站所有小说为转载作品.*?$',

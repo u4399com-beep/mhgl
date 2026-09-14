@@ -953,7 +953,7 @@ export const BUILTIN_RULES: BuiltinRule[] = [
   {
     key: "bqg713",
     name: "笔趣阁bqg713(www.bqg713.cc)·纯JSON API站采集",
-    description: "www.bqg713.cc 纯JSON API站(SPA壳+hash路由无SSR)。列表 /api/index 并集路径(hotlist,sort1~6)/书籍 /api/book/目录 /api/booklist(纯章节名数组, chapterid=下标+1, const模板合成章节API URL)/正文 apibi.cc/api/chapter(txt字段, AES-CBC token 参数)。正文段经外置转换代理 mini-services/bqg713-proxy:3010 对接引擎 tokenUrl {url} 钩子(按章签发AES token), 章节 URL 指向站点真实 API 域名 apibi.cc(www 域 /api/chapter 被 WAF 403 属历史误配)。dd-b: fetch.mirrorDomains 配三备援域 apibi.cc,apiqu.cc,apige.cc(主域网络错误/超时/403/5xx 引擎自动切镜像, token 按镜像域重签)。",
+    description: "www.bqg713.cc 纯JSON API站(SPA壳+hash路由无SSR; 已301迁域 www.bqg413.cc, 引擎跟随重定向)。列表 /api/index 并集路径(hotlist,sort1~6)/书籍 /api/book/目录 /api/booklist(纯章节名数组, chapterid=下标+1)。[R21-b] 诱饵正文根治: 章节镜像 apibi.cc 已死(恒403)/apiqu.cc 按章节粒度被投毒(成人诱饵文本, 水印 'biquio点cc'+'srsp.cc'), 旧 tokenUrl+txt 链路命中被毒镜像; 真实正文 = www.bqg413.cc / apige.cc 的明文 txt 字段(无 RC4, /api/hm 为纯遥测信标)。现正文走 mini-services/bqg713-proxy:3010 /unlock 端点(deqixs degrade-native 契约): fetch.contentProxyUrl 为 SSRF loopback 豁免键, 探测自指→404→引擎降级直连 toc 合成的 /unlock URL → 主机池(www.bqg413.cc→apige.cc+家族动态学习)逐台取章, 诱饵水印校验(长度下限+水印签名)剔除毒镜像后返回 {ok,content}。",
     enabled: true,
     source: "scripts/seed-rule-bqg713.ts",
     config: {
@@ -1037,7 +1037,7 @@ export const BUILTIN_RULES: BuiltinRule[] = [
           },
           "url": {
             "type": "const",
-            "expression": "https://apibi.cc/api/chapter?id={q.id}&chapterid={index}"
+            "expression": "http://127.0.0.1:3010/unlock?url=https://apige.cc/api/chapter?id={q.id}&chapterid={index}"
           }
         },
         "pagination": {
@@ -1054,7 +1054,7 @@ export const BUILTIN_RULES: BuiltinRule[] = [
           },
           "content": {
             "type": "json",
-            "expression": "txt"
+            "expression": "content"
           }
         },
         "pagination": {
@@ -1075,10 +1075,8 @@ export const BUILTIN_RULES: BuiltinRule[] = [
           429,
           503
         ],
-        "tokenUrl": "http://127.0.0.1:3010/rewrite?url={url}",
-        "tokenPattern": "token",
-        "tokenInjection": "url",
-        "mirrorDomains": "apibi.cc,apiqu.cc,apige.cc"
+        "mirrorDomains": "www.bqg413.cc,apige.cc",
+        "contentProxyUrl": "http://127.0.0.1:3010/unlock?url={url}"
       },
       "clean": {
         "removeSelectors": [
@@ -1091,6 +1089,8 @@ export const BUILTIN_RULES: BuiltinRule[] = [
         "adPatterns": [
           "(www\\.)?bqg7[0-9]{1,2}\\.(cc|com)\\S*",
           "(www\\.)?[a-z0-9-]+\\.(com|net|cc|org|info|top|xyz|vip|site)(\\/\\S*)?",
+          "biquio\\S*",
+          "srsp\\.cc\\S*",
           "请收藏本站.*?手机版",
           "一秒记住.*?免费读",
           "本站所有小说为转载作品.*?$"

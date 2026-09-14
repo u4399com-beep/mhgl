@@ -197,10 +197,24 @@ createBridgeServer({
     relayInflight++
     const startedAt = Date.now()
     try {
+      // [R21-d-2] 增强: 上游(引擎)断连即时传播 —— 原 outbound fetch 只挂本地超时信号,
+      // 引擎侧 clientSignal abort(章节超时/任务中止)后本桥仍继续打满 timeoutMs(慢站下
+      // 在飞槽位与内存缓冲空占最长 120s)。用 AbortSignal.any 并联 Bun.serve 的 req.signal
+      // (客户端断开即 abort)与超时信号, 断连即刻释放出网与在飞计数。仅影响"客户端已离场"
+      // 的请求(响应本就无人消费), 正常请求路径逐字节不变。req.signal 缺失/any 构造异常时
+      // 退回纯超时信号(旧行为兜底)。
+      let outboundSignal: AbortSignal
+      try {
+        outboundSignal = req.signal
+          ? AbortSignal.any([AbortSignal.timeout(timeoutMs), req.signal])
+          : AbortSignal.timeout(timeoutMs)
+      } catch {
+        outboundSignal = AbortSignal.timeout(timeoutMs)
+      }
       const init: RequestInit & { proxy?: string } = {
         headers,
         redirect: 'manual',
-        signal: AbortSignal.timeout(timeoutMs),
+        signal: outboundSignal,
       }
       if (proxy) init.proxy = proxy
       const res = await fetch(url, init)

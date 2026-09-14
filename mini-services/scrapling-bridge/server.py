@@ -335,7 +335,29 @@ class Handler(BaseHTTPRequestHandler):
         if length <= 0 or length > MAX_REQUEST_BYTES:
             self._send_json({'ok': False, 'error': f'请求体长度非法({length})'})
             return
-        raw = self.rfile.read(length)
+        # [R21-d-3] 防半开请求悬挂线程: 只对【本次请求体读取】临时加 30s socket 超时。
+        # 旧实现 rfile.read(length) 无超时 —— 客户端声明 Content-Length 后中途停滞/半开
+        # (进程冻结、网络半关)会让该请求线程永久挂在 read 上(ThreadingHTTPServer 每连接
+        # 一线程, daemon 线程数只增不减 = 慢性资源泄漏)。不设类级 timeout 属性: 那会把
+        # HTTP/1.1 keep-alive 的【请求间空闲】也掐断, 引擎连接池复用被服务端关闭的连接会
+        # 瞬时报错 —— 读毕立即恢复阻塞模式, 空闲 keep-alive 行为与旧版逐字节一致。
+        raw_ok = False
+        raw = b''
+        try:
+            self.request.settimeout(30)
+            raw = self.rfile.read(length)
+            raw_ok = True
+        except OSError:
+            pass  # 超时/连接中断: 走下方统一错误信封
+        finally:
+            try:
+                self.request.settimeout(None)
+            except OSError:
+                pass
+        if not raw_ok or len(raw) < length:
+            self.close_connection = True
+            self._send_json({'ok': False, 'error': '请求体读取超时或连接中断(30s 窗口内未收全)'})
+            return
         try:
             payload = json.loads(raw.decode('utf-8'))
             if not isinstance(payload, dict):

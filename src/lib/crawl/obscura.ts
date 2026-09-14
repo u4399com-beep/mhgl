@@ -126,8 +126,9 @@ function jitter(n: number, max: number): number {
   return Math.max(1, n + d)
 }
 
-/** UA 移动性判定(与 fetcher.isMobileUa 同语义; obscura 禁止反向 import fetcher 防循环依赖, 本地复制) */
-export function isMobileUaLocal(ua: string): boolean {
+/** UA 移动性判定(与 fetcher.isMobileUa 同语义; obscura 禁止反向 import fetcher 防循环依赖, 本地复制)
+ *  [R21-d-4] 精简: 全库(含 archive 验证脚本)零外部引用, 去 export(仅文件内消费) */
+function isMobileUaLocal(ua: string): boolean {
   return /iPhone|iPad|Android|Mobile Safari|;\s*Mobile\//.test(ua)
 }
 

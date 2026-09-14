@@ -132,6 +132,13 @@ export function t2sHtml(html: string): string {
 const ENTITY_RE = /&(?:nbsp|amp|lt|gt|quot|apos|#x[0-9a-f]+|#[0-9]+);/gi
 // [R9-cl-2] 整合: 控制字符剥离正则本文件内 4 处同款重复, 提取为具名常量(\t\n\r 保留口径不变)
 const CTRL_CHARS_RE = /[\x00-\x08\x0B\x0C\x0E-\x1F]/g
+// [R21-c-2] 不可见 Unicode 剥离: 零宽字符(\u200b-\u200d ZWSP/ZWNJ/ZWJ)/方向标记(\u200e\u200f)/
+// 双向控制(\u202a-\u202e 与 \u2066-\u2069 隔离符)/词连接器(\u2060-\u2064)/软连字符(\u00ad)/
+// 蒙元元音分隔(\u180e)/BOM(\ufeff)。这些 Cf 类字符不参与可见渲染, JS 的 trim/\s/CTRL_CHARS_RE
+// 均不覆盖 —— 源站反采集水印靠它们产生"纯不可见字符"幽灵段落(行判空失效, bun 复现实证)、
+// 躲避广告正则命中、读者复制出隐形字符。downloader.obfuscateText 的零宽混淆发生在清洗之后的
+// TXT 导出侧, 与本剥离互不影响
+const INVISIBLE_CHARS_RE = /[\u00ad\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/g
 // [R13-2] 内容块级标签集合: 白名单剥壳时这些标签的开闭边界补 \n(段落分隔), 供
 // "按换行重建段落"复原分段。覆盖容器/段落/表格/列表/标题/语义分区; 内联标签
 // (span/b/i/a/font…)不入集 —— 行内文本不因标签边界断行。hr 视觉即分隔线
@@ -141,6 +148,42 @@ export const CONTENT_BLOCK_TAGS: ReadonlySet<string> = new Set([
   'aside', 'nav', 'blockquote', 'pre', 'form', 'dl', 'dt', 'dd', 'figure',
   'figcaption', 'main', 'center', 'hr',
 ])
+// [R21-c-3] 块级标签(开+闭)边界 → \n: 供纯文本出口/TXT 导出与 HTML 模式 cheerio 链同一
+// 分段口径。旧行为只识别闭标签且集合过窄(p/div/h/li) —— 未闭合 <p> 链(<p>段1<p>段2</p>,
+// 笔趣阁系源站常见)与表格/列表单元格(td/tr/table/section…)在纯文本出口粘连丢段(bun 复现)
+const CONTENT_BLOCK_TAG_LINEBREAK_RE = new RegExp(
+  `</?(?:${[...CONTENT_BLOCK_TAGS].join('|')})\\b[^>]*>`,
+  'gi'
+)
+// [R21-c-4] 引号感知标签剥离: '>' 位于双/单引号属性值内时不终结标签(对齐浏览器词法) ——
+// 旧裸剥 <[^>]+> 在 <img alt="4>3" src=x> 处提前截断, 残留 `3" src=x">` 进纯文本出口(bun 复现)。
+// 两段式: 先引号感知剥一遍, 再以旧裸剥兜底一遍 —— 引号不配对的畸形标签(引号感知版无法
+// 完成闭合匹配)由兜底剥到首个 '>', 任一输入类下输出不劣于旧实现, 良构输入逐字节不变
+const TAG_QUOTE_AWARE_RE = /<(?:[^>"']|"[^"]*"|'[^']*')*>/g
+const TAG_NAIVE_RE = /<[^>]+>/g
+/** 剥离全部 HTML 标签(引号感知 + 裸剥兜底, 见 TAG_QUOTE_AWARE_RE 注释) */
+export function stripHtmlTags(html: string): string {
+  return html.replace(TAG_QUOTE_AWARE_RE, '').replace(TAG_NAIVE_RE, '')
+}
+/**
+ * [R21-c-3] HTML → 带换行纯文本(单一实现): 危险标签整段剥除(script/style/noscript/iframe/
+ * object/embed, 含截断未闭合形态) + br/块级标签开闭边界 → \n + 引号感知剥签 + 实体单遍解码 +
+ * 控制/不可见字符剥离。cleanContentHtml 纯文本模式与 downloader.stripHtmlToText(TXT 导出)
+ * 共用, 保证两条出口段落语义不再漂移。输出不 trim(按行消费的调用方自行处理)
+ */
+export function htmlToPlainLines(html: string): string {
+  if (!html) return ''
+  const text = html
+    .replace(/<(script|style|noscript|iframe|object|embed)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, ' ')
+    .replace(/<(script|style|noscript|iframe|object|embed)\b[^>]*\/>/gi, ' ')
+    // R5-16: 截断/未闭合的 script|style|... 段 —— 贪婪匹配到串尾, 杜绝 JS 代码/样式漏进纯文本
+    .replace(/<(script|style|noscript|iframe|object|embed)\b[^>]*>[\s\S]*$/gi, ' ')
+    .replace(/<\s*br\s*\/?>/gi, '\n')
+    .replace(CONTENT_BLOCK_TAG_LINEBREAK_RE, '\n')
+  return decodeEntitiesOnce(stripHtmlTags(text))
+    .replace(CTRL_CHARS_RE, '')
+    .replace(INVISIBLE_CHARS_RE, '')
+}
 const ENTITY_BASIC: Record<string, string> = { nbsp: ' ', amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }
 function fromCodePointSafe(cp: number): string {
   if (!Number.isFinite(cp) || cp < 0 || cp > 0x10ffff) return ''
@@ -169,27 +212,14 @@ export function cleanContentHtml(raw: string, cfgOverride?: Partial<CleanConfig>
   const cfg: CleanConfig = { ...DEFAULT_CLEAN_CONFIG, ...cfgOverride }
   if (!raw) return ''
   // 0. 繁体→简体(标签外文本段): 后续广告清洗/导航词匹配/存储统一在简体上进行
-  const html = t2sHtml(raw)
+  // [R21-c-2] 不可见 Unicode 剥离置于两模式共用入口: HTML 模式出库内容零残留; 纯文本模式
+  // 让"纯零宽字符行"先于按行判空变空行(幽灵段落根因), 并使广告正则不再被水印字符隔断命中
+  const html = t2sHtml(raw).replace(INVISIBLE_CHARS_RE, '')
 
   if (cfg.plainText) {
-    // 纯文本模式: 剥全部标签, 保留换行
-    // (实体解码走单遍 decodeEntitiesOnce —— 先剥真实标签后解码, 源站 "&lt;b&gt;" 类
-    //  编码文本解码后保持字面量, 不会反向变成标签被误剥)
-    // R4-20: 先剥危险标签(script/style/noscript/iframe/object/embed)及其内部文本再剥全部标签——
-    //  旧行为只剥 <[^>]+> 标签本身, <script>alert(1)</script> 中的 alert(1) 文本会漏进纯文本输出
-    //  (存储型注入面: 前台纯文本渲染虽不执行 JS, 但内容污染/广告灌水/有可能被二次 HTML 渲染时执行)
-    // R5-16: 第二正则 `<(script|style|...)[^>]*\/?>` 只剥开标签, 留下 alert(1) 文本继续漏进纯文本。
-    //  追加第三正则 `<script[^>]*>.*`(贪婪到串尾, 不要求闭标签), 处理截断 HTML 中无 </script>
-    //  闭合的 script 段(源站响应被中途切断 / malformed HTML 经 t2sHtml 后仍未闭合)
-    let text = html
-      .replace(/<(script|style|noscript|iframe|object|embed)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, ' ')
-      .replace(/<(script|style|noscript|iframe|object|embed)\b[^>]*\/>/gi, ' ')
-      // R5-16: 截断/未闭合的 script|style|... 段 —— 贪婪匹配到串尾, 杜绝 JS 代码/样式漏进纯文本
-      .replace(/<(script|style|noscript|iframe|object|embed)\b[^>]*>[\s\S]*$/gi, ' ')
-      .replace(/<\s*br\s*\/?>/gi, '\n')
-      .replace(/<\/(p|div|h[1-6]|li)>/gi, '\n')
-      .replace(/<[^>]+>/g, '')
-    text = decodeEntitiesOnce(text)
+    // 纯文本模式: 剥全部标签保留换行 —— 标签→换行/实体单遍解码/控制与不可见字符剥离统一
+    // 委托 htmlToPlainLines([R21-c-3], 与 TXT 导出同口径; 历史 R4-20/R5-16 语义保留在其内)
+    let text = htmlToPlainLines(html)
     text = removeAdLines(text, cfg.adPatterns)
     text = text
       .split('\n')
@@ -451,7 +481,8 @@ function removeAdLines(text: string, patterns: string[]): string {
 /** 清洗纯文本字段(简介/标题等) */
 export function cleanTextField(raw: string | undefined | null, maxLength?: number): string {
   if (!raw) return ''
-  let v = String(raw).replace(/<[^>]+>/g, '')
+  // [R21-c-4] 标签剥离改引号感知(属性内 > 不再截断残留)
+  let v = stripHtmlTags(String(raw))
   // 实体单遍解码(含 nbsp/apos/数字实体): 旧 replace 链 &amp; 规则最前, "&amp;lt;"
   // 类序列会被后续 &lt; 规则链式二次解码; 解码置于空白规整之前, &nbsp; 与普通空格同待遇
   v = decodeEntitiesOnce(v)
@@ -459,6 +490,8 @@ export function cleanTextField(raw: string | undefined | null, maxLength?: numbe
   // 关键词)漏网 —— 源站标题混入 \x00/\x08/\x0B 等随 DB 入库并进 JSON API/前台。
   // \t\n\r(\x09\x0A\x0D)不在剥离类内, 与正文出口同口径
   v = v.replace(CTRL_CHARS_RE, '')
+  // [R21-c-2] 标题/简介/作者等短字段同样剥离零宽与双向控制字符(源站标题水印实证存活)
+  v = v.replace(INVISIBLE_CHARS_RE, '')
   // 繁体→简体(检测未命中原样返回)
   v = t2sText(v)
   v = v
@@ -475,11 +508,15 @@ export function cleanTextField(raw: string | undefined | null, maxLength?: numbe
 /** 清洗多行简介 */
 export function cleanIntro(raw: string | undefined | null, maxLength = 2000): string {
   if (!raw) return ''
-  let v = String(raw).replace(/<\s*br\s*\/?>/gi, '\n').replace(/<\/(p|div)>/gi, '\n')
-  v = v.replace(/<[^>]+>/g, '')
+  // [R21-c-3] 块级开+闭边界 → \n(与正文链同口径, 未闭合 <p>/<div> 链简介不再粘连)
+  let v = String(raw).replace(/<\s*br\s*\/?>/gi, '\n').replace(CONTENT_BLOCK_TAG_LINEBREAK_RE, '\n')
+  // [R21-c-4] 标签剥离改引号感知
+  v = stripHtmlTags(v)
   v = decodeEntitiesOnce(v)
   // 控制字符剥离(qq-e): 与 cleanTextField 同口径(\t\n\r 保留, 供下方按行切段)
   v = v.replace(CTRL_CHARS_RE, '')
+  // [R21-c-2] 不可见 Unicode 剥离(与 cleanTextField 同口径)
+  v = v.replace(INVISIBLE_CHARS_RE, '')
   v = t2sText(v)
   v = removeAdLines(v, DEFAULT_CLEAN_CONFIG.adPatterns)
   v = v
