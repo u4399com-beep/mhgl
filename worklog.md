@@ -4273,3 +4273,22 @@ Work Log:
 
 Stage Summary:
 - 本地提交链完整且质量门全绿; 推送被沙箱无凭证阻塞, 留 bundle 兜底 + 等待用户提供 Token/在自有机器推送
+---
+Task ID: R21-tl
+Agent: main-orchestrator
+Task: 新增 aijjxs.com 排行榜/筛选页(toplist)采集规则(用户报告该形态列表取不到数)
+
+Work Log:
+- 勘察: 分类规则(seed-rule-aijjxs.ts, div.listbg)对 toplist 形态失效 —— 实测该页无 listbg(0 处), 属另一套紧凑布局
+- 实测源站(2026-09-14, P1/P2 各 10 本): 主列表=div.body.grid2 div.book(h4 a 书名/zuozhe 作者/meta small:last-of-type 分类/裸文本状态/oldDate 日期/协议相对封面/desc 简介); ★核心坑: 首个 p_ 段是 0 基页码(第2页=p_1, 第3页=p_2, 分页条实证), 第二个 p_1/t_6/m_0 为站点固定参数
+- 选型: 引擎既有 {offset:N}=(page-1)*N 展开(runner R12-a-2/cc-c 同口径, 任务向导/测试端点全支持) → {offset:1} 恰好表达 0 基页码, 任务页号 1..N 直接可用, 零引擎改动
+- 新增 scripts/seed-rule-aijjxs-toplist.ts: urlTemplate=toplist-p_{offset:1}-c_2-…(参数全表入文件头注: c_1女生/c_2男生/c_3耽美, r_1最新上传/r_2下载/r_3收藏/r_4推荐, n_年度/s_背景/q_大小, 变体走任务级 listUrl 覆盖); 状态正则用"· 状态 · 数字MB"上下文锚定防简介误命中, 日期锚定 span.oldDate; book/toc/content 与基础规则同构复用
+- 四段实测全过线: list 10/10(P2 附探针实证 0 基翻页两页书籍零重叠)/book(57329)/toc 667 章/content clean=4506; 修复探针比较键 bug(R21-tl-1: sample 为扁平字段对象非 fields 嵌套, 误报翻页失效); 幂等入库 OK
+- gen-builtin-rules.ts 重生成: 27 条规则 0 失败, 新增 key=aijjxs-toplist
+- 事故处置: 质量门(tsc/lint)并行期间 next-server 被沙箱回收(R21-b 已知行为), 用户浏览器 15:48 仍在轮询后台 → 恢复服务并新增 .zscripts/dev-watchdog.sh 自愈守护(30s 探测, 仅端口不可达时拉起, 绝不触碰健康实例, 采集任务运行期零中断); 误杀的 8 个 mini-service 包装进程已全部恢复(3010~3017 九端口全 UP)
+- 质量门: bun run lint 0 错 0 警 + bunx tsc --noEmit 0 错; 44 文件 mode 755 伪差异按 R20 先例还原 644
+
+Stage Summary:
+- 交付: aijjxs toplist 规则入库(管理端即刻可用, id 见日志)+内置规则库同步(27 条)+dev-watchdog 自愈脚本
+- 关键决策: {offset:1} 复用既有占位符表达 0 基页码, 不动引擎; 变体榜单走任务级 listUrl 覆盖(R12-a-2)
+- 运维: 沙箱会回收 next-server(与启动方式无关), watchdog 是当前最稳自愈方案; 用户若发现预览中断, ≤35s 自动恢复

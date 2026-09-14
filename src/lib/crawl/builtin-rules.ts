@@ -393,6 +393,204 @@ export const BUILTIN_RULES: BuiltinRule[] = [
     },
   },
   {
+    key: "aijjxs-toplist",
+    name: "久久小说网 排行榜 (aijjxs.com toplist)",
+    description: "aijjxs.com 排行榜/筛选页(toplist)专用规则, 与分类列表规则(div.listbg)同站互补 —— toplist 是紧凑布局无 listbg, 用分类规则取不到数。★0 基翻页: 首个 p_ 段=页码-1(第1页 p_0/第2页 p_1), urlTemplate 用 {offset:1} 表达, 任务页号 1..N 直接可用; 筛选参数: c_(1女生/2男生/3耽美) r_(1最新上传/2下载排行/3收藏排行/4只看推荐) n_年度 s_背景 q_大小, 变体通过任务级列表页 URL 覆盖改参即可(仅 {page}/{offset:N} 被引擎替换)。列表=div.body.grid2 div.book ×10/页(h4 a 书名/zuozhe 作者/meta small:last-of-type 分类/regex 状态锚定\"· 状态 · 大小\"/oldDate 上传日期/封面协议相对自动补全/desc 简介) / 书籍页+目录+正文与分类规则同构(/txt/{bid}.html → a[href^=/read/] → /read/{bid}/ ul.chapter-list 全量单页, 正文 #view_content_txt 每章单页翻页关闭)。UTF-8 直连无挑战。",
+    enabled: true,
+    source: "scripts/seed-rule-aijjxs-toplist.ts",
+    config: {
+      "list": {
+        "enabled": true,
+        "urlTemplate": "https://www.aijjxs.com/txt/toplist-p_{offset:1}-c_2-n_0-l_10-t_6-p_1-s_0-q_0-r_1-m_0.html",
+        "itemSelector": {
+          "type": "css",
+          "expression": "div.body.grid2 div.book"
+        },
+        "fields": {
+          "name": {
+            "type": "css",
+            "expression": "h4 a",
+            "attr": "text"
+          },
+          "bookUrl": {
+            "type": "css",
+            "expression": "h4 a",
+            "attr": "href"
+          },
+          "author": {
+            "type": "css",
+            "expression": "a[href*=\"/zuozhe/\"]",
+            "attr": "text"
+          },
+          "category": {
+            "type": "css",
+            "expression": "div.meta small:last-of-type",
+            "attr": "text"
+          },
+          "status": {
+            "type": "regex",
+            "expression": "·\\s*(已完结|连载中|连载|完本)\\s*·\\s*[\\d.]+\\s*[KMG]?B"
+          },
+          "updateTime": {
+            "type": "regex",
+            "expression": "oldDate\">(\\d{4}-\\d{2}-\\d{2})"
+          },
+          "size": {
+            "type": "regex",
+            "expression": "·\\s*([\\d.]+\\s*[KMG]B)\\s*·"
+          },
+          "cover": {
+            "type": "css",
+            "expression": "img",
+            "attr": "src"
+          },
+          "intro": {
+            "type": "css",
+            "expression": "div.desc",
+            "attr": "text"
+          }
+        },
+        "pagination": {
+          "enabled": false,
+          "maxPages": 1
+        }
+      },
+      "book": {
+        "enabled": true,
+        "fields": {
+          "name": {
+            "type": "css",
+            "expression": "article.panel h3",
+            "attr": "text",
+            "replaceFrom": "^《|》$",
+            "replaceTo": ""
+          },
+          "author": {
+            "type": "css",
+            "expression": ".kv a[href*=\"/zuozhe/\"]",
+            "attr": "text"
+          },
+          "category": {
+            "type": "css",
+            "expression": ".kv p:contains(\"书籍分类\")",
+            "attr": "text",
+            "replaceFrom": "^书籍分类：\\s*",
+            "replaceTo": ""
+          },
+          "status": {
+            "type": "css",
+            "expression": "span.sfwj",
+            "attr": "text"
+          },
+          "intro": {
+            "type": "css",
+            "expression": "div.desc",
+            "attr": "text"
+          },
+          "cover": {
+            "type": "css",
+            "expression": ".pic img",
+            "attr": "src"
+          }
+        }
+      },
+      "toc": {
+        "enabled": true,
+        "tocLink": {
+          "type": "css",
+          "expression": "a[href^=\"/read/\"]",
+          "attr": "href"
+        },
+        "itemSelector": {
+          "type": "css",
+          "expression": "ul.chapter-list li:not(:first-child)"
+        },
+        "fields": {
+          "title": {
+            "type": "css",
+            "expression": "a",
+            "attr": "text"
+          },
+          "url": {
+            "type": "css",
+            "expression": "a",
+            "attr": "href"
+          }
+        },
+        "pagination": {
+          "enabled": false,
+          "maxPages": 1
+        }
+      },
+      "content": {
+        "enabled": true,
+        "fields": {
+          "content": {
+            "type": "css",
+            "expression": "#view_content_txt",
+            "attr": "html"
+          }
+        },
+        "pagination": {
+          "enabled": false,
+          "maxPages": 1
+        }
+      },
+      "fetch": {
+        "engine": "http",
+        "uaMode": "rotate",
+        "autoCookie": true,
+        "referer": true,
+        "timeout": 25000,
+        "retries": 2,
+        "waitMs": 800,
+        "browserFallbackStatus": [
+          403,
+          412,
+          429,
+          503
+        ],
+        "hostGateLimit": 3
+      },
+      "clean": {
+        "removeSelectors": [
+          "script",
+          "style",
+          "iframe",
+          "ins",
+          "noscript",
+          ".adsbygoogle"
+        ],
+        "adPatterns": [
+          "(www\\.)?aijjxs\\.com\\S*",
+          "(www\\.)?jjjjxsw\\.com\\S*",
+          "久久小说网[^<>]*",
+          "请记住本站[^<>]*",
+          "本站内容来源于网络[^。<>]*",
+          "本站所收录作品[^<>]*",
+          "(www\\.)?[a-z0-9-]+\\.(com|net|cc|org|info|top|xyz|vip|site)(\\/\\S*)?"
+        ],
+        "whitelist": [
+          "p",
+          "br",
+          "b",
+          "strong",
+          "em",
+          "i",
+          "u",
+          "h1",
+          "h2",
+          "h3",
+          "h4",
+          "h5",
+          "h6"
+        ],
+        "normalize": true,
+        "plainText": false
+      }
+    },
+  },
+  {
     key: "aijjxs",
     name: "久久小说网 (aijjxs.com)",
     description: "aijjxs.com 帝国CMS系 TXT下载+在线阅读混合站, openresty/PHP, UTF-8 直连无挑战(无WAF/无UA门禁/无编码陷阱)。列表=/txt/{slug}/index_{page}.html(第1页与 /txt/{slug}/ 同页实测, index_1 为别名) div.listbg 10本/页(书名/bookUrl/作者/regex状态/封面(协议相对地址自动补全)/简介) / 书籍页 /txt/{bid}.html article.panel h3 剥《》+.kv 作者/分类+span.sfwj 状态原文+div.desc 简介+.pic img 封面 / 目录: 书籍页 a[href^=/read/] tocLink → /read/{bid}/ 内嵌 ul.chapter-list 全量单页(1368章大书实测不截断, 首个li=内容简介用 :not(:first-child) 排除) / 正文 #view_content_txt 纯p段落, 每章单页(★\"下一页\"锚=下一章, 翻页必须关闭防跨章连锁); 章节字数约2000~4000, 正文极净。",
