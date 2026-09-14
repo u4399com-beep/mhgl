@@ -4292,3 +4292,17 @@ Stage Summary:
 - 交付: aijjxs toplist 规则入库(管理端即刻可用, id 见日志)+内置规则库同步(27 条)+dev-watchdog 自愈脚本
 - 关键决策: {offset:1} 复用既有占位符表达 0 基页码, 不动引擎; 变体榜单走任务级 listUrl 覆盖(R12-a-2)
 - 运维: 沙箱会回收 next-server(与启动方式无关), watchdog 是当前最稳自愈方案; 用户若发现预览中断, ≤35s 自动恢复
+---
+Task ID: R21-tl-2
+Agent: main-orchestrator
+Task: dev server 频繁死亡根因修正(补 R21-tl 记载) + 自愈方案定稿
+
+Work Log:
+- dmesg 实证: "Out of memory: Killed process 1547 (next-server) anon-rss:2264152kB(2.26GB)" —— 死亡根因是 next dev 冷启动编译期内存尖峰触发全局 OOM, 并非笼统"沙箱静默回收"(R21-tl 表述修正)
+- 加剧因素: 遗留 puppeteer chrome 进程组(前轮 E2E 未清)常驻吃内存; 已全部清杀
+- 启动方式对照实验: mini-service 同款 (cd … && setsid bun run dev >log &) 模式跨调用稳定存活; 修正后主服务 t+100s 存活、内存峰值回落(2.15GB used / 1.89GB available)、无新 oom-kill
+- .zscripts/dev-watchdog.sh 语义随之明确: 守护针对的是 OOM 击杀后的自动拉起(30s 探测, 仅端口不可达时启动, 绝不动健康实例); chrome 清理 + 守护双保险
+- 终验: 登录+规则 API 200, toplist 规则在库(cmu1etp2o00fnn6tz4xac4efn); 提交 b3b4b86
+
+Stage Summary:
+- 运维结论(替代 R21-tl 事故段表述): next-server 死亡=OOM(2.26GB 尖峰+chrome 挤压), 非沙箱回收; 处置=清 chrome+subshell 模式启动+watchdog 兜底, 服务已稳定
