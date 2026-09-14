@@ -4260,3 +4260,16 @@ Stage Summary:
 - R21 交付: 12 项历史修改全部落地核验闭环 + 26 条采集规则全量复测(20 全 PASS+5 环境留证+1 半段设计)+ 7 项规则/验证器修复 + 2 项新特性(违禁词/卡片开关)+ 伪静态 TDK SSR 化 + 1053 行小白教程重写 + 反反爬增强(token 链 9/9/退避抖动/桥断连传播/hostgate 毒杀修复)
 - 质量门: bun run lint 0 错 0 警 + bunx tsc --noEmit 0 错(全库终验); 浏览器 E2E 0 error; 数据库零残留
 - 历史链: R12=d70dd45 → R13=07972df → R14=a9f3461 → R15=323982e → R16=99c1c48 → R17=27a3016 → R18=cc46f96 → R19=81f32f9 → R21(本轮, 含 123bfd4 前置提交)
+
+---
+Task ID: R21-push
+Agent: main-orchestrator
+Task: git 推送(部分受阻)
+
+Work Log:
+- git commit bdd16b8 完成(R21 全量: 30 文件 +2149/-693, 含 R21-b/c 前置提交 123bfd4 与 R12~R19 完整历史链)
+- git push origin main 失败: 远程为 HTTPS(https://github.com/u4399com-beep/heis.git) 且本沙箱无任何凭证(无 credential helper/.git-credentials/.ssh/gh CLI/token 环境变量, ssh 二进制不存在); origin/main 停留在 a770bad(R8) 证实历轮推送同样未发生
+- 已生成 /home/z/my-project/r21-push.bundle(全量 main bundle) 作为离线推送介质: 用户可在有凭证的机器 `git clone r21-push.bundle -b main heis && cd heis && git push origin main`, 或向沙箱提供 GitHub Token(HTTPS Remote 配置后即可直接 push)
+
+Stage Summary:
+- 本地提交链完整且质量门全绿; 推送被沙箱无凭证阻塞, 留 bundle 兜底 + 等待用户提供 Token/在自有机器推送
