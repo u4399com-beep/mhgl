@@ -109,11 +109,14 @@ function regexRuntimeSafe(src: string): boolean {
  *  - 失败原因返回字符串(供调用方日志/审计); 测试 OK 返回 true
  *
  * 使用场景:
- *  - applyTransform 替换前预算测试(运行时防御, 失败跳过本次替换零回归)
- *  - API 保存入口(POST/PUT /api/admin/rules)调用此函数拒绝危险正则(save-time 防御)
- *  - 既独立又互不依赖: 运行时与保存期双层防线, 任一未拦截时另一层兜底
+ *  - regexRuntimeSafe(记忆化) → regexExtract/regexExtractAll/applyTransform 替换前预算测试
+ *    (运行时防御, 失败跳过本次提取/替换零回归)
+ *  - [R21-e-5] 勘误: 原注释声称"API 保存入口(POST/PUT /api/admin/rules)调用此函数",
+ *    实际保存期防线是 rules 路由 regexGate → types.collectRegexIssues(静态形态审查,
+ *    与本函数无调用关系), 运行时/保存期两层各自独立 —— 注释与实现不符处纠正
  */
-export function testRegexBudget(
+// [R21-e-5] 精简: 仅文件内消费(regexRuntimeSafe)去 export(rg 全库含 archive 零外部引用)
+function testRegexBudget(
   src: string,
   opts?: { sample?: string; budgetMs?: number }
 ): { ok: boolean; reason?: string; elapsedMs?: number } {
@@ -168,7 +171,7 @@ function applyTransform(value: string, rule: FieldRule): string {
     // [R15-d1-6](Low, perf): 预算测试改走 regexRuntimeSafe 记忆化(同"长度上限 1000 + 嵌套
     //    量词闸门 + 200ms 样本预算"三道闸, 判定逐条等价) —— 本函数处于逐章逐字段热路径,
     //    原先每次调用都重新编译正则+跑 200 字符样本, 记忆化后同一 replaceFrom 全进程只测一次;
-    //    被拒正则的 console.warn 由规则保存期校验(validateRegexSafety)承担, 运行时静默跳过
+    //    被拒正则的告警由规则保存期校验(rules 路由 regexGate/collectRegexIssues)承担, 运行时静默跳过
     const src = rule.replaceFrom
     if (regexRuntimeSafe(src)) {
       try {
@@ -355,8 +358,9 @@ function xpathExtractNodes(doc: any, expression: string): any[] {
 // ---------------- 正则 ----------------
 function regexExtract(html: string, rule: FieldRule): string {
   try {
-    // [R9-c-2] 运行时 ReDoS 闸门: API 保存期校验(validateRegexSafety)只拦入库路径, 直写 DB
-    // 的规则仍可携带灾难性回溯模式 —— 引擎层执行前再兜一道, 危险正则跳过本次提取(返回空)
+    // [R9-c-2] 运行时 ReDoS 闸门: 规则保存期校验(rules 路由 regexGate/collectRegexIssues)只拦
+    //  API 入库路径, 直写 DB 的规则仍可携带灾难性回溯模式 —— 引擎层执行前再兜一道,
+    //  危险正则跳过本次提取(返回空)
     if (!regexRuntimeSafe(rule.expression)) return ''
     const flags = rule.flags || 'gis'
     const re = new RegExp(rule.expression, flags)
@@ -578,7 +582,7 @@ function constTemplate(expr: string, vars: Record<string, string> | undefined): 
 // ---------------- 统一提取 ----------------
 /** 提取上下文: json=当前作用域的JSON根值(itemSelector数组项/页面根);
  *  vars=const模板占位符取值表({字段名}/{index}/{q.*}) */
-export interface ExtractCtx {
+interface ExtractCtx {
   json?: unknown
   vars?: Record<string, string>
 }
@@ -744,7 +748,8 @@ async function fetchPaginationPage(url: string, fetchCfg: Parameters<typeof fetc
 }
 
 // ---------------- 列表/目录解析 ----------------
-export interface ListResult {
+// [R21-e-5] 精简: ListResult/ExtractCtx 仅文件内消费去 export(rg 全库零外部引用)
+interface ListResult {
   items: { fields: Record<string, string> }[]
 }
 

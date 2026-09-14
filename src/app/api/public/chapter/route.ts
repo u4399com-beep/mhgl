@@ -2,6 +2,8 @@
 import { db } from '@/lib/db'
 import { ok, fail } from '@/lib/api'
 import { readChapterTxt } from '@/lib/crawl/storage'
+import { applyBannedWordsToHtml } from '@/lib/banned-words'
+import { getBannedWordsConfig } from '@/lib/banned-words-server'
 import { withGuard, str } from '../../_lib/http'
 
 export async function GET(req: Request) {
@@ -32,6 +34,13 @@ export async function GET(req: Request) {
           .map((p) => `<p>${p.trim().replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>`)
           .join('')
       }
+    }
+
+    // [R21-h-1] 违禁词过滤(前台公共渲染点): 配置 60s 缓存 + 保存即失效;
+    // 空词表零开销直通; 只过滤文本段不动标签(applyBannedWordsToHtml),
+    // 防词表命中 <p>/属性名等破坏 HTML 结构
+    if (content) {
+      content = applyBannedWordsToHtml(content, await getBannedWordsConfig())
     }
 
     // idx: 伪静态需要(prev/next 也按预设生成 /read/{num}/{idx}.html 链接)

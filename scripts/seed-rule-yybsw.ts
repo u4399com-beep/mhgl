@@ -99,7 +99,15 @@ const rule: RuleSeed = {
     content: {
       enabled: true,
       fields: {
-        content: { type: 'css', expression: '#cont-body', attr: 'html' },
+        // [R21-f2-1] 子页 #cont-body 头部常带 <script>play()</script>+空白文本节点+空 <p>,
+        // 分页接缝处累积成 3+ 连续空行 → 每页头尾修剪该类碎片(与 builtin-rules 同源同步)
+        content: {
+          type: 'css',
+          expression: '#cont-body',
+          attr: 'html',
+          replaceFrom: '^(?:\\s|<script[\\s\\S]*?</script>|<p>\\s*</p>|<br\\s*/?>)+|(?:\\s|<script[\\s\\S]*?</script>|<p>\\s*</p>|<br\\s*/?>)+$',
+          replaceTo: '',
+        },
       },
       // 章节内分页: 7701301.html → _2.html → _3.html("下一页"锚, 末页"没有了"无锚收敛);
       // kanunu8 式"下一页=下一章"陷阱在本站不存在(下一页永远是同章子页)

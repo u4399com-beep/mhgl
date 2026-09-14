@@ -38,7 +38,7 @@ const PROBE = {
 const rule: RuleSeed = {
   name: '大微小说网 (daweixs.com)',
   description:
-    'daweixs.com GBK 笔趣阁模板站。WAF: nginx 403 双 Set-Cookie 挑战(server_name_session 会话 Cookie 为关键凭证), 引擎 http 层 autoCookie 挑战重试链原生破解(首访种 Cookie 二连过, 无需浏览器)。dd-c 改版适配: 分类路径加 xiaoshuo 后缀, 旧列表源 /paihangbang/ 上游恒 502 已弃用, 列表改用 /xuanhuanxiaoshuo/ 分类页 ul.txt-list-row5 li(30 本/页, /list/1_N.html 第 N≥2 页但首页路径独立无法 {page} 表达)。书籍页 .info h1+作者 regex+.info .desc / 目录 #section-list li a(精确锚定全量正序, 避开首个"最新章节"倒序块) / 正文 #content。已知瑕疵: 部分旧章正文尾部混入他书摘录(无标记不可剥离), 采集前建议核对首章。',
+    'daweixs.com GBK 笔趣阁模板站。WAF: nginx 403 双 Set-Cookie 挑战(server_name_session 会话 Cookie 为关键凭证), 引擎 http 层 autoCookie 挑战重试链原生破解(首访种 Cookie 二连过, 无需浏览器)。dd-c 改版适配: 分类路径加 xiaoshuo 后缀, 旧列表源 /paihangbang/ 上游恒 502 已弃用, 列表改用 /xuanhuanxiaoshuo/ 分类页 ul.txt-list-row5 li(30 本/页, /list/1_N.html 第 N≥2 页但首页路径独立无法 {page} 表达)。书籍页 .info h1+作者 regex+.info .desc / 目录 #section-list li a(精确锚定全量正序, 避开首个"最新章节"倒序块) / 正文 #content(<br>×3 段间折叠+第N/M页页码/本章未完引流行剥离 R21-f2-4, 章内翻页关闭防并章)。已知瑕疵: 部分旧章正文尾部混入他书摘录(无标记不可剥离), 采集前建议核对首章。',
   enabled: true,
   config: {
     list: {
@@ -83,9 +83,20 @@ const rule: RuleSeed = {
     content: {
       enabled: true,
       fields: {
-        content: { type: 'css', expression: '#content', attr: 'html', replaceFrom: 'https?:/{2,3}\\d{1,8}/', replaceTo: '' },
+        // [R21-f2-4] 2026-09-14 复测: 与 dafengdagengren 同平台同坑 —— #content 段间 <br>×3
+        // 三连分隔(实测 198 处 3+ 连续空行) + 部分章节变体带 "标题(第N/M页)"页码 +
+        // "（本章未完，请点击下一页继续阅读）"引流行 + 同章子页锚。replaceFrom 全局收口:
+        // ①3+ <br> 折叠 ②剥整个子页锚 ③剥引流行 ④剥残留页码标记。
+        content: {
+          type: 'css',
+          expression: '#content',
+          attr: 'html',
+          replaceFrom: 'https?:/{2,3}\\d{1,8}/|(?:\\s*<br\\s*\\/?>){3,}|<a[^>]*>\\s*[^<]{0,40}第\\d+\\/\\d+页[^<]{0,10}\\s*<\\/a>|本章未完[^<]{0,40}|第\\d+\\/\\d+页',
+          replaceTo: '',
+        },
       },
-      // 站点无章内翻页(.section-opt 只有 上一章/章节列表/下一章), 开启翻页会并章
+      // 站点无章内翻页(.section-opt 只有 上一章/章节列表/下一章), 开启翻页会并章 ——
+      // 2026-09-14 复测实证 pickNextHref 规则候选为空时落到文案兜底必误跟下一章, 翻页保持关闭
       pagination: { enabled: false, maxPages: 1 },
     },
     fetch: {

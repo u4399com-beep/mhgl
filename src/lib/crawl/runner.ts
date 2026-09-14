@@ -138,15 +138,19 @@ const RATE_LIMIT_HINT_RE = /429|rate[ _-]?limit|too many requests/i
 // 修复用户报告: 采集任务重启后"跳过而不续采"。根因: 恢复段把 progress 里的
 // discoveredBookUrls/completedBookUrls/ongoingBookUrls 原样重建为 Set, 若上轮书籍入库失败
 // (URL 进了 Set 但 Book 行没建成/没章节)、用户在书籍管理删书、或 progress 被 restore 回滚,
-// 重启后这些 URL 仍被 L759(发现跳过)/L817(完结整体跳过)跳过 → 库里缺书却永远不再采。
+// 重启后这些 URL 仍被发现阶段跳过(L919)/完结整体跳过(L977)挡住 → 库里缺书却
+// 永远不再采([R21-e-5] 注: 原 R18-c 注释的 L759/L817 为当时行号已漂移, 改为当轮实测行号)。
 // 修法: 恢复段一次性对账(不在消费点逐条查库), 库中实际不存在的 URL 从 Set 剔除 →
 // 列表重新发现时重新入队采集。
 
-/** 对账分批查询上限: 每批 IN 子句 URL 数(SQLite 本地毫秒级; 万级 URL 分批循环, 单批参数有界) */
-export const RESUME_RECONCILE_BATCH = 500
+/** 对账分批查询上限: 每批 IN 子句 URL 数(SQLite 本地毫秒级; 万级 URL 分批循环, 单批参数有界)
+ *  [R21-e-5] 精简: 本组对账导出(RESUME_RECONCILE_BATCH/ResumeSetsView/ReconcileDbRow/
+ *  ReconcileOutcome/reconcileResumeSetsCore)经 rg 全库含 scripts/archive 实证零外部消费
+ *  (R18-c 当轮验证脚本在 /tmp 已删), 依 R19-b-3/R21-d-4 同款口径去 export 保留实现 */
+const RESUME_RECONCILE_BATCH = 500
 
 /** [R18-c-1] 对账输入: 三组续采 Set + 末章记忆(传引用, 剔除直接原地 delete) */
-export interface ResumeSetsView {
+interface ResumeSetsView {
   discovered: Set<string>
   completed: Set<string>
   ongoing: Set<string>
@@ -154,13 +158,13 @@ export interface ResumeSetsView {
 }
 
 /** [R18-c-1] 对账查询行: sourceUrl + 该书章节数(0 = 空壳书) */
-export interface ReconcileDbRow {
+interface ReconcileDbRow {
   sourceUrl: string
   chapterCount: number
 }
 
 /** [R18-c-1] 对账结果: 剔除明细 + 各集合剔除计数(供调用方置 dirty 标志) */
-export interface ReconcileOutcome {
+interface ReconcileOutcome {
   removedUrls: string[]
   removedFrom: { discovered: number; completed: number; ongoing: number; lastChapters: number }
   batches: number
@@ -181,7 +185,7 @@ export interface ReconcileOutcome {
  *     重采, 落到 crawlOneBook 的 findFirst({sourceUrl}) 同口径, 不会误跳过)。
  * 抛错语义: queryDb 抛错时原样上抛且【未做任何剔除】(剔除发生在全部批次成功之后),
  * 调用方按 fail-open 保留原 Set。 */
-export async function reconcileResumeSetsCore(
+async function reconcileResumeSetsCore(
   sets: ResumeSetsView,
   queryDb: (batch: string[]) => Promise<ReconcileDbRow[]>,
 ): Promise<ReconcileOutcome> {

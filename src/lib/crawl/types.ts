@@ -174,6 +174,11 @@ export interface FetchConfig {
    *  传给 parser(content 字段可设 const 类型直接拿全文)。代理失败/响应非法时降级直连原 URL
    *  (零回归兜底)。loopback(127.0.0.1:301x 等)经 assertSafeTarget({allowLoopback:true}) 放行 */
   contentProxyUrl?: string
+  /** [R21-f2-5] 规则级 loopback 豁免显式声明: 目标 URL 本身指向本机转换代理
+   *  (qimao 规则 list=127.0.0.1:3013/rank 等纯本地签名代理源)时必须声明,
+   *  否则 SSRF 守卫拒收。缺省 false 维持既有守卫(仅 tokenUrl/contentProxyUrl
+   *  隐式豁免); 与之同口径, 仅放行 127.0.0/8/::1/localhost, 私网/元数据照旧拒绝 */
+  allowLoopback?: boolean
   /** 出口代理池(dd-a, 反反爬核心): 逗号分隔多条代理, 如
    *  "http://u:p@host:port,http://host2:port2"; 多条时每请求随机轮换(与 UA 池同款
    *  random 模式, 分布可测试验证); 失败按池逐条重试, 全部失败降级直连重试一次。
@@ -593,6 +598,8 @@ export function sanitizeFetchConfig(v: unknown): Partial<FetchConfig> {
     const contentProxyUrl = safeSingleLine(contentProxyUrlRaw)
     if (contentProxyUrl && /^https?:\/\/\S+$/i.test(contentProxyUrl)) out.contentProxyUrl = contentProxyUrl
   }
+  // [R21-f2-5] 规则级 loopback 豁免: 仅接受显式 true(缺省/脏值一律不豁免, 守卫默认不变)
+  if (r.allowLoopback === true) out.allowLoopback = true
   // 出口代理池(dd-a): 钳长 2000(多条列表形态) + 逐条 scheme 白名单校验
   // (http/https/socks5(h)/socks4(a) + host:port 形态, 与 fetcher.parseProxyPool 同口径);
   // 合法条目去空去重上限 10 条后回写, 全部非法则整字段丢弃

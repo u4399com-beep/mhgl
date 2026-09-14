@@ -12,7 +12,7 @@
 - **采集引擎**（`src/lib/crawl/`）：规则四段（列表/详情/目录/正文）解析、CSS/正则/JSON 字段提取、分页与翻页 Referer 链、编码识别（GBK 等）、正文清洗（广告模式/去壳页）、分卷排序、并发限速 + HostGate、**规则级出口代理池**（http/socks5h 逗号分隔多条轮换≤10，仅国内 IP 可达站点如 77shuku.info 必配）、封面本地化（webp）。
 - **多引擎降级链**：native HTTP（curl 链）→ 代理池轮换 → 中继桥（3011）→ Scrapling 桥（3012，static/stealthy/playwright）→ Obscura 本地 chromium 反检测渲染，按站点防护级别自动降级。
 - **站级签名/解密代理**：对 token/签名/AES 类站点以外置 mini-service 承载（见下表），引擎 `tokenUrl` 钩子对接。
-- **管理端**：站点规则 CRUD + 在线测试、**内置规则库一键导入**（25 条实测站点规则，幂等覆盖可恢复出厂）、任务（单书/批量/实时采集/定时增量 autoRefresh）、书籍/章节管理（批量删除等不可恢复操作带输入确认门槛）、TXT 下载、站群与 SEO（伪静态 6 预设设置、站点级「自动生成 TDK」一键铺底）、统计看板。
+- **管理端**：站点规则 CRUD + 在线测试、**内置规则库一键导入**（25 条实测站点规则，幂等覆盖可恢复出厂）、任务（单书/批量/实时采集/定时增量 autoRefresh）、书籍/章节管理（批量删除等不可恢复操作带输入确认门槛）、TXT 下载、站群与 SEO（伪静态 6 预设设置、站点级「自动生成 TDK」一键铺底）、统计看板（仪表盘统计卡片可开关显示）、**屏蔽词过滤**（对采集入库内容做屏蔽词/敏感词过滤，本轮新增）。
 - **前台**：多主题站群（**8 配色 × 8 风格 × 8 布局 = 512 套组合主题 + 9 套精选**，含笔趣阁经典、霹雳书屋仿站、久久小说 aijjxs 复刻；主题注册表+组合矩阵驱动，非法 ID 自动回退默认主题）、阅读页、搜索、sitemap、**6 预设伪静态 URL**（纯数字/字母数字/目录式/无后缀/紧凑双段/动态查询，宽容解析永不断链）、**全链自动 TDK**（标题/描述/关键词 + canonical + JSON-LD 逐页生成）。
 
 ## 技术栈
@@ -36,7 +36,7 @@ cd novel-system
 bash install.sh
 ```
 
-脚本会自动：检测 Docker（缺失时询问并自动安装；国内网络自动切换阿里云/清华/中科大镜像站）→ 配置 Docker Hub 拉取加速器与构建期依赖源加速（可关），基础镜像直指国内可达镜像站并构建前预拉兜底（失败自动换站重试，官方名经加速器拉取兜底）→ 预检端口 → `docker compose up -d --build` → 等健康检查通过（最长 5 分钟）→ 打印访问地址。重复执行安全（幂等），数据不受影响。无需预装 git：脚本检测到缺失会自动补装（apt/dnf/yum），git 不可用时自动改走 GitHub 压缩包下载兜底（详见 [DEPLOY.md](./DEPLOY.md) FAQ 第 14 条）；系统缺 gpg 时自动补装或走免 gpg 的 `.asc` 密钥方式（详见 [DEPLOY.md](./DEPLOY.md) FAQ 第 15 条）。国内部署全链路说明见 [DEPLOY.md](./DEPLOY.md) FAQ 第 11 条。部署完成后，还可在管理后台「采集规则」页对每条规则一键「极限校准」——对着模拟源站的三档封禁策略实测安全并发与速率，推荐参数（同站并发上限等）一键写回规则（用法见 [DEPLOY.md](./DEPLOY.md) 第六节）。也可在同一页打开「内置规则库」，从 25 条实测站点规则（含 77读书/起点中文/霹雳书屋等）一键幂等导入；采集仅国内 IP 可达的站点（如 77shuku.info）时，在规则编辑器「反反爬设置 → 出口代理」填国内 IP 代理池即可（图文教程见 [docs/INSTALL-GUIDE.md](./docs/INSTALL-GUIDE.md) 6.5 节）。
+脚本会自动：检测 Docker（缺失时询问并自动安装；国内网络自动切换阿里云/清华/中科大镜像站）→ 配置 Docker Hub 拉取加速器与构建期依赖源加速（可关），基础镜像直指国内可达镜像站并构建前预拉兜底（失败自动换站重试，官方名经加速器拉取兜底）→ 预检端口 → `docker compose up -d --build` → 等健康检查通过（最长 5 分钟）→ 打印访问地址。重复执行安全（幂等），数据不受影响。无需预装 git：脚本检测到缺失会自动补装（apt/dnf/yum），git 不可用时自动改走 GitHub 压缩包下载兜底（详见 [DEPLOY.md](./DEPLOY.md) FAQ 第 14 条）；系统缺 gpg 时自动补装或走免 gpg 的 `.asc` 密钥方式（详见 [DEPLOY.md](./DEPLOY.md) FAQ 第 15 条）。国内部署全链路说明见 [DEPLOY.md](./DEPLOY.md) FAQ 第 11 条。部署完成后，还可在管理后台「采集规则」页对每条规则一键「极限校准」——对着模拟源站的三档封禁策略实测安全并发与速率，推荐参数（同站并发上限等）一键写回规则（用法见 [DEPLOY.md](./DEPLOY.md) 第六节）。也可在同一页打开「内置规则库」，从 25 条实测站点规则（含 77读书/起点中文/霹雳书屋等）一键幂等导入；采集仅国内 IP 可达的站点（如 77shuku.info）时，在规则编辑器「反反爬设置 → 出口代理」填国内 IP 代理池即可（图文教程见 [docs/INSTALL-GUIDE.md](./docs/INSTALL-GUIDE.md) 9.4 节）。
 
 装完后**自动填充默认开启**（`AUTO_FILL=1`）：自动导入番茄/七猫/得奇/八零/精华/天天看/笔趣阁 7 个站点规则，创建「自动填充·」任务并开跑，首次跑完约 20~40 分钟前台就有书；每条任务完成后每 30 分钟自动增量续采。不想自动填充：`AUTO_FILL=0 bash install.sh`。
 
@@ -77,7 +77,7 @@ bun run dev                          # 启动 http://localhost:3000
 | 3013 | `qimao-proxy` | 七猫官方 API 逐请求 MD5 双签名 + 正文 AES 解密 | `cd mini-services/qimao-proxy && bun run dev` |
 | 3014 | `deqixs-proxy` | 得奇小说网正文三参数动态签名链路代理 | `cd mini-services/deqixs-proxy && bun run dev` |
 | 3015 | `xjp-proxy` | 新键盘小说网 var c 双层正文解密代理 | `cd mini-services/xjp-proxy && bun run dev` |
-| 3016 | `cloak-browser` | Obscura 反检测渲染链（本地 chromium 隐身渲染，多引擎降级链末端增强） | `cd mini-services/cloak-browser && bun run dev` |
+| 3016 | `cloak-browser` | 独立反检测浏览器服务（puppeteer-extra stealth 三档隐身；健康页可选监控，采集引擎未把它接入自动降级链） | `cd mini-services/cloak-browser && bun run dev`（需本机 chromium） |
 | 3017 | `qidian-proxy` | 起点中文(镜像API)目录签名载荷解码 + 正文转换代理（仅起点规则正文链路需要，正文还需配置 QD_YWKEY/QD_YWGUID 凭证） | `cd mini-services/qidian-proxy && bun run dev` |
 
 - 本地开发模式下属可选增强：用到对应站点的签名/解密代理时才需启动；

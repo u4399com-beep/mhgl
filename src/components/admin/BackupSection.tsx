@@ -28,6 +28,9 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { api, type BackupFile, type RestoreResult, type StatsData } from './helpers'
+// [R21-g-2] 大库阈值收归共享常量(@/lib/backup): 修前本组件硬编码 500 而后端实际 200,
+// 徽标/文案与后端元数据化导出行为漂移(books∈(200,500] 时后端已降级导出, 前端仍全量文案)
+import { BACKUP_BIG_BOOKS_THRESHOLD } from '@/lib/backup'
 
 interface HistoryEntry {
   filename: string
@@ -251,7 +254,7 @@ export function BackupSection() {
                 不导出 (体积过大, 通常数万行)
               </Row>
               <Row label="大库降级">
-                书籍 &gt; 500 时仅导出元数据, 跳过章节正文
+                书籍 &gt; {BACKUP_BIG_BOOKS_THRESHOLD} 时仅导出元数据, 跳过章节正文
               </Row>
             </div>
 
@@ -260,7 +263,8 @@ export function BackupSection() {
                 <FileJson className="h-3 w-3" />
                 预估 {formatBytes(estimatedBytes)}
               </Badge>
-              {stats && stats.books > 500 && (
+              {/* [R21-g-2] 阈值与后端 api/admin/backup 同源(@/lib/backup) */}
+              {stats && stats.books > BACKUP_BIG_BOOKS_THRESHOLD && (
                 <Badge variant="outline" className="border-amber-500/40 bg-amber-500/10 text-amber-200">
                   <AlertTriangle className="h-3 w-3" />
                   大库模式

@@ -5,7 +5,7 @@
 // 布局: 系统健康 → 统计卡片 → 采集活动(面积) + 状态分布(饼)
 //       → 分类字数排行(条) + 任务状态分布(条) → 最近任务 + 最近入库 + 分类分布
 // ============================================================
-import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   Area,
   AreaChart,
@@ -24,12 +24,15 @@ import {
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Progress } from '@/components/ui/progress'
 import {
   Activity,
   BarChart3,
   BookOpen,
   Download,
+  EyeOff,
   FileText,
   Globe,
   LayoutDashboard,
@@ -38,6 +41,7 @@ import {
   PieChart as PieIcon,
   RefreshCw,
   ScrollText,
+  SlidersHorizontal,
   Tag,
 } from 'lucide-react'
 import { HealthCard } from './HealthCard'
@@ -102,6 +106,52 @@ const tooltipContentStyle = {
 
 interface DashboardProps {
   onNavigate?: (section: string) => void
+}
+
+// ---------------- [R21-h-2] 仪表盘卡片显示开关 ----------------
+// 持久化: Setting 表 key 'dashboardCards' → JSON 隐藏卡片 key 数组(默认 [] 全显示);
+// 请求失败时回退 localStorage('dashboard.hiddenCards'); 键与 UI 文案统一由 CARD_META 管理。
+const DASHBOARD_CARDS_SETTING_KEY = 'dashboardCards'
+const DASHBOARD_CARDS_LS_KEY = 'dashboard.hiddenCards'
+/** 保存防抖毫秒数(连续勾选合并为一次 PUT) */
+const DASHBOARD_CARDS_SAVE_DEBOUNCE_MS = 600
+
+type DashboardCardGroup = 'stat' | 'chart' | 'panel'
+
+const CARD_META: { key: string; label: string; group: DashboardCardGroup }[] = [
+  { key: 'books', label: '书籍', group: 'stat' },
+  { key: 'chapters', label: '章节', group: 'stat' },
+  { key: 'rules', label: '采集规则', group: 'stat' },
+  { key: 'tasks', label: '采集任务', group: 'stat' },
+  { key: 'sites', label: '站点', group: 'stat' },
+  { key: 'tags', label: '下拉词', group: 'stat' },
+  { key: 'downloads', label: '下载成品', group: 'stat' },
+  { key: 'activity', label: '近7天采集活动', group: 'chart' },
+  { key: 'bookStatus', label: '书籍状态分布', group: 'chart' },
+  { key: 'catWords', label: '分类字数排行', group: 'chart' },
+  { key: 'taskStatus', label: '任务状态分布', group: 'chart' },
+  { key: 'health', label: '系统健康', group: 'panel' },
+  { key: 'recentTasks', label: '最近任务', group: 'panel' },
+  { key: 'recentBooks', label: '最近入库书籍', group: 'panel' },
+  { key: 'catDist', label: '分类分布', group: 'panel' },
+]
+
+const CARD_KEY_SET = new Set(CARD_META.map((m) => m.key))
+
+const CARD_GROUPS: { key: DashboardCardGroup; label: string }[] = [
+  { key: 'stat', label: '统计卡片' },
+  { key: 'chart', label: '图表' },
+  { key: 'panel', label: '健康与列表' },
+]
+
+/** 任意来源(设置 JSON / localStorage) → 合法隐藏键列表(去重 + 只留注册表内的键) */
+function sanitizeHiddenCards(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return []
+  const seen = new Set<string>()
+  for (const k of raw) {
+    if (typeof k === 'string' && CARD_KEY_SET.has(k) && !seen.has(k)) seen.add(k)
+  }
+  return [...seen]
 }
 
 // ---------------- 通用图表卡 (header + 图区 + 空态/加载态) ----------------
@@ -206,6 +256,67 @@ function renderStatusLegend(value: string, entry: { payload?: unknown }) {
 export function Dashboard({ onNavigate }: DashboardProps) {
   const [stats, setStats] = useState<StatsData | null>(null)
   const [loading, setLoading] = useState(true)
+
+  // ---- [R21-h-2] 卡片显示状态 ----
+  // hiddenCards = 隐藏卡片 key 列表(默认 [] 全显示); prefsLoaded 防载入前误存回默认值
+  const [hiddenCards, setHiddenCards] = useState<string[]>([])
+  const [prefsLoaded, setPrefsLoaded] = useState(false)
+  const lastSavedRef = useRef<string>('')
+
+  // 载入隐藏卡片配置: 优先 Setting(dashboardCards), 请求失败回退 localStorage 本机记忆
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      let loaded: string[] | null = null
+      try {
+        const data = await api.get<Record<string, unknown>>('/api/admin/settings')
+        loaded = sanitizeHiddenCards(data?.dashboardCards)
+      } catch {
+        try {
+          const raw = window.localStorage.getItem(DASHBOARD_CARDS_LS_KEY)
+          if (raw) loaded = sanitizeHiddenCards(JSON.parse(raw))
+        } catch {
+          // 坏数据按全显示处理
+        }
+      }
+      if (cancelled) return
+      const next = loaded ?? []
+      setHiddenCards(next)
+      lastSavedRef.current = next.join(',')
+      setPrefsLoaded(true)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // 变更后防抖保存: Setting 接口失败时镜像 localStorage 兑底(下次加载仍可恢复偏好)
+  const hiddenKey = hiddenCards.join(',')
+  useEffect(() => {
+    if (!prefsLoaded || hiddenKey === lastSavedRef.current) return
+    const timer = setTimeout(() => {
+      lastSavedRef.current = hiddenKey
+      const persist = () => {
+        try {
+          window.localStorage.setItem(DASHBOARD_CARDS_LS_KEY, JSON.stringify(hiddenCards))
+        } catch {
+          // 隐私模式等场景写入失败可忽略
+        }
+      }
+      api
+        .put('/api/admin/settings', { [DASHBOARD_CARDS_SETTING_KEY]: hiddenCards })
+        .then(persist)
+        .catch(persist) // 保存失败 → 本机记忆兑底
+    }, DASHBOARD_CARDS_SAVE_DEBOUNCE_MS)
+    return () => clearTimeout(timer)
+  }, [hiddenKey, prefsLoaded, hiddenCards])
+
+  const hiddenSet = useMemo(() => new Set(hiddenCards), [hiddenCards])
+  const show = useCallback((key: string) => !hiddenSet.has(key), [hiddenSet])
+  const toggleCard = useCallback((key: string) => {
+    setHiddenCards((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]))
+  }, [])
+  const showAllCards = useCallback(() => setHiddenCards([]), [])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -320,6 +431,10 @@ export function Dashboard({ onNavigate }: DashboardProps) {
 
   const maxCat = Math.max(1, ...(stats?.categories || []).map((c) => c._count?.books || 0))
 
+  // [R21-h-2] 隐藏卡片不渲染(键由 dashboardCards 设置驱动)
+  const visibleCards = cards.filter((c) => show(c.key))
+  const allCardsHidden = CARD_META.every((m) => hiddenSet.has(m.key))
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -330,18 +445,80 @@ export function Dashboard({ onNavigate }: DashboardProps) {
           </h2>
           <p className="mt-0.5 text-xs text-zinc-500">书库与采集系统运行总览</p>
         </div>
-        <Button variant="outline" size="sm" className="h-9 gap-1.5 border-zinc-700 bg-zinc-900 text-zinc-300 hover:bg-zinc-800" onClick={load}>
-          {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-          刷新数据
-        </Button>
+        <div className="flex items-center gap-2">
+          {/* [R21-h-2] 卡片显示开关: 勾选列表控制各区块显隐, 配置自动保存 */}
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-9 gap-1.5 border-zinc-700 bg-zinc-900 text-zinc-300 hover:bg-zinc-800"
+                aria-label="配置显示的仪表盘卡片"
+                aria-haspopup="true"
+              >
+                <SlidersHorizontal className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">卡片显示</span>
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-64 border-zinc-800 bg-zinc-900 p-3" aria-label="仪表盘卡片显示设置">
+              <div className="mb-1 flex items-center justify-between">
+                <span className="text-xs font-semibold text-zinc-300">显示的卡片</span>
+                <button
+                  type="button"
+                  onClick={showAllCards}
+                  className="rounded px-1.5 py-1.5 text-[11px] text-violet-400 hover:text-violet-300"
+                  aria-label="显示全部卡片"
+                >
+                  全部显示
+                </button>
+              </div>
+              <div className="admin-scroll max-h-72 overflow-y-auto">
+                {CARD_GROUPS.map((g) => (
+                  <div key={g.key} role="group" aria-label={g.label}>
+                    <div className="px-1.5 pb-1 pt-2 text-[10px] uppercase tracking-wider text-zinc-500">{g.label}</div>
+                    {CARD_META.filter((m) => m.group === g.key).map((m) => {
+                      const checked = show(m.key)
+                      const id = `dash-card-${m.key}`
+                      return (
+                        <div
+                          key={m.key}
+                          className="flex min-h-[44px] items-center gap-2.5 rounded px-1.5 hover:bg-zinc-800/60"
+                        >
+                          <Checkbox
+                            id={id}
+                            checked={checked}
+                            onCheckedChange={() => toggleCard(m.key)}
+                            aria-label={`显示${m.label}`}
+                            className="border-zinc-600"
+                          />
+                          <label htmlFor={id} className="flex-1 cursor-pointer select-none text-sm text-zinc-200">
+                            {m.label}
+                          </label>
+                        </div>
+                      )
+                    })}
+                  </div>
+                ))}
+              </div>
+              <p className="mt-2 border-t border-zinc-800 pt-2 text-[10px] leading-relaxed text-zinc-500">
+                勾选表示显示该卡片; 配置自动保存, 保存失败时使用本机记忆。
+              </p>
+            </PopoverContent>
+          </Popover>
+          <Button variant="outline" size="sm" className="h-9 gap-1.5 border-zinc-700 bg-zinc-900 text-zinc-300 hover:bg-zinc-800" onClick={load}>
+            {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+            刷新数据
+          </Button>
+        </div>
       </div>
 
-      {/* 系统健康 (auto-refresh 30s) */}
-      <HealthCard onSessionExpired={() => setStats(null)} />
+      {/* 系统健康 (auto-refresh 30s) [R21-h-2] 可隐藏 */}
+      {show('health') && <HealthCard onSessionExpired={() => setStats(null)} />}
 
-      {/* 统计卡片 */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-7">
-        {cards.map((c) => (
+      {/* 统计卡片 [R21-h-2] 每张可独立隐藏 */}
+      {visibleCards.length > 0 && (
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-7">
+        {visibleCards.map((c) => (
           <Card
             key={c.key}
             role="button"
@@ -378,10 +555,13 @@ export function Dashboard({ onNavigate }: DashboardProps) {
             </CardContent>
           </Card>
         ))}
-      </div>
+        </div>
+      )}
 
-      {/* 第二行: 采集活动 + 状态分布 */}
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+      {/* 第二行: 采集活动 + 状态分布 [R21-h-2] 可整行隐藏 */}
+      {(show('activity') || show('bookStatus')) && (
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        {show('activity') && (
         <ChartCard
           title="近7天采集活动"
           icon={Activity}
@@ -429,7 +609,9 @@ export function Dashboard({ onNavigate }: DashboardProps) {
             </AreaChart>
           </ResponsiveContainer>
         </ChartCard>
+        )}
 
+        {show('bookStatus') && (
         <ChartCard
           title="书籍状态分布"
           icon={PieIcon}
@@ -466,10 +648,14 @@ export function Dashboard({ onNavigate }: DashboardProps) {
             </PieChart>
           </ResponsiveContainer>
         </ChartCard>
-      </div>
+        )}
+        </div>
+      )}
 
-      {/* 第三行: 分类字数排行 + 任务状态分布 */}
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+      {/* 第三行: 分类字数排行 + 任务状态分布 [R21-h-2] 可整行隐藏 */}
+      {(show('catWords') || show('taskStatus')) && (
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        {show('catWords') && (
         <ChartCard
           title="分类字数排行 (Top 10)"
           icon={BarChart3}
@@ -513,7 +699,9 @@ export function Dashboard({ onNavigate }: DashboardProps) {
             </BarChart>
           </ResponsiveContainer>
         </ChartCard>
+        )}
 
+        {show('taskStatus') && (
         <ChartCard
           title="任务状态分布"
           icon={ListTodo}
@@ -555,11 +743,15 @@ export function Dashboard({ onNavigate }: DashboardProps) {
             </BarChart>
           </ResponsiveContainer>
         </ChartCard>
-      </div>
+        )}
+        </div>
+      )}
 
-      {/* 底行: 最近任务 + (最近入库 + 分类分布) */}
+      {/* 底行: 最近任务 + (最近入库 + 分类分布) [R21-h-2] 可整行隐藏 */}
+      {(show('recentTasks') || show('recentBooks') || show('catDist')) && (
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
         {/* 最近任务 */}
+        {show('recentTasks') && (
         <Card className="border-zinc-800 bg-zinc-900/60">
           <CardHeader className="flex-row items-center justify-between space-y-0 pb-3">
             <CardTitle className="text-sm text-zinc-200">最近任务</CardTitle>
@@ -606,9 +798,12 @@ export function Dashboard({ onNavigate }: DashboardProps) {
             )}
           </CardContent>
         </Card>
+        )}
 
+        {(show('recentBooks') || show('catDist')) && (
         <div className="space-y-4">
           {/* 最近入库 */}
+          {show('recentBooks') && (
           <Card className="border-zinc-800 bg-zinc-900/60">
             <CardHeader className="flex-row items-center justify-between space-y-0 pb-3">
               <CardTitle className="text-sm text-zinc-200">最近入库书籍</CardTitle>
@@ -650,8 +845,10 @@ export function Dashboard({ onNavigate }: DashboardProps) {
               )}
             </CardContent>
           </Card>
+          )}
 
           {/* 分类分布 */}
+          {show('catDist') && (
           <Card className="border-zinc-800 bg-zinc-900/60">
             <CardHeader className="pb-3">
               <CardTitle className="text-sm text-zinc-200">分类分布</CardTitle>
@@ -682,8 +879,22 @@ export function Dashboard({ onNavigate }: DashboardProps) {
               )}
             </CardContent>
           </Card>
+          )}
         </div>
+        )}
       </div>
+      )}
+
+      {/* [R21-h-2] 全部隐藏时的空态提示(入口回到卡片开关面板) */}
+      {allCardsHidden && (
+        <Card className="border-dashed border-zinc-800 bg-zinc-900/40">
+          <CardContent className="flex flex-col items-center gap-1.5 py-10 text-center">
+            <EyeOff className="h-6 w-6 text-zinc-600" aria-hidden />
+            <p className="text-sm text-zinc-400">全部卡片已隐藏</p>
+            <p className="text-xs text-zinc-500">点击右上角「卡片显示」重新勾选需要的内容</p>
+          </CardContent>
+        </Card>
+      )}
     </div>
   )
 }

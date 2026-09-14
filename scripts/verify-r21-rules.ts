@@ -346,8 +346,15 @@ async function verifyToc(
   return { result: st, chapterUrl: items[0].url, chapterTitle: firstTitle }
 }
 
-/** 成人诱饵特征词(客观证据采样用; 命中数进报告) */
-const ADULT_MARKERS_RE = /[胸口|高耸|肌肤|呻吟|喘息|挺动|抽插|肉棒|淫|穴|骚|乳|臀|欲火|春宵|交合|肉体]/g
+// 成人诱饵特征词(客观证据采样用; 命中数进报告)
+// [R21-f-1](修复断言假阳性) 原写法把 JS 交替写成字符类: /[胸口|高耸|…|肉体]/ 实际等价于
+// 单字集 {胸,口,高,耸,肌,肤,呻,吟,喘,息,挺,动,抽,插,肉,棒,淫,穴,骚,乳,臀,欲,火,春,宵,交,合,体},
+// 其中 口/高/动/息/合/体/火 为正常小说高频字 —— 任意正常中文正文都命中 30+(首轮实测 8 条
+// 规则 content 全部因此 FAIL: 14~169 命中, bun 复核真实正文样本 6 命中/模拟诱饵 56 命中)。
+// 修为作者本意的交替正则(词元集合逐项保留: 胸口/高耸/肌肤/呻吟/喘息/挺动/抽插/肉棒/淫/穴/
+// 骚/乳/臀/欲火/春宵/交合/肉体), 阈值 ≥5 维持 —— 真诱饵载荷(bqg713 apiqu.cc 投毒形态,
+// 成人文本+水印)仍 50+ 命中必死; 正常正文(窍穴/乳白等偶发单字)远低于阈值。
+const ADULT_MARKERS_RE = /(胸口|高耸|肌肤|呻吟|喘息|挺动|抽插|肉棒|淫|穴|骚|乳|臀|欲火|春宵|交合|肉体)/g
 
 async function verifyContent(
   cfg: RuleConfig,
@@ -444,7 +451,13 @@ async function verifyContent(
     const repeatRatio = topN / lines.length
     if (topN >= 5 && repeatRatio > 0.3) decoy.push(`重复填充: "${cut(topLine, 30)}" ×${topN}/${lines.length} 行`)
   }
-  const cjkTitle = chapterTitle.match(/[\u4e00-\u9fff]/g) || []
+  // [R21-f2-2] 章节单元结构字(第/章/节/卷/回/集/话/篇/部)不参与交集判定: 17mb 等托管站对
+  // 上传 TXT 自动编号章名("1、第 1 章"), 其 CJK 字符全是单元结构字 —— 正文前 800 字不含
+  // 它们属正常形态, 原判据把纯编号章名当语义章名, 真实正文被判"零字符交集"诱饵(moli
+  // 首轮实测复现, 章名="1、第 1 章" 正文嘉佑十六年…无 第/章)。过滤后有效 CJK <2 跳过本
+  // 检查(纯编号章名无语义可对照; 重复填充/异常短/成人标记三信号不受影响)
+  const TITLE_UNIT_CHARS = new Set(['第', '章', '节', '卷', '回', '集', '话', '篇', '部'])
+  const cjkTitle = (chapterTitle.match(/[\u4e00-\u9fff]/g) || []).filter((c) => !TITLE_UNIT_CHARS.has(c))
   if (cjkTitle.length >= 2 && textCompact.length > 100) {
     const head = textCompact.slice(0, 800)
     const overlap = cjkTitle.filter((c) => head.includes(c)).length

@@ -37,7 +37,7 @@ const PROBE = {
 const rule: RuleSeed = {
   name: '大奉打更人 (dafengdagengren.com)',
   description:
-    'dafengdagengren.com GBK 笔趣阁模板站(与 daweixs.com 同平台同模板)。WAF: nginx 403 双 Set-Cookie 挑战(server_name_session 会话 Cookie 为关键凭证), 引擎 http 层 autoCookie 挑战重试链原生破解(首访种 Cookie 二连过, 无需浏览器)。dd-c 改版适配: 分类路径加 xiaoshuo 后缀, 旧列表源 /paihangbang/ 上游恒 502 已弃用, 列表改用 /xuanhuanxiaoshuo/ 分类页 ul.txt-list-row5 li(30 本/页, /list/1_N.html 第 N≥2 页但首页路径独立无法 {page} 表达)。书籍页 .info h1+作者 regex+.info .desc / 目录 #section-list li a / 正文 #content(纵横转载源带捧场月票灌水块, 已清洗)。',
+    'dafengdagengren.com GBK 笔趣阁模板站(与 daweixs.com 同平台同模板)。WAF: nginx 403 双 Set-Cookie 挑战(server_name_session 会话 Cookie 为关键凭证), 引擎 http 层 autoCookie 挑战重试链原生破解(首访种 Cookie 二连过, 无需浏览器)。dd-c 改版适配: 分类路径加 xiaoshuo 后缀, 旧列表源 /paihangbang/ 上游恒 502 已弃用, 列表改用 /xuanhuanxiaoshuo/ 分类页 ul.txt-list-row5 li(30 本/页, /list/1_N.html 第 N≥2 页但首页路径独立无法 {page} 表达)。书籍页 .info h1+作者 regex+.info .desc / 目录 #section-list li a / 正文 #content(纵横转载源带捧场月票灌水块, 已清洗; <br>×3 段间折叠+第N/M页页码/本章未完引流行剥离 R21-f2-3, 章内翻页关闭防并章)。',
   enabled: true,
   config: {
     list: {
@@ -82,9 +82,23 @@ const rule: RuleSeed = {
     content: {
       enabled: true,
       fields: {
-        content: { type: 'css', expression: '#content', attr: 'html', replaceFrom: 'https?:/{2,3}\\d{1,8}/', replaceTo: '' },
+        // [R21-f2-3] 2026-09-14 复测: #content 段间为 <br>\n<br>\n<br> 三连分隔 + &nbsp; 缩进
+        // (HTML 模式经块级换行转换必产生 3+ 连续空行, 实测 118 处); 部分章节变体带
+        // "标题(第N/M页)"页码标记 + "（本章未完，请点击下一页继续阅读）"引流行 + 同章子页锚
+        // (文本含 第N/M页)。replaceFrom 全局收口: ①3+ <br> 折叠为单个 <br> ②剥整个子页锚
+        // ③剥引流行 ④剥残留页码标记。嵌套量词闸门安全: (?:…>){3,} 组体以字面量结尾。
+        content: {
+          type: 'css',
+          expression: '#content',
+          attr: 'html',
+          replaceFrom: 'https?:/{2,3}\\d{1,8}/|(?:\\s*<br\\s*\\/?>){3,}|<a[^>]*>\\s*[^<]{0,40}第\\d+\\/\\d+页[^<]{0,10}\\s*<\\/a>|本章未完[^<]{0,40}|第\\d+\\/\\d+页',
+          replaceTo: '',
+        },
       },
-      // 站点无章内翻页(.section-opt 只有 上一章/章节列表/下一章), 开启翻页会并章
+      // 站点无章内翻页(.section-opt 只有 上一章/章节列表/下一章), 开启翻页会并章 ——
+      // 2026-09-14 复测实证: 即便出现 第N/M页 子页变体, pickNextHref 规则候选为空时会
+      // 落到 ["下一页","下页","下一章"] 文案兜底(parser.ts L1014), 必然误跟下一章 → 翻页
+      // 保持关闭; 子页变体内容截断为既有已知取舍(不引入并章回归)
       pagination: { enabled: false, maxPages: 1 },
     },
     fetch: {

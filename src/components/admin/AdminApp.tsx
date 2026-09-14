@@ -22,6 +22,7 @@ import {
   MessageSquare,
   Palette,
   Settings,
+  ShieldAlert,
   Stethoscope,
 } from 'lucide-react'
 import { Dashboard } from './Dashboard'
@@ -34,6 +35,7 @@ import { ThemesSection } from './ThemesSection'
 import { DownloadsSection } from './DownloadsSection'
 import { LinksSection } from './LinksSection'
 import { SettingsSection } from './SettingsSection'
+import { BannedWordsSection } from './BannedWordsSection' // [R21-h-1] 违禁词过滤区块挂载
 import { FeedbackSection } from './FeedbackSection'
 import { BackupSection } from './BackupSection'
 import { SeoAuditSection } from './SeoAuditSection'
@@ -49,6 +51,7 @@ type SectionKey =
   | 'themes'
   | 'downloads'
   | 'settings'
+  | 'banned-words'
   | 'feedback'
   | 'backup'
   | 'seo-audit'
@@ -64,6 +67,7 @@ const NAV: { key: SectionKey; label: string; icon: typeof LayoutDashboard }[] = 
   { key: 'themes', label: '主题模板', icon: Palette },
   { key: 'downloads', label: 'TXT下载', icon: FileDown },
   { key: 'settings', label: '系统设置', icon: Settings },
+  { key: 'banned-words', label: '违禁词过滤', icon: ShieldAlert },
   { key: 'feedback', label: '用户反馈', icon: MessageSquare },
   { key: 'backup', label: '数据备份', icon: Database },
   { key: 'seo-audit', label: 'SEO 体检', icon: Stethoscope },
@@ -114,6 +118,8 @@ export default function AdminApp({ onPreviewSite }: { onPreviewSite?: (themeId?:
         return <DownloadsSection preselectBookId={downloadPreselect} onConsumedPreselect={() => setDownloadPreselect(null)} />
       case 'settings':
         return <SettingsSection />
+      case 'banned-words':
+        return <BannedWordsSection />
       case 'feedback':
         return <FeedbackSection />
       case 'backup':

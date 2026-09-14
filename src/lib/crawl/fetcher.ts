@@ -60,7 +60,8 @@ export const UA_POOL = [
   'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1',
 ]
 
-export function randomUa(): string {
+// [R21-e-5] 精简: 仅文件内消费(pickUaFor)去 export(R19-b-3 同款口径, rg 全库含 archive 零外部引用)
+function randomUa(): string {
   return UA_POOL[Math.floor(Math.random() * UA_POOL.length)]
 }
 
@@ -831,11 +832,12 @@ async function maybePathJitter(url: string, cfg: FetchConfig): Promise<void> {
 
 // ---------- B3: 失败分类精细化 ----------
 /** 网络/HTTP 失败分类: dns / tls / timeout / conn / http-4xx / http-5xx / other。
- *  分类用于: ① host 节奏惩罚窗取值(403/429 才惩罚); ② hostFailureProfile 分级计数
+ *  分类用于: ① host 节奏惩罚窗取值(403/429 才惩罚); ② hostRhythm.classCounts 分级计数
  *  供降级链决策与观测; ③ 后续可细化 DNS/TLS 差异化重试 */
-export type HttpFailureClass = 'dns' | 'tls' | 'timeout' | 'conn' | 'http-4xx' | 'http-5xx' | 'other'
+// [R21-e-5] 精简: HttpFailureClass/classifyHttpFailure 仅文件内消费去 export(rg 全库零外部引用)
+type HttpFailureClass = 'dns' | 'tls' | 'timeout' | 'conn' | 'http-4xx' | 'http-5xx' | 'other'
 
-export function classifyHttpFailure(e: unknown): HttpFailureClass {
+function classifyHttpFailure(e: unknown): HttpFailureClass {
   const err = e as { status?: unknown; code?: unknown; message?: unknown; name?: unknown; isFetchTimeout?: unknown } | null
   const status = typeof err?.status === 'number' && Number.isFinite(err.status) ? err.status : 0
   if (status >= 400 && status < 500) return 'http-4xx'
@@ -866,7 +868,7 @@ interface HostRhythmState {
   rateLimitStreak: number
   /** 对抗性标记窗(403/429/敏感信号任一命中后 10min): burst-pause 仅在此窗口启用 */
   resistUntil: number
-  /** B3: 失败分类计数(cls → count), hostFailureProfile 导出供降级链决策 */
+  /** B3: 失败分类计数(cls → count), 供降级链决策与观测 */
   classCounts: Record<string, number>
   /** C.4/C.5 敏感观察窗 + 温和间隔 */
   sensitiveUntil: number
@@ -972,30 +974,6 @@ async function maybeHostRhythmDelay(url: string): Promise<void> {
   }
 }
 
-/** host 失败画像(观测/降级链决策用): 分类计数 + 惩罚/敏感窗快照 */
-export function hostFailureProfile(url: string): {
-  host: string
-  classCounts: Record<string, number>
-  forbiddenStreak: number
-  rateLimitStreak: number
-  cooldownUntil: number
-  sensitiveUntil: number
-  resistUntil: number
-} | null {
-  const host = hostKeyOf(url)
-  const st = hostRhythm.get(host)
-  if (!st) return null
-  return {
-    host,
-    classCounts: { ...st.classCounts },
-    forbiddenStreak: st.forbiddenStreak,
-    rateLimitStreak: st.rateLimitStreak,
-    cooldownUntil: st.cooldownUntil,
-    sensitiveUntil: st.sensitiveUntil,
-    resistUntil: st.resistUntil,
-  }
-}
-
 // ---------- C.4/C.5: 蜜罐/robots 陷阱信号识别(响应侧, 轻量有界正则) ----------
 /** 对抓到的 HTML 做陷阱信号扫描:
  *  - meta robots noindex/none → 站点对本引擎不欢迎(C.5 学习降速);
@@ -1015,7 +993,8 @@ function countMatchesBounded(s: string, re: RegExp, cap: number): number {
   return n
 }
 
-export function detectTrapSignals(html: string): { trapGapMs: number; noindex: boolean; hiddenAnchors: number; nofollowAnchors: number } {
+// [R21-e-5] 精简: 仅文件内消费(noteHostSensitive 调用点)去 export(rg 全库零外部引用)
+function detectTrapSignals(html: string): { trapGapMs: number; noindex: boolean; hiddenAnchors: number; nofollowAnchors: number } {
   const out = { trapGapMs: 0, noindex: false, hiddenAnchors: 0, nofollowAnchors: 0 }
   if (!html) return out
   const head = html.slice(0, 8192)
@@ -1528,7 +1507,13 @@ function buildHeaders(url: string, cfg: FetchConfig, ua: string, opts?: { finger
     'User-Agent': ua,
     // [R9-a-10] Accept 按家族取真值(见上方常量注释); opts.accept='image' 供资源链使用
     Accept: opts?.accept === 'image' ? ACCEPT_IMAGE : (ACCEPT_HTML_BY_FAMILY[family] || ACCEPT_HTML_DEFAULT),
-    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.6',
+    // [R21-e-2] 增强: AL 改由 UA locale 推导(非 fingerprint 链=封面 fetchBinary/裸 Playwright
+    // extraHTTPHeaders 原先硬编码 zh-CN, en-US/ja custom UA 配 zh-CN AL 是可聚类矛盾指纹,
+    // 与 R9-a-10 Accept 家族化/R11-b-EN-4 AL 池同一自洽口径)。回归面实测: UA_POOL 35 条中
+    // 34 条无 locale 段 → default 分支返回值与原硬编码逐字节一致; 唯一 'zh-cn' Android UA
+    // 由 q=0.9,en;q=0.6 变为 locale 配套的 zh-CN,zh;q=0.9,en;q=0.8(同为真实 zh-CN 形态,
+    // 自洽性提升); 指纹链同函数同参覆写为同值, 无漂移
+    'Accept-Language': acceptLanguageFor(ua, url),
     // [R9-a-12] 移除缺省 Cache-Control: no-cache —— 真实浏览器导航不发送该头(仅硬刷新才发),
     // 常驻发送本身是爬虫指纹且禁用中间缓存白耗带宽; cfg.headers 显式配置仍可覆盖回来
   }
@@ -1750,6 +1735,10 @@ export async function assertSafeTarget(url: string, opts?: { allowLoopback?: boo
  *  把内网服务拉爆, 同时不破坏 token 预取/中继/桥接测试链路 */
 function loopbackBypassAllowed(url: string, cfg: FetchConfig): boolean {
   if (!isLoopbackTarget(url)) return false
+  // [R21-f2-5] 规则级显式声明(fetch.allowLoopback=true): 目标本身是操作员配置的本机转换代理
+  // (qimao 127.0.0.1:3013 签名代理作列表/目录源等), 与 tokenUrl/contentProxyUrl 隐式豁免同口径;
+  // 仅放宽 loopback, 私网/元数据仍由 assertSafeIp 硬拒
+  if (cfg.allowLoopback === true) return true
   let uHost = ''
   let uPort = ''
   try {
@@ -2844,7 +2833,8 @@ export function scraplingModeOf(fetchMode: string | undefined | null): Scrapling
  * 跨 host 共享: 桥信号量是进程级全局 3, 多 host 并行任务叠加时仍可能在桥内短暂排队
  * (per-host 闸无法表达全局上限), 该残余排队有界且无害, 不在本钳制职责内。
  */
-export const SCRAPLING_BROWSER_CONCURRENCY = 3
+// [R21-e-5] 精简: 仅文件内消费(effectiveHostGateLimit)去 export(rg 全库零外部引用)
+const SCRAPLING_BROWSER_CONCURRENCY = 3
 
 export function effectiveHostGateLimit(cfg: Pick<FetchConfig, 'fetchMode' | 'hostGateLimit' | 'hostGateConcurrency'>): number | undefined {
   const mode = scraplingModeOf(cfg.fetchMode)
@@ -3527,32 +3517,30 @@ async function fetchPageOnce(url: string, cfg: FetchConfig): Promise<FetchResult
         const safeToken = token.replace(/[\x00-\x1f\x7f]+/g, '').trim()
         if (safeToken) effCfg = { ...cfg, headers: { ...cfg.headers, [name]: safeToken } }
       } else {
-        const enc = encodeURIComponent(token)
+        // [R21-e-1](Med) token 编码统一治理(R20-c-2 丢失修复重实现): 预取端返回的 token 可能
+        // 已是百分号编码形态(如含 %2B) —— 原实现无条件 encodeURIComponent 后再注入, 且
+        // searchParams.set('token', enc) 序列化时对值里的 % 再编一次, 产出 %252B/%25252B,
+        // 目标站解码一次得不到真实 token → 403。现判定: 值含合法 %XX 十六进制转义即视为已
+        // 编码(原样逐字注入), 原始值则编码一次。注入一律改原串级拼接/替换 —— searchParams.set
+        // 除对已编码值二次编码外还会全量重序列化整条 query(其余参数形态可能被改写), 弃用;
+        // Bug 12(已含 token= 改 set 防重复)与 bb-g(参数落 #fragment 之前)语义由原串级
+        // set/append 等价保留(参数名精确匹配 token, 与原 searchParams.has('token') 同口径)
+        const looksPctEncoded = /%[0-9a-fA-F]{2}/.test(token)
+        const enc = looksPctEncoded ? token : encodeURIComponent(token)
         // [R9-a-4] 修复: {token} 占位符原先单次 replace 只替首个, 多占位符模板第二个起漏替换
         // (与 R3-3/2-fetcher Bug 11 {url} 修复同口径, split/join 全量替换)
         if (reqUrl.includes('{token}')) reqUrl = reqUrl.split('{token}').join(enc)
-        else if (/%7Btoken%7D/i.test(reqUrl)) reqUrl = reqUrl.replace(/%7Btoken%7D/gi, enc)
+        else if (/%7Btoken%7D/i.test(reqUrl)) reqUrl = reqUrl.replace(/%7Btoken%7D/gi, () => enc)
         else {
-          // 2-fetcher Bug 12: URL 已含 token 参数时改用 searchParams.set 而非追加, 防重复 token=
-          // 污染(原直接尾追会拼出 ?token=old&token=new 双值头); 查询参数操作必须在 #fragment
-          // 之前(bb-g 修复): fragment 后的 query 服务端不可见, 原「直接尾追」会把 token 落进锚点
-          let tokenExists = false
-          try { tokenExists = new URL(reqUrl).searchParams.has('token') } catch { /* URL 解析失败回退原逻辑 */ }
-          if (tokenExists) {
-            try {
-              const u = new URL(reqUrl)
-              u.searchParams.set('token', enc)
-              reqUrl = u.toString()
-            } catch {
-              const h = reqUrl.indexOf('#')
-              const sep = reqUrl.includes('?') ? '&' : '?'
-              reqUrl = h >= 0 ? reqUrl.slice(0, h) + sep + 'token=' + enc + reqUrl.slice(h) : reqUrl + sep + 'token=' + enc
-            }
-          } else {
-            const h = reqUrl.indexOf('#')
-            const sep = reqUrl.includes('?') ? '&' : '?'
-            reqUrl = h >= 0 ? reqUrl.slice(0, h) + sep + 'token=' + enc + reqUrl.slice(h) : reqUrl + sep + 'token=' + enc
-          }
+          // 原串级 set/append: 仅在 #fragment 之前的 query 段内操作(锚点后的参数服务端不可见);
+          // 替换用函数形态防 enc 含 $(String.replace 替换串模式符)被展开吃掉
+          const hashAt = reqUrl.indexOf('#')
+          const head = hashAt >= 0 ? reqUrl.slice(0, hashAt) : reqUrl
+          const tail = reqUrl.slice(head.length)
+          const sep = head.includes('?') ? '&' : '?'
+          const m = /([?&])token(?:=[^&#]*)?/.exec(head)
+          if (m) reqUrl = head.slice(0, m.index) + m[1] + 'token=' + enc + head.slice(m.index + m[0].length) + tail
+          else reqUrl = head + sep + 'token=' + enc + tail
         }
       }
     }
@@ -3694,7 +3682,7 @@ async function fetchPageOnce(url: string, cfg: FetchConfig): Promise<FetchResult
     } catch (e: any) {
       lastErr = e
       lastStatus = e?.status || 0
-      // [R9-a-9] B3: 失败分类分级计数(dns/tls/timeout/conn/4xx/5xx, hostFailureProfile 可观测)
+      // [R9-a-9] B3: 失败分类分级计数(dns/tls/timeout/conn/4xx/5xx, hostRhythm 可观测)
       recordFailureClass(reqUrl, classifyHttpFailure(e))
       // [R9-a-8] B2: 403/429 惩罚记忆(429 优先尊重 Retry-After; 指数退避+抖动, 执行等待有界 3s)
       if (lastStatus === 403 || lastStatus === 429) noteHostHttpFailure(reqUrl, lastStatus, e?.retryAfterMs)

@@ -2,7 +2,7 @@
 // 数据备份导出 — GET /api/admin/backup
 // 导出全库 JSON (settings / categories / sites / friendLinks / rules /
 //   books (含 chapters + tags) / tasks (不含 logs) / downloadJobs)
-// - books > 500 时仅导出元数据(不含 chapters) + warn 字段
+// - books > 200 时仅导出元数据(不含 chapters) + warn 字段(阈值见 @/lib/backup)
 // - 大于 5MB 时改走 ReadableStream 串流; 小数据直接 JSON.stringify
 // - Content-Disposition: attachment; filename="heis-backup-YYYYMMDD-HHmm.json"
 // ============================================================
@@ -10,12 +10,11 @@ import { db } from '@/lib/db'
 import { fail } from '@/lib/api'
 import { withGuard } from '../../_lib/http'
 import { logger } from '@/lib/logger'
+// [R21-g-2] 阈值收归共享常量(@/lib/backup): 修前后端 200 与前端 BackupSection 硬编码 500 漂移
+import { BACKUP_BIG_BOOKS_THRESHOLD } from '@/lib/backup'
 
 const BACKUP_VERSION = 1
-// R4A-12: 降低大书库阈值 500 → 200 —— 499 书 × 500 章节场景 dumpBooksFull 单 findMany
-// 加载所有行到内存, JSON.stringify payload 多百 MB 堆峰值。200 上限与 metadata-only
-// 模式仍保留(站群场景常见 100~200 书仍可正常导出含章节)
-const BIG_BOOKS_THRESHOLD = 200
+// (R4A-12 依据 500 → 200 的完整理由移至 @/lib/backup 常量注释处)
 const STREAM_THRESHOLD_BYTES = 5 * 1024 * 1024 // 5 MB
 
 /** 日期片段 YYYYMMDD-HHmm (本地时区, 仅文件名用途) */
@@ -82,7 +81,8 @@ export async function GET() {
       db.downloadJob.findMany({ take: 5000 }),
     ])
 
-    const bigBooks = bookCount > BIG_BOOKS_THRESHOLD
+    // [R21-g-2] BIG_BOOKS_THRESHOLD → 共享常量 BACKUP_BIG_BOOKS_THRESHOLD(同值 200, 语义不变)
+    const bigBooks = bookCount > BACKUP_BIG_BOOKS_THRESHOLD
     // bigBooks=true → 仅元数据(无 chapters/tags), 避免备份体积过大
     const books = bigBooks ? await db.book.findMany({}) : await dumpBooksFull()
 
@@ -104,7 +104,7 @@ export async function GET() {
       exportedAt,
       counts,
       warnings: bigBooks
-        ? [`书籍数量超过 ${BIG_BOOKS_THRESHOLD}, 仅导出书籍元数据(不含章节正文), 以避免备份体积过大`]
+        ? [`书籍数量超过 ${BACKUP_BIG_BOOKS_THRESHOLD}, 仅导出书籍元数据(不含章节正文), 以避免备份体积过大`]
         : [],
       data: {
         settings: settings.map((s) => ({ key: s.key, value: s.value })),

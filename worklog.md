@@ -4142,3 +4142,121 @@ Stage Summary:
 - 修复清单: [R21-d-1](Med) hostgate.settleRateLimitExpiry 快照 0 值守卫致 minGapMs=0 caller 单次 429 永久毒杀节奏(无条件回滚修正, 3/3 回归 PASS) | [R21-d-2](增强) fetch-relay 上游断连即时传播(AbortSignal.any 并联 req.signal, 实证 796ms 释放 vs 旧 5s) | [R21-d-3](增强) scrapling-bridge 请求体读取 30s 超时防半开线程永久悬挂(EOF 分支实证, keep-alive 空闲行为不变) | [R21-d-4](精简) obscura.isMobileUaLocal 去 export
 - 增强效果: 中继桥断连场景在飞槽位/内存缓冲最长空占从 120s 级收敛到断连即时; python 桥半开请求线程泄漏面封口; 429 后 interval=0 任务的 host 准入节奏可正确恢复(原为永久 30s 级卡死)
 - 遗留风险: ①scrapling 模式 429 无法携带 Retry-After(信封无响应头, 补齐需跨 fetcher.ts 协作) ②BRIDGE_KEY 闸门若操作员误设会拒绝引擎请求(引擎不发 X-Bridge-Key, DEPLOY.md 文档已如实标注"单机无需设置", 属文档已覆盖面) ③armGapTimer 超大 minGapMs setTimeout 溢出为理论面(现有调用面 max 600s 不可达) ④三桥开放代理本质(任意 url 代发)以 127.0.0.1 绑定+可选 BRIDGE_KEY/RELAY_BLOCK_PRIVATE 为闸, 多主机部署应设 BRIDGE_KEY 但引擎侧不发送该头(见②) ⑤并行 R21-c 会话 scripts/verify-r21-rules.ts 存在 2 个 tsc 错误(非本轮辖区)
+
+---
+Task ID: R21-h
+Agent: admin-ui-features
+Task: 违禁词系统(R21-h-1) + 仪表盘卡片开关(R21-h-2) — 全链落地
+
+Work Log:
+- 上下文: 通读 worklog R15(API/后台区块模式)/R18/R19-c(鉴权面/设置缓存模式)条目; 读 prisma/schema.prisma(Setting key-value 模型)+settings API(KEY_RE/VALUE_MAX/upsert+失效钩子)+pseudostatic-server(60s TTL+invalidate 模式)+public/chapter route+Dashboard/AdminApp/FeedbackSection(UI 模式); rg 全库实证 bannedWords/dashboardCards/违禁 零痕迹
+- [R21-h-1] 违禁词引擎 src/lib/banned-words.ts(新): 纯函数无依赖; sanitizeBannedWordsConfig(mode 非法回退 mask/去空/去重(不区分大小写)/单条截 50/总量钳 500); applyBannedWords(空文本/空词表直通; 'gi' 正则 latin 不敏感; mask 按命中文本码点等长打码封顶 6 星; remove 直删; 长词优先排序取最长命中; 逐词正则转义防病态正则); applyBannedWordsToHtml(按 <tag> 切分只过滤文本段, 防词表命中标签/属性破坏 HTML; 空词表零开销直通); compile-once Map 缓存(键=mode+排序去重词表, 同集合共享, 上限 32 超限清空)
+- [R21-h-1] src/lib/banned-words-server.ts(新): Setting.key='bannedWords' 读取 + 60s 内存 TTL 缓存(getBannedWordsConfig), 模式对齐 pseudostatic-server; fail-open(读库失败→空词表不过滤); invalidateBannedWordsCache() 供保存钩子
+- [R21-h-1] settings/route.ts(+2 行): PUT 保存 bannedWords 后 invalidateBannedWordsCache(); chapter/route.ts(+7 行): 内容组装后 content=applyBannedWordsToHtml(content, await getBannedWordsConfig())
+- [R21-h-1] BannedWordsSection.tsx(新): 词表 textarea(每行一词, 实时 N/500 计数+超限提示)+RadioGroup 打码/删除+保存+重置; 解析与引擎消毒同口径; 44px 触控行(radio 行 min-h-44/保存钮 h-11)+aria 标签; AdminApp 仅 4 处最小挂载(nav '违禁词过滤'/SectionKey/case/import)
+- [R21-h-2] Dashboard.tsx: CARD_META 15 键注册表(7 统计 books/chapters/rules/tasks/sites/tags/downloads + 4 图表 activity/bookStatus/catWords/taskStatus + health/recentTasks/recentBooks/catDist)+分组标签; 头部 Popover+Checkbox 勾选面板(分组标题/每行 min-h-44/label htmlFor 关联/aria-label/全部显示重置钮); 隐藏卡不渲染(统计 grid 过滤+三行图表/底行条件渲染+全隐空态卡 EyeOff); 持久化 Setting 'dashboardCards'=隐藏 key 数组(默认[]全显), 载入 settings 失败回退 localStorage('dashboard.hiddenCards'), 变更 600ms 防抖 PUT, 成功/失败均镜像 localStorage, lastSavedRef 防 StrictMode 双挂载误存+载入前守卫 prefsLoaded
+- 排障: 开工时发现 dev 3000 静默死亡(既有同型, ps 无 next 进程, mini-services 存活); 按 R15 以来规程最小化恢复(仅 setsid bun run dev, 跳过 dev.sh 的 bun install/db:push 以零扰动), 200 恢复
+- 引擎单测(bun /tmp 临时脚本用后已删): 21/21 PASS(mask 等长/6 星封顶/latin 不敏感/remove/空表直通/正则元字符字面量/长词优先/HTML 标签保护/sanitize 去重截断钳量/防御 null)
+- API 实证(登录 cookie): as-found settings={} 空; 临时书+章(prisma 创建后即删, 零残留) → ①baseline GET 缓存空配置 ②PUT mask{老板,superman} 后立即 GET='**今天去…dc******'(老板→2 星/Superman→6 星封顶不区分大小写/HTML 标签原样)→保存失效钩子实证(未等 60s) ③PUT remove 后立即 GET 词已删 ④PUT dashboardCards=['health','books','activity']→GET 回读一致 ⑤无 cookie GET/PUT 均 401
+- 浏览器 E2E(agent-browser): 登录→仪表盘(nav 含违禁词过滤+「卡片显示」钮)→面板勾选态与持久化隐藏集一致(books/activity 未勾)→勾选书籍→卡片即时出现+600ms 后 PUT 落库(['health','activity'])+localStorage 镜像→刷新后状态保持→UI 取消章节→卡片消失+落库→「全部显示」→7 统计卡+HealthCard(标题系统正常)+activity 全渲染+dashboardCards=[]; 390×844 窄屏 popover 在视口内(w=256)15 行可用; 违禁词过滤区块: radio 态回显 remove/词表回显→UI 改 mask+改词保存→toast+settings 回读一致; localStorage 兑底实证: network route abort settings GET→重载→隐藏态从 localStorage 恢复; console error 0/page errors 0
+- 数据还原: DELETE /api/admin/books/{临时书}(章节级联)→book/chapter 计数 0; bannedWords+dashboardCards 两行 deleteMany→Setting 表回归 as-found(空)
+- 质量门: bunx tsc --noEmit 0 错 + bun run lint 0 错 0 警(最终态复跑); 未新增依赖; 未重启用户进程(仅复活已死服务); 未触碰他 agent 辖区(BackupSection/crawl 铁三角/verify-r21 等零改动)
+
+Stage Summary:
+- [R21-h-1] 违禁词系统全链: Setting('bannedWords'={mode:'mask'|'remove',words[]}) → 引擎(500 词/50 字/compile-once/latin 不敏感/6 星封顶/HTML 标签保护) → public/chapter 渲染点(60s 缓存+保存即失效+fail-open) → 后台新区块「违禁词过滤」(词表+打码/删除+保存即时生效)
+- [R21-h-2] 仪表盘 15 卡全量显隐开关: 头部「卡片显示」Popover 勾选面板(分组/44px 行/aria/全部显示), 隐藏卡不渲染, Setting('dashboardCards'=隐藏 key 数组, 默认全显)+600ms 防抖保存+localStorage 兑底+全隐空态提示
+- 验证: 引擎 21/21 单测+API 5 项(含缓存失效与 401 面)+浏览器 E2E 全绿(切换/持久化/刷新保持/窄屏/兜底/console 0 error); settings 与临时数据均还原 as-found(Setting 表空); tsc/lint 0/0
+
+---
+Task ID: R21-i
+Agent: tutorial-docs
+Task: 重写小白级安装部署图文教程(INSTALL-GUIDE 全量重写) + DEPLOY/README 真值同步
+
+Work Log:
+- 上下文: 通读 worklog R12→R21-d(重点 R17-c/R19-c 两轮文档同步条目)建立功能真值基线; 逐项核实代码后才落笔——package.json 脚本(dev/build/start/db:push 全文)/.zscripts/dev.sh(五步:bun install→db:push→dev→health→拉起全部 mini-services)/docker-compose.yml + docker-entrypoint.sh(5 代理共置 3010/3011/3013/3014/3015, scrapling --profile stealthy)/install.sh(四种用法+国内自适应)/.env.example 全文/auth.ts(ADMIN_PASSWORD 环境变量唯一来源+audit-fix-2025+previewHintPassword 非 prod 且==默认值才回显)/health route SERVICES 端口表(3010~3017, 3012/3016/3017 optional)/AdminApp NAV 13 项/TaskWizard(4 步向导+单本/范围+慢速1-2线程3-5秒+autoRefresh+recrawlMode)/builtin-rules.ts 实数 25 条(逐名清点)+5 条规则硬编码 127.0.0.1:301x(bqg713:3010/qimao:3013/deqixs:3014/xjp:3015/qidian:3017)
+- 关键核查新发现①: cloak-browser(3016) 在 src/ 无任何引擎调用点(仅 fetcher 注释+health route 可选监控项)——非自动降级链一环, 是独立反检测浏览器服务; 三份文档原「多引擎降级链末端增强」表述按事实纠偏
+- 关键核查新发现②: 任务单所列 FAQ「password reset by editing Setting」不成立——auth.ts 密码唯一来源是环境变量 ADMIN_PASSWORD(不读 Setting 表); 文档按真实路径写(改 .env/compose env + 重启), 未编造 Setting 改密法
+- docs/INSTALL-GUIDE.md 753→1053 行全量重写(小白向, 12 章+目录+2 附录): ①软件是什么+架构 ASCII 图(浏览器→Next.js:3000→mini-services:3010~3017→目标站)+文件夹树+功能清单表(含屏蔽词过滤/仪表盘卡片开关=本轮并行新增, 25 条内置规则/512+9 主题/伪静态 6 预设/自动 TDK/备份/TXT 下载) ②2C4G 服务器+ssh 入门+curl 装 Bun(精确命令+预期输出+报错对照)+Docker 可选注记 ③git clone/zip 上传双路径(加速前缀兜底) ④cp .env.example .env+nano 三句话用法+DATABASE_URL/ADMIN_PASSWORD/SESSION_SECRET 三行表 ⑤bun install+bun run db:push(示意输出+--accept-data-loss 升级警示)+阶段自检树 ⑥三启动方式: bash .zscripts/dev.sh(试用, 五步解说+停止法)/bun run build+bun run start(生产, 4GB 内存警示+nohup 可选)/bash install.sh(Docker, AUTO_FILL 说明) ⑦首次登录: 登录框 ASCII 示意+真实截图并存(旧图加「以实际为准」注), 密码来源对照表, preview-hint 出现条件, ★改密码强警告框+13 项导航 ASCII ⑧mini-services 8 服务表(端口/用途/依赖哪些内置规则/缺席后果)+三种启动法(dev.sh 自动/手动 cd+bun run start/Docker 共置)+/health 自检+127.0.0.1 不外露警告 ⑨首个采集任务: 内置规则库对话框 ASCII+导入三步+覆盖式 vs 跳过式警示; TaskWizard ASCII 示意(4 步/模式/慢速档/增量 vs 全量/autoRefresh); 9.4 出口代理专节(77读书案例+格式表); 9.5 采集报错表 ⑩主题预览/伪静态 6 预设表(宽容解析永不断链)/自动 TDK(生成≠保存) ⑪FAQ 16 条(#1 端口占用~#16 端口不外露, 含 DB 锁/GBK 乱码/403-429/代理失效/Docker 权限/备份恢复/密码重置/OOM/加规则/升级) ⑫升级三步走(先备份)+mini-services 重启注记+卸载双路线 ⑬附录 A 全程检查清单/附录 B 三文档分工; 每条命令 ▶/✔/✖ 三段式标注(shell vs 输出分块); docs/images 10 张真实截图全部接线(旧界面图明确标注版本差异)
+- DEPLOY.md 555→566 行: ①顶部新增零基础读者导航条(指向 INSTALL-GUIDE) ②一节组成表 mini-services 行补 3012/3016/3017 去留说明 ③第四节新增 cloak-browser(3016)/qidian-proxy(3017) 不共置专条(3016 引擎未接入降级链=独立服务; 3017 规则写死容器内回环→纯 Docker 下起点规则该段失败/降级, 其余不受影响) ④「二·六」77读书脚本级变量注记 6.5 节→9.4 节(新教程章节号) ⑤文件清单补 docs/INSTALL-GUIDE.md 与 docs/rule-limits.md 两行
+- README.md 129→129 行: ①管理端 bullet 补「统计看板(仪表盘统计卡片可开关显示)」+「屏蔽词过滤(本轮新增)」 ②mini-services 表 3016 行描述按事实纠偏(独立反检测浏览器服务, 引擎未接入自动降级链)+启动命令补 chromium 注 ③出口代理图文教程引用 6.5 节→9.4 节; 规则库 25 条计数经 builtin-rules.ts 复核无误(零漂移)
+- 质量门: bunx tsc --noEmit 0 错(退出码 0; R21-d 留档的 verify-r21-rules.ts 2 错已不在, 或已被并行会话修毕) + bun run lint 0 错 0 警; 三文档均为纯 Markdown, 零代码文件改动; docs/images/*.png 仅引用未删改; 数据库零接触
+
+Stage Summary:
+- INSTALL-GUIDE.md 753→1053 行全量重写为小白教程(12 章双路线: Bun 本机直跑主线+Docker 备选; 每步精确命令+预期输出+报错对照; 架构图/文件夹树/登录框/导航/任务向导/规则库对话框 6 组 ASCII 图示+10 张真实截图接线; 16 条 FAQ+检查清单+升级卸载)
+- 事实纠偏清单(旧→新): ①3016 cloak-browser「多引擎降级链末端增强」→「独立反检测浏览器服务, 引擎未接入自动降级链」(src 无调用点实证) ②FAQ 任务单「改 Setting 表重置密码」→「改 .env ADMIN_PASSWORD+重启」(auth.ts 唯一来源实证) ③旧教程 Docker 单一路线→Bun 直跑/试用 dev.sh/生产 build+start/Docker 三方式并列(package.json+dev.sh 实证) ④旧教程引用的 INSTALL-GUIDE 6.5 节号→9.4 节(DEPLOY/README 同步) ⑤DEPLOY 文件清单补齐 docs/ 两件
+- DEPLOY.md 566 行(+11)/README.md 129 行(内容同步行数持平): 端口表 3010~3017/环境变量/entrypoint 行为/共置清单全部对照当前代码复核, 新增双文档互链
+- 质量门: bunx tsc --noEmit 0 错 + bun run lint 0/0; 并行会话注记: 屏蔽词系统与仪表盘卡片开关按任务指示以「本轮新增功能」口径写入三文档(代码由并行 agent 在途, 未触碰其辖区文件)
+---
+Task ID: R21-e
+Agent: crawl-core-review
+Task: 采集核心四文件(fetcher/parser/runner/cleaner)逐行深审+修复+丢失修复重实现+反反爬增强+清理精简
+
+Work Log:
+- 上下文: 通读 worklog R19-b(crawl-review 修复清单/评估口径)/R21-d(三桥+hostgate 深审)建立真值基线(R21-a/b 无落盘条目, 以任务书描述为准); 逐行读毕 fetcher.ts(3953 行全量)/parser.ts(1161)/runner.ts(2210)/cleaner.ts(559)
+- 丢失修复重实现 [R21-e-1](Med, fetcher.ts fetchPageOnce token 注入段): tokenUrl+tokenPattern+tokenInjection='url' 路径原实现 ①无条件 encodeURIComponent(token) 后注入(预取端已返回 %2B 形态时双重编码) ②searchParams.set('token', enc) 序列化时对值里的 % 再编一次(原始 token 也双重编码) → 目标站解一次码得不到真实 token → 403。现判定: 值含合法 %XX 十六进制转义(/%[0-9a-fA-F]{2}/)即视为已编码原样逐字注入, 原始值编码一次; 注入统一改原串级 set/append(#fragment 前操作, 参数名精确匹配 token, 函数形态替换防 $ 模式符), 弃用 searchParams.set(其全量重序列化 query 的副作用一并消除); Bug 12(防重复 token=)/bb-g(防落锚点)/R9-a-4(%7Btoken%7D 全量替换)语义等价保留。bun E2E 实证(临时脚本起本地 token 签发+目标双 mock, 走真 fetchPage 全链): raw+追加/raw+原位set/已编码+追加/已编码+原位set/%7Btoken%7D 占位符/#fragment 不落锚点 9/9 PASS, 目标端解码值逐字节===RAW
+- 反反爬增强 [R21-e-2](Low, fetcher.buildHeaders): 非 fingerprint 链(封面 fetchBinary/裸 Playwright extraHTTPHeaders)Accept-Language 由硬编码 zh-CN 改 acceptLanguageFor(ua, url) 按 UA locale 推导 —— en-US/ja custom UA 配 zh-CN AL 属可聚类矛盾指纹(与 R9-a-10 Accept 家族化/R11-b-EN-4 AL 池同一自洽口径); bun 实测 UA_POOL 35 条中 34 条无 locale 段逐字节不变, 唯一 'zh-cn' Android UA 由 q=0.9,en;q=0.6 变 locale 配套 q=0.9,en;q=0.8(真实形态), 9 开关缺省全关口径未动
+- 逐行审查其余结论(零修复): fetcher 重定向环熔断(同 URL 至多 2 次)/readBodyCapped 双路 OOM 防护/curl 退出码校验/Retry-After 全错误形态抢救/SSRF NAT64+v4-mapped 兜底/镜像切换触发面(仅 403+5xx+网络层)均既有硬化在位; parser jsonGet(R4-18 %26 转义)与 jsonArrayWalk 的 [k=v] 过滤语义存在已知轻微不一致(前者跳过无=条件+解码 %26, 后者按 [c,''] 失配)——改齐会变更 itemSelector 既有规则行为, 收益为零留档不改; findLargestText/blockAwareText 深嵌套 HTML 递归与 cheerio 同型风险, 不单方面加闸
+- 清理精简 [R21-e-5](临时 bun 全库词界扫描含 scripts/archive 后落地): fetcher 去 export 4(randomUa/classifyHttpFailure+HttpFailureClass/detectTrapSignals/SCRAPLING_BROWSER_CONCURRENCY, 均仅文件内消费)+删除零调用死函数 hostFailureProfile(22 行, 连注释 3 处引用同步改 hostRhythm 口径); parser 去 export 3(testRegexBudget/ListResult/ExtractCtx); runner 对账组去 export 5(RESUME_RECONCILE_BATCH/ResumeSetsView/ReconcileDbRow/ReconcileOutcome/reconcileResumeSetsCore, R18-c 验证脚本在 /tmp 已删, 全库含 archive 零消费, R19-b-3/R21-d-4 同款口径); cleaner 去 export 3(CONTENT_BLOCK_TAGS/stripHtmlTags/htmlToPlainLines); fetchHttpForTest/fetchViaCurl/mirrorGroupFor 等有 archive 验证脚本消费的刻意测试钩子全数保留
+- 陈旧注释勘误 3 处: parser testRegexBudget"API 保存入口调用本函数"不实(实际保存期防线=rules 路由 regexGate→types.collectRegexIssues, 与本函数零调用关系)+applyTransform/regexExtract 的"validateRegexSafety"函数不存在, 均改按实际链路表述; cleaner htmlToPlainLines"与 downloader.stripHtmlToText 共用"不实(downloader 走自有较窄转换器, 仅共用 decodeEntitiesOnce, 未接入 R21-c 计划), 按实际消费面纠正; runner R18-c 段注释 L759/L817 行号漂移改当轮实测 L919/L977
+- 质量门: bunx tsc --noEmit 全项目 0 错(改动全在树后终验, 并行 agent 在途文件亦无错); bun run lint 0 错 0 警; token 注入 E2E 9/9 PASS(修后复跑); 临时脚本(/tmp/r21e/*)用毕已删; 数据库零接触/prisma 零写入/未重启任何服务/零新增依赖/零行为默认值翻转
+- 环境注记: dev 3000 本轮全程 connection refused(与 R18-d/R19-c 记录的同型静默死亡, 非本轮改动所致——本轮零触碰路由/前端文件), 按辖区纪律未重启; 冒烟改以 bun 直连真 fetcher 模块级 E2E 替代(覆盖面更聚焦本轮改动)
+
+Stage Summary:
+- 修复清单: [R21-e-1](Med) fetcher token 注入双重编码(已编码 token 逐字注入+原始 token 单次编码+searchParams.set 弃用改原串级 set/append, E2E 9/9) | [R21-e-2](Low·增强) 非 fingerprint 链 Accept-Language 按 UA locale 自洽(34/35 池 UA 逐字节不变) | [R21-e-5](精简) 4 文件 15 个零外部消费导出去 export+1 个零调用死函数删除+3 处注释失实勘误+1 处行号漂移校正
+- 审查结论: 四文件经 R8~R19 十余轮硬化后本轮未发现新逻辑缺陷; 留档不改 2 项(jsonGet/jsonArrayWalk 过滤语义不一致属行为兼容决策, 块级文本递归深度与 cheerio 同型)
+- 反反爬结论: 本轮仅补 AL 自洽一处(缺省行为对全部池 UA 基本零变), 9 增强开关维持缺省关, UA 池/头序/退避抖动/TLS 画像/hostgate 节奏经评估均在位不重复落地
+
+---
+Task ID: R21-f2
+Agent: rules-fix (agent 超时, 主控核实其落盘改动+亲测验证后收口)
+Task: 采集规则全量复测(26 条四段+清洗断言) + 失败规则修复 + moli 规则落地 + 环境性 SKIP 留证
+
+Work Log:
+- agent 落盘后超时, 主控逐项核实其改动并独立跑通全部验证; 另接管其未完成的 3 项(yybsw 验证/moli 验证/qimao loopback)
+- agent 已落地(核实合格): ①[R21-f-1](验证器断言假阳性修复) verify-r21-rules.ts ADULT_MARKERS_RE 原把 JS 交替写成字符类(等价单字集含 口/高/动/息/合/体/火 等正常高频字), 首轮 8 规则 content 全部误杀(正常正文命中 30+); 修为作者本意交替正则, 真诱饵载荷仍 50+ 命中必死 ②[R21-f2-2] 章节单元结构字(第/章/节/卷/回/集/话/篇/部)不参与章名-正文 CJK 交集判定(17mb 托管站自动编号章名"1、第 1 章"被误判零交集诱饵) ③[R21-f2-1] yybsw 正文分页接缝修剪 replaceFrom(builtin-rules 直改) ④moli 规则完整落地(builtin-rules + seed-rule-moli.ts, www.molixs.com 茉莉小说 17mbCMS GBK 女频站, 直连无防护, og:novel:* meta 全套, clean.plainText 归一 <br> 三连段隔)
+- 主控修复: ⑤[R21-f2-3] dafengdagengren 正文清洗(#content 段间 <br>×3 三连致 118 处 3+ 连续空行 + "（本章未完，请点击下一页继续阅读）"引流行 + "标题(第N/M页)"页码标记/同章子页锚) → seed content.replaceFrom 五分支收口(br 折叠/剥子页锚/剥引流行/剥页码), 章内翻页保持关闭并留证 pickNextHref 文案兜底(["下一页","下页","下一章"])会误跟下一章致并章, 嵌套量词闸门安全(组体以字面量结尾) ⑥[R21-f2-4] daweixs 同平台同坑同修(198 处空行区+同型引流/页码) ⑦[R21-f2-5](Med, 真实生产缺陷) qimao 规则目标 URL 本身是本机签名代理(127.0.0.1:3013) 但无 tokenUrl/contentProxyUrl 豁免键 → fetchPage SSRF 守卫在引擎侧同样拒收(非验证器口径差, 此前该规则生产不可用); 新增 FetchConfig.allowLoopback 显式声明字段(types 接口+sanitize 仅收显式 true+fetcher.loopbackBypassAllowed 豁免, 仅放宽 loopback, 私网/元数据仍硬拒), qimao 规则声明 allowLoopback:true
+- 单一数据源纪律: 全部规则改动走 seed-rule-*.ts → gen-builtin-rules.ts 重生成(26 条, 失败 0); yybsw 接缝修剪从 builtin 反向同步回 seed; probe 探针/验证均 bun 临时脚本用完即删
+- 复测矩阵终态(bun scripts/verify-r21-rules.ts, 网络实测): 全四段 PASS 20/26 = 80ge/aijjxs/biqugetw/bqg713(/unlock 链真实正文, 诱饵根治实证)/hodei/iidcr/jpxs123/kanunu8/deqixs/fanqie/piaotia/shudugu/wuxiaworld/yybsw/moli(新)/dafengdagengren/daweixs/xjp(xinjianpan 内容采集实证 PASS)/qimao/pilishuwu; zxcs list/book PASS+toc/content by-design SKIP; ratelimit-demo SKIP(本机 3040 mock 未启, 回环拦); 77shuku SKIP(需国内 IP 出口, timeout 实证); wanben SKIP(站点对沙箱出口 IP 403 封锁, browser 引擎实证); qidian SKIP(镜像 full.hnxianxin.cn TLS 证书过期 alert 557+绕过校验后 404, 目标失效, 描述已留证待换镜像)
+- 清洗断言全绿口径: 段落数>1/无连续 3+ 空行/无广告行残留/无 HTML-CSS-JS 残留/无诱饵特征/字数达标 + GBK 乱码检测, 20 规则 content 段全过
+
+Stage Summary:
+- 26 条内置规则全量复测闭环: 20 全四段 PASS + 1 半段 by-design + 5 环境/目标失效 SKIP(各带新鲜实证与恢复路径); 3 条规则清洗修复 + 1 条真实生产缺陷(SSRF 误拒本机代理源)修复 + 验证器 2 处断言假阳性修复
+- moli 集成从零落地并四段实测 PASS(12 项清单项之一); bqg713 /unlock 真实正文链四段 PASS(黄文问题根治实证); xinjianpan(xjp) 四段 PASS
+- 质量门: bunx tsc --noEmit 0 错 + bun run lint 0/0(主控终验); 数据库零接触(验证全走引擎函数直连), dev server 未重启(其死亡系沙箱 OOM/回收, 与本轮无关)
+
+---
+Task ID: R21-g
+Agent: r20-restore (agent 超时, 主控核实其落盘改动+补完 E2E 后收口)
+Task: R20 修复重落地: 伪静态直达页 generateMetadata SSR TDK + 备份大库阈值统一
+
+Work Log:
+- agent 落盘后超时且未写 worklog, 主控逐行核实 diff 后补完验证与收口
+- [R21-g-1](Med-SEO) src/app/[...slug]/page.tsx generateMetadata: 伪静态直达页(/book/{n}.html 与 /read/...) SSR 直出 title/description/canonical/og —— 修前该路由无 metadata 导出, 爬虫/分享卡只能拿到 layout 默认值; 实体解码经 cheerio(项目已有依赖), 码点截断(简介 150/正文 110, 与 R15-a1 客户端口径一致), 站点兜底链(?site= → 默认站 → 任意启用站, 与 sitemap R15-a1-6 同口径), canonical 恒带 site 查询参数, 解析失败/查库异常全路径优雅降级不阻塞渲染
+- [R21-g-2](Low) 备份大库阈值收归共享常量: 新建 src/lib/backup.ts BACKUP_BIG_BOOKS_THRESHOLD=200, api/admin/backup/route.ts 与 BackupSection.tsx 双侧同源引用(修前端硬编码 500 vs 后端 200 漂移)
+- [R21-g-3](Low, 主控补) generateMetadata 兜底 catch 静默降级不留痕 → console.error 一行服务端日志(本轮排查实证: 排障期静默 return {} 无法区分"解析失败"与"正常降级")
+- E2E 实证(临时站点+书+章经 prisma 种入, 验后即删还原 0 书 0 站 as-found): /book/90001.html SSR 输出 <title>R21元数据E2E临时书 - R21E2E站</title> + description=简介码点截断 + canonical=http://…/book/90001.html?site={siteId} + og:title 同值; /read/90001/1.html 输出 <title>章节名 - 书名 - 站名</title> + description=正文摘要截断; 排障注记: 首轮 E2E 元数据呈默认值, 经四分支探针定位为 resolveMetaSite 空表返回 null —— 用户重置后 Site 表为空(count=0), 属数据态非缺陷, 优雅降级路径正确工作
+- 质量门: bunx tsc --noEmit 0 错 + bun run lint 0/0(主控终验)
+
+Stage Summary:
+- R20 两大修复在本仓库重落地并全链 E2E 实证(此前环境该提交未随仓库延续, parser %26 修复 R20-c-1 除外): 伪静态直达页 SEO TDK 从"客户端水合后才补"变"SSR 直出", 备份阈值前后端一致
+- 遗留注记: 站点表为空时直达页元数据按设计降级为 layout 默认(空站群属部署未完成态)
+
+---
+Task ID: R21-final
+Agent: main-orchestrator (Z.ai Code)
+Task: R21 收尾 — 12 项历史修改核验 + 采集规则全量复测 + 多线修复收口 + 教程重写 + 提交推送
+
+Work Log:
+- 会话接续勘察: 上一延续会话已提交 123bfd4(UUID 信息) 含 R21-b(bqg713 /unlock 真实正文链, 证据级推翻 RC4 假说: 内容层无 RC4, /api/hm 纯遥测, 真镜像 www.bqg413.cc/apige.cc 明文 txt)+R21-c(verify-r21-rules.ts 746 行验证架)+R21-d(反反爬专项, 已记 worklog); 另发现 R20 两修复(generateMetadata/备份阈值)未随本仓库延续(parser %26 修复在位), 本轮经 R21-g 重落地
+- 12 项历史修改核验终态: ①TDK=R15 在库+本轮 R21-g 伪静态直达页 SSR TDK E2E 实证 ✓ ②主题矩阵=R18 在库(512 组合+9 精选) ✓ ③重启续采=R18-c 对账在库(R19-b 复核) ✓ ④moli 集成=本轮从零落地+四段实测 PASS ✓ ⑤bqg713 黄文=R21-b /unlock 链+本轮 4/4 PASS(诱饵根治实证) ✓ ⑥新增站点规则=26 条库 20 条全四段 PASS ✓ ⑦xinjianpan=xjp 规则 4/4 PASS ✓ ⑧aijjxs 复刻=R18-d 在库 ✓ ⑨笔趣阁经典首页=R18-b HomeBiquge 在库 ✓ ⑩仪表盘卡片开关=本轮 R21-h 新建+浏览器实证(15 卡 checkbox 面板+全部显示重置+Setting 持久化+localStorage 兜底) ✓ ⑪违禁词系统=本轮 R21-h 新建(mask/remove 双模式+HTML 标签保护+60s 缓存+失效钩子)+API E2E 实证(E2E违禁词→******) ✓ ⑫伪静态 URL=R14 在库+本轮 E2E(/book/90001.html 解析/sitemap 跟随/预设切换) ✓
+- 采集复测(verify-r21-rules.ts 全量): 20/26 全四段 PASS; zxcs 半段 by-design; ratelimit-demo/77shuku/wanben/qidian 环境或目标失效 SKIP(各带新鲜实证: mock 未启/CN 出口/IP 403/镜像 TLS 过期+404); 修复 4 条: dafengdagengren+daweixs(<br>×3 空行区 118+198 处+本章未完引流行+第N/M页页码, replaceFrom 五分支收口, 翻页关闭防 pickNextHref 文案兜底并章), yybsw(接缝修剪同步回 seed), qimao(真实生产缺陷: 本机代理源被 SSRF 拒 → FetchConfig.allowLoopback 显式豁免字段); 验证器 2 处断言假阳性修复(成人词字符类→交替/章名结构字过滤); 全部经 seed→gen-builtin-rules 单一数据源重生成(26 条 0 失败)
+- 多线 agent 会话(R21-e crawl 核心/R21-h admin 双特性/R21-i 教程 亲测完成, R21-f/R21-g/R21-f2 超时由主控核实落盘改动+亲测收口): fetcher token 再注入双重编码修复(R21-e-1, 9/9 PASS)+Accept-Language 指纹对齐+15 处死导出清理; 违禁词+卡片开关落地; INSTALL-GUIDE.md 1053 行小白全彩教程(12 章+2 附录+10 截图, 命令全部可溯源)+DEPLOY/README 同步纠偏(3016 未入引擎降级链/密码源=ADMIN_PASSWORD env 等 6 处)
+- R21-g 收口: generateMetadata(实体解码 cheerio/码点截断/站点兜底链/canonical 恒带 site)+备份阈值统一(@/lib/backup 共享常量)+静默降级补日志; E2E: 临时站点+书+章种入 → /book/90001.html SSR 输出书名-站名 title/简介 description/绝对 canonical/og → /read/90001/1.html 章节三级 title/正文摘要 → 删除还原 0 书 0 站; 排障注记: 首轮元数据呈默认值系 Site 表空(用户重置库)致 resolveMetaSite null 优雅降级, 非缺陷
+- 浏览器 E2E(终态): / 登录门渲染 → audit-fix-2025 登录 → 后台仪表盘全渲染(侧栏含新「违禁词过滤」) → 「卡片显示」面板 15 checkbox+显示全部按钮+aria 标签 → page errors 0/console errors 0
+- 运维留档(本轮重要发现): 本沙箱 next-server 进程在发起它的 Bash 调用结束后 ~1-2 分钟内被静默回收(非 OOM, dmesg 无新条目; 另有一次 2GB RSS OOM 实录), 跨调用 E2E 必须在单次调用内完成 服务启动→操作→还原; 服务恢复标准动作 setsid bun run dev; 4GB 内存下 tsc/lint/验证与 dev server 并行易触发 OOM, 应串行
+- 数据终态: DB as-found(0 书/0 站/0 任务/Setting 空表还原), 伪静态=query(原值), bannedWords/dashboardCards 空值还原; 临时脚本/探针/日志全部清除; 文件 mode 统一还原 644(123bfd4 曾入库 755)
+
+Stage Summary:
+- R21 交付: 12 项历史修改全部落地核验闭环 + 26 条采集规则全量复测(20 全 PASS+5 环境留证+1 半段设计)+ 7 项规则/验证器修复 + 2 项新特性(违禁词/卡片开关)+ 伪静态 TDK SSR 化 + 1053 行小白教程重写 + 反反爬增强(token 链 9/9/退避抖动/桥断连传播/hostgate 毒杀修复)
+- 质量门: bun run lint 0 错 0 警 + bunx tsc --noEmit 0 错(全库终验); 浏览器 E2E 0 error; 数据库零残留
+- 历史链: R12=d70dd45 → R13=07972df → R14=a9f3461 → R15=323982e → R16=99c1c48 → R17=27a3016 → R18=cc46f96 → R19=81f32f9 → R21(本轮, 含 123bfd4 前置提交)

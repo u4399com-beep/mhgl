@@ -55,6 +55,7 @@ const rule: RuleSeed = {
     '起点中文经镜像 API full.hnxianxin.cn/qd(Legado 书源「小雨的世界·起点中文」转换)。发现=ranking.php 榜单(男生站 site_id=11 人气最高; 女生/出版改 site_id=12/4, 榜单/分类/状态/字数/付费/标签筛选参数见 ranking.php?action=config),' +
     '书籍=detail.php, 目录=catalog.php(C 载荷 b64 签名), 正文经外置代理 mini-services/qidian-proxy:3017(目录索引→解码→签名 content.php)。\n' +
     '⚠ 正文需起点小程序凭证: 设 mini-services/qidian-proxy 环境变量 QD_YWKEY/QD_YWGUID 后重启代理(书源自订凭证机制同源; 未配置时三段发现/目录照常, 正文为空且 /health.credentialsConfigured=false 可诊)。\n' +
+    '⚠ 2026-09-14 R21 复测: 镜像 full.hnxianxin.cn TLS 证书已过期(TLS alert 557)+绕过校验后端点 404 —— 镜像目标失效, 四段暂 SKIP; 待书源换新镜像后在管理端更新 urlTemplate 后复验。\n' +
     'toc url 直指代理 + fetch.contentProxyUrl=…?url={url} 为 SSRF loopback 豁免键(degrade-native 契约, 缺失则章节抓取被 SSRF 全拒); 卷行以 Vo 标记在规则侧清空 URL 过滤。',
   enabled: true,
   config: {

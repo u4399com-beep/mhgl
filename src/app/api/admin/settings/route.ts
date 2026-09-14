@@ -5,6 +5,8 @@ import { withGuard, isPlainObject } from '../../_lib/http'
 import { WHEEL_SETTING_KEY, invalidateLinksCache } from '@/lib/links'
 import { PSEUDO_SETTING_KEY } from '@/lib/pseudostatic'
 import { invalidatePseudoPresetCache } from '@/lib/pseudostatic-server'
+import { BANNED_WORDS_SETTING_KEY } from '@/lib/banned-words'
+import { invalidateBannedWordsCache } from '@/lib/banned-words-server'
 
 /** key 白名单: 字母数字下划线点横线, 1~64位 */
 const KEY_RE = /^[A-Za-z0-9_.-]{1,64}$/
@@ -56,6 +58,8 @@ export async function PUT(req: Request) {
     if (entries.some(([key]) => key === WHEEL_SETTING_KEY)) invalidateLinksCache()
     // 伪静态预设变更 → 失效预设缓存(60s), 前台/链轮/sitemap 立即按新预设生成
     if (entries.some(([key]) => key === PSEUDO_SETTING_KEY)) invalidatePseudoPresetCache()
+    // [R21-h-1] 违禁词配置变更 → 失效词表缓存(60s), 前台章节渲染立即按新词表过滤
+    if (entries.some(([key]) => key === BANNED_WORDS_SETTING_KEY)) invalidateBannedWordsCache()
     return ok(await readAllSettings())
   })
 }

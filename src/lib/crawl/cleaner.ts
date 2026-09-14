@@ -142,7 +142,10 @@ const INVISIBLE_CHARS_RE = /[\u00ad\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064
 // [R13-2] 内容块级标签集合: 白名单剥壳时这些标签的开闭边界补 \n(段落分隔), 供
 // "按换行重建段落"复原分段。覆盖容器/段落/表格/列表/标题/语义分区; 内联标签
 // (span/b/i/a/font…)不入集 —— 行内文本不因标签边界断行。hr 视觉即分隔线
-export const CONTENT_BLOCK_TAGS: ReadonlySet<string> = new Set([
+// [R21-e-5] 精简: CONTENT_BLOCK_TAGS/stripHtmlTags/htmlToPlainLines 仅文件内消费去 export
+// (rg 全库含 scripts/archive 零外部引用; parser 侧 TEXT_BLOCK_TAGS 为同口径独立声明,
+// 刻意不引入 parser→cleaner 依赖方向, 见其注释)
+const CONTENT_BLOCK_TAGS: ReadonlySet<string> = new Set([
   'p', 'div', 'li', 'ul', 'ol', 'tr', 'td', 'th', 'table', 'thead', 'tbody', 'tfoot',
   'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'section', 'article', 'header', 'footer',
   'aside', 'nav', 'blockquote', 'pre', 'form', 'dl', 'dt', 'dd', 'figure',
@@ -162,16 +165,18 @@ const CONTENT_BLOCK_TAG_LINEBREAK_RE = new RegExp(
 const TAG_QUOTE_AWARE_RE = /<(?:[^>"']|"[^"]*"|'[^']*')*>/g
 const TAG_NAIVE_RE = /<[^>]+>/g
 /** 剥离全部 HTML 标签(引号感知 + 裸剥兜底, 见 TAG_QUOTE_AWARE_RE 注释) */
-export function stripHtmlTags(html: string): string {
+function stripHtmlTags(html: string): string {
   return html.replace(TAG_QUOTE_AWARE_RE, '').replace(TAG_NAIVE_RE, '')
 }
 /**
- * [R21-c-3] HTML → 带换行纯文本(单一实现): 危险标签整段剥除(script/style/noscript/iframe/
+ * [R21-c-3] HTML → 带换行纯文本: 危险标签整段剥除(script/style/noscript/iframe/
  * object/embed, 含截断未闭合形态) + br/块级标签开闭边界 → \n + 引号感知剥签 + 实体单遍解码 +
- * 控制/不可见字符剥离。cleanContentHtml 纯文本模式与 downloader.stripHtmlToText(TXT 导出)
- * 共用, 保证两条出口段落语义不再漂移。输出不 trim(按行消费的调用方自行处理)
+ * 控制/不可见字符剥离。cleanContentHtml 纯文本模式的单一实现; 下载TXT链(downloader.
+ * stripHtmlToText)走其自有较窄口径转换器, 仅实体解码层共用 decodeEntitiesOnce ——
+ * [R21-e-5] 勘误: 本函数原注释声称"与 TXT 导出共用", 实际 downloader 未接入(R21-c 计划
+ * 未落地), 按实际消费面去 export 并纠正注释。输出不 trim(按行消费的调用方自行处理)
  */
-export function htmlToPlainLines(html: string): string {
+function htmlToPlainLines(html: string): string {
   if (!html) return ''
   const text = html
     .replace(/<(script|style|noscript|iframe|object|embed)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, ' ')

@@ -1,5 +1,7 @@
 # 小说管理系统 — Docker 一键部署文档
 
+> 🚀 **零基础首次部署？** 先看图文教程 **[docs/INSTALL-GUIDE.md](./docs/INSTALL-GUIDE.md)**（手把手：Bun 本机直跑与 Docker 双路线 + 首次登录 + 建任务 + 16 条新手 FAQ）；本文是 Docker 交付物的运维手册，供部署后日常查阅。
+
 > **验证状态（诚实声明）**：本套 Docker 交付物（Dockerfile / docker-compose.yml / install.sh /
 > docker-entrypoint.sh）已通过两层验证：
 > ① 语法与结构层自动化验证（`bun run scripts/verify-kk-b-docker.ts`：Dockerfile 分层/COPY 顺序/
@@ -25,7 +27,7 @@
 | 数据库 | SQLite（`db/custom.db`），容器首启自动 `prisma db push` 建表，**无需手动初始化** |
 | 持久化 | 宿主机 `./db`（数据库）与 `./data`（封面/正文/下载产物）两个目录挂载进容器，**删容器不丢数据** |
 | 采集引擎 | 容器内使用内置 **native HTTP 采集引擎（全功能）**，开箱即用 |
-| mini-services | 5 个 bun 支撑代理（3010 bqg713 站点代理 / 3011 fetch-relay 中继 / 3013 qimao / 3014 deqixs / 3015 xjp 站点代理）**随主容器共置自动启动**；仅 Python 版 `scrapling-bridge` 不启用（见文末第四节） |
+| mini-services | 5 个 bun 支撑代理（3010 bqg713 站点代理 / 3011 fetch-relay 中继 / 3013 qimao / 3014 deqixs / 3015 xjp 站点代理）**随主容器共置自动启动**；仅 Python 版 `scrapling-bridge`(3012) 不默认启用（见文末第四节）；`cloak-browser`(3016) 与 `qidian-proxy`(3017) 同样不进容器，需要时在宿主机运行（同见第四节） |
 
 硬件建议：首次构建约需 **4GB 内存 / 4GB 磁盘**（ll-a 真实构建实测: Turbopack 构建峰值超 2GB, 2GB 内存机器会被 OOM 杀）；运行期占用很小（单 SQLite + node 进程）。
 支持架构：x86_64 与 arm64（镜像在部署机上现场构建，按机器架构自动适配）。
@@ -203,7 +205,7 @@ sudo chown -R 1001:1001 ./db ./data
 | 中继桥调优 | `RELAY_MAX_INFLIGHT`（缺省 32） `RELAY_BLOCK_PRIVATE` | fetch-relay 自身并发上限与私网目标拦截 |
 | 日志 | `LOG_LEVEL` | `debug` / `info`(prod 默认) / `warn` / `error` |
 
-> 另注：`scripts/seed-rule-77shuku.ts`（77读书规则种子脚本）支持两个**脚本级**变量 `CN_PROXY=<国内IP代理>`（注入该规则的出口代理）与 `CN77_PROBE=1`（入库前先跑一次四段真网探针）——它们不是运行时环境变量，不进 compose；Docker 部署用户直接在管理端规则编辑器「反反爬设置 → 出口代理」里填代理即可（图文用法见 docs/INSTALL-GUIDE.md 6.5 节）。
+> 另注：`scripts/seed-rule-77shuku.ts`（77读书规则种子脚本）支持两个**脚本级**变量 `CN_PROXY=<国内IP代理>`（注入该规则的出口代理）与 `CN77_PROBE=1`（入库前先跑一次四段真网探针）——它们不是运行时环境变量，不进 compose；Docker 部署用户直接在管理端规则编辑器「反反爬设置 → 出口代理」里填代理即可（图文用法见 docs/INSTALL-GUIDE.md 9.4 节）。
 
 ---
 
@@ -466,6 +468,13 @@ curl http://127.0.0.1:3040/stats
   127.0.0.1 回环），并以 `AUTO_FILL_RULES=...,pili` 启用霹雳书屋自动填充；
   或在宿主机按本地开发模式跑（见 `README.md` 的「mini-services 支撑服务」表），
   Docker 容器与宿主机服务互不干扰。
+- `cloak-browser`(3016) 与 `qidian-proxy`(3017) **不在容器内共置**（前者需 chromium
+  环境，且当前采集引擎未把它接入自动降级链——它是独立增强服务，健康页列为可选监控；
+  后者仅起点规则需要，规则内 `127.0.0.1:3017` 写死了容器内回环地址）：
+  纯 Docker 部署下容器内引擎无法访问宿主机回环 → 起点规则在容器内部署的目录/正文段
+  会失败/降级（其余站点不受影响）；需要时改用本机直跑（Bun）部署并在宿主机
+  `cd mini-services/<目录> && bun run start`（qidian 正文还需 `QD_YWKEY`/`QD_YWGUID` 凭证）。
+  8 个服务的端口/用途/依赖规则对照表见 docs/INSTALL-GUIDE.md 第 8 章。
 
 ---
 
@@ -474,6 +483,8 @@ curl http://127.0.0.1:3040/stats
 | 文件 | 作用 |
 | --- | --- |
 | `README.md` | 项目总览/快速开始/本地开发/目录结构 |
+| `docs/INSTALL-GUIDE.md` | 零基础图文安装教程（Bun 本机直跑 + Docker 双路线，12 章 + 16 条新手 FAQ） |
+| `docs/rule-limits.md` | 规则字段极限手册（见第六节末尾说明） |
 | `Dockerfile` | 多阶段构建：bun 构建 standalone → node:22-slim 运行（含 5 个共置代理与自动填充引导） |
 | `docker-compose.yml` | 单服务编排：端口/数据卷/健康检查/自动重启/AUTO_FILL 注入（+ scrapling 可选 profile） |
 | `docker-entrypoint.sh` | 容器入口：建目录 → 幂等 `prisma db push` → 拉起 5 代理 + 自动填充引导 → 启动 server |

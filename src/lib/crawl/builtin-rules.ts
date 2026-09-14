@@ -953,7 +953,7 @@ export const BUILTIN_RULES: BuiltinRule[] = [
   {
     key: "bqg713",
     name: "笔趣阁bqg713(www.bqg713.cc)·纯JSON API站采集",
-    description: "www.bqg713.cc 纯JSON API站(SPA壳+hash路由无SSR; 已301迁域 www.bqg413.cc, 引擎跟随重定向)。列表 /api/index 并集路径(hotlist,sort1~6)/书籍 /api/book/目录 /api/booklist(纯章节名数组, chapterid=下标+1)。[R21-b] 诱饵正文根治: 章节镜像 apibi.cc 已死(恒403)/apiqu.cc 按章节粒度被投毒(成人诱饵文本, 水印 'biquio点cc'+'srsp.cc'), 旧 tokenUrl+txt 链路命中被毒镜像; 真实正文 = www.bqg413.cc / apige.cc 的明文 txt 字段(无 RC4, /api/hm 为纯遥测信标)。现正文走 mini-services/bqg713-proxy:3010 /unlock 端点(deqixs degrade-native 契约): fetch.contentProxyUrl 为 SSRF loopback 豁免键, 探测自指→404→引擎降级直连 toc 合成的 /unlock URL → 主机池(www.bqg413.cc→apige.cc+家族动态学习)逐台取章, 诱饵水印校验(长度下限+水印签名)剔除毒镜像后返回 {ok,content}。",
+    description: "www.bqg713.cc 纯JSON API站(SPA壳+hash路由无SSR; 已301迁域 www.bqg413.cc, 引擎跟随重定向)。列表 /api/index 并集路径(hotlist,sort1~6)/书籍 /api/book/目录 /api/booklist(纯章节名数组, chapterid=下标+1)。[R21-b] 诱饵正文根治: 章节镜像 apibi.cc 已死(恒403)/apiqu.cc 按章节粒度被投毒(成人诱饵文本, 水印 biquio点cc+srsp.cc), 旧 tokenUrl+txt 链路命中被毒镜像; 真实正文 = www.bqg413.cc / apige.cc 的明文 txt 字段(无 RC4, /api/hm 为纯遥测信标)。现正文走 mini-services/bqg713-proxy:3010 /unlock 端点(deqixs degrade-native 契约): fetch.contentProxyUrl 为 SSRF loopback 豁免键, 探测自指→404→引擎降级直连 toc 合成的 /unlock URL → 主机池(www.bqg413.cc→apige.cc+家族动态学习)逐台取章, 诱饵水印校验(长度下限+水印签名)剔除毒镜像后返回 {ok,content}。",
     enabled: true,
     source: "scripts/seed-rule-bqg713.ts",
     config: {
@@ -1075,8 +1075,8 @@ export const BUILTIN_RULES: BuiltinRule[] = [
           429,
           503
         ],
-        "mirrorDomains": "www.bqg413.cc,apige.cc",
-        "contentProxyUrl": "http://127.0.0.1:3010/unlock?url={url}"
+        "contentProxyUrl": "http://127.0.0.1:3010/unlock?url={url}",
+        "mirrorDomains": "www.bqg413.cc,apige.cc"
       },
       "clean": {
         "removeSelectors": [
@@ -1115,7 +1115,7 @@ export const BUILTIN_RULES: BuiltinRule[] = [
   {
     key: "dafengdagengren",
     name: "大奉打更人 (dafengdagengren.com)",
-    description: "dafengdagengren.com GBK 笔趣阁模板站(与 daweixs.com 同平台同模板)。WAF: nginx 403 双 Set-Cookie 挑战(server_name_session 会话 Cookie 为关键凭证), 引擎 http 层 autoCookie 挑战重试链原生破解(首访种 Cookie 二连过, 无需浏览器)。dd-c 改版适配: 分类路径加 xiaoshuo 后缀, 旧列表源 /paihangbang/ 上游恒 502 已弃用, 列表改用 /xuanhuanxiaoshuo/ 分类页 ul.txt-list-row5 li(30 本/页, /list/1_N.html 第 N≥2 页但首页路径独立无法 {page} 表达)。书籍页 .info h1+作者 regex+.info .desc / 目录 #section-list li a / 正文 #content(纵横转载源带捧场月票灌水块, 已清洗)。",
+    description: "dafengdagengren.com GBK 笔趣阁模板站(与 daweixs.com 同平台同模板)。WAF: nginx 403 双 Set-Cookie 挑战(server_name_session 会话 Cookie 为关键凭证), 引擎 http 层 autoCookie 挑战重试链原生破解(首访种 Cookie 二连过, 无需浏览器)。dd-c 改版适配: 分类路径加 xiaoshuo 后缀, 旧列表源 /paihangbang/ 上游恒 502 已弃用, 列表改用 /xuanhuanxiaoshuo/ 分类页 ul.txt-list-row5 li(30 本/页, /list/1_N.html 第 N≥2 页但首页路径独立无法 {page} 表达)。书籍页 .info h1+作者 regex+.info .desc / 目录 #section-list li a / 正文 #content(纵横转载源带捧场月票灌水块, 已清洗; <br>×3 段间折叠+第N/M页页码/本章未完引流行剥离 R21-f2-3, 章内翻页关闭防并章)。",
     enabled: true,
     source: "scripts/seed-rule-dafengdagengren.ts",
     config: {
@@ -1213,7 +1213,7 @@ export const BUILTIN_RULES: BuiltinRule[] = [
             "type": "css",
             "expression": "#content",
             "attr": "html",
-            "replaceFrom": "https?:/{2,3}\\d{1,8}/",
+            "replaceFrom": "https?:/{2,3}\\d{1,8}/|(?:\\s*<br\\s*\\/?>){3,}|<a[^>]*>\\s*[^<]{0,40}第\\d+\\/\\d+页[^<]{0,10}\\s*<\\/a>|本章未完[^<]{0,40}|第\\d+\\/\\d+页",
             "replaceTo": ""
           }
         },
@@ -1280,7 +1280,7 @@ export const BUILTIN_RULES: BuiltinRule[] = [
   {
     key: "daweixs",
     name: "大微小说网 (daweixs.com)",
-    description: "daweixs.com GBK 笔趣阁模板站。WAF: nginx 403 双 Set-Cookie 挑战(server_name_session 会话 Cookie 为关键凭证), 引擎 http 层 autoCookie 挑战重试链原生破解(首访种 Cookie 二连过, 无需浏览器)。dd-c 改版适配: 分类路径加 xiaoshuo 后缀, 旧列表源 /paihangbang/ 上游恒 502 已弃用, 列表改用 /xuanhuanxiaoshuo/ 分类页 ul.txt-list-row5 li(30 本/页, /list/1_N.html 第 N≥2 页但首页路径独立无法 {page} 表达)。书籍页 .info h1+作者 regex+.info .desc / 目录 #section-list li a(精确锚定全量正序, 避开首个\"最新章节\"倒序块) / 正文 #content。已知瑕疵: 部分旧章正文尾部混入他书摘录(无标记不可剥离), 采集前建议核对首章。",
+    description: "daweixs.com GBK 笔趣阁模板站。WAF: nginx 403 双 Set-Cookie 挑战(server_name_session 会话 Cookie 为关键凭证), 引擎 http 层 autoCookie 挑战重试链原生破解(首访种 Cookie 二连过, 无需浏览器)。dd-c 改版适配: 分类路径加 xiaoshuo 后缀, 旧列表源 /paihangbang/ 上游恒 502 已弃用, 列表改用 /xuanhuanxiaoshuo/ 分类页 ul.txt-list-row5 li(30 本/页, /list/1_N.html 第 N≥2 页但首页路径独立无法 {page} 表达)。书籍页 .info h1+作者 regex+.info .desc / 目录 #section-list li a(精确锚定全量正序, 避开首个\"最新章节\"倒序块) / 正文 #content(<br>×3 段间折叠+第N/M页页码/本章未完引流行剥离 R21-f2-4, 章内翻页关闭防并章)。已知瑕疵: 部分旧章正文尾部混入他书摘录(无标记不可剥离), 采集前建议核对首章。",
     enabled: true,
     source: "scripts/seed-rule-daweixs.ts",
     config: {
@@ -1378,7 +1378,7 @@ export const BUILTIN_RULES: BuiltinRule[] = [
             "type": "css",
             "expression": "#content",
             "attr": "html",
-            "replaceFrom": "https?:/{2,3}\\d{1,8}/",
+            "replaceFrom": "https?:/{2,3}\\d{1,8}/|(?:\\s*<br\\s*\\/?>){3,}|<a[^>]*>\\s*[^<]{0,40}第\\d+\\/\\d+页[^<]{0,10}\\s*<\\/a>|本章未完[^<]{0,40}|第\\d+\\/\\d+页",
             "replaceTo": ""
           }
         },
@@ -2441,6 +2441,181 @@ export const BUILTIN_RULES: BuiltinRule[] = [
     },
   },
   {
+    key: "moli",
+    name: "茉莉小说(www.molixs.com)·17mbCMS GBK采集",
+    description: "molixs.com 茉莉小说(17mbCMS 女频站) GBK 直连无防护, 编码由 <meta charset=gbk> 提供给引擎 gb18030 解码。列表=分类真分页页 /{cat}_{page}.html 的 .listcon li(30本/页; 8 类 xiaoyuan/guyan/chuangyue/danmei/xianyan/tianchong/meiwen/qita, 排行榜 /paihang/{type}_{page}.html 12 榜同构) / 书籍页 /{cat}_{id}/ og:novel:* meta 全套+div.articleinfo p.p3 简介 / 目录内嵌书籍页 div.chapterlist ul li a 全量单页 / 正文 #content 单 <p> 内 <br /> 三连分隔, clean.plainText 按行归一为 \\n\\n 段落(零连续空行)。章节页仅上一章/下一章, content 翻页关闭。",
+    enabled: true,
+    source: "scripts/seed-rule-moli.ts",
+    config: {
+      "list": {
+        "enabled": true,
+        "urlTemplate": "https://www.molixs.com/guyan_{page}.html",
+        "itemSelector": {
+          "type": "css",
+          "expression": "div.articlelist .listcon li"
+        },
+        "fields": {
+          "name": {
+            "type": "css",
+            "expression": "p.articlename a",
+            "attr": "text"
+          },
+          "bookUrl": {
+            "type": "css",
+            "expression": "p.articlename a",
+            "attr": "href"
+          },
+          "author": {
+            "type": "css",
+            "expression": "p.p2 span a",
+            "attr": "text"
+          },
+          "intro": {
+            "type": "css",
+            "expression": "p.p3",
+            "attr": "text"
+          },
+          "cover": {
+            "type": "css",
+            "expression": "div.l2 img",
+            "attr": "data-original"
+          }
+        },
+        "pagination": {
+          "enabled": false,
+          "maxPages": 1
+        }
+      },
+      "book": {
+        "enabled": true,
+        "fields": {
+          "name": {
+            "type": "css",
+            "expression": "meta[property='og:novel:book_name']",
+            "attr": "content"
+          },
+          "author": {
+            "type": "css",
+            "expression": "meta[property='og:novel:author']",
+            "attr": "content"
+          },
+          "category": {
+            "type": "css",
+            "expression": "meta[property='og:novel:category']",
+            "attr": "content"
+          },
+          "status": {
+            "type": "css",
+            "expression": "meta[property='og:novel:status']",
+            "attr": "content"
+          },
+          "latestChapter": {
+            "type": "css",
+            "expression": "meta[property='og:novel:lastest_chapter_name']",
+            "attr": "content"
+          },
+          "intro": {
+            "type": "css",
+            "expression": "div.articleinfo p.p3",
+            "attr": "text"
+          },
+          "cover": {
+            "type": "css",
+            "expression": "meta[property='og:image']",
+            "attr": "content"
+          }
+        }
+      },
+      "toc": {
+        "enabled": true,
+        "itemSelector": {
+          "type": "css",
+          "expression": "div.chapterlist ul li"
+        },
+        "fields": {
+          "title": {
+            "type": "css",
+            "expression": "a",
+            "attr": "text"
+          },
+          "url": {
+            "type": "css",
+            "expression": "a",
+            "attr": "href"
+          }
+        },
+        "pagination": {
+          "enabled": false,
+          "maxPages": 1
+        }
+      },
+      "content": {
+        "enabled": true,
+        "fields": {
+          "content": {
+            "type": "css",
+            "expression": "#content",
+            "attr": "html"
+          }
+        },
+        "pagination": {
+          "enabled": false,
+          "maxPages": 1
+        }
+      },
+      "fetch": {
+        "engine": "http",
+        "uaMode": "rotate",
+        "autoCookie": true,
+        "referer": true,
+        "timeout": 20000,
+        "retries": 2,
+        "waitMs": 800,
+        "browserFallbackStatus": [
+          403,
+          412,
+          429,
+          503
+        ],
+        "hostGateLimit": 3
+      },
+      "clean": {
+        "removeSelectors": [
+          "script",
+          "style",
+          "iframe",
+          "ins",
+          "noscript",
+          ".adsbygoogle"
+        ],
+        "adPatterns": [
+          "(www\\.)?molixs\\.com\\S*",
+          "茉莉小说[^<>]*",
+          "本站所有小说为转载作品[^。<>]*",
+          "(www\\.)?[a-z0-9-]+\\.(com|net|cc|org|info|top|xyz|vip|site)(\\/\\S*)?",
+          "本章未完.*?点击下一页继续阅读"
+        ],
+        "whitelist": [
+          "p",
+          "br",
+          "b",
+          "strong",
+          "em",
+          "i",
+          "u",
+          "h1",
+          "h2",
+          "h3",
+          "h4",
+          "h5",
+          "h6"
+        ],
+        "normalize": true,
+        "plainText": true
+      }
+    },
+  },
+  {
     key: "piaotia",
     name: "飘天文学(www.piaotia.com)·直连GBK采集",
     description: "piaotia.com 直连无防护 GBK 老式 XHTML 站(fetcher 按 meta charset 自动解码)。列表=分类表格 table.grid tr(booksort1~9 /0/{page}.html, td1 书名/td2 最新章/td3 作者/td6 状态; 首字母检索行 articlelist.php 链接置空剔除) / 书籍页 h1+表格 td regex(类别/作者/文章状态, &nbsp; 实体兼容)+内容简介 regex+封面 / 目录=tocLink a:contains(查看全部章节) 独立页 /html/{s}/{id}/index.html li>a 相对链全量单页 / 正文 regex 截 toplink→bottomlink(body 级裸文本无容器), 翻页关闭。源站正文末尾孤立 \">\" 已由 adPatterns 剥除。",
@@ -2827,7 +3002,7 @@ export const BUILTIN_RULES: BuiltinRule[] = [
   {
     key: "qidian",
     name: "起点中文(镜像API full.hnxianxin.cn)·Legado书源转换",
-    description: "起点中文经镜像 API full.hnxianxin.cn/qd(Legado 书源「小雨的世界·起点中文」转换)。发现=ranking.php 榜单(男生站 site_id=11 人气最高; 女生/出版改 site_id=12/4, 榜单/分类/状态/字数/付费/标签筛选参数见 ranking.php?action=config),书籍=detail.php, 目录=catalog.php(C 载荷 b64 签名), 正文经外置代理 mini-services/qidian-proxy:3017(目录索引→解码→签名 content.php)。\n⚠ 正文需起点小程序凭证: 设 mini-services/qidian-proxy 环境变量 QD_YWKEY/QD_YWGUID 后重启代理(书源自订凭证机制同源; 未配置时三段发现/目录照常, 正文为空且 /health.credentialsConfigured=false 可诊)。\ntoc url 直指代理 + fetch.contentProxyUrl=…?url={url} 为 SSRF loopback 豁免键(degrade-native 契约, 缺失则章节抓取被 SSRF 全拒); 卷行以 Vo 标记在规则侧清空 URL 过滤。",
+    description: "起点中文经镜像 API full.hnxianxin.cn/qd(Legado 书源「小雨的世界·起点中文」转换)。发现=ranking.php 榜单(男生站 site_id=11 人气最高; 女生/出版改 site_id=12/4, 榜单/分类/状态/字数/付费/标签筛选参数见 ranking.php?action=config),书籍=detail.php, 目录=catalog.php(C 载荷 b64 签名), 正文经外置代理 mini-services/qidian-proxy:3017(目录索引→解码→签名 content.php)。\n⚠ 正文需起点小程序凭证: 设 mini-services/qidian-proxy 环境变量 QD_YWKEY/QD_YWGUID 后重启代理(书源自订凭证机制同源; 未配置时三段发现/目录照常, 正文为空且 /health.credentialsConfigured=false 可诊)。\n⚠ 2026-09-14 R21 复测: 镜像 full.hnxianxin.cn TLS 证书已过期(TLS alert 557)+绕过校验后端点 404 —— 镜像目标失效, 四段暂 SKIP; 待书源换新镜像后在管理端更新 urlTemplate 后复验。\ntoc url 直指代理 + fetch.contentProxyUrl=…?url={url} 为 SSRF loopback 豁免键(degrade-native 契约, 缺失则章节抓取被 SSRF 全拒); 卷行以 Vo 标记在规则侧清空 URL 过滤。",
     enabled: true,
     source: "scripts/seed-rule-qidian.ts",
     config: {
@@ -3120,6 +3295,7 @@ export const BUILTIN_RULES: BuiltinRule[] = [
       },
       "fetch": {
         "engine": "http",
+        "allowLoopback": true,
         "uaMode": "custom",
         "customUa": "okhttp/3.12.0",
         "headers": {
@@ -4173,7 +4349,9 @@ export const BUILTIN_RULES: BuiltinRule[] = [
           "content": {
             "type": "css",
             "expression": "#cont-body",
-            "attr": "html"
+            "attr": "html",
+            "replaceFrom": "^(?:\\s|<script[\\s\\S]*?</script>|<p>\\s*</p>|<br\\s*/?>)+|(?:\\s|<script[\\s\\S]*?</script>|<p>\\s*</p>|<br\\s*/?>)+$",
+            "replaceTo": ""
           }
         },
         "pagination": {

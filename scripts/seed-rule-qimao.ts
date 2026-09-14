@@ -100,6 +100,9 @@ export const ruleConfig = {
   },
   fetch: {
     engine: 'http',
+    // [R21-f2-5] 目标 URL 本身是本机签名代理(127.0.0.1:3013) → 必须显式声明 loopback 豁免,
+    // 否则 fetchPage SSRF 守卫拒收(此前该规则在引擎侧同样被拒, 属真实缺陷非验证器口径差)
+    allowLoopback: true,
     // 本地签名代理回环直连; UA 无关紧要, 取书源客户端同款 okhttp 形态
     uaMode: 'custom',
     customUa: 'okhttp/3.12.0',
