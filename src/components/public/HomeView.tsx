@@ -1,5 +1,6 @@
 // ============================================================
-// 首页视图 — [R24-5] 按 theme.layout(=站点克隆 id)分发 9 个 {Site}Home 克隆首页组件。
+// 首页视图 — [R24-5] 按 theme.layout(=站点克隆 id)分发 9 个 {Site}Home 克隆首页组件;
+// [R25-4] +trxsw(同人小说网)第 10 套。
 // 数据口径: 一次拉 48 本最新(与旧 12 布局同源 fetchBooks), SEO/TDK 由本壳统一注入。
 // 旧 12 种通用布局(与全部旧主题一起)已按用户指令删除 —— 见 [R24-5] themes.ts 头注。
 // ============================================================
@@ -25,6 +26,8 @@ const X2552Home = dynamic(() => import('./sites/X2552Home').then((m) => m.X2552H
 const HuangjinwuHome = dynamic(() => import('./sites/HuangjinwuHome').then((m) => m.HuangjinwuHome))
 const Ggd66Home = dynamic(() => import('./sites/Ggd66Home').then((m) => m.Ggd66Home))
 const ShipsayHome = dynamic(() => import('./sites/ShipsayHome').then((m) => m.ShipsayHome))
+// [R25-4-3] 第 10 套: 同人小说网(杰奇 CMS 经典默认模板)克隆首页
+const TrxswHome = dynamic(() => import('./sites/TrxswHome').then((m) => m.TrxswHome))
 
 const SITE_HOMES: Record<string, React.ComponentType<SiteHomeProps>> = {
   aijjxs: AijjxsHome,
@@ -36,6 +39,7 @@ const SITE_HOMES: Record<string, React.ComponentType<SiteHomeProps>> = {
   huangjinwu: HuangjinwuHome,
   ggd66: Ggd66Home,
   shipsay: ShipsayHome,
+  trxsw: TrxswHome, // [R25-4-3]
 }
 
 interface FetchState {

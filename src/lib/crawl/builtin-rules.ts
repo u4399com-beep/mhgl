@@ -1810,6 +1810,213 @@ export const BUILTIN_RULES: BuiltinRule[] = [
     },
   },
   {
+    key: "fanqianxs",
+    name: "番茄小说网(www.fanqianxs.com)·CF隐身桥采集",
+    description: "fanqianxs.com CF 封锁站(bxwx 系笔趣阁模板, UTF-8)。列表=首页多板块并集(#recommend div.item+#novelslist li+#recommend .right li+#newslist li, name/bookUrl=\"dt a,.s2 a,li>a\" 首匹配), 快照实测 133 项/127 书; 分类页 /xuanhuan/ 未存档(任务 listUrl 可驱动)。\n⚠ 未实测(2026-09-15): CF IP 级 403+域名 301→fehuu.com(亦 403), 无法四段实测; list 段=2023-03-31 Wayback 快照实证, book/toc/content 按家族惯例写+合成夹具回归(og:novel meta+文本标签正则双保险/#list dd a 目录/#content 正文并集+引擎最大容器兜底); 章节页实证 /html/{bid}/{cid}.html。解封/换出口 IP 后 FANQ_PROBE=1 复验。fetch=scrapling-stealthy 桥+桌面 Chrome UA。",
+    enabled: true,
+    source: "scripts/seed-rule-fanqianxs.ts",
+    config: {
+      "list": {
+        "enabled": true,
+        "urlTemplate": "https://www.fanqianxs.com/",
+        "itemSelector": {
+          "type": "css",
+          "expression": "#recommend div.item, #novelslist .content ul li, #recommend .right ul li, #newslist ul li"
+        },
+        "fields": {
+          "name": {
+            "type": "css",
+            "expression": "dt a, .s2 a, li > a",
+            "attr": "text"
+          },
+          "bookUrl": {
+            "type": "css",
+            "expression": "dt a, .s2 a, li > a",
+            "attr": "href"
+          },
+          "author": {
+            "type": "css",
+            "expression": "dt span, .s4, .s5",
+            "attr": "text"
+          },
+          "category": {
+            "type": "css",
+            "expression": ".s1",
+            "attr": "text",
+            "replaceFrom": "\\[|\\]",
+            "replaceTo": ""
+          },
+          "latestChapter": {
+            "type": "css",
+            "expression": ".s3 a",
+            "attr": "text"
+          },
+          "intro": {
+            "type": "css",
+            "expression": "dl dd",
+            "attr": "text"
+          },
+          "cover": {
+            "type": "css",
+            "expression": "img",
+            "attr": "src"
+          }
+        },
+        "pagination": {
+          "enabled": false,
+          "maxPages": 1
+        }
+      },
+      "book": {
+        "enabled": true,
+        "fields": {
+          "name": {
+            "type": "css",
+            "expression": "h1",
+            "attr": "text",
+            "replaceFrom": "^《|》$",
+            "replaceTo": ""
+          },
+          "author": {
+            "type": "regex",
+            "expression": "(?:og:novel:author\"\\s*content=\"|作\\s*者[：:](?:<[^>]*>)*\\s*)([^\"\\s<]{1,40})",
+            "attr": "1"
+          },
+          "category": {
+            "type": "regex",
+            "expression": "(?:og:novel:category\"\\s*content=\"|类\\s*别[：:](?:<[^>]*>)*\\s*\\[?)([^\"\\]\\s<]{1,12})",
+            "attr": "1"
+          },
+          "status": {
+            "type": "regex",
+            "expression": "(?:og:novel:status\"\\s*content=\"|状\\s*态[：:](?:<[^>]*>)*\\s*)([^\"\\]\\s<]{1,10})",
+            "attr": "1"
+          },
+          "wordCount": {
+            "type": "regex",
+            "expression": "字\\s*数[：:](?:<[^>]*>)*\\s*([\\d.,]+\\s*万?[字]?)",
+            "attr": "1"
+          },
+          "latestChapter": {
+            "type": "regex",
+            "expression": "(?:og:novel:latest_chapter_name\"\\s*content=\"|最新章节[：:](?:<[^>]*>)*\\s*)([^\"<]{1,80})",
+            "attr": "1"
+          },
+          "intro": {
+            "type": "css",
+            "expression": "#intro, .intro, #bookintro, .bookintro",
+            "attr": "text"
+          },
+          "cover": {
+            "type": "css",
+            "expression": "img[src*=\"files/article/image\"], img[src*=\"/img/\"], #imgbox img, .imgbox img, .cover img, #img img",
+            "attr": "src"
+          }
+        }
+      },
+      "toc": {
+        "enabled": true,
+        "itemSelector": {
+          "type": "css",
+          "expression": "#list dd a, #chapterlist li a, .chapterlist li a, #chapter_list dd a"
+        },
+        "fields": {
+          "title": {
+            "type": "css",
+            "expression": "a",
+            "attr": "text"
+          },
+          "url": {
+            "type": "css",
+            "expression": "a",
+            "attr": "href"
+          }
+        },
+        "pagination": {
+          "enabled": true,
+          "maxPages": 20,
+          "nextLink": {
+            "type": "css",
+            "expression": "a:contains(\"下一页\")",
+            "attr": "href"
+          }
+        }
+      },
+      "content": {
+        "enabled": true,
+        "fields": {
+          "content": {
+            "type": "css",
+            "expression": "#content, #chaptercontent, #booktxt, .showtxt",
+            "attr": "html"
+          }
+        },
+        "pagination": {
+          "enabled": false,
+          "maxPages": 1
+        }
+      },
+      "fetch": {
+        "engine": "auto",
+        "fetchMode": "scrapling-stealthy",
+        "uaMode": "custom",
+        "customUa": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "headers": {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+          "Accept-Language": "zh-CN,zh;q=0.9"
+        },
+        "autoCookie": true,
+        "referer": true,
+        "timeout": 60000,
+        "retries": 2,
+        "waitMs": 2000,
+        "browserFallbackStatus": [
+          403,
+          412,
+          429,
+          503
+        ],
+        "hostGateLimit": 3
+      },
+      "clean": {
+        "removeSelectors": [
+          "script",
+          "style",
+          "iframe",
+          "ins",
+          "noscript",
+          ".adsbygoogle"
+        ],
+        "adPatterns": [
+          "(www\\.)?fanqianxs\\.com\\S*",
+          "(www\\.)?fehuu\\.com\\S*",
+          "番茄小说网[^<>]*",
+          "本站所有小说为转载作品[^<>]*",
+          "(www\\.)?[a-z0-9-]+\\.(com|net|cc|org|info|top|xyz|vip|site)(\\/\\S*)?",
+          "本章未完.*?点击下一页继续阅读",
+          "一秒记住.*?免费读"
+        ],
+        "whitelist": [
+          "p",
+          "br",
+          "b",
+          "strong",
+          "em",
+          "i",
+          "u",
+          "h1",
+          "h2",
+          "h3",
+          "h4",
+          "h5",
+          "h6"
+        ],
+        "normalize": true,
+        "plainText": false
+      }
+    },
+  },
+  {
     key: "fanqie",
     name: "番茄小说聚合API (fq.taijiwang.top)",
     description: "番茄小说聚合API(fq.taijiwang.top)四层JSON采集: search(tab_type=3嵌套数组过滤+map-collect展平)/detail/book(数组的数组*展平)/content。结构依据 legado 书源 V3.2 反译。⚠ API 于 2026-08-31 全路径 502 暂不可达, 规则未实测, 恢复后请四段复验。引擎依赖: cc-c jsonGet [n]/[k=v]/*/map-collect + parseToc 两阶段vars + runner {offset:N}。",
@@ -3837,6 +4044,206 @@ export const BUILTIN_RULES: BuiltinRule[] = [
           "本站内容来源于网络[^。<>]*",
           "本站所收录作品[^<>]*",
           "(www\\.)?[a-z0-9-]+\\.(com|net|cc|org|info|top|xyz|vip|site)(\\/\\S*)?"
+        ],
+        "whitelist": [
+          "p",
+          "br",
+          "b",
+          "strong",
+          "em",
+          "i",
+          "u",
+          "h1",
+          "h2",
+          "h3",
+          "h4",
+          "h5",
+          "h6"
+        ],
+        "normalize": true,
+        "plainText": false
+      }
+    },
+  },
+  {
+    key: "trxsw",
+    name: "同人小说网(www.trxsw.com)·杰奇GBK采集",
+    description: "trxsw.com 同人小说网(杰奇 CMS 经典模板, GBK — fetcher 自动升级 gb18030 解码)。列表=/book/{cat}_{sort}_0_0_0_0_{page}.html(cat 1..7 分类/0 全站, sort=lastupdate|monthvisit, 页码1基), .top+#novelslist li+#newscontent li 并集兼容列表页同构 s1..s5 行, 快照实测 95 项/94 书。\n⚠ 未实测(2026-09-15): 真站 HTTP/2 framing 层拒绝所有出口(ERR_HTTP2_PROTOCOL_ERROR), 无法四段实测; list 段=2019-10-19 Wayback 快照实证, book/toc/content 按杰奇惯例写+合成夹具回归(og:novel meta+文本正则双保险/#list dd a/#content 并集+引擎兜底); 章节页实证 /book/{bid}/{cid}.html; host 钉扎无 --http1.1 画像(留档)。恢复后 TRXSW_PROBE=1 复验。",
+    enabled: true,
+    source: "scripts/seed-rule-trxsw.ts",
+    config: {
+      "list": {
+        "enabled": true,
+        "urlTemplate": "https://www.trxsw.com/book/0_lastupdate_0_0_0_0_{page}.html",
+        "itemSelector": {
+          "type": "css",
+          "expression": "div.novelslist .top, div.novelslist .content ul li, #newscontent li"
+        },
+        "fields": {
+          "name": {
+            "type": "css",
+            "expression": "dt a, .s2 a, li > a",
+            "attr": "text"
+          },
+          "bookUrl": {
+            "type": "css",
+            "expression": "dt a, .s2 a, li > a",
+            "attr": "href"
+          },
+          "author": {
+            "type": "css",
+            "expression": "dt span, .s4, .s5",
+            "attr": "text"
+          },
+          "category": {
+            "type": "css",
+            "expression": ".s1",
+            "attr": "text",
+            "replaceFrom": "\\[|\\]",
+            "replaceTo": ""
+          },
+          "latestChapter": {
+            "type": "css",
+            "expression": ".s3 a",
+            "attr": "text"
+          },
+          "intro": {
+            "type": "css",
+            "expression": "dl dd",
+            "attr": "text"
+          },
+          "cover": {
+            "type": "css",
+            "expression": "img",
+            "attr": "src"
+          }
+        },
+        "pagination": {
+          "enabled": false,
+          "maxPages": 1
+        }
+      },
+      "book": {
+        "enabled": true,
+        "fields": {
+          "name": {
+            "type": "css",
+            "expression": "h1",
+            "attr": "text",
+            "replaceFrom": "^《|》$",
+            "replaceTo": ""
+          },
+          "author": {
+            "type": "regex",
+            "expression": "(?:og:novel:author\"\\s*content=\"|作\\s*者[：:](?:<[^>]*>)*\\s*)([^\"\\s<]{1,40})",
+            "attr": "1"
+          },
+          "category": {
+            "type": "regex",
+            "expression": "(?:og:novel:category\"\\s*content=\"|类\\s*别[：:](?:<[^>]*>)*\\s*\\[?)([^\"\\]\\s<]{1,12})",
+            "attr": "1"
+          },
+          "status": {
+            "type": "regex",
+            "expression": "(?:og:novel:status\"\\s*content=\"|状\\s*态[：:](?:<[^>]*>)*\\s*)([^\"\\]\\s<]{1,10})",
+            "attr": "1"
+          },
+          "wordCount": {
+            "type": "regex",
+            "expression": "字\\s*数[：:](?:<[^>]*>)*\\s*([\\d.,]+\\s*万?[字]?)",
+            "attr": "1"
+          },
+          "latestChapter": {
+            "type": "regex",
+            "expression": "(?:og:novel:latest_chapter_name\"\\s*content=\"|最新章节[：:](?:<[^>]*>)*\\s*)([^\"<]{1,80})",
+            "attr": "1"
+          },
+          "intro": {
+            "type": "css",
+            "expression": "#intro, .intro, #bookintro, .bookintro",
+            "attr": "text"
+          },
+          "cover": {
+            "type": "css",
+            "expression": "img[src*=\"files/article/image\"], img[src*=\"/img/\"], #imgbox img, .imgbox img, .cover img, #img img",
+            "attr": "src"
+          }
+        }
+      },
+      "toc": {
+        "enabled": true,
+        "itemSelector": {
+          "type": "css",
+          "expression": "#list dd a, #chapterlist dd a, #chapterlist li a, .chapterlist dd a, .chapterlist li a, #booklist dd a"
+        },
+        "fields": {
+          "title": {
+            "type": "css",
+            "expression": "a",
+            "attr": "text"
+          },
+          "url": {
+            "type": "css",
+            "expression": "a",
+            "attr": "href"
+          }
+        },
+        "pagination": {
+          "enabled": true,
+          "maxPages": 20,
+          "nextLink": {
+            "type": "css",
+            "expression": "a:contains(\"下一页\")",
+            "attr": "href"
+          }
+        }
+      },
+      "content": {
+        "enabled": true,
+        "fields": {
+          "content": {
+            "type": "css",
+            "expression": "#content, #chaptercontent, #booktxt, .showtxt",
+            "attr": "html"
+          }
+        },
+        "pagination": {
+          "enabled": false,
+          "maxPages": 1
+        }
+      },
+      "fetch": {
+        "engine": "auto",
+        "uaMode": "rotate",
+        "autoCookie": true,
+        "referer": true,
+        "timeout": 25000,
+        "retries": 2,
+        "waitMs": 1000,
+        "browserFallbackStatus": [
+          403,
+          412,
+          429,
+          503
+        ],
+        "hostGateLimit": 3
+      },
+      "clean": {
+        "removeSelectors": [
+          "script",
+          "style",
+          "iframe",
+          "ins",
+          "noscript",
+          ".adsbygoogle"
+        ],
+        "adPatterns": [
+          "(www\\.)?trxsw\\.com\\S*",
+          "同人小说网[^<>]*",
+          "本站所有小说均由网友上传[^<>]*",
+          "请记住本书首发域名[^<>]*",
+          "(www\\.)?[a-z0-9-]+\\.(com|net|cc|org|info|top|xyz|vip|site)(\\/\\S*)?",
+          "一秒记住.*?免费读"
         ],
         "whitelist": [
           "p",

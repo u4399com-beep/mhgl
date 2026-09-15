@@ -16,6 +16,7 @@ import { reorderToc } from './sorter'
 import { saveChapterTxt, saveCoverWebp, deleteBookTxt, ensureDirs } from './storage'
 import { smartCategory, smartCompleteDetect } from './smart'
 import { fetchSuggestKeywords, mergeSuggestWords } from './suggest'
+import { sliceCodePoints } from '@/lib/utils' // [R25-5a] 码点截断(UTF-16 slice 会斩半 emoji 代理对)
 import { nextBookNum, withBookNumRetry } from '@/lib/pseudostatic-server'
 
 // feat-cloak-anticrawler B/E: 启动时加载持久化 cookie jar + 注册 SIGTERM 优雅关闭 hook
@@ -1672,7 +1673,8 @@ export class TaskRunner {
       const item = tocItems[i]
       const title = cleanChapterTitle(item.title, bookName)
       const url = item.url
-      const volume = (item.volume || '').trim().slice(0, 120) // kk-a: 分卷名随章落库
+      // [R25-5a] 码点截断替代 UTF-16 slice(emoji 代理对斩半风险): 语义同旧 trim+120 cap
+      const volume = sliceCodePoints((item.volume || '').trim(), 120) // kk-a: 分卷名随章落库
       const old = url ? existUrlMap.get(url) : existTitleMap.get(title)
       if (isFull || !old) {
         // 全量: 全部重建 / 增量: 只采不存在的
@@ -2046,7 +2048,8 @@ export class TaskRunner {
       where: { id: bookId },
       data: {
         wordCount: agg._sum.wordCount || 0,
-        latestChapter: tocItems[tocItems.length - 1]?.title?.slice(0, 100) || '',
+        // [R25-5a] 码点截断替代 UTF-16 slice(同上)
+        latestChapter: (tocItems.length ? sliceCodePoints(tocItems[tocItems.length - 1]?.title || '', 100) : ''),
       },
     }).catch((e: any) => {
       if (e?.code !== 'P2025') console.warn('[runner] book stats update failed:', e?.message || e)

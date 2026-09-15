@@ -10,6 +10,15 @@ import { DOMParser } from '@xmldom/xmldom'
 import xpath from 'xpath'
 import { type FieldRule, type PageRule, type TocItem, type ParsedBook, type ParsedContent } from './types'
 import { fetchPage } from './fetcher'
+// [R25-2-4] parser→cleaner 单向导入(无环: cleaner 不反向依赖 parser; downloader 已有同向
+// 先例): ①decodeEntitiesOnce/INVISIBLE_CHARS_RE 供 absolutize 链接字段(bookUrl/chapterUrl/
+// cover)实体解码+零宽水印剥离 —— 正则/JSON 提取路径拿到的 href 含字面 "&amp;" 时浏览器语义
+// 应解码一次, 此前无任何出口处理; ②cleanTextField 供 parseBook/parseToc 对无下游清洗的
+// 字段(status/keywords/latestChapter/volume)做实体/不可见字符/站名尾巴清洗。既有由 runner
+// 清洗的字段(name/author/category/intro/章节名)刻意【不】在此重复清洗 —— decodeEntitiesOnce
+// 非幂等(&amp;lt; 二次解码会变 <), 双层清洗会破坏单遍解码语义(见 cleaner R22-b-6 注释)。
+// TEXT_BLOCK_TAGS 仍保持本地声明(理由见其注释)
+import { cleanTextField, decodeEntitiesOnce, INVISIBLE_CHARS_RE } from './cleaner'
 
 // ---------------- 后处理 ----------------
 // [R9-c-1] 替换执行哨兵常量: 逐匹配累计耗时/匹配数上限(超限放弃本次替换, 调用方保持原文)
@@ -622,14 +631,20 @@ export function extractField(html: string, $: cheerio.CheerioAPI, scope: any, do
 // ---------------- URL 绝对化 ----------------
 export function absolutize(url: string, base: string): string {
   if (!url) return ''
-  const u = url.trim()
-  if (!u) return ''
-  let out = u
-  if (!/^https?:\/\//i.test(u)) {
+  // [R25-2-4] 链接字段噪声剥离(bookUrl/chapterUrl/cover 唯一汇合点): ①不可见字符 —— 零宽
+  // 字符/BOM 混进 href(源站反采集水印常态)后 URL 表面无异样但请求 404; ②实体单遍解码 ——
+  // css/attr 路径 cheerio 已解码一次, 此处对结果幂等(普通 & 不在白名单实体内); regex/JSON
+  // 路径拿到的 href 含字面 "&amp;" 时对齐浏览器属性解码语义(修前原样入库, fetch 必坏参)。
+  // 解码置于协议过滤之前, 解码产物非 http(s) 仍被过滤(与旧行为一致)
+  const u = String(url).replace(INVISIBLE_CHARS_RE, '').trim()
+  const decoded = u ? decodeEntitiesOnce(u).trim() : ''
+  if (!decoded) return ''
+  let out = decoded
+  if (!/^https?:\/\//i.test(decoded)) {
     try {
-      out = new URL(u, base).toString()
+      out = new URL(decoded, base).toString()
     } catch {
-      out = u
+      out = decoded
     }
   }
   // 过滤非 http(s) 结果: javascript:/data:/mailto:/about: 等不应作为章节/封面/翻页地址参与后续抓取
@@ -859,11 +874,16 @@ export function parseBook(html: string, baseUrl: string, pageRule: PageRule): Pa
     name: f.name || undefined,
     author: f.author || undefined,
     category: f.category || undefined,
-    keywords: f.keywords || undefined,
+    // [R25-2-5] status/keywords/latestChapter: 三个无下游清洗的消费面字段 —— 仅供
+    // smartCompleteDetect(状态检测)与规则测试面板展示, 不经 runner 的 cleanTextField/cleanIntro。
+    // 修前 JSON/正则提取路径的字面实体("完结&nbsp;"/"已完結"零宽水印/繁体)直接进检测器,
+    // 实体隔断关键词匹配致检测降级为 unknown。此处为它们的【唯一】清洗点(单遍解码语义不破坏,
+    // 与 runner 清洗字段互不重叠); name/author/category/intro 由 runner 清洗, 此处不重复
+    status: cleanTextField(f.status) || undefined,
+    keywords: cleanTextField(f.keywords) || undefined,
     intro: f.intro || undefined,
     cover: f.cover ? absolutize(f.cover, baseUrl) : undefined,
-    latestChapter: f.latestChapter || undefined,
-    status: f.status || undefined,
+    latestChapter: cleanTextField(f.latestChapter) || undefined,
   }
 }
 
@@ -926,7 +946,11 @@ export async function parseToc(
         if (seen.has(dedupKey)) return
         seen.add(dedupKey)
         // kk-a: 分卷名(规则 toc.fields.volume 提取, 如番茄 volume_name)
-        all.push({ title: title || href, url: href, volume: volume || undefined })
+        // [R25-2-6] volume 唯一清洗点: runner 落库仅 trim+UTF-16 slice(无法修改), 实体/零宽
+        // 字符/站名尾巴("第一卷_笔趣阁")修前原样随章落库。cap 120 码点与 runner
+        // slice(0,120)(UTF-16 单元)对 BMP 文本逐字节对齐, 不提前截断
+        const cleanVol = volume ? cleanTextField(volume, 120) : ''
+        all.push({ title: title || href, url: href, volume: cleanVol || undefined })
       })
       await onProgress?.(1, all.length)
     }
@@ -1003,7 +1027,9 @@ export async function parseToc(
       const dedupKey = href || title
       if (seen.has(dedupKey)) continue
       seen.add(dedupKey)
-      all.push({ title: title || href, url: href, volume: vol || undefined })
+      // [R25-2-6] volume 唯一清洗点(与 JSON 目录路径同口径, 见彼处注释)
+      const cleanVol = vol ? cleanTextField(vol, 120) : ''
+      all.push({ title: title || href, url: href, volume: cleanVol || undefined })
     }
     await onProgress?.(p, all.length)
 

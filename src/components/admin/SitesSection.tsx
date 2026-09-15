@@ -66,6 +66,7 @@ const HOME_LABEL: Record<string, string> = {
   huangjinwu: '黄金屋',
   ggd66: '格格党',
   shipsay: '船说CMS',
+  trxsw: '同人小说', // [R25-5a] 第 10 套克隆主题(与 themes.ts SITE_CLONE_LABEL 对齐)
 }
 
 interface SiteForm {

@@ -43,6 +43,7 @@ const CLONE_LABEL: Record<string, string> = {
   huangjinwu: '黄金屋',
   ggd66: '格格党',
   shipsay: '船说CMS',
+  trxsw: '同人小说', // [R25-5a] 第 10 套克隆主题(与 themes.ts SITE_CLONE_LABEL 对齐)
 }
 
 /** hex → rgba 淡色（缩略图主题色着色用; 非 6 位 hex 色值原样返回兜底） */

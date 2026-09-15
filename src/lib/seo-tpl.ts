@@ -62,12 +62,19 @@ function clamp(s: string, max: number): string {
   return pts.length <= max ? s : pts.slice(0, max).join('')
 }
 
+/** [R25-5b] 字面转义残留清洗: 存量简介里 JSON 转义未还原的 \r\n\t\u3000 双字序列
+ *  (真换行/真空白不受影响 —— 只剥反斜杠+字母的字面形态), 防渗入 meta description */
+function stripLiteralEscapes(s: string): string {
+  return s.replace(/\\[rn(tfu)]/g, ' ')
+}
+
 /** 折叠空白(简介/摘要公共清洗: 换行/全角空格/连续空白 → 单空格) */
 export function seoText(html?: string | null): string {
   if (!html) return ''
-  return html
+  return stripLiteralEscapes(html)
     .replace(/<[^>]+>/g, ' ')
     .replace(/&nbsp;/gi, ' ')
+    .replace(/\\u3000|\u3000/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
 }
@@ -84,8 +91,9 @@ function interpolate(tpl: string, vars: SeoTplVars): string {
     chapterno: vars.chapterno != null ? String(vars.chapterno) : '',
     chapterCount: vars.chapterCount != null ? String(vars.chapterCount) : '',
     statusText,
-    intro: clamp(vars.intro || '', 110),
-    excerpt: clamp(vars.excerpt || '', 90),
+    // [R25-5b] intro/excerpt 过 stripLiteralEscapes(存量字面 \n 残留不渗入 TDK)
+    intro: clamp(stripLiteralEscapes(vars.intro || ''), 110),
+    excerpt: clamp(stripLiteralEscapes(vars.excerpt || ''), 90),
   }
   const out = tpl.replace(/\{(\w+)\}/g, (_m, key: string) => map[key] ?? '')
   return out

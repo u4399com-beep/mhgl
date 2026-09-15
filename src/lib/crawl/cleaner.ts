@@ -147,7 +147,9 @@ const CTRL_CHARS_RE = /[\x00-\x08\x0B\x0C\x0E-\x1F]/g
 // 均不覆盖 —— 源站反采集水印靠它们产生"纯不可见字符"幽灵段落(行判空失效, bun 复现实证)、
 // 躲避广告正则命中、读者复制出隐形字符。downloader.obfuscateText 的零宽混淆发生在清洗之后的
 // TXT 导出侧, 与本剥离互不影响
-const INVISIBLE_CHARS_RE = /[\u00ad\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/g
+// [R25-2-4] 导出: parser.absolutize 对链接字段(bookUrl/chapterUrl/cover)共用同一不可见
+// 字符剥离口径(零宽水印混进 href 会使章节 404); 无反向依赖(parser→cleaner 单向, 无环)
+export const INVISIBLE_CHARS_RE = /[\u00ad\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/g
 // [R22-b-2] Unicode 空格家族(不含行终止符与 \t —— 按行消费时行分隔符已拆走): 裸写的
 // \u00a0(nbsp)/\u1680/\u2000-\u200a/\u202f/\u205f/\u3000(全角空格)。与实体解码口径对齐:
 // ENTITY_BASIC 把 &nbsp; 解码为普通空格 ' ', 但源站【裸写】的同族字符此前原样残留(字段级
@@ -547,6 +549,49 @@ function removeAdLines(text: string, patterns: string[]): string {
   return out
 }
 
+// [R25-2-1] 短字段站名尾巴/营销词精确剥离(白名单制): 书名/作者/分类/章节名等短字段的
+// 「_笔趣阁」「-某某小说网」「(笔趣阁)」类站点后缀此前只有章节名链(cleanChapterTitle)在剥,
+// 书名/作者/分卷名原样入库。词表 = 精确白名单(与既有广告过滤/章节名垃圾词同口径), 非泛匹配:
+//   • 域名尾 (www.)?xxx.(com|net|cc|org|info|top|xyz|vip|site|la|mobi|tv) —— TLD 白名单,
+//     "第1.5章"/"v2.0" 等小数/版本号因 TLD 不命中天然免疫
+//   • 站点品牌词: 笔趣阁|笔趣网|笔趣吧|小说网|文学网|中文网|阅读网
+//   • 营销动作词(仅限显式标点分隔, 沿用 cleanChapterTitle 垃圾词口径): 首发|无弹窗|全文阅读|
+//     在线阅读|最新章节|手打|txt下载|敬请期待|免费阅读|全本阅读
+// 两档分隔符: 域名+品牌词允许【空格】分隔(源站 <title> 常态 "书名 笔趣阁"); 营销词必须
+// 显式标点分隔 —— 空格分隔的营销词不剥, 防"第3章 首发"(篮球题材真实章节名)这类误杀。
+// 刻意【不】收录 (全本)/(完本) 等括注词: 它们同时是合法版本标注(用户指令明确要求保留
+// 《xx(全本)》形态书名), 收录即误杀; 尾部锚定($) + 分隔符前置双约束保证只剥尾巴不伤正文。
+const FIELD_SITE_DOMAIN = '(?:www\\.)?[a-z0-9-]{2,}\\.(?:com|net|cc|org|info|top|xyz|vip|site|la|mobi|tv)'
+const FIELD_SITE_BRANDS = '笔趣阁|笔趣网|笔趣吧|小说网|文学网|中文网|阅读网'
+const FIELD_SITE_MARKETING = '首发|无弹窗|全文阅读|在线阅读|最新章节|手打|txt下载|敬请期待|免费阅读|全本阅读'
+// 任意分隔符(含空格) × 域名+品牌词
+const FIELD_TAIL_ANYSEP_RE = new RegExp(
+  `(?:[\\s_\\-–—·・|｜:：,，~]+|\\s*[(（【\\[]\\s*)(${FIELD_SITE_DOMAIN}|${FIELD_SITE_BRANDS})\\s*[)）\\]】]?\\s*$`,
+  'i'
+)
+// 显式标点分隔(不含空格) × 域名+品牌词+营销词(词表超集, 优先尝试)
+const FIELD_TAIL_PUNCTSEP_RE = new RegExp(
+  `(?:[_\\-–—·・|｜:：,，~]+|\\s*[(（【\\[]\\s*)(${FIELD_SITE_DOMAIN}|${FIELD_SITE_BRANDS}|${FIELD_SITE_MARKETING})\\s*[)）\\]】]?\\s*$`,
+  'i'
+)
+
+/** [R25-2-1] 剥离短字段尾部的站点后缀/营销词尾巴("凡人修仙传_笔趣阁"→"凡人修仙传"),
+ *  多级尾巴循环剥("xx_笔趣阁_小说网"→"xx"); 剥后为空则保留原文(与 cleanChapterTitle
+ *  "剥后为空则保留原标题"同口径)。无词表命中时原样返回, 对干净字段零改动 */
+export function stripFieldSiteSuffix(text: string): string {
+  if (!text) return text
+  let v = text
+  // 有界循环(6 层)防意外; 每轮仅当词表命中才连带清理残留分隔符尾巴("xx- (笔趣阁)"→"xx-")
+  for (let i = 0; i < 6; i++) {
+    let next = v.replace(FIELD_TAIL_PUNCTSEP_RE, '').replace(FIELD_TAIL_ANYSEP_RE, '')
+    if (next === v) break
+    next = next.replace(/[\s_\-–—·・|｜:：,，~]+$/, '')
+    if (!next.trim()) return text
+    v = next
+  }
+  return v
+}
+
 /** 清洗纯文本字段(简介/标题等) */
 export function cleanTextField(raw: string | undefined | null, maxLength?: number): string {
   if (!raw) return ''
@@ -569,12 +614,24 @@ export function cleanTextField(raw: string | undefined | null, maxLength?: numbe
   // 改单步 \s+→' ': JS \s 恒等覆盖 Unicode 空格家族+行终止符, 既有两步的全部折叠结果逐字节
   // 不变, 纯增量清掉单个非常规空白(修后 '第\u00A0一\u00A0章'→'第 一 章')
   v = v.replace(/\s+/g, ' ').trim()
+  // [R25-2-2] 站名尾巴/营销词剥离: 白名单制(见 FIELD_TAIL_*_RE 注释), 尾部锚定+分隔符前置,
+  // 干净字段零改动; 置于空白归一之后(分隔符已折叠为单字符便于匹配)、码点截断之前
+  v = stripFieldSiteSuffix(v)
   if (maxLength && v.length > maxLength) {
     // 按码点截断(UTF-16 slice 会把 emoji 等 astral 字符代理对斩半产出乱码 U+FFFD)
     v = sliceCodePoints(v, maxLength)
   }
   return v
 }
+
+/** [R25-2-3] 简介纯垃圾行判定: 整行仅由 域名/站点品牌词/营销词(+括号包裹/尾标点) 构成时
+ *  判为广告尾巴行 —— 与 removeAdLines 域名模式互补: 后者剥行内域名后残留的裸站名行
+ *  ("笔趣阁 www.bqg.com"→"笔趣阁")由此收尾。行内含非白名单文本(如"转载自红袖小说网"的
+ *  "转载自"前缀)不命中, 保守不误删 */
+const INTRO_JUNK_LINE_RE = new RegExp(
+  `^\\s*[(（【\\[]?\\s*(?:(?:${FIELD_SITE_DOMAIN})|(?:${FIELD_SITE_BRANDS})|(?:${FIELD_SITE_MARKETING}))(?:[\\s_\\-–—·・|｜:：,，~]+(?:(?:${FIELD_SITE_DOMAIN})|(?:${FIELD_SITE_BRANDS})|(?:${FIELD_SITE_MARKETING})))*[)）\\]】]?\\s*[。．.!！]?$`,
+  'i'
+)
 
 /** 清洗多行简介 */
 export function cleanIntro(raw: string | undefined | null, maxLength = 2000): string {
@@ -595,7 +652,8 @@ export function cleanIntro(raw: string | undefined | null, maxLength = 2000): st
     .split('\n')
     // [R22-b-2] 行中部裸 \u00a0/\u3000 等归一为普通空格(与 cleanTextField/正文纯文本出口同口径)
     .map((l) => l.replace(UNICODE_SPACE_RE, ' ').trim())
-    .filter(Boolean)
+    // [R25-2-3] 纯站点词垃圾行丢弃(整行仅域名/品牌词/营销词, 见 INTRO_JUNK_LINE_RE 注释)
+    .filter((l) => l && !INTRO_JUNK_LINE_RE.test(l))
     .join('\n')
   if (v.length > maxLength) v = sliceCodePoints(v, maxLength)
   return v

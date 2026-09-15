@@ -4615,3 +4615,79 @@ Stage Summary:
 - 交付: 3 个桩首页重写为真站逐节克隆(HuangjinwuHome 267 行/Ggd66Home 306 行/ShipsayHome 479 行), 导出签名 {books,loading} 零变化, [R24-6-d-1~9] 注释齐; 三站各自保留真站版块顺序/类名对照/色值/字号/断点/圆角阴影, 数据层 1~2 维并行拉取+props 兜底+alive 防竞态+骨架防 CLS
 - 需主控 customCss 补充(本组只读 themes.ts, 现状 customCss 已覆盖大半): ①shipsay: `.clone-shipsay{background:#f4f4f4}` — theme vars.bg=#fbfbfb 与真站 body #f4f4f4 差一档(首页组件已自铺 #f4f4f4, 头部区/页底缝隙仍露出 #fbfbfb); 可选 `.clone-shipsay .site-footer{background:#3e3d43}`(真站页脚深灰非主红) ②ggd66 可选: `.clone-ggd66 .site-footer{background:#56ccb5;color:#fff}`(真站页脚青绿白字, 现为 #f0f0f0) ③huangjinwu 无需补充(渐变底/页脚 #e2eaf5 已就位)
 - 待主控: 串行 lint/tsc + 真站主题下目检三首页(当前库仅 1 个 biquge 站, 三克隆主题无站点实例, 需主控建站或 embed 验证); 搜索框(ggd66)/分类跳转/友链外链行为建议 E2E 各点一次
+---
+Task ID: R25-4
+Agent: frontend-styling-expert
+Task: 克隆 trxsw.com（同人小说网）主题模板 —— 第 10 套站点克隆主题
+
+Work Log:
+- 前置勘察: 通读 worklog 末段(R24-5 主题重建 + R24-6-d 克隆首页先例) + themes.ts 9 套 preset + shared.ts 契约({books,loading}) + bits(bookNavProps/Sk) + ctx(ViewParams: home/book/read/search/keyword/category/history, 无 status/榜单视图) + data.ts(fetchBooks size 上限 60 实证/fetchFooterLinks) + PublicSite(.clone-{id} 作用域 + customCss 注入) + SiteHeader IMITATION_HEADERS 全部分支; 真站素材 /tmp/r25/trxsw-wb.html(2019-10-19 Wayback 完整 DOM 快照) 剥除 WAYBACK TOOLBAR 与 /web/前缀 后逐节核实(trxsw-clean.html); archive 的 b.css 快照(css-2018/2020/2021.json 等)全为 Wayback 错误页, 实证「b.css 无存档」
+- [R25-4-1] themes.ts: SiteCloneId 联合 +'trxsw'; SITE_CLONE_LABEL +trxsw:'同人小说'; THEMES 追加第 10 套 preset(read: classic/740/2.0/18px/indent/justify/inline/rule; customCss 5 条 .clone-trxsw 作用域: 14px 基准 + a #333/a:hover #C00 红 + .site-footer #f5f5f5 灰字; vars: bg #fff/primary #1C5087/accent #C00/radius 0/宋体 arial 系/cardShadow none; 头注声明「b.css 无存档, 配色按杰奇 CMS 默认模板规范还原、结构按真站 2019 快照逐节复刻」)
+- [R25-4-2~10] 新建 TrxswHome.tsx(394 行) 1:1 复刻真站 #main: ①.novelslist ×2 行 ×3 板块(第 2/3 块 md 竖线分隔对应真站 .content/.border), 板块=JqH2(浅色渐变底纹+左 4px 深蓝竖条+下边线, 还原真站 h2 底纹图)+.top 图文头条(BookCover 67×82 + dt 书名粗体+span 作者 + dd 简介 line-clamp-4)+ul li(h-9 底部点线 #ccc, «书名 /作者» 原文格式, li 整行 bookNavProps 触达); 板块分组按 categoryId 取前 6 组(组内首本优先带封面做头条, 参考 HuangjinwuHome 做法) ②#newscontent: .l 最近更新小说列表 25 行(s1 [分类]86px/s2 书名150px/s3 最新章节 flex/s4 作者90px/s5 日期44px, fmtMD 本地实现真站「10-20」格式, h2 带更多>>[moreRight])+.r 小说推荐 26 行(s2 书名+s5 作者, md:border-l 分隔) ③#firendlink 友情连接(fetchFooterLinks, 空则整块不渲染); 数据=props 48(.l 用最新排序+兜底)+1 维 fetchBooks(sort:words,size:60)(板块分组+.r 推荐)+友链, alive 防竞态; 骨架 2 行×3 板块+.l/.r 位形防 CLS; 移动端 375px 单列堆叠(max-md 隐 s1/s3/s4, 行级触控 ≥44px 限域), 断点降级注释齐(s3 章节无 chapterId 降级纯文本, 同 Ggd66Home 先例)
+- [R25-4-3] HomeView.tsx: TrxswHome dynamic 懒加载(与既有 9 个并排) + SITE_HOMES.trxsw 分发项, 导出签名 {books,loading} 不变
+- [R25-4-4~8] SiteHeader.tsx: TrxswHeader 子组件三段式 —— ①.ywtop 浅灰 #f5f5f5 细底边顶条(左站公告/右「设为首页｜加入收藏｜联系我们」装饰行, 真站 ywtop_con 内为 d.js 脚本, 纯视觉还原不交互) ②.head 白底报头(div.head_logo 红棕 #C00 26~30px 粗体文字 logo + #searchbar TrxswSearchBox[直角输入 1px #ccc + 深蓝渐变「搜索」钮, 复用 useSearchBoxLogic/SuggestDropdown/addSearchHistory 同现有 9 分支]; 移动端 compact 搜索) ③.nav 深蓝渐变 #1C5087→#1F5FA9 白字分类条(ul/li 复刻真站 DOM, hover 亮蓝 #2569c4, 横滚); 导航项=首页/排行榜单/最近更新/分类×7(cats.slice 0,7)/全本小说/我的书架, 其中 排行榜单·最近更新·全本小说 真站为排序列表页无对应视图降级 category(同 ShipsayHeader「完本」先例), 第 12 项 yuedu() 脚本入口→书架; IMITATION_HEADERS 注册 trxsw 分支(Record<SiteCloneId> 保持穷尽)
+- 文件所有权遵守: 仅改 themes.ts/TrxswHome.tsx(新建)/HomeView.tsx/SiteHeader.tsx; 未动 BookView/ReadView/PublicSite/BookCard/SiteFooter/bits/shared.ts/admin 两处 CLONE_LABEL 映射(见未尽事项); 未新增依赖/未跑 lint-tsc/未重启 dev server/未碰数据库
+- 质量门: bun build --external '*' 单文件转译 4/4 文件 0 错(themes/TrxswHome/HomeView/SiteHeader); 全站 grep 复核 Record<SiteCloneId> 穷尽点仅 IMITATION_HEADERS/SITE_CLONE_LABEL 两处均已补 trxsw(HEADER_BOTTOM_BORDER 为 Partial 不需要)
+
+Stage Summary:
+- 第 10 套克隆主题 trxsw(同人小说网/杰奇 CMS 经典默认模板)全链路落地: themes.ts preset → TrxswHome 首页(394 行) → HomeView 分发 → SiteHeader TrxswHeader 分支, 导出签名与消费端 vars 契约零变化(BookView/ReadView/PublicSite 等公共端无需改动)
+- 结构复刻: 严格以 2019-10-19 Wayback DOM 快照逐节还原(ywtop/head/nav/novelslist 2×3 板块[top 图文头条 67×82+li «书名 /作者»]/#newscontent .l s1~s5+.r/#firendlink), 类名/层级/版心 960px/行高 36px 点线 #ccc 全部对齐真站
+- 配色还原依据: 真站 b.css 无存档(archive 快照全为 Wayback 错误页, 已实证), 按任务书给的杰奇 CMS 默认模板家族公认规范还原 —— 白底 #fff/宋体 arial 系/ywtop #f5f5f5/logo 红棕 #C00/nav 深蓝渐变 #1C5087→#1F5FA9 白字/链接 #333 hover #C00/h2 浅色渐变底+左竖条+下边线/li 点线 #ccc/footer #f5f5f5, 文件头注释均注明依据
+- 待主控: ①admin/ThemesSection.tsx CLONE_LABEL 与 admin/SitesSection.tsx HOME_LABEL 各有一份 Record<string,string> 本地标签映射(不在本 agent 文件所有权内, 缺 trxsw 键时后台显示原始 id 'trxsw' 不报错, 建议主控顺手补 trxsw:'同人小说') ②串行 lint/tsc + 建一个 trxsw 主题站点或 embed 目检(375px 单列/点线行/搜索框建议下拉)
+---
+---
+Task ID: R25-2
+Agent: general-purpose(cleaning)
+Task: 噪声清洗全字段覆盖审计与修复
+
+Work Log:
+- 前置勘察: worklog 末段(R23-主-2/R23-3 &nbsp; 根治五出口闭环 + R22-b 清洗链 9 修) + cleaner.ts(全文 633→676 行) + parser.ts(1165 行) + types.ts(CleanConfig) + runner.ts 消费点(1269/1271/1272/1281/1673/1675/1929/2049) + smart.ts 检测器, 画出「字段→清洗函数」对照表(结论见 Stage Summary); 改动面仅 cleaner.ts/parser.ts 两个文件, types.ts 经评估零改动(CleanConfig 无需新配置面: 站名尾巴剥离按既有 cleanChapterTitle 垃圾词口径做成精确白名单无条件执行, 加配置项反而扩大规则 JSON 消毒面)
+- 字段对照表(修前): name/author/category=runner cleanTextField(实体/控制符/零宽/空白/t2s ✓, 站名尾巴 ✗) | intro=runner cleanIntro(✓+广告行, 裸站名行 ✗) | 章节名=runner cleanChapterTitle(✓ 全覆盖) | content=runner cleanContentHtml(R23 已根治, 本轮复验无回归) | bookUrl/chapterUrl/cover=parser absolutize(仅 trim+协议/自引用过滤; 实体/零宽 ✗ — regex/JSON 提取路径 href 字面 &amp; 直接入库坏参) | status/keywords/latestChapter=parseBook 原样透传(仅喂 smartCompleteDetect/测试面板, 无任何清洗; 实体隔断"完结"词匹配致检测降级) | volume=parseToc 原样→runner 仅 trim+slice(0,120) 落库(实体/零宽/站尾全漏) | wordCount/updateTime=引擎不产出(计算值/库侧), bookUrl/chapterUrl/cover 走 absolutize
+- 缺口修复 [R25-2-1~3](cleaner.ts): ①新增 stripFieldSiteSuffix 导出 API — 短字段尾部站名后缀/营销词精确剥离, 白名单词表=域名尾((www.)?x.(com|net|cc|org|info|top|xyz|vip|site|la|mobi|tv))+站点品牌词(笔趣阁|笔趣网|笔趣吧|小说网|文学网|中文网|阅读网)+营销词(首发|无弹窗|全文阅读|在线阅读|最新章节|手打|txt下载|敬请期待|免费阅读|全本阅读); 两档分隔符: 域名+品牌词允许空格分隔(源站 <title> 常态), 营销词必须显式标点分隔(防"第3章 首发"篮球题材误杀); 尾部锚定$+分隔符前置双约束, 多级尾巴循环剥(≤6 层), 剥空保留原文(同 cleanChapterTitle 口径); ②接入 cleanTextField(空白归一后/码点截断前) → name/author/category/章节名基洗全量获得站尾清洗; ③cleanIntro 增 INTRO_JUNK_LINE_RE 纯垃圾行过滤 — 整行仅由域名/品牌词/营销词构成才丢(与 removeAdLines 域名模式互补: 剥域名后残留的裸"笔趣阁"行收尾), 含非白名单文本的行保守保留
+- 缺口修复 [R25-2-4~6](parser.ts): ④absolutize(bookUrl/chapterUrl/cover 唯一汇合点)入口增 INVISIBLE_CHARS_RE 剥离+decodeEntitiesOnce 单遍解码(对齐浏览器属性解码语义; css 路径 cheerio 已解码一次, 本处幂等), 协议/自引用过滤口径不变; ⑤parseBook 对 status/keywords/latestChapter 接线 cleanTextField(三者唯一清洗点, 此前零清洗直接喂检测器), name/author/category/intro 刻意不在此重复洗 — decodeEntitiesOnce 非幂等(&amp;lt; 二次解码会变 <), 双层清洗破坏 R22-b-6 单遍解码语义; ⑥parseToc JSON/HTML 两路 volume 接线 cleanTextField(,120) — 分卷名唯一清洗点, cap 120 码点与 runner slice(0,120) UTF-16 单元对 BMP 逐字节对齐不提前截断; parser→cleaner 单向导入已论证无环(downloader 同向先例, TEXT_BLOCK_TAGS 本地声明理由不变)
+- 离线验证: /tmp/r25/clean-verify/verify.ts(bun, 只读项目源码, 零网络/零 DB) — 42 断言 42 PASS / 0 FAIL, 覆盖 37 类样本形态: 书名(&amp;/&nbsp;/_笔趣阁/多级尾/全角括号/域名尾.la/嵌标签/全角空格/繁体) + 兼容护栏((全本)保留/版本号 v2.0 免疫/起点中文网·我的首发日·空格营销词不剥/剥空保护/干净字段零改动) + 作者(零宽/裸\u00a0/控制符\x08/&apos;) + 简介(垃圾行丢弃/正文行保留/\r\n·孤立\r 归一/&hellip;) + 章节名(站尾/引号实体/剥空兜底/qq-e2 两例无回归) + 正文(R23 无回归: 纯文本模式 &nbsp;\u3000\u200b 全清+段落保留/script 剥除) + parseBook(status 繁转简+实体/latestChapter 站尾/keywords 零宽) + parseToc(volume 站尾/title 双层设计不动) + absolutize(&amp; 解码/零宽剥离/相对解析·js 伪协议·自引用·普通参数幂等五例无回归); 验证毕已删 /tmp/r25/clean-verify/
+- 质量门: 按纪律未跑 bun run lint/bunx tsc(主控串行), 以 bun build --external '*' 转译两文件 0 错验语法; git diff 确认本人改动仅 src/lib/crawl/cleaner.ts(+62)/parser.ts(+48) 两文件(git status 中 themes/HomeView/SiteHeader/TrxswHome 为并行 agent 改动, 未触碰); 未重启 dev server/零 DB/未 commit
+
+Stage Summary:
+- 采集链 13 个产出字段首次实现「全字段过清洗链」闭环: 新增清洗点 4 处(cleanTextField 站尾剥离/cleanIntro 垃圾行/parseBook status·keywords·latestChapter/parseToc volume) + absolutize 链接字段实体与零宽剥离; 正文链 R23 根治复验无回归
+- 关键决策: ①站名尾巴词表精确白名单制 + 双档分隔符(品牌词可空格/营销词必须标点), (全本)(完本) 刻意不入词表(用户明确要求保留《xx(全本)》合法版本标注) ②parser 只洗「无下游清洗」字段, runner 已洗字段刻意不双层清洗(单遍实体解码语义保全) ③types.ts 零改动 — 不新增 CleanConfig 面, 与既有 cleanChapterTitle 无条件垃圾词剥离同口径
+- 遗留(超出本 agent 文件所有权, 移交主控): runner.ts:2049 latestChapter 与 :1675 volume 的 UTF-16 slice(0,100/120) 对 astral 字符(emoji 章节名)有代理对斩半风险(应换 sliceCodePoints, 库内已有工具); admin/books/batch 与 backup/restore 的书籍字段入库不经 crawl 清洗链(非采集链, 名字含脏字符历史数据可后续批量整治)
+---
+Task ID: R25-1
+Agent: general-purpose(rules)
+Task: 编写 fanqianxs.com + trxsw.com 采集规则（种子+快照离线验证+入库+内置库重生成）
+
+Work Log:
+- 前置: 读 worklog 末段(R24 首页克隆)+_seed-lib 契约+gen-builtin-rules 生成器+wanben/biqugetw 参照规则+parser/types 关键语义(parseList 每容器项独立 cheerio 重解析+cssExtract 首匹配+并集按文档序+parseContent R9-c-6 最大文本容器兜底+parseBook 不透出 wordCount+sanitize fetchMode/headers 白名单+curlTlsProfileIndex host 钉扎); 盘点 /tmp/r25 全部探针产物: 真站/书籍页/目录页/CSS 存档全为 Wayback 容器错误页或 CF 403/HTTP2 拒绝, 唯一可用=两份首页快照
+- 快照离线解析(fanqianxs-2022.html, 实存 2023-03-31 快照): 首页 div#header/#recommend(div.left>div.item×4+div.right h2「本站强推」+ul li×9)/#novelslist×2(各 3 .content: h2+div.image+dl 特推+ul li×10)/#newslist(.left「分类最近更新」li×30+.right「最新添加」li×30, s1..s5 行)/#firendlink/#footer; nav 8 分类+top/quanben; **关键发现: 章节真链 /html/{bookid}/{chapterid}.html(如 /html/15479/16413180.html), 非家族惯用 /book/{bid}/{cid}.html**; 模板判定为 bxwx(笔下文学)系「推荐皮」(common.js login_page/search_page/footer + 同款板块 id)
+- 快照离线解析(trxsw-wb.html, 2019-10-19): div#wrapper>.ywtop/.head(head_logo)/.nav(11 项, 分类实链 /book/{cat}_{sort}_0_0_0_0_{page}.html 形态全实证, cat 1..7/0, monthvisit 排行, 全本=0_lastupdate_0_0_2_0_1)/div.novelslist×2(6 .content: h2 板块+div.top 图文推荐(img /files/article/image/{x}/{id}/{id}s.jpg 杰奇标准图路径+dt>a+dt span 作者+dd 简介)+ul li)/#newscontent(.l 最近更新 li×26 s1..s5 全+.r 小说推荐 li×26 仅 s2+s5=作者); GBK(meta charset=gbk 实证; fetcher 1164 行 gb2312/gbk→gb18030 升级确认)
+- [R25-1-3~8] 选择器设计+用项目真实 parser 离线验证(非自造解析): 两站 list 统一跨板块并集 itemSelector+字段统一 "dt a, .s2 a, li > a"(首匹配按文档序, 避开图文推荐 div.image a 封面链干扰; li>a 依赖容器项碎片重解析根级自匹配语义), author="dt span, .s4, .s5"(s4 缺位时 s5=作者, 日期污染 0 实证), 快照命中数: **fanqianxs 133 项/127 唯一书(name 133/bookUrl 133/author 73/category 69/latestChapter 30/intro 4/cover 4); trxsw 95 项/94 唯一书(name 95/bookUrl 95/author 58/category 26/latestChapter 26/intro 6/cover 6)**; 坑: parseList 缺省 urlFields=['url'] 而规则用 bookUrl → 全项被空链接收紧剔除, 须按 test 路由/runner 同款 ['url','bookUrl'] 调用
+- book/toc/content 三段(两站均无存档): 家族惯例+双保险书写 — 书籍页 name=h1(剥《》), author/category/status/latestChapter 用「og:novel:meta content= | 文本标签(作者：/类别：/状态：/字数：/最新章节：, (?:<[^>]*>)* 容忍标签间隔)」单捕获组共用前缀正则双形态通吃, intro=#intro/.intro 并集, cover=files/article/image|/img/(带尾斜杠防 /images/ 误命中)等并集; toc 内嵌书籍页 itemSelector=#list dd a 系并集(fields 'a' 自匹配 wanben 同款)+下一页翻页 maxPages 20(缺锚自然收敛); content=#content/#chaptercontent/#booktxt/.showtxt 并集+翻页关闭(防并章)+clean 与 wanben 同级(removeSelectors/adPatterns 域名水印族/whitelist/normalize)
+- 合成夹具回归(自造 og 版+纯文本版 bxwx/jieqi 书籍页+章节页, 真实 parser 跑): og 形态 7 字段全中, 文本形态 author/category/status/intro/cover/toc(含 URL 绝对化)/content 全过; wordCount 正则直验中(parseBook 不透出该键为引擎既有口径, 与 wanben 一致仅测试面板展示)
+- [R25-1-0~12] 写 scripts/seed-rule-fanqianxs.ts + scripts/seed-rule-trxsw.ts: 四段+fetch+clean 六段齐; FANQ_PROBE=1/TRXSW_PROBE=1 才跑四段 live 探针(缺省跳过只入库, WANBEN_PROBE 先例), 探针 URL 全取快照实链(book=/book/22270/ 与 /book/178/, content=快照实链章节); fanq fetch=engine auto+fetchMode scrapling-stealthy(CF 挑战桥, 降级 native)+桌面 Chrome UA(customUa+headers 双钉); trxsw fetch=native auto+rotate(h2 层拒绝浏览器也不通, 桥无意义; host 钉扎 www.trxsw.com=画像2/trxsw.com=画像0 均落不进 --http1.1 画像1, 引擎无强制 http1.1 配置面 — 如实留档); description 收进 500 字符(管理端入库截断 500, wanben 628 同例被截), 未实测声明+快照依据+复验环境变量全保留
+- 入库: 两种子跑通(幂等: 首次建→改 description 后重跑删旧建新), 最终 id=cmu2s9i3m0002svbxc09btvwp(fanq)/cmu2s9i670003svbxyc0zweer(trxsw), API 复读六段/选择器/正则原样在库, desc 500/499 完整未截
+- 重生成内置库: bun run scripts/gen-builtin-rules.ts → 规则总数 29(27→29), 失败 0; git diff 仅新增 key "fanqianxs"(+407 行, 0 删改, 既有 27 条逐字节不动); 运行中 dev server 经 /api/admin/rules/builtin 实测 29 条, fanqianxs/trxsw 均 imported=true
+- 纪律: 未动 src/components/**/cleaner.ts/parser.ts/themes.ts(并行 agent 修改中的 parser 观察到 [R25-2-5] 新注释); 未跑 lint/tsc; 未重启 dev server; /tmp/r25 临时脚本已清(快照原件保留); 插曲: 种子初版 import 误写入头注释块内致 ReferenceError, 即改即过
+
+Stage Summary:
+- 交付: scripts/seed-rule-fanqianxs.ts(番茄小说网·CF隐身桥采集)+scripts/seed-rule-trxsw.ts(同人小说网·杰奇GBK采集)两条新规则, list/book/toc/content/fetch/clean 六段全配; 内置库 27→29(git diff 纯新增), 双入库 id 见上
+- 验证口径: list 段两站均以 Wayback 快照真实 DOM+项目引擎 parseList 实证(fanq 133 项/127 书, trxsw 95 项/94 书, 字段命中率见 Work Log); book/toc/content 三段无存档不可实测, 家族惯例书写+合成夹具回归+引擎 R9-c-6 最大文本容器兜底, description 明示未实测
+- 关键决策: ①fanq 章节页按快照实证 /html/{bid}/{cid}.html 而非任务书推测的 /book/{bid}/{cid}.html(目录按实际 href 提取不受影响, 已注明) ②list 发现源 fanq 取首页多板块并集(127 书)而非单 #recommend.item(4 本), 分类页结构未存档不入库、任务侧 listUrl 可驱动 ③trxsw 不用 scrapling 桥(协议层拒绝浏览器同样不通) ④description 压进 500 免截断
+- 待主控: 真站解封/换出口 IP 后 FANQ_PROBE=1 / 传输层恢复后 TRXSW_PROBE=1 四段复验(list≥10/toc≥50/content≥2000); 未实测段落如失效按描述内家族变体提示改选择器; 串行 lint/tsc
+---
+---
+Task ID: R25-0/3/5a/5b/5/6(主控)
+Agent: main-orchestrator
+Task: R25 总控 — 真站封锁勘察 + 两站规则素材 + multi-search-engine 下拉词探讨 + agents 移交收尾 + 10 主题×5 页型 E2E + 质量门 + commit
+
+Work Log:
+- [R25-0] 真站可达性勘察: fanqianxs.com=CF「Attention Required」IP 级封锁(native/relay/scrapling-stealthy/playwright/cloak-maximum 全 403, Jina reader 同样 403), 2024 末 301→fehuu.com(fehuu=openresty 403 全出口); trxsw.com=HTTP/2 framing 层拒绝全出口(含 Jina); archive.org 沙箱直连超时, CDX API 被 Jina 出口 DNS 过滤; 突破=page_reader(Jina) 经 web.archive.org playback URL 取得双站真实 DOM 快照: fanqianxs 2022-03-31(番茄小说网, 笔趣阁推荐皮, /book/{id}/+img/{x}/{id}.jpg+#recommend div.item 图文块), trxsw 2019-10-19(同人小说网, 杰奇 CMS 默认模板, ywtop/head/nav/novelslist/l/r/footer, GBK); b.css/内页无存档(css-2018/2020/2021/id_ 模式全 404 空页实证)
+- [R25-3] multi-search-engine 下拉词探讨(suggest.ts 现状=百度/必应/搜狗/360/DDG 五引擎聚合, runner.ts:2068 书籍入库后 fetchSuggestKeywords→mergeSuggestWords 产出 ≤25 辅助词): bun 直测 7 端点硬数据 —— baidu sugrec✅(剑来→剑来小说txt/剑来动漫第三季…), bing osjson✅, so360 sug✅, sogou sugproxy❌404(端点已死), ddg ac⚠沙箱出网超时(外部部署可用), qq smartbox v2&t=spb 返回 v_hint="N"(参数待调), baidu-m su⚠GBK 字节需 iconv; 结论=「多引擎下拉词聚合」架构已在位且 3/5 引擎实活, 可行性成立; 改进路径(留后续): ①剔除/替换死掉的搜狗端点(候选: baidu-m+sug 需 GBK 解码 / QQ smartbox 调参) ②ddg 加短超时兜底已具备(8s timeout) ③z-ai web-search SDK 可作第六引擎但语义不同(全量搜索结果而非实时联想, 适合冷启动词扩展而非逐书下拉词, 成本更高) ④sogou 404 快速失败不阻塞 Promise.all, 现状无害但白占引擎位
+- [R25-5a] agents 移交收尾三处: ①ThemesSection CLONE_LABEL + SitesSection HOME_LABEL 各补 trxsw:'同人小说'(后台显示中文名) ②runner.ts volume/latestChapter 两处 UTF-16 slice→sliceCodePoints(emoji 代理对斩半风险, [R25-5a])
+- [R25-5b] seo-tpl 出口加固: E2E 发现存量简介字面 \n\n(JSON 转义未还原的双字序列, \s 正则不匹配)渗入 meta description → seo-tpl.ts 新增 stripLiteralEscapes(剥字面 \r\n\t/f/u 序列+\\u3000), seoText+interpolate(intro/excerpt)双出口接线, SSR 复验 description 干净([R25-5b]; 存量数据本身未动 —— 采集任务运行期零 DB, 增量采集经 R25-2 新链自愈)
+- [R25-5] E2E 矩阵(agent-browser): admin API 批建 10 主题测试站(r25-*.testlocal, 零 DB 直触) → 10 主题×(首页/书页/阅读页/分类页) 全绿(clone-{id} 作用域/h2 板块/书链/正文 nbsp:false err:false), 首轮 ddyueshu/x2552/huangjinwu 空白与 404 为建站后缓存未热的瞬态, 复测全过; trxsw 视觉逐节对真站快照(ywtop 顶条/白底红棕 logo 报头/深蓝渐变 nav/板块 h2+图文头条+点线 li/五列更新表 s1~s5/右栏推荐/页脚触底 footerGap:0), 375px 移动端无横滚单列可读; 伪静态 /book/1.html SSR TDK 三件套完整(title/desc/kw)+nbsp:false; 终验后 10 测试站 DELETE 清理(库内余 1 生产站)+浏览器关闭+chrome 清杀
+- [R25-6] 质量门: bun run lint 0/0 + bunx tsc --noEmit 0 错(串行); dev.log 无 error/oom; 9 端口(3000+3010~3017)全 UP, available 1446MB; /tmp/r25 全清
+
+Stage Summary:
+- 采集规则 27→29 条(fanqianxs+trxsw 入库+内置库重生成, 快照离线实证 list 段 fanq 127 书/trxsw 94 书, 真网四段留 FANQ_PROBE/TRXSW_PROBE 复验口); 清洗链全字段覆盖(R25-2: 42 断言全过, 短字段站尾/intro 裸站名行/链接实体/status·volume 等裸奔字段全修); 第 10 套克隆主题 trxsw 落地(结构=真站快照逐节复刻, 配色=杰奇默认模板规范, b.css 无存档已注明); multi-search-engine 探讨结论=架构已在位, 3/5 引擎实活, 死端点替换与第六引擎接入留后续
+- 沙箱网络边界实证: fanqianxs/fehuu/trxsw 对本项目全部抓取链(含 cloak-maximum 浏览器)与 Jina reader 均不可达 —— 两站规则四段实测与真站主题截图比对在换出口 IP/代理池接入前不可为, 已分别以 PROBE 环境变量口+快照逐节还原替代

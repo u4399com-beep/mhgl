@@ -1,8 +1,10 @@
 // ============================================================
-// 主题模版注册表 — [R24-5] 9 套「站点克隆」主题(唯一主题集)
+// 主题模版注册表 — [R24-5] 9 套「站点克隆」主题(唯一主题集); [R25-4] 扩至 10 套
 // 用户指令: 删除现在所有的主题模版, 克隆 9 个真实站点, 要求风格/布局/结构/配色完全一样:
 //   aijjxs(久久小说) / pili(霹雳书屋) / kks101(101看書) / qb23(铅笔小说) /
 //   ddyueshu(顶点小说) / x2552(吾爱文学网) / huangjinwu(黄金屋) / ggd66(格格党) / shipsay(船说CMS)
+//   [R25-4] + trxsw(同人小说网, 第 10 套 —— 杰奇 CMS 经典默认模板; 结构按真站 2019-10-19
+//   Wayback DOM 快照逐节复刻, b.css 无存档, 配色按杰奇 CMS 默认模板规范还原)
 //
 // 架构:
 //   · layout/headerStyle 联合类型 = 9 个站点 id —— 首页布局与头部形态一一对应,
@@ -65,7 +67,7 @@ export function readOf(theme?: { read?: ThemeReadConfig } | null): ReadVars {
 }
 
 // ============================================================
-// [R24-5] 9 站点克隆 id —— layout/headerStyle/首页组件共用同一命名空间
+// [R24-5] 9 站点克隆 id —— layout/headerStyle/首页组件共用同一命名空间; [R25-4] +trxsw
 // ============================================================
 export type SiteCloneId =
   | 'aijjxs'
@@ -77,6 +79,7 @@ export type SiteCloneId =
   | 'huangjinwu'
   | 'ggd66'
   | 'shipsay'
+  | 'trxsw' // [R25-4-1] 第 10 套: 同人小说网(杰奇 CMS 经典默认模板)
 
 /** 中文标签（后台预览/调试用） */
 export const READ_LAYOUT_LABEL: Record<ReadLayoutKind, string> = {
@@ -97,6 +100,7 @@ export const SITE_CLONE_LABEL: Record<SiteCloneId, string> = {
   huangjinwu: '黄金屋',
   ggd66: '格格党',
   shipsay: '船说CMS',
+  trxsw: '同人小说', // [R25-4-1]
 }
 
 export interface ThemeDef {
@@ -142,7 +146,8 @@ export interface ThemeDef {
 }
 
 // ============================================================
-// 9 套站点克隆 —— 色值全部来自各真站 HTML/CSS 实测(采样文件 /tmp/sites/, 见各 preset 注释)
+// [R24-5] 9 套 + [R25-4] 1 套站点克隆 —— 色值来自各真站 HTML/CSS 实测(采样文件 /tmp/sites/、
+// /tmp/r25/, 见各 preset 注释); trxsw 为杰奇默认模板规范还原(真站 b.css 无存档)
 // ============================================================
 export const THEMES: ThemeDef[] = [
   {
@@ -508,6 +513,54 @@ export const THEMES: ThemeDef[] = [
       headingDeco: 'ribbon',
       buttonStyle: 'solid',
       cardHover: 'lift',
+      gradientText: false,
+    },
+  },
+  {
+    // ⑩ 同人小说网 www.trxsw.com — 杰奇 CMS(jieqi)经典默认模板, GBK 编码(展示层已由 fetcher 解码)。
+    //    结构依据: 真站 2019-10-19 Wayback 完整 DOM 快照(/tmp/r25/trxsw-wb.html)逐节复刻
+    //    (ywtop 顶条/head 文字 logo+搜索框/nav 分类条×12/novelslist 2 行×3 板块[top 图文头条
+    //    67×82 封面+书名/作者/简介 + li «书名 /作者»]/#newscontent .l 最近更新 s1~s5 + .r 小说推荐/
+    //    #firendlink 友链/.footer)。真站 b.css 无存档(css 快照全为 Wayback 错误页),
+    //    配色按杰奇 CMS 默认模板家族公认规范还原: body 白底 #fff 宋体/arial 12~14px 系 ·
+    //    .ywtop 浅灰 #f5f5f5 细底边 · logo 红棕 #C00 粗体大字 · .nav 深蓝渐变 #1C5087→#1F5FA9
+    //    白字 · 链接 #333 / hover #C00 红 · h2 浅色渐变底+左竖条+下边线 · li 36px 行高点线 #ccc ·
+    //    .footer #f5f5f5 居中灰字。
+    id: 'trxsw',
+    name: '同人小说(克隆)',
+    desc: '仿 trxsw.com 同人小说网·杰奇CMS经典默认模板·白底红棕logo+深蓝渐变导航(b.css 无存档, 配色按杰奇默认模板规范还原)',
+    layout: 'trxsw',
+    dark: false,
+    read: {
+      layout: 'classic', measure: 740, lineHeight: 2, fontBase: 18,
+      indent: true, justify: true, toolbar: 'inline', texture: 'none', chapterDeco: 'rule',
+    },
+    customCss: [
+      // [R25-4-1] 杰奇默认模板细节(组件粒度难还原处): 链接 #333 / hover #C00 红 · 页脚浅灰居中灰字
+      `.clone-trxsw{font-size:14px}`,
+      `.clone-trxsw a{color:#333;text-decoration:none}`,
+      `.clone-trxsw a:hover{color:#C00}`,
+      `.clone-trxsw .site-footer{background:#f5f5f5;border-top:1px solid #e5e5e5;color:#999}`,
+      `.clone-trxsw .site-footer a{color:#666}`,
+    ].join('\n'),
+    preview: ['#ffffff', '#1C5087', '#C00'],
+    vars: {
+      bg: '#ffffff',
+      surface: '#ffffff',
+      surfaceAlt: '#f5f5f5',
+      text: '#333333',
+      textMuted: '#999999',
+      primary: '#1C5087',
+      primaryText: '#ffffff',
+      accent: '#C00',
+      border: '#dddddd',
+      radius: '0px',
+      fontFamily: 'arial,"SimSun","Microsoft YaHei",sans-serif',
+      cardShadow: 'none',
+      headerStyle: 'trxsw',
+      headingDeco: 'bar',
+      buttonStyle: 'solid',
+      cardHover: 'none',
       gradientText: false,
     },
   },
