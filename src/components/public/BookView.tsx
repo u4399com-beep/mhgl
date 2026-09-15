@@ -4,13 +4,14 @@
 // ============================================================
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import { Bookmark, ChevronLeft, ChevronRight, Clock, Download, FileText, Hash, ListTree, Sparkles, Type } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Skeleton } from '@/components/ui/skeleton'
 import { fetchBook, fetchChapter, type BookDetailData } from './data'
 import { registerBookRef } from '@/lib/pseudostatic'
+import { composeBookTdk, composeTocTdk, seoText, type SeoTplVars } from '@/lib/seo-tpl'
 import { sliceCodePoints } from '@/lib/utils'
 import { bookCanonicalPath, usePublic } from './ctx'
 import { coverSrc, fmtDate, formatWords, statusLabel, useSiteSEO, withAlpha } from './seo'
@@ -29,7 +30,8 @@ function TocSkeleton({ themeId }: { themeId: string }) {
       </div>
     )
   }
-  if (themeId === 'aurora' || themeId === 'mango') {
+  if (false) {
+    // [R24-5] aurora/mango 已随旧主题删除, 骨架统一走经典态(条件保留死支防整段重排)
     return (
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
         {Array.from({ length: 9 }).map((_, i) => <Sk key={i} className="h-9 w-full" />)}
@@ -398,16 +400,30 @@ export function BookView({ bookId, tocPage }: { bookId?: string; tocPage: number
   // 产出空串被 useSiteSEO 判为无值移除 → 搜索引擎抓不到 description); ②截断走码点
   // (UTF-16 slice 会把 emoji 等代理对劈成半字符 U+FFFD, 同 R11 备份导出同型修复);
   // ③keywords 全空时兜底 书名/作者/分类, 避免书籍页零关键词 meta
-  const introText = book ? book.intro.replace(/\s+/g, ' ').trim() : ''
+  // [R24-4] 自动 SEO/TDK 引擎接线: 书籍页与章节目录页(?page>1)分别走 composeBookTdk/composeTocTdk,
+  //   模板来自 site.seoTpl(/api/public/sites 下发, 与 SSR [...slug] 同源), 未配置即全默认「自动」
+  const introText = book ? seoText(book.intro) : ''
+  const tocChapters: TocChapter[] = data?.chapters || []
+  const bookVars: SeoTplVars = {
+    bookname: book?.name || '',
+    author: book?.author || '',
+    category: book?.category || '',
+    status: book?.status || '',
+    sitename: site.name,
+    intro: introText,
+    chapterCount: data?.tocTotal || tocChapters.length,
+    siteKeywords: [book?.keywords, ...tags.map((t) => t.tag)].filter(Boolean).join(','),
+  }
+  const tdk = useMemo(() => {
+    if (!book) return undefined
+    return tocPage > 1 ? composeTocTdk(bookVars, site.seoTpl) : composeBookTdk(bookVars, site.seoTpl)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [book, tocPage, site.id, site.seoTpl, introText])
   const bookDescBase = book ? introText || [book.name, book.author ? `${book.author}著` : ''].filter(Boolean).join(',') : undefined
-  const bookKeywords = book
-    ? [book.keywords, ...tags.map((t) => t.tag)].filter(Boolean).join(',') ||
-      [book.name, book.author, book.category].filter(Boolean).join(',')
-    : undefined
   useSiteSEO({
-    title: book ? `${book.name} - ${site.name}` : `书籍详情 - ${site.name}`,
-    description: bookDescBase ? sliceCodePoints(bookDescBase, 150) : undefined,
-    keywords: bookKeywords || undefined,
+    title: tdk ? tdk.title : `书籍详情 - ${site.name}`,
+    description: tdk?.description,
+    keywords: tdk?.keywords,
     // 加载/错误态不设 canonical(由 useSiteSEO 清理上一页残留); 错误态 noindex 防软 404 被收录
     robots: error ? 'noindex,follow' : undefined,
     canonicalPath: book ? bookCanonicalPath(book, site.id, pseudoPreset) : undefined,
@@ -465,118 +481,6 @@ export function BookView({ bookId, tocPage }: { bookId?: string; tocPage: number
               </TocChapterButton>
             ))}
           </div>
-        )
-      }
-      if (theme.id === 'aurora') {
-        // 玻璃格子
-        return (
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            {list.map((ch) => (
-              <TocChapterButton
-                key={ch.id}
-                ch={ch}
-                current={ch.id === currentChapterId}
-                cache={previewCacheRef}
-                onClick={() => go(ch)}
-                className="flex items-center gap-2 px-3 py-2 text-left text-sm transition-transform hover:-translate-y-0.5"
-                style={{ background: ch.id === currentChapterId ? withAlpha(v.primary, theme.dark ? 0.16 : 0.08) : v.surface, border: `1px solid ${ch.id === currentChapterId ? v.primary : v.border}`, borderRadius: v.radius, color: ch.id === currentChapterId ? v.primary : v.text }}
-              >
-                <span className="shrink-0 text-[10px] tabular-nums" style={{ color: v.accent }}>{String(ch.idx).padStart(3, '0')}</span>
-                <span className="line-clamp-1 flex-1">{ch.title}</span>
-              </TocChapterButton>
-            ))}
-          </div>
-        )
-      }
-      if (theme.id === 'paper') {
-        // 竖排列表（衬线 + 虚线引导）
-        return (
-          <ol className="mx-auto max-w-2xl">
-            {list.map((ch) => (
-              <li key={ch.id} style={{ borderBottom: `1px dashed ${v.border}` }}>
-                <TocChapterButton
-                  ch={ch}
-                  current={ch.id === currentChapterId}
-                  cache={previewCacheRef}
-                  onClick={() => go(ch)}
-                  className="flex w-full items-baseline gap-3 py-2.5 text-left transition-colors hover:opacity-70"
-                  style={ch.id === currentChapterId ? { background: withAlpha(v.primary, theme.dark ? 0.16 : 0.08) } : undefined}
-                >
-                  <span className="shrink-0 text-xs tabular-nums" style={{ color: v.textMuted }}>{String(ch.idx).padStart(2, '0')}</span>
-                  <span className="flex-1 text-sm" style={{ color: ch.id === currentChapterId ? v.primary : v.text, fontFamily: v.titleFont }}>{ch.title}</span>
-                  <span className="mx-1 hidden flex-1 border-b border-dotted sm:block" style={{ borderColor: v.textMuted }} aria-hidden />
-                  <span className="shrink-0 text-[11px] tabular-nums" style={{ color: v.textMuted }}>{ch.wordCount}字</span>
-                </TocChapterButton>
-              </li>
-            ))}
-          </ol>
-        )
-      }
-      if (theme.id === 'mango') {
-        // 大圆角胶囊格子
-        return (
-          <div className="flex flex-wrap gap-2">
-            {list.map((ch) => (
-              <TocChapterButton
-                key={ch.id}
-                ch={ch}
-                current={ch.id === currentChapterId}
-                cache={previewCacheRef}
-                onClick={() => go(ch)}
-                className="px-3.5 py-2 text-sm font-medium transition-transform hover:scale-105"
-                style={{ background: ch.id === currentChapterId ? withAlpha(v.primary, theme.dark ? 0.16 : 0.08) : v.surfaceAlt, border: `1px solid ${ch.id === currentChapterId ? v.primary : v.border}`, borderRadius: 999, color: ch.id === currentChapterId ? v.primary : v.text }}
-              >
-                {ch.idx}. {ch.title}
-              </TocChapterButton>
-            ))}
-          </div>
-        )
-      }
-      if (theme.id === 'bamboo') {
-        // 双栏细线极简
-        return (
-          <div className="gap-x-12 md:columns-2">
-            {list.map((ch) => (
-              <TocChapterButton
-                key={ch.id}
-                ch={ch}
-                current={ch.id === currentChapterId}
-                cache={previewCacheRef}
-                onClick={() => go(ch)}
-                className="flex w-full items-center gap-3 border-b py-2.5 text-left text-sm transition-colors hover:opacity-60"
-                style={{ borderColor: withAlpha(v.border, 0.7), color: ch.id === currentChapterId ? v.primary : v.text, breakInside: 'avoid', background: ch.id === currentChapterId ? withAlpha(v.primary, theme.dark ? 0.14 : 0.06) : undefined }}
-              >
-                <span className="w-6 shrink-0 text-[10px] tabular-nums" style={{ color: v.textMuted }}>{ch.idx}</span>
-                <span className="line-clamp-1 flex-1">{ch.title}</span>
-                <span className="shrink-0 text-[10px] tabular-nums" style={{ color: v.textMuted }}>{ch.wordCount}</span>
-              </TocChapterButton>
-            ))}
-          </div>
-        )
-      }
-      if (theme.id === 'rose') {
-        // 剧目单（金色编号 + 衬线标题）
-        return (
-          <ol className="divide-y" style={{ borderColor: withAlpha(v.border, 0.7) }}>
-            {list.map((ch) => (
-              <li key={ch.id}>
-                <TocChapterButton
-                  ch={ch}
-                  current={ch.id === currentChapterId}
-                  cache={previewCacheRef}
-                  onClick={() => go(ch)}
-                  className="flex w-full items-baseline gap-3 py-2.5 text-left transition-colors hover:opacity-75"
-                  style={ch.id === currentChapterId ? { background: withAlpha(v.primary, theme.dark ? 0.14 : 0.06) } : undefined}
-                >
-                  <span className="w-8 shrink-0 text-right text-sm font-black italic tabular-nums" style={{ color: v.accent, fontFamily: v.titleFont }}>
-                    {ch.idx}
-                  </span>
-                  <span className="flex-1 text-sm" style={{ color: ch.id === currentChapterId ? v.primary : v.text, fontFamily: v.titleFont }}>{ch.title}</span>
-                  <span className="shrink-0 text-[10px] tabular-nums" style={{ color: v.textMuted }}>{ch.wordCount}字</span>
-                </TocChapterButton>
-              </li>
-            ))}
-          </ol>
         )
       }
       // ocean — 剧集列表
@@ -650,7 +554,8 @@ export function BookView({ bookId, tocPage }: { bookId?: string; tocPage: number
     borderRadius: v.radius,
     boxShadow: v.cardShadow === 'none' ? undefined : v.cardShadow,
   }
-  const coverW = theme.id === 'magazine' ? 'w-44 sm:w-52' : theme.id === 'theater' ? 'w-36 sm:w-44' : 'w-32 sm:w-40'
+  // [R24-5] magazine/theater 已随旧主题删除, 封面宽统一标准档
+  const coverW = 'w-32 sm:w-40'
 
   return (
     <div className="mx-auto w-full max-w-5xl px-4 py-6 sm:px-6 sm:py-8">
@@ -773,8 +678,8 @@ export function BookView({ bookId, tocPage }: { bookId?: string; tocPage: number
                   {/* feat-round-5 S1: 封面梯度光晕 (halo) */}
                   <div aria-hidden className="pointer-events-none absolute -inset-3 -z-10 opacity-70 blur-2xl" style={{ background: `radial-gradient(circle at 50% 30%, ${withAlpha(v.primary, 0.45)}, transparent 70%)` }} />
                   <div
-                    className={theme.id === 'rose' ? 'p-1' : ''}
-                    style={theme.id === 'rose' ? { border: `2px solid ${v.accent}`, borderRadius: v.radius, background: v.bg } : undefined}
+                    className='' // [R24-5] rose 变体已随旧主题删除, 统一默认态
+                    style={undefined}
                   >
                     <BookCover name={book.name} cover={book.cover} showAuthor={book.author} className="aspect-[3/4] w-full" />
                   </div>

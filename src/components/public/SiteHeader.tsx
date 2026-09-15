@@ -1,21 +1,39 @@
 // ============================================================
-// 站点头部 — 站名 + 搜索框(带建议下拉) + 分类导航(计数 pill) + (embedMode)站点切换器
-// [R23-II-a-1] 按 theme.vars.headerStyle 呈现 10 种取值: 仿站 5 分支(pili / aijjxs / kks / qb /
-// biquge-x)各自独立子组件, 主组件 early-return 映射统一分发; 通用 5 分支(centered 居中 /
-// split 分列 / 常规两行=solid·gradient·transparent 共用)仍走主 switch 尾段
+// 站点头部 — 站名 + 搜索框(带建议下拉) + 分类导航 + (embedMode)站点切换器
+// [R23-II-a-1] 按 theme.vars.headerStyle(=SiteCloneId) 以 IMITATION_HEADERS 映射分发仿站头部子组件;
+// [R24-6-a-1] 9 个仿站分支: pili/aijjxs/kks101/qb23(真站实测) + ddyueshu/x2552/huangjinwu/
+// ggd66/shipsay(按 /tmp/sites/ 真站 HTML/CSS 实测克隆, 替换 R24-5 占位并删除 CloneHeaderShell/CloneNavBtn)
 // ============================================================
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { ComponentType, CSSProperties, KeyboardEvent } from 'react'
-import { ChevronDown, Compass, Library, Search, TrendingUp, X, Clock } from 'lucide-react'
+import type { ComponentType, KeyboardEvent } from 'react'
+import {
+  Book,
+  BookOpen,
+  ChevronDown,
+  CircleUserRound,
+  Compass,
+  Flame,
+  History,
+  Home,
+  Library,
+  List,
+  Menu,
+  Search,
+  Tag,
+  TrendingUp,
+  X,
+  Clock,
+} from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { getTheme } from '@/lib/crawl/themes'
+import { getTheme, type SiteCloneId } from '@/lib/crawl/themes'
 import { fetchCategories } from './data'
 import { usePublic } from './ctx'
 import { withAlpha } from './seo'
@@ -451,49 +469,6 @@ function SearchBox({ compact }: { compact?: boolean }) {
   )
 }
 
-function CategoryNav({ cats, loading }: { cats: CategoryItem[]; loading: boolean }) {
-  const { theme, navigate } = usePublic()
-  const v = theme.vars
-  if (loading) {
-    return (
-      <div className="flex gap-3 py-1">
-        {Array.from({ length: 6 }).map((_, i) => <Sk key={i} className="h-4 w-14" />)}
-      </div>
-    )
-  }
-  return (
-    <nav className="flex items-center gap-1 overflow-x-auto pb-0.5" aria-label="分类导航">
-      <button
-        type="button"
-        onClick={() => navigate({ view: 'home' })}
-        className="shrink-0 rounded-full px-3 py-1 text-sm transition-opacity hover:opacity-80"
-        style={{ color: v.primary, background: withAlpha(v.primary, theme.dark ? 0.16 : 0.08) }}
-      >
-        全部
-      </button>
-      {cats.slice(0, 10).map((c) => (
-        <button
-          key={c.id}
-          type="button"
-          onClick={() => navigate({ view: 'category', cat: c.id })}
-          className="shrink-0 rounded-full px-3 py-1 text-sm transition-colors hover:opacity-80"
-          style={{ color: v.text }}
-        >
-          {c.name}
-          {c._count?.books ? (
-            <span
-              className="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-white/10 px-1 text-[9px] tabular-nums opacity-70"
-              aria-label={`${c.name} ${c._count.books} 本`}
-            >
-              {c._count.books}
-            </span>
-          ) : null}
-        </button>
-      ))}
-    </nav>
-  )
-}
-
 /** 站点切换器（仅 embedMode 显示） */
 function SiteSwitcher() {
   const { site, sites, theme, navigate } = usePublic()
@@ -528,7 +503,7 @@ function SiteSwitcher() {
               aria-label={`切换到站点 ${s.name}`}
             >
               <span className="flex overflow-hidden rounded-full" style={{ width: 26, height: 12 }} aria-hidden>
-                {t.preview.map((c, i) => <span key={i} className="h-full flex-1" style={{ background: c }} />)}
+                {(t.preview || []).map((c, i) => <span key={i} className="h-full flex-1" style={{ background: c }} />)}
               </span>
               <span className="truncate">{s.name}</span>
               <span className="ml-auto text-[10px] opacity-60">{t.name}</span>
@@ -1076,170 +1051,6 @@ function QbHeader({ cats, pending }: { cats: CategoryItem[]; pending: boolean })
   )
 }
 
-// ============================================================
-// [R23-II-a-8] biquge-x 仿站搜索框 — 笔趣阁 laoniu1 模板(www.biquge.tw)粉框输入 + 粉色方块提交钮
-// ============================================================
-function BiqugeXSearchBox({ compact }: { compact?: boolean }) {
-  const { theme, navigate } = usePublic()
-  const v = theme.vars
-  const wrapRef = useRef<HTMLFormElement | null>(null)
-  const logic = useSearchBoxLogic('', wrapRef, (term) => navigate({ view: 'search', q: term }))
-
-  const onSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    const t = (logic.q || '').trim()
-    if (!t) return
-    addSearchHistory(t)
-    logic.setOpen(false)
-    navigate({ view: 'search', q: t })
-  }
-
-  return (
-    <form
-      className={`relative flex items-stretch ${compact ? 'w-44' : 'w-full max-w-md'}`}
-      role="search"
-      onSubmit={onSubmit}
-      ref={wrapRef}
-    >
-      <div
-        className="flex w-full items-center border border-r-0 bg-white px-2.5"
-        style={{ borderColor: '#F47983', borderRadius: '4px 0 0 4px' }}
-      >
-        <input
-          value={logic.q}
-          onChange={(e) => {
-            logic.setQ(e.target.value)
-            logic.setOpen(true)
-            logic.setHighlight(-1)
-          }}
-          onFocus={() => logic.setOpen(true)}
-          onKeyDown={logic.onKeyDown}
-          placeholder="搜索小说名 / 作者名"
-          className="h-8 w-full bg-transparent text-[13px] outline-none placeholder:opacity-55"
-          style={{ color: v.text }}
-          aria-label="站内搜索"
-          autoComplete="off"
-        />
-      </div>
-      <button
-        type="submit"
-        className="shrink-0 bg-[#F47983] px-3 transition-colors hover:bg-[#f85c7d]"
-        style={{ borderRadius: '0 4px 4px 0' }}
-        aria-label="搜索"
-      >
-        <Search className="h-4 w-4 text-white" aria-hidden />
-      </button>
-      {logic.open && (
-        <SuggestDropdown
-          state={logic.state}
-          highlight={logic.highlight}
-          onPick={logic.onPick}
-          onRemoveHistory={logic.removeHistory}
-          onClearHistory={logic.clearHistory}
-        />
-      )}
-    </form>
-  )
-}
-
-/** [R23-II-a-9] biquge-x 粉红导航条 — 真站 .header-common-nav{background:#F47983;height:2.2rem;
- * line-height:2.2rem} .header-common-nav a{color:#ffffff}: 白字 0.8rem 链接均分排布
- * (真站 width:10% float:left → 此处 flex-1 等分, 桌面全宽不设 max-w 上限贴真站;
- * w-max+min-w-full: 项少铺满均分/项多横滚), hover #f85c7d(主题 accent) */
-function BiqugeXNav({ cats, loading }: { cats: CategoryItem[]; loading: boolean }) {
-  const { navigate } = usePublic()
-  const item = 'flex flex-1 items-center justify-center whitespace-nowrap px-2 text-[0.8rem] text-white transition-colors hover:bg-[#f85c7d]'
-  return (
-    <nav
-      className="overflow-x-auto"
-      style={{ background: '#F47983', height: '2.2rem', lineHeight: '2.2rem' }}
-      aria-label="分类导航"
-    >
-      <div className="mx-auto flex h-full w-max min-w-full sm:w-auto">
-        <button
-          type="button"
-          onClick={() => navigate({ view: 'home' })}
-          className={item}
-          aria-label="返回首页"
-        >
-          首页
-        </button>
-        {loading ? (
-          Array.from({ length: 9 }).map((_, i) => (
-            <span key={i} className="flex flex-1 items-center justify-center" aria-hidden>
-              <Sk className="h-3 w-10" style={{ backgroundColor: 'rgba(255,255,255,0.3)' }} />
-            </span>
-          ))
-        ) : (
-          cats.slice(0, 9).map((c) => (
-            <button
-              key={c.id}
-              type="button"
-              onClick={() => navigate({ view: 'category', cat: c.id })}
-              className={item}
-              aria-label={`浏览 ${c.name} 分类`}
-            >
-              {c.name}
-            </button>
-          ))
-        )}
-      </div>
-    </nav>
-  )
-}
-
-/** [R23-II-a-9] biquge-x 头部 — 双行: ①白底报头(#F47983 粗体 logo+搜索, 高 3rem)
- * ②粉红导航条(真站 #F47983 高 2.2rem 白字均分) */
-function BiqugeXHeader({ cats, pending }: { cats: CategoryItem[]; pending: boolean }) {
-  const { theme, site, embedMode, navigate } = usePublic()
-  const v = theme.vars
-  return (
-    <div data-biquge-x-header>
-      {/* ① 白底报头行(真站高约 3rem: min-h-12 + py-1.5; flex-wrap 兜底窄屏不溢出) */}
-      <div style={{ background: v.surface }}>
-        <div className="mx-auto flex min-h-12 w-full max-w-6xl flex-wrap items-center justify-between gap-2 px-4 py-1.5 sm:px-6">
-          <button
-            type="button"
-            onClick={() => navigate({ view: 'home' })}
-            className="shrink-0 text-[22px] font-bold tracking-wide transition-opacity hover:opacity-80"
-            style={{ color: '#F47983', fontFamily: v.titleFont }}
-            aria-label={`返回 ${site.name} 首页`}
-          >
-            {site.name}
-          </button>
-          <div className="hidden md:block"><BiqugeXSearchBox /></div>
-          <div className="flex items-center gap-2">
-            {/* 书架入口(biquge 粉描边扁平风) — 桌面带文字, 移动仅图标 */}
-            <button
-              type="button"
-              onClick={() => navigate({ view: 'history' })}
-              className="hidden min-h-[36px] items-center gap-1.5 border px-3.5 text-[13px] font-bold transition-opacity hover:opacity-80 sm:inline-flex"
-              style={{ borderColor: '#F47983', background: '#ffffff', color: '#F47983', borderRadius: '4px' }}
-              aria-label="我的书架"
-            >
-              <Library className="h-3.5 w-3.5" aria-hidden />
-              书架
-            </button>
-            <div className="md:hidden"><BiqugeXSearchBox compact /></div>
-            <button
-              type="button"
-              onClick={() => navigate({ view: 'history' })}
-              className="inline-flex min-h-[36px] min-w-[36px] items-center justify-center border sm:hidden"
-              style={{ borderColor: '#F47983', background: '#ffffff', color: '#F47983', borderRadius: '4px' }}
-              aria-label="我的书架"
-            >
-              <Library className="h-4 w-4" aria-hidden />
-            </button>
-            {embedMode && <SiteSwitcher />}
-          </div>
-        </div>
-      </div>
-      {/* ② 粉红导航条(真站 .header-common-nav) */}
-      <BiqugeXNav cats={cats} loading={pending} />
-    </div>
-  )
-}
-
 function SiteMark() {
   const { site, theme, navigate } = usePublic()
   const v = theme.vars
@@ -1322,112 +1133,992 @@ function AijjxsHeader({ cats, pending }: { cats: CategoryItem[]; pending: boolea
   )
 }
 
+// ============================================================
+// [R24-6-a-14] 5 个新克隆头部(替换 R24-5 占位 CloneHeaderShell/CloneNavBtn, 已删)——
+// 逐站依据 /tmp/sites/{name}-home.html + 对应 CSS 实测还原结构/配色/字重/间距/边线。
+// 色值全部硬编码为真站实测值; 交互态(hover/active)按真站 CSS 对应规则还原。
+// ============================================================
+
+// ------------------------------------------------------------
+// ddyueshu(顶点小说 ddyueshu.cc) — 经典笔趣阁模板:
+// HTML: div.header(div.header_logo 文字 logo + bqg_panel() 搜索面板) + div.nav(ul>li 白字导航
+// 首页/我的书架/玄幻…/科幻/排行榜单/全部小说)。真站 biquge.css 抓取损坏(329B 乱码),
+// 按笔趣阁模板通例还原: 白底报头 + #2b5b84 深蓝导航条 40px 白字 16px。
+// ------------------------------------------------------------
+
+/** [R24-6-a-2] ddyueshu 搜索框 — 笔趣阁经典直角输入(2px 深蓝边线) + 深蓝实底「搜索」钮 */
+function DdyueshuSearchBox({ compact }: { compact?: boolean }) {
+  const { navigate } = usePublic()
+  const wrapRef = useRef<HTMLFormElement | null>(null)
+  const logic = useSearchBoxLogic('', wrapRef, (term) => navigate({ view: 'search', q: term }))
+
+  const onSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    const t = (logic.q || '').trim()
+    if (!t) return
+    addSearchHistory(t)
+    logic.setOpen(false)
+    navigate({ view: 'search', q: t })
+  }
+
+  return (
+    <form
+      className={`relative flex items-stretch ${compact ? 'w-44' : 'w-full max-w-[320px]'}`}
+      role="search"
+      onSubmit={onSubmit}
+      ref={wrapRef}
+    >
+      <div
+        className="flex w-full items-center border-2 border-r-0 bg-white px-2.5"
+        style={{ borderColor: '#2b5b84', borderRadius: '4px 0 0 4px' }}
+      >
+        <input
+          value={logic.q}
+          onChange={(e) => {
+            logic.setQ(e.target.value)
+            logic.setOpen(true)
+            logic.setHighlight(-1)
+          }}
+          onFocus={() => logic.setOpen(true)}
+          onKeyDown={logic.onKeyDown}
+          placeholder="搜索书名 / 作者名"
+          className="h-9 w-full bg-transparent text-sm outline-none placeholder:opacity-55"
+          style={{ color: '#333333' }}
+          aria-label="站内搜索"
+          autoComplete="off"
+        />
+      </div>
+      <button
+        type="submit"
+        className="shrink-0 bg-[#2b5b84] px-4 text-sm font-bold text-white transition-colors hover:bg-[#1e496d]"
+        style={{ borderRadius: '0 4px 4px 0' }}
+        aria-label="搜索"
+      >
+        搜索
+      </button>
+      {logic.open && (
+        <SuggestDropdown
+          state={logic.state}
+          highlight={logic.highlight}
+          onPick={logic.onPick}
+          onRemoveHistory={logic.removeHistory}
+          onClearHistory={logic.clearHistory}
+        />
+      )}
+    </form>
+  )
+}
+
+/** [R24-6-a-3] ddyueshu 深蓝导航条 — 真站 div.nav: 40px 高 #2b5b84 白字 16px 平铺链接,
+ * hover 加深(#1e496d); 项序=首页/我的书架/分类×8(对应真站 首页/我的书架/玄幻…科幻/榜单/全部) */
+function DdyueshuNav({ cats, loading }: { cats: CategoryItem[]; loading: boolean }) {
+  const { navigate } = usePublic()
+  const item =
+    'inline-flex min-h-[44px] shrink-0 items-center whitespace-nowrap px-4 text-[16px] text-white transition-colors hover:bg-[#1e496d] sm:min-h-[40px]'
+  return (
+    <nav className="overflow-x-auto" style={{ background: '#2b5b84' }} aria-label="分类导航">
+      <div className="mx-auto flex w-full max-w-[980px] items-center px-1 sm:px-2">
+        <button type="button" onClick={() => navigate({ view: 'home' })} className={item} aria-label="返回首页">
+          首页
+        </button>
+        <button type="button" onClick={() => navigate({ view: 'history' })} className={item} aria-label="我的书架">
+          我的书架
+        </button>
+        {loading ? (
+          <span className="flex items-center gap-3 px-3" aria-hidden>
+            {Array.from({ length: 6 }).map((_, i) => (
+              <Sk key={i} className="h-4 w-14" style={{ backgroundColor: 'rgba(255,255,255,0.28)' }} />
+            ))}
+          </span>
+        ) : (
+          cats.slice(0, 8).map((c) => (
+            <button
+              key={c.id}
+              type="button"
+              onClick={() => navigate({ view: 'category', cat: c.id })}
+              className={item}
+              aria-label={`浏览 ${c.name} 分类`}
+            >
+              {c.name}
+            </button>
+          ))
+        )}
+      </div>
+    </nav>
+  )
+}
+
+/** [R24-6-a-4] ddyueshu 头部 — ①白底报头(左大号深蓝文字 logo + 中搜索 + 右书架入口)
+ * ②#2b5b84 深蓝导航条; 980px 版心贴真站 #wrapper 宽度 */
+function DdyueshuHeader({ cats, pending }: ImitationHeaderProps) {
+  const { site, embedMode, navigate } = usePublic()
+  return (
+    <div data-ddyueshu-header className="w-full bg-white">
+      {/* ① 白底报头行 */}
+      <div className="mx-auto flex w-full max-w-[980px] flex-wrap items-center justify-between gap-x-6 gap-y-2 px-3 py-4 sm:px-4">
+        <button
+          type="button"
+          onClick={() => navigate({ view: 'home' })}
+          className="shrink-0 text-[26px] font-bold leading-none tracking-wide text-[#2b5b84] transition-opacity hover:opacity-80 sm:text-[30px]"
+          aria-label={`返回 ${site.name} 首页`}
+        >
+          {site.name}
+        </button>
+        <div className="hidden md:block">
+          <DdyueshuSearchBox />
+        </div>
+        <div className="flex items-center gap-2">
+          {/* 书架入口(笔趣阁扁平描边风) — 桌面带文字, 移动仅图标 */}
+          <button
+            type="button"
+            onClick={() => navigate({ view: 'history' })}
+            className="hidden min-h-[36px] items-center gap-1.5 border border-[#2b5b84] bg-[rgba(43,91,132,0.06)] px-3.5 text-[13px] font-bold text-[#2b5b84] transition-colors hover:bg-[rgba(43,91,132,0.12)] sm:inline-flex"
+            style={{ borderRadius: '4px' }}
+            aria-label="我的书架"
+          >
+            <Library className="h-3.5 w-3.5" aria-hidden />
+            书架
+          </button>
+          <div className="md:hidden">
+            <DdyueshuSearchBox compact />
+          </div>
+          <button
+            type="button"
+            onClick={() => navigate({ view: 'history' })}
+            className="inline-flex min-h-[36px] min-w-[36px] items-center justify-center border border-[#2b5b84] bg-[rgba(43,91,132,0.06)] text-[#2b5b84] sm:hidden"
+            style={{ borderRadius: '4px' }}
+            aria-label="我的书架"
+          >
+            <Library className="h-4 w-4" aria-hidden />
+          </button>
+          {embedMode && <SiteSwitcher />}
+        </div>
+      </div>
+      {/* ② 深蓝导航条(真站 div.nav) */}
+      <DdyueshuNav cats={cats} loading={pending} />
+    </div>
+  )
+}
+
+// ------------------------------------------------------------
+// x2552(吾爱文学网 x2552.com) — 杰奇 CMS 黑冰 heibing 模板(960px 版心, 12px 微软雅黑密排):
+// HTML: div.main.m_head(左 180px logo 图 + 右双行: 口号行/装饰链接行 + 搜索行[搜书|搜作者 70px
+// 灰块 + 欢迎登录区]) + div.main.m_menu(40px 菜单条 + 两端 8px 圆头 + 绝对定位 100×30 #666
+// 书架块) + 红字灰边公告盒。CSS: a{color:#2f468f} a:hover{color:#ff6600 且位移 1px},
+// 菜单条为浅蓝灰渐变雪碧图段(0 -89px repeat-x), 菜单项 14px 加粗不覆写链接色。
+// ------------------------------------------------------------
+
+/** [R24-6-a-5] x2552 搜索框 — 真站 .searchbox: 260px 输入区(1px #ccc 边线 + 放大镜) +
+ * 70px 灰块「搜书 / 搜作者」双钮(雪碧图按钮以灰块白字还原) */
+function X2552SearchBox({ compact }: { compact?: boolean }) {
+  const { navigate } = usePublic()
+  const wrapRef = useRef<HTMLFormElement | null>(null)
+  const logic = useSearchBoxLogic('', wrapRef, (term) => navigate({ view: 'search', q: term }))
+
+  const onSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    const t = (logic.q || '').trim()
+    if (!t) return
+    addSearchHistory(t)
+    logic.setOpen(false)
+    navigate({ view: 'search', q: t })
+  }
+
+  return (
+    <form
+      className={`relative flex items-stretch gap-px ${compact ? 'w-44' : 'w-full max-w-[415px]'}`}
+      role="search"
+      onSubmit={onSubmit}
+      ref={wrapRef}
+    >
+      <div className="flex min-w-0 flex-1 items-center border border-[#cccccc] bg-white">
+        <span className="flex h-full w-7 shrink-0 items-center justify-center" aria-hidden>
+          <Search className="h-3.5 w-3.5 text-[#999999]" />
+        </span>
+        <input
+          value={logic.q}
+          onChange={(e) => {
+            logic.setQ(e.target.value)
+            logic.setOpen(true)
+            logic.setHighlight(-1)
+          }}
+          onFocus={() => logic.setOpen(true)}
+          onKeyDown={logic.onKeyDown}
+          placeholder="搜书名 / 作者"
+          className="h-9 w-full min-w-0 bg-transparent pr-2 text-[12px] text-[#666666] outline-none placeholder:opacity-60 sm:h-7"
+          aria-label="站内搜索"
+          autoComplete="off"
+        />
+      </div>
+      <button
+        type="submit"
+        className="w-[70px] shrink-0 bg-[#666666] text-[12px] text-white transition-colors hover:bg-[#4d4d4d] max-sm:min-h-[44px]"
+        aria-label="按书名搜索"
+      >
+        搜书
+      </button>
+      <button
+        type="submit"
+        className="w-[70px] shrink-0 bg-[#666666] text-[12px] text-white transition-colors hover:bg-[#4d4d4d] max-sm:min-h-[44px]"
+        aria-label="按作者搜索"
+      >
+        搜作者
+      </button>
+      {logic.open && (
+        <SuggestDropdown
+          state={logic.state}
+          highlight={logic.highlight}
+          onPick={logic.onPick}
+          onRemoveHistory={logic.removeHistory}
+          onClearHistory={logic.clearHistory}
+        />
+      )}
+    </form>
+  )
+}
+
+/** [R24-6-a-6] x2552 菜单条 — 真站 .m_menu: 40px 浅蓝灰渐变条(圆头) + 14px 加粗 #2f468f
+ * 菜单项, hover #ff6600 且位移 1px(真站 a:hover top/left 1px); 右侧绝对定位 100×30 #666
+ * 「我的书架」块(真站 .m_bc); 移动端横滚并隐藏书架块(老模板无移动适配, 按触控惯例放大行高) */
+function X2552Nav({ cats, loading }: { cats: CategoryItem[]; loading: boolean }) {
+  const { navigate } = usePublic()
+  const menuItem =
+    'flex min-h-[44px] shrink-0 items-center whitespace-nowrap pl-3 text-[14px] font-bold text-[#2f468f] transition-none hover:translate-x-px hover:translate-y-px hover:text-[#ff6600] md:min-h-[40px]'
+  return (
+    <div className="mx-auto mt-[5px] w-full max-w-[960px] px-2 md:px-0">
+      <div className="relative">
+        <div
+          className="overflow-x-auto"
+          style={{ borderRadius: '4px', background: 'linear-gradient(180deg, #f2f6fa 0%, #dfe8f1 55%, #cdd9e6 100%)' }}
+        >
+          <ul className="flex w-max min-w-full items-center">
+            <li className="w-2 shrink-0" aria-hidden />
+            <li>
+              <button type="button" onClick={() => navigate({ view: 'home' })} className={menuItem} aria-label="返回首页">
+                首页
+              </button>
+            </li>
+            {loading ? (
+              <li className="flex items-center gap-3 pl-3" aria-hidden>
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <Sk key={i} className="h-3.5 w-14" style={{ backgroundColor: 'rgba(47,70,143,0.15)' }} />
+                ))}
+              </li>
+            ) : (
+              cats.slice(0, 11).map((c) => (
+                <li key={c.id}>
+                  <button
+                    type="button"
+                    onClick={() => navigate({ view: 'category', cat: c.id })}
+                    className={menuItem}
+                    aria-label={`浏览 ${c.name} 分类`}
+                  >
+                    {c.name}
+                  </button>
+                </li>
+              ))
+            )}
+          </ul>
+        </div>
+        <button
+          type="button"
+          onClick={() => navigate({ view: 'history' })}
+          className="absolute right-5 top-1/2 hidden h-[30px] w-[100px] -translate-y-1/2 items-center justify-center bg-[#666666] text-[12px] text-white transition-colors hover:bg-[#4d4d4d] md:flex"
+          aria-label="我的书架"
+        >
+          我的书架
+        </button>
+      </div>
+    </div>
+  )
+}
+
+/** [R24-6-a-7] x2552 头部 — ①报头(渐变字 logo 180px + 口号行 + 搜索行/欢迎区)
+ * ②浅蓝灰菜单条 ③红字公告盒(真站 nav 后 1px #E4E4E4 内联样式公告, 文案按本站口径改写);
+ * 装饰链接行(简体版|繁體版|设为首页|联系我们|加入收藏)为纯视觉还原 */
+function X2552Header({ cats, pending }: ImitationHeaderProps) {
+  const { site, embedMode, navigate } = usePublic()
+  const slogan = site.description || site.title || '没有弹窗广告 好看的小说免费阅读'
+  return (
+    <div
+      data-x2552-header
+      className="w-full bg-white"
+      style={{ fontFamily: '"Microsoft YaHei","微软雅黑",SimSun,Verdana,Arial,sans-serif' }}
+    >
+      {/* ① 报头(.m_head: 960px, 上边距 10px, 60px 高) */}
+      <div className="mx-auto w-full max-w-[960px] px-2 pt-2.5 md:px-0">
+        <div className="flex flex-wrap items-stretch gap-x-3 gap-y-2">
+          {/* logo — 真站为蓝色渐变字 logo 图(heibing/images/logo.png, 180px), 以渐变裁字还原 */}
+          <button
+            type="button"
+            onClick={() => navigate({ view: 'home' })}
+            className="w-[150px] shrink-0 pt-0.5 text-left md:w-[180px]"
+            aria-label={`返回 ${site.name} 首页`}
+          >
+            <span
+              className="text-[24px] font-bold leading-tight md:text-[26px]"
+              style={{
+                backgroundImage: 'linear-gradient(180deg, #5b7bb0, #2f468f)',
+                WebkitBackgroundClip: 'text',
+                backgroundClip: 'text',
+                color: 'transparent',
+              }}
+            >
+              {site.name}
+            </span>
+          </button>
+          <div className="min-w-0 flex-1">
+            {/* 行1: 口号 + 装饰链接(真站右上 12px 链接组, 纯视觉) */}
+            <div className="flex items-center justify-between gap-3 text-[12px] leading-5">
+              <span className="truncate text-[#666666]">
+                {site.name}：{slogan}
+              </span>
+              <span className="hidden shrink-0 whitespace-nowrap text-[#2f468f] lg:flex" aria-hidden="true">
+                <span>简体版</span>
+                <span className="px-1 text-[#bbbbbb]">|</span>
+                <span>繁體版</span>
+                <span className="px-1 text-[#bbbbbb]">|</span>
+                <span>设为首页</span>
+                <span className="px-1 text-[#bbbbbb]">|</span>
+                <span>联系我们</span>
+                <span className="px-1 text-[#bbbbbb]">|</span>
+                <span>加入收藏</span>
+              </span>
+            </div>
+            {/* 行2: 搜索框 + 欢迎区(真站 loginbox 登录/注册 → 本站书架入口) */}
+            <div className="mt-1.5 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+              <X2552SearchBox />
+              <div className="hidden items-center gap-3 text-[12px] text-[#666666] sm:flex">
+                <span>
+                  欢迎您，[
+                  <button
+                    type="button"
+                    onClick={() => navigate({ view: 'history' })}
+                    className="text-[#2f468f] transition-colors hover:text-[#ff6600]"
+                  >
+                    书架
+                  </button>
+                  ]
+                </span>
+                {embedMode && <SiteSwitcher />}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      {/* ② 浅蓝灰菜单条(.m_menu) */}
+      <X2552Nav cats={cats} loading={pending} />
+      {/* ③ 红字公告盒(真站 nav 下方内联样式公告条: 1px #E4E4E4 边 + 红 12px 25px 行高) */}
+      <div className="mx-auto w-full max-w-[960px] px-2 pb-1 pt-[5px] md:px-0">
+        <div className="border border-[#e4e4e4] px-2 py-0.5 text-left text-[12px] leading-[25px] text-[#ff0000]">
+          <p className="truncate">1、{site.name}：{slogan}，欢迎新老书友前来阅读。</p>
+          <p className="truncate">2、感谢大家多年支持，{site.name} 坚持免费小说阅读</p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ------------------------------------------------------------
+// huangjinwu(黄金屋 huangjinwu.org) — 现代蓝调卡片站(html font-size:10px, 已折算 px):
+// .headers: rgba(255,255,255,.92) + backdrop blur(12px) saturate(1.2) + 1px 边线(65% 边框色)
+// + 0 8px 32px 阴影; .navbar: flex gap 16px py 16px; .logo 20px/600 #1d4ed8(icon-book);
+// .navbar-menu a 16px/500 #1e293b 圆角 10px, hover/active #2563eb 白字; .navbar-search-input
+// h36 圆角 10px #f0f4fb 底 250px(focus 300px + 蓝环); .user-toggle 24px 图标;
+// 移动端(≤767px): 汉堡绝对右(sidebar 200px 滑入 + 黑 60% 遮罩 blur 4px)。
+// ------------------------------------------------------------
+
+/** [R24-6-a-8] huangjinwu 搜索框 — 真站 .navbar-search: 圆角 10px 输入框(#f0f4fb 底,
+ * h36, ≥1200px 宽 250px), focus 白底 + #2563eb 边 + 3px 蓝环 + 加宽至 300px; 搜索钮绝对右侧 */
+function HuangjinwuSearchBox() {
+  const { navigate } = usePublic()
+  const wrapRef = useRef<HTMLFormElement | null>(null)
+  const logic = useSearchBoxLogic('', wrapRef, (term) => navigate({ view: 'search', q: term }))
+
+  const onSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    const t = (logic.q || '').trim()
+    if (!t) return
+    addSearchHistory(t)
+    logic.setOpen(false)
+    navigate({ view: 'search', q: t })
+  }
+
+  return (
+    <form className="relative flex w-[250px] items-center" role="search" onSubmit={onSubmit} ref={wrapRef}>
+      <input
+        value={logic.q}
+        onChange={(e) => {
+          logic.setQ(e.target.value)
+          logic.setOpen(true)
+          logic.setHighlight(-1)
+        }}
+        onFocus={() => logic.setOpen(true)}
+        onKeyDown={logic.onKeyDown}
+        placeholder="可搜书名、作者、角色"
+        className="h-9 w-full rounded-[10px] border border-[#dbe4f0] bg-[#f0f4fb] pl-4 pr-9 text-sm text-[#1e293b] outline-none transition-all placeholder:font-normal placeholder:text-[#64748b] focus:w-[300px] focus:border-[#2563eb] focus:bg-white focus:shadow-[0_0_0_3px_rgba(37,99,235,0.22)]"
+        aria-label="站内搜索"
+        autoComplete="off"
+      />
+      <button
+        type="submit"
+        className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-[#64748b] transition-colors hover:text-[#2563eb]"
+        aria-label="搜索"
+      >
+        <Search className="h-4 w-4" aria-hidden />
+      </button>
+      {logic.open && (
+        <SuggestDropdown
+          state={logic.state}
+          highlight={logic.highlight}
+          onPick={logic.onPick}
+          onRemoveHistory={logic.removeHistory}
+          onClearHistory={logic.clearHistory}
+        />
+      )}
+    </form>
+  )
+}
+
+/** [R24-6-a-9] huangjinwu 头部 — 桌面: 白毛玻璃报头([logo][菜单 flex-1][搜索][用户下拉],
+ * ≥961px 显示搜索, 768-960 隐藏) + 移动端([用户][logo 居中][汉堡绝对右])。
+ * 用户下拉 = 真站 .user-dropdown(临时书架/会员书架…)按本站视图映射; 真 .theme-toggle
+ * 为暗色主题开关(本站无对应能力, 不渲染避免死钮) */
+function HuangjinwuHeader({ cats, pending }: ImitationHeaderProps) {
+  const { site, embedMode, navigate } = usePublic()
+  // [R24-6-a-10] 移动端汉堡侧栏开合态(真站 menuToggle + sidebar-wrapper.active)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const closeMenu = useCallback(() => setMenuOpen(false), [])
+  const navItem =
+    'flex min-h-[44px] items-center whitespace-nowrap rounded-[10px] px-4 py-1.5 text-base font-medium text-[#1e293b] transition-colors hover:bg-[#2563eb] hover:text-white md:min-h-0'
+  const sideItem =
+    'flex min-h-[44px] w-full items-center gap-3 rounded-[10px] px-4 text-base font-medium text-[#1e293b] transition-colors hover:bg-[#e8f1ff] hover:text-[#2563eb]'
+  // 真站菜单项各配 iconfont 图标, 动态分类按 4 图标循环对应
+  const menuIcons: LucideIcon[] = [BookOpen, Flame, List, Tag]
+  return (
+    <div data-huangjinwu-header className="w-full">
+      {/* 毛玻璃报头(.headers) */}
+      <div
+        className="w-full"
+        style={{
+          background: 'rgba(255,255,255,0.92)',
+          backdropFilter: 'saturate(1.2) blur(12px)',
+          WebkitBackdropFilter: 'saturate(1.2) blur(12px)',
+          borderBottom: '1px solid rgba(219,228,240,0.65)',
+          boxShadow: '0 1px 0 rgba(219,228,240,0.4), 0 8px 32px rgba(15,23,42,0.06)',
+        }}
+      >
+        <div className="mx-auto w-full max-w-[1180px] px-4">
+          <div className="flex items-center gap-4 py-4 max-md:relative max-md:pr-12">
+            {/* logo(order: 移动 2 居中 / md 1) */}
+            <button
+              type="button"
+              onClick={() => navigate({ view: 'home' })}
+              className="order-2 flex shrink-0 items-center gap-2 text-[20px] font-semibold text-[#1d4ed8] transition-colors hover:text-[#2563eb] max-md:flex-1 max-md:justify-center max-md:text-[18px] max-md:font-medium md:order-1"
+              aria-label={`返回 ${site.name} 首页`}
+            >
+              <Book className="h-5 w-5" aria-hidden />
+              {site.name}
+            </button>
+            {/* 桌面横向菜单(md:order-2; 真站 .active 项 #2563eb 白底, 首页按当前项惯例高亮) */}
+            <nav className="hidden min-w-0 flex-1 items-center gap-2.5 md:order-2 md:flex" aria-label="站内菜单">
+              <button
+                type="button"
+                onClick={() => navigate({ view: 'home' })}
+                className={`${navItem} bg-[#2563eb] text-white`}
+                aria-label="返回首页"
+              >
+                首页
+              </button>
+              {pending ? (
+                <span className="flex items-center gap-2 px-2" aria-hidden>
+                  {Array.from({ length: 4 }).map((_, i) => (
+                    <Sk key={i} className="h-5 w-14" style={{ backgroundColor: 'rgba(37,99,235,0.12)' }} />
+                  ))}
+                </span>
+              ) : (
+                cats.slice(0, 6).map((c) => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => navigate({ view: 'category', cat: c.id })}
+                    className={navItem}
+                    aria-label={`浏览 ${c.name} 分类`}
+                  >
+                    {c.name}
+                  </button>
+                ))
+              )}
+            </nav>
+            {/* 圆角搜索框(真站 ≥961px 显示; min-[961px] 贴真站断点) */}
+            <div className="hidden min-[961px]:order-3 min-[961px]:block">
+              <HuangjinwuSearchBox />
+            </div>
+            {/* 用户下拉(真站 .user-dropdown/.user-dropdown-menu) */}
+            <div className="order-1 flex shrink-0 items-center md:order-4">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className="flex h-11 w-11 items-center justify-center text-[#0f172a] transition-colors hover:text-[#2563eb] md:h-9 md:w-9"
+                    aria-label="个人中心"
+                  >
+                    <CircleUserRound className="h-6 w-6" aria-hidden />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align="end"
+                  className="min-w-[160px] p-1"
+                  style={{
+                    background: '#ffffff',
+                    border: '1px solid #dbe4f0',
+                    borderRadius: '10px',
+                    boxShadow: '0 8px 24px rgba(37,99,235,0.14), 0 2px 8px rgba(15,23,42,0.06)',
+                  }}
+                >
+                  <DropdownMenuItem
+                    onClick={() => navigate({ view: 'history' })}
+                    className="rounded-[6px] px-4 py-2.5 text-sm text-[#1e293b] transition-colors hover:bg-[#e8f1ff] hover:text-[#2563eb]"
+                    aria-label="临时书架"
+                  >
+                    临时书架
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => navigate({ view: 'category' })}
+                    className="rounded-[6px] px-4 py-2.5 text-sm text-[#1e293b] transition-colors hover:bg-[#e8f1ff] hover:text-[#2563eb]"
+                    aria-label="全部书库"
+                  >
+                    全部书库
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+            {/* 汉堡按钮(真站 .menu-toggle: 绝对右侧 1.6rem) */}
+            <button
+              type="button"
+              onClick={() => setMenuOpen((b) => !b)}
+              className="absolute right-4 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center text-[#0f172a] transition-colors hover:text-[#2563eb] md:hidden"
+              aria-label="菜单"
+              aria-expanded={menuOpen}
+            >
+              <Menu className="h-6 w-6" aria-hidden />
+            </button>
+          </div>
+        </div>
+      </div>
+      {/* [R24-6-a-10] 遮罩(真站 .menu-overlay: 黑 60% + blur 4px) */}
+      <div
+        className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-[4px] md:hidden"
+        onClick={closeMenu}
+        style={{ opacity: menuOpen ? 1 : 0, transition: 'opacity .35s cubic-bezier(.4,0,.2,1)' }}
+        aria-hidden="true"
+      />
+      {/* 侧栏(真站 .sidebar-wrapper: 200px 固定左侧滑入, 阴影 4px 0 20px) */}
+      <aside
+        className={`fixed left-0 top-0 z-[61] flex h-full w-[200px] max-w-[80vw] flex-col bg-white shadow-[4px_0_20px_rgba(0,0,0,0.15)] transition-[left,visibility] duration-300 md:hidden ${menuOpen ? 'visible left-0' : 'invisible -left-[200px]'}`}
+        aria-label="站内菜单"
+        aria-hidden={!menuOpen}
+      >
+        <div className="flex shrink-0 items-center justify-between border-b border-[#dbe4f0] px-4 py-2">
+          <button
+            type="button"
+            onClick={() => {
+              navigate({ view: 'home' })
+              closeMenu()
+            }}
+            className="flex items-center gap-3 text-[20px] font-bold text-[#1d4ed8] transition-colors hover:text-[#2563eb]"
+            aria-label={`返回 ${site.name} 首页`}
+          >
+            <Book className="h-6 w-6" aria-hidden />
+            {site.name}
+          </button>
+          <button
+            type="button"
+            onClick={closeMenu}
+            className="flex h-11 w-11 items-center justify-center rounded-full text-[#64748b] transition-all hover:rotate-90 hover:bg-[#e8f1ff] hover:text-[#0f172a]"
+            aria-label="关闭菜单"
+          >
+            <X className="h-5 w-5" aria-hidden />
+          </button>
+        </div>
+        <ul className="flex-1 overflow-y-auto p-3">
+          <li>
+            <button
+              type="button"
+              onClick={() => {
+                navigate({ view: 'home' })
+                closeMenu()
+              }}
+              className={sideItem}
+              aria-label="返回首页"
+            >
+              <Home className="h-4 w-4 shrink-0" aria-hidden />
+              首页
+            </button>
+          </li>
+          {pending ? (
+            <li className="px-4 py-2" aria-hidden>
+              <Sk className="h-4 w-16" style={{ backgroundColor: 'rgba(37,99,235,0.12)' }} />
+            </li>
+          ) : (
+            cats.slice(0, 8).map((c, i) => {
+              const Icon = menuIcons[i % menuIcons.length]
+              return (
+                <li key={c.id}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigate({ view: 'category', cat: c.id })
+                      closeMenu()
+                    }}
+                    className={sideItem}
+                    aria-label={`浏览 ${c.name} 分类`}
+                  >
+                    <Icon className="h-4 w-4 shrink-0" aria-hidden />
+                    {c.name}
+                  </button>
+                </li>
+              )
+            })
+          )}
+          <li>
+            <button
+              type="button"
+              onClick={() => {
+                navigate({ view: 'search' })
+                closeMenu()
+              }}
+              className={sideItem}
+              aria-label="搜索"
+            >
+              <Search className="h-4 w-4 shrink-0" aria-hidden />
+              搜索
+            </button>
+          </li>
+        </ul>
+        {embedMode && (
+          <div className="shrink-0 border-t border-[#dbe4f0] p-3">
+            <SiteSwitcher />
+          </div>
+        )}
+      </aside>
+    </div>
+  )
+}
+
+// ------------------------------------------------------------
+// ggd66(格格党 ggd66.com) — 青绿极简站(simple 模板, 15px 微软雅黑):
+// .header: #1abc9c 单条 50px 高(line-height 50px, 阴影 0 1px 1px #1abc9c, 下边距 10px);
+// .header-left 18px 白字 text-shadow(1px 1px 2px #000); .header-nav 桌面 300px(项宽 60px,
+// 16px, text-shadow 1px 1px 1px #666); .header-right 右侧 15px; a:hover #f50。
+// ≤767px: 头部 75pt(100px) 双排 — 导航行 clear + 1px #e9faff 顶边线, 项宽 20% 居中。
+// ------------------------------------------------------------
+
+/** [R24-6-a-11] ggd66 头部 — 单条青绿双排响应式(桌面 logo+右链接+300px 导航段 /
+ * 移动 100px: 第一行 logo+右链接, 第二行五等分导航) */
+function Ggd66Header({ cats, pending }: ImitationHeaderProps) {
+  const { site, embedMode, navigate } = usePublic()
+  return (
+    <div
+      data-ggd66-header
+      className="mb-2.5 w-full"
+      style={{
+        background: '#1abc9c',
+        boxShadow: '0 1px 1px #1abc9c',
+        color: '#ffffff',
+        fontFamily: '"Microsoft Yahei","微软雅黑",simsun,arial,sans-serif',
+      }}
+    >
+      <div className="mx-auto flex w-[90%] max-w-[1200px] flex-wrap items-center">
+        {/* 第一行: 站名(左) + 阅读历史/切换器(右) */}
+        <div className="flex h-[50px] min-w-0 flex-1 items-center">
+          <button
+            type="button"
+            onClick={() => navigate({ view: 'home' })}
+            className="mr-5 shrink-0 truncate text-left text-[18px] leading-none"
+            style={{ textShadow: '1px 1px 2px #000' }}
+            aria-label={`返回 ${site.name} 首页`}
+          >
+            {site.name}
+          </button>
+          <div className="ml-auto flex shrink-0 items-center gap-3 text-[15px]">
+            <button
+              type="button"
+              onClick={() => navigate({ view: 'history' })}
+              className="transition-colors hover:text-[#ff5500]"
+              aria-label="阅读历史"
+            >
+              阅读历史
+            </button>
+            {embedMode && <SiteSwitcher />}
+          </div>
+        </div>
+        {/* 桌面导航段(.header-nav: float 300px, 项宽 60px, 白字 text-shadow) */}
+        <nav className="hidden w-[300px] shrink-0 items-center md:flex" aria-label="分类导航">
+          <button
+            type="button"
+            onClick={() => navigate({ view: 'home' })}
+            className="h-[50px] w-[60px] text-center text-[16px] transition-colors hover:text-[#ff5500]"
+            style={{ textShadow: '1px 1px 1px #666' }}
+            aria-label="返回首页"
+          >
+            首 页
+          </button>
+          {pending ? (
+            <span className="flex items-center justify-center px-2" aria-hidden>
+              {Array.from({ length: 3 }).map((_, i) => (
+                <Sk key={i} className="mx-1 h-4 w-10" style={{ backgroundColor: 'rgba(255,255,255,0.35)' }} />
+              ))}
+            </span>
+          ) : (
+            cats.slice(0, 4).map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => navigate({ view: 'category', cat: c.id })}
+                className="h-[50px] w-[60px] text-center text-[16px] transition-colors hover:text-[#ff5500]"
+                style={{ textShadow: '1px 1px 1px #666' }}
+                aria-label={`浏览 ${c.name} 分类`}
+              >
+                {c.name}
+              </button>
+            ))
+          )}
+        </nav>
+        {/* 移动端第二行导航(≤767px: 1px #e9faff 顶边线, 项宽 20% 居中) */}
+        <nav className="flex w-full border-t border-[#e9faff] md:hidden" aria-label="分类导航">
+          <button
+            type="button"
+            onClick={() => navigate({ view: 'home' })}
+            className="flex min-h-[44px] w-1/5 items-center justify-center text-center text-[16px] transition-colors hover:text-[#ff5500]"
+            style={{ textShadow: '1px 1px 1px #666' }}
+            aria-label="返回首页"
+          >
+            首 页
+          </button>
+          {cats.slice(0, 4).map((c) => (
+            <button
+              key={c.id}
+              type="button"
+              onClick={() => navigate({ view: 'category', cat: c.id })}
+              className="flex min-h-[44px] w-1/5 items-center justify-center text-center text-[16px] transition-colors hover:text-[#ff5500]"
+              style={{ textShadow: '1px 1px 1px #666' }}
+              aria-label={`浏览 ${c.name} 分类`}
+            >
+              {c.name}
+            </button>
+          ))}
+        </nav>
+      </div>
+    </div>
+  )
+}
+
+// ------------------------------------------------------------
+// shipsay(船说CMS demo.shipsay.com) — 浅灰报头 + 深灰导航条(14px 微软雅黑, 960px 版心):
+// header>.container.head: flex space-between py 16px; #logo 双行(站名 21px/700 #3e3d43
+// 字距 .15em + 域名 #bf2c24); header form 300×36(input 1px #e6e6e6 圆角左 3px + #bf2c24
+// 红钮圆角右 3px, hover #ed4259); .header_right 图标在上文字在下(#1a1a1a, 间隔 30px,
+// #home 仅移动端显示); .navigation: #3e3d43 深灰, nav a 16px 白字 41px 高 px20,
+// hover #252428 底 + 2px #ed4259 顶边线; #user_panel 右侧用户区; ≤767px 导航条整条隐藏。
+// ------------------------------------------------------------
+
+/** [R24-6-a-12] shipsay 搜索框 — 真站 header form: 300×36, 左圆角输入(1px #e6e6e6) +
+ * 右 #bf2c24 红钮(hover #ed4259) */
+function ShipsaySearchBox() {
+  const { navigate } = usePublic()
+  const wrapRef = useRef<HTMLFormElement | null>(null)
+  const logic = useSearchBoxLogic('', wrapRef, (term) => navigate({ view: 'search', q: term }))
+
+  const onSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    const t = (logic.q || '').trim()
+    if (!t) return
+    addSearchHistory(t)
+    logic.setOpen(false)
+    navigate({ view: 'search', q: t })
+  }
+
+  return (
+    <form
+      className="relative mx-auto flex h-9 w-[300px] max-w-full items-center max-sm:w-full"
+      role="search"
+      onSubmit={onSubmit}
+      ref={wrapRef}
+    >
+      <input
+        value={logic.q}
+        onChange={(e) => {
+          logic.setQ(e.target.value)
+          logic.setOpen(true)
+          logic.setHighlight(-1)
+        }}
+        onFocus={() => logic.setOpen(true)}
+        onKeyDown={logic.onKeyDown}
+        placeholder="搜索书名 / 作者"
+        className="h-full min-w-0 flex-grow rounded-l-[3px] border border-r-0 border-[#e6e6e6] bg-white text-[14px] text-[#666666] outline-none placeholder:text-[#999999]"
+        style={{ textIndent: '10px' }}
+        aria-label="站内搜索"
+        autoComplete="off"
+      />
+      <button
+        type="submit"
+        className="h-full shrink-0 rounded-r-[3px] bg-[#bf2c24] px-[13px] text-[#fbfbfb] transition-colors hover:bg-[#ed4259]"
+        aria-label="搜索"
+      >
+        <Search className="h-3.5 w-3.5" aria-hidden />
+      </button>
+      {logic.open && (
+        <SuggestDropdown
+          state={logic.state}
+          highlight={logic.highlight}
+          onPick={logic.onPick}
+          onRemoveHistory={logic.removeHistory}
+          onClearHistory={logic.clearHistory}
+        />
+      )}
+    </form>
+  )
+}
+
+/** [R24-6-a-13] shipsay 头部 — ①浅灰报头(双行 logo + 红钮搜索 + 图标竖排入口区:
+ * 桌面 书库/足迹, 移动 首页/书库/足迹 均分) ②#3e3d43 深灰导航条(≤767px 整条隐藏贴真站);
+ * 真站「完本」入口无对应视图, 以 首页/书库/足迹 三入口对应 home/category/history */
+function ShipsayHeader({ cats, pending }: ImitationHeaderProps) {
+  const { site, embedMode, navigate } = usePublic()
+  const navLink =
+    'flex h-[41px] items-center whitespace-nowrap border-t-2 border-transparent px-5 text-[16px] text-[#fbfbfb] transition-colors hover:border-[#ed4259] hover:bg-[#252428]'
+  const entryLink =
+    'flex flex-col items-center text-[15px] text-[#1a1a1a] transition-colors hover:text-[#ed4259]'
+  return (
+    <div
+      data-shipsay-header
+      className="w-full"
+      style={{ background: '#f4f4f4', fontFamily: '"微软雅黑","Microsoft Yahei",Arial,Tahoma,Verdana,sans-serif' }}
+    >
+      {/* ① 报头(.container.head: 960px, py 16px, space-between) */}
+      <div className="mx-auto flex max-w-[960px] flex-wrap items-center justify-between px-[5px] py-4">
+        {/* logo(#logo 双行: 站名 + 域名红字; ≤639px 隐藏贴真站) */}
+        <button type="button" onClick={() => navigate({ view: 'home' })} className="text-center max-sm:hidden" aria-label={`返回 ${site.name} 首页`}>
+          <span className="block text-[21px] font-bold tracking-[0.15em] text-[#3e3d43]">{site.name}</span>
+          <span className="block text-[14px] font-bold leading-snug text-[#bf2c24]">{site.domain}</span>
+        </button>
+        <ShipsaySearchBox />
+        {/* 右侧图标竖排入口(.header_right: 图标上/文字下, 间隔 30px; 移动端全宽均分) */}
+        <div className="flex items-end pt-2 max-md:w-full max-md:flex-wrap max-md:justify-between max-md:pt-5">
+          {/* 真站 #home 仅移动端显示 */}
+          <button
+            type="button"
+            onClick={() => navigate({ view: 'home' })}
+            className={`${entryLink} hidden max-md:flex`}
+            aria-label="返回首页"
+          >
+            <Home className="mb-0.5 h-[18px] w-[18px]" aria-hidden />
+            首页
+          </button>
+          <button
+            type="button"
+            onClick={() => navigate({ view: 'category' })}
+            className={entryLink}
+            aria-label="书库"
+          >
+            <BookOpen className="mb-0.5 h-[18px] w-[18px]" aria-hidden />
+            书库
+          </button>
+          <button
+            type="button"
+            onClick={() => navigate({ view: 'history' })}
+            className={`${entryLink} md:pl-[30px]`}
+            aria-label="足迹"
+          >
+            <History className="mb-0.5 h-[18px] w-[18px]" aria-hidden />
+            足迹
+          </button>
+          {embedMode && (
+            <span className="md:hidden">
+              <SiteSwitcher />
+            </span>
+          )}
+        </div>
+      </div>
+      {/* ② 深灰导航条(.navigation #3e3d43; ≤767px 整条隐藏贴真站) */}
+      <div className="hidden md:block" style={{ background: '#3e3d43' }}>
+        <nav className="mx-auto flex max-w-[960px] items-center px-[5px]" aria-label="分类导航">
+          <button type="button" onClick={() => navigate({ view: 'home' })} className={navLink} aria-label="返回首页">
+            首页
+          </button>
+          {pending ? (
+            <span className="flex items-center gap-3 px-4" aria-hidden>
+              {Array.from({ length: 5 }).map((_, i) => (
+                <Sk key={i} className="h-4 w-12" style={{ backgroundColor: 'rgba(251,251,251,0.25)' }} />
+              ))}
+            </span>
+          ) : (
+            cats.slice(0, 8).map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => navigate({ view: 'category', cat: c.id })}
+                className={navLink}
+                aria-label={`浏览 ${c.name} 分类`}
+              >
+                {c.name}
+              </button>
+            ))
+          )}
+          {/* #user_panel: 真站 nav 右侧用户区(margin-left auto) → embedMode 站点切换 */}
+          {embedMode && (
+            <div className="ml-auto flex items-center pr-1">
+              <SiteSwitcher />
+            </div>
+          )}
+        </nav>
+      </div>
+    </div>
+  )
+}
+
 /** 仿站头部分支统一 props(分类数据由主组件 useCategories 单点拉取后下发) */
 interface ImitationHeaderProps {
   cats: CategoryItem[]
   pending: boolean
 }
 
-type ImitationHeaderStyle = 'pili' | 'aijjxs' | 'kks' | 'qb' | 'biquge-x'
-
-/** [R23-II-a-11] 仿站分支映射 — headerStyle 五个仿站值 → 各自独立子组件, 主组件 early-return 统一分发
- * (替代原三元链, 通用分支 solid/gradient/transparent/split/centered 仍走尾段 switch) */
-const IMITATION_HEADERS: Record<ImitationHeaderStyle, ComponentType<ImitationHeaderProps>> = {
-  pili: PiliHeader,
+// ============================================================
+// [R24-5] 9 站克隆头部 —— headerStyle(=SiteCloneId) → 各站专属头部子组件。
+//   aijjxs/pili/kks101(原 kks)/qb23(原 qb) 为既有真站实测头部, 视觉行为不变;
+//   ddyueshu/x2552/huangjinwu/ggd66/shipsay 为 [R24-6] 新增克隆头部(通用样式分支已删)。
+// ============================================================
+const IMITATION_HEADERS: Record<SiteCloneId, ComponentType<ImitationHeaderProps>> = {
   aijjxs: AijjxsHeader,
-  kks: KksHeader,
-  qb: QbHeader,
-  'biquge-x': BiqugeXHeader,
+  pili: PiliHeader,
+  kks101: KksHeader,
+  qb23: QbHeader,
+  ddyueshu: DdyueshuHeader,
+  x2552: X2552Header,
+  huangjinwu: HuangjinwuHeader,
+  ggd66: Ggd66Header,
+  shipsay: ShipsayHeader,
 }
 
+// [R24-5] 外层底边线特例: aijjxs 真站头部带 1px 边线, 其余站头部自绘边线/无外层边线
+const HEADER_BOTTOM_BORDER: Partial<Record<SiteCloneId, 'site-border'>> = { aijjxs: 'site-border' }
+
 export function SiteHeader() {
-  const { theme, embedMode } = usePublic() // navigate 已随 aijjxs 分支提取下沉到 AijjxsHeader
+  const { theme } = usePublic()
   const v = theme.vars
   const { cats, pending } = useCategories()
-  const style = v.headerStyle
+  const style: SiteCloneId = v.headerStyle
 
-  // [R23-II-a-11] 仿站分支 early-return(pili/aijjxs 视觉行为与改造前逐像素一致):
-  // 仿站分支全部自绘层级(报头/公告条/导航条), 外层 header 保持透明底;
-  // aijjxs 原本叠有 1px v.border 外层底边线, 在此原样保留, 其余仿站分支无外层边线
-  if (style === 'pili' || style === 'aijjxs' || style === 'kks' || style === 'qb' || style === 'biquge-x') {
-    const Branch = IMITATION_HEADERS[style]
-    return (
-      <header
-        style={{
-          background: 'transparent',
-          borderBottom: style === 'aijjxs' ? `1px solid ${v.border}` : 'none',
-        }}
-      >
-        <Branch cats={cats} pending={pending} />
-      </header>
-    )
-  }
-
-  const headerBg: CSSProperties =
-    v.headerStyle === 'gradient'
-      ? { background: `linear-gradient(120deg, ${withAlpha(v.primary, theme.dark ? 0.24 : 0.14)}, ${withAlpha(v.accent, theme.dark ? 0.16 : 0.1)})` }
-      : v.headerStyle === 'solid' || v.headerStyle === 'centered'
-        ? { background: v.surface }
-        : { background: 'transparent' }
-
-  // pili「无外层底边线」特例已随仿站 early-return 移入映射层; 其余分支行为不变
-  const bottomBorder = `1px solid ${v.headerStyle === 'transparent' ? withAlpha(v.border, 0.5) : v.border}`
-
+  const Branch = IMITATION_HEADERS[style] || IMITATION_HEADERS.aijjxs
   return (
-    <header style={{ ...headerBg, borderBottom: bottomBorder, backdropFilter: v.headerStyle === 'gradient' ? 'blur(10px)' : undefined }}>
-      {v.headerStyle === 'centered' ? (
-        // 报头居中式（paper）：站名居中 + 搜索居中 + 分类导航居中
-        <div className="mx-auto flex w-full max-w-5xl flex-col items-center gap-3 px-4 py-5">
-          {embedMode && (
-            <div className="flex w-full justify-end">
-              <SiteSwitcher />
-            </div>
-          )}
-          <SiteMark />
-          <SearchBox />
-          <div className="w-full">
-            <div className="flex justify-center">
-              <CategoryNav cats={cats} loading={pending} />
-            </div>
-          </div>
-          <BookshelfButton />
-        </div>
-      ) : v.headerStyle === 'split' ? (
-        // 左右分列式（bamboo）：极简细线
-        <div className="mx-auto w-full max-w-6xl px-4 sm:px-6">
-          <div className="flex items-center justify-between gap-4 py-5">
-            <SiteMark />
-            <div className="hidden items-center gap-3 sm:flex">
-              <SearchBox compact />
-              <BookshelfButton />
-            </div>
-            <div className="flex items-center gap-2 sm:hidden">
-              <BookshelfButton compact />
-            </div>
-            {embedMode && <SiteSwitcher />}
-          </div>
-          <div className="border-t py-2" style={{ borderColor: withAlpha(v.border, 0.6) }}>
-            <CategoryNav cats={cats} loading={pending} />
-          </div>
-        </div>
-      ) : (
-        // 常规两行式（solid/gradient/transparent）：上行 站名+搜索+切换，下行分类
-        <div className="mx-auto w-full max-w-6xl px-4 sm:px-6">
-          <div className="flex flex-wrap items-center justify-between gap-3 py-4">
-            <SiteMark />
-            <div className="hidden md:block"><SearchBox /></div>
-            <div className="flex items-center gap-2">
-              <BookshelfButton />
-              {/* md 以下用紧凑搜索框（原 sm 断点会在平板区间丢失搜索入口） */}
-              <div className="md:hidden"><SearchBox compact /></div>
-              {embedMode && <SiteSwitcher />}
-            </div>
-          </div>
-          <div className="pb-2">
-            <CategoryNav cats={cats} loading={pending} />
-          </div>
-        </div>
-      )}
+    <header
+      style={{
+        background: 'transparent',
+        borderBottom: HEADER_BOTTOM_BORDER[style] ? `1px solid ${v.border}` : 'none',
+      }}
+    >
+      <Branch cats={cats} pending={pending} />
     </header>
   )
 }

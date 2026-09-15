@@ -1,37 +1,42 @@
 // ============================================================
-// 首页视图 — 随机下拉词 + 6 分类图文卡 + 排序切换 + 按 theme.layout 分发 12 种布局(全主题去分页, 一次拉 48 本)
-// R23-b: 排序按钮消费 buttonStyle token + 共享 HomeHero 小节(待命, 防与布局内自建 hero 叠加)
-// [R23-II-b] HomeView 接线: +newspaper/masonry/dashboard/timeline 四布局 dynamic import 与分支
+// 首页视图 — [R24-5] 按 theme.layout(=站点克隆 id)分发 9 个 {Site}Home 克隆首页组件。
+// 数据口径: 一次拉 48 本最新(与旧 12 布局同源 fetchBooks), SEO/TDK 由本壳统一注入。
+// 旧 12 种通用布局(与全部旧主题一起)已按用户指令删除 —— 见 [R24-5] themes.ts 头注。
 // ============================================================
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
 import dynamic from 'next/dynamic'
-import type { CSSProperties } from 'react'
-import { ArrowDownWideNarrow, Flame, Hash, Home } from 'lucide-react'
 import { fetchBooks, type BooksData } from './data'
 import { usePublic } from './ctx'
-import { siteKeywordList, useSiteSEO, withAlpha } from './seo'
-import { EmptyState, ErrorState, SuggestTagCloud, TagCloud, BookGridSkeleton } from './bits'
-import { CategoryShowcase } from './CategoryShowcase'
-// 默认主题 aurora → shelf: 首屏保证, 保持静态 import; 其余 7 布局按需分包(ab-d 懒加载试点)
-// —— 布局仅在本组件内引用且站点/主题经客户端 fetch 获知, SSR 首屏只会命中 shelf,
-//    非默认布局只会在数据到达后的客户端渲染分支中触发 chunk 拉取, 无首屏闪烁/CLS 回归面
-import { HomeShelf } from './layouts/HomeShelf'
-const HomeList = dynamic(() => import('./layouts/HomeList').then((m) => m.HomeList))
-const HomeGrid = dynamic(() => import('./layouts/HomeGrid').then((m) => m.HomeGrid))
-const HomeMinimal = dynamic(() => import('./layouts/HomeMinimal').then((m) => m.HomeMinimal))
-const HomeMagazine = dynamic(() => import('./layouts/HomeMagazine').then((m) => m.HomeMagazine))
-const HomeTheater = dynamic(() => import('./layouts/HomeTheater').then((m) => m.HomeTheater))
-const HomePili = dynamic(() => import('./layouts/HomePili').then((m) => m.HomePili))
-const HomeBiquge = dynamic(() => import('./layouts/HomeBiquge').then((m) => m.HomeBiquge))
-// [R23-II-b-15] 全新四布局(newspaper/masonry/dashboard/timeline, 配套 inkstone/drift/mission/chronicle 精选主题)
-// 同按需分包: 非默认布局只在数据到达后的客户端分支命中时拉 chunk, 无首屏闪烁/CLS 回归面
-const HomeNewspaper = dynamic(() => import('./layouts/HomeNewspaper').then((m) => m.HomeNewspaper))
-const HomeMasonry = dynamic(() => import('./layouts/HomeMasonry').then((m) => m.HomeMasonry))
-const HomeDashboard = dynamic(() => import('./layouts/HomeDashboard').then((m) => m.HomeDashboard))
-const HomeTimeline = dynamic(() => import('./layouts/HomeTimeline').then((m) => m.HomeTimeline))
+import { useSiteSEO } from './seo'
+import { EmptyState, ErrorState } from './bits'
 import type { BookItem } from './types'
+import type { SiteHomeProps } from './sites/shared'
+
+// [R24-5] 9 站克隆首页全部按需分包: 站点/主题经客户端 fetch 获知, SSR 首屏命中默认站主题,
+// 非默认布局只在数据到达后的客户端渲染分支中触发 chunk 拉取, 无首屏闪烁/CLS 回归面
+const AijjxsHome = dynamic(() => import('./sites/AijjxsHome').then((m) => m.AijjxsHome))
+const PiliHome = dynamic(() => import('./sites/PiliHome').then((m) => m.PiliHome))
+const Kks101Home = dynamic(() => import('./sites/Kks101Home').then((m) => m.Kks101Home))
+const Qb23Home = dynamic(() => import('./sites/Qb23Home').then((m) => m.Qb23Home))
+const DdyueshuHome = dynamic(() => import('./sites/DdyueshuHome').then((m) => m.DdyueshuHome))
+const X2552Home = dynamic(() => import('./sites/X2552Home').then((m) => m.X2552Home))
+const HuangjinwuHome = dynamic(() => import('./sites/HuangjinwuHome').then((m) => m.HuangjinwuHome))
+const Ggd66Home = dynamic(() => import('./sites/Ggd66Home').then((m) => m.Ggd66Home))
+const ShipsayHome = dynamic(() => import('./sites/ShipsayHome').then((m) => m.ShipsayHome))
+
+const SITE_HOMES: Record<string, React.ComponentType<SiteHomeProps>> = {
+  aijjxs: AijjxsHome,
+  pili: PiliHome,
+  kks101: Kks101Home,
+  qb23: Qb23Home,
+  ddyueshu: DdyueshuHome,
+  x2552: X2552Home,
+  huangjinwu: HuangjinwuHome,
+  ggd66: Ggd66Home,
+  shipsay: ShipsayHome,
+}
 
 interface FetchState {
   key: string
@@ -39,62 +44,9 @@ interface FetchState {
   error?: string
 }
 
-// [R23-b-22] 共享 HomeHero 小节(可选渲染, h2 语义避免与布局内 h1 叠加):
-// R23-b 规格下 grid/theater/magazine/shelf 四布局均在布局内部自建差异化 hero(heroBg 富横幅/书架搁板/头条大卡/影院海报),
-// list/minimal/pili/biquge 亦有各自顶部板块(窄横幅/标语区/跑马灯公告/通知条),
-// 因此 8 布局全部有自建顶部板块 —— 为避免「布局内 hero + 共享 hero」双重叠加, 本共享 hero 保持待命(空表 = 不渲染);
-// [R23-II-b] 新增四布局(newspaper/masonry/dashboard/timeline)亦均自建顶部板块(报头/撞色横幅/KPI 条/卷轴横幅), 继续待命;
-// 未来新增无自建 hero 的布局时, 将其 layout id 加入下表即可挂载。
-const SHARED_HERO_LAYOUTS: string[] = []
-
-function HomeHero({ name, description }: { name: string; description?: string }) {
-  const { theme } = usePublic()
-  const v = theme.vars
-  const tv = v
-  const heroBg = tv.heroBg || `linear-gradient(120deg, ${withAlpha(v.primary, 0.92)}, ${withAlpha(v.accent, 0.85)})`
-  const heroText = tv.heroText || v.primaryText
-  const heroMuted = tv.heroMuted || withAlpha(heroText, 0.8)
-  return (
-    <section className="mb-6 px-5 py-6 sm:px-8" style={{ background: heroBg, borderRadius: v.radius }} aria-label="站点导语">
-      <h2 className="text-xl font-black leading-snug sm:text-2xl" style={{ color: heroText }}>
-        {name}
-      </h2>
-      {description && (
-        <p className="mt-1.5 line-clamp-2 text-sm" style={{ color: heroMuted }}>
-          {description}
-        </p>
-      )}
-    </section>
-  )
-}
-
 export function HomeView({ page, cat }: { page: number; cat?: string }) {
-  const { site, theme, navigate } = usePublic()
-  const v = theme.vars
-  // [R23-b-21] token 消费: 排序按钮 active 态按 buttonStyle 渲染(未落地走 'solid' fallback)
-  const tv = v
-  const buttonStyle = tv.buttonStyle || 'solid'
-  const glowColor = tv.glowColor || v.primary
-  const activeSortStyle = (): CSSProperties => {
-    switch (buttonStyle) {
-      case 'gradient':
-        return { background: `linear-gradient(90deg, ${v.primary}, ${v.accent})`, color: v.primaryText, border: '1px solid transparent' }
-      case 'outline':
-        return { background: v.surface, color: v.primary, border: `1.5px solid ${v.primary}` }
-      case 'pill':
-        return { background: v.primary, color: v.primaryText, border: `1px solid ${v.primary}`, borderRadius: '999px' }
-      case 'neon':
-        return { background: withAlpha(v.primary, 0.1), color: v.primary, border: `1px solid ${v.primary}`, boxShadow: `0 0 12px ${withAlpha(glowColor, 0.55)}` }
-      default: // solid
-        return { background: v.primary, color: v.primaryText, border: `1px solid ${v.primary}` }
-    }
-  }
-  // inactive 统一 surface+border(主题化圆角)
-  const sortBtnStyle = (active: boolean): CSSProperties =>
-    active
-      ? activeSortStyle()
-      : { background: v.surface, color: v.text, border: `1px solid ${v.border}` }
-  const [sort, setSort] = useState<'latest' | 'words'>('latest')
+  const { site, theme } = usePublic()
+  const [sort] = useState<'latest' | 'words'>('latest')
   const [state, setState] = useState<FetchState | null>(null)
 
   const key = `${site.id}|${cat || ''}|${sort}|${page}`
@@ -118,8 +70,6 @@ export function HomeView({ page, cat }: { page: number; cat?: string }) {
   const loading = !state || state.key !== key
   const data = loading ? null : state.data || null
   const error = loading ? '' : state.error || ''
-
-  const catName = cat ? data?.books[0]?.category || '当前分类' : ''
 
   const origin = typeof window !== 'undefined' ? window.location.origin : ''
   useSiteSEO({
@@ -149,106 +99,28 @@ export function HomeView({ page, cat }: { page: number; cat?: string }) {
   })
 
   const books: BookItem[] = data?.books || []
+  const SiteHome = SITE_HOMES[theme.layout]
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
-      {/* [R23-b-22] 共享 hero 条(仅无自建顶部板块的布局渲染; 当前 8 布局均有自建板块, 恒待命) */}
-      {SHARED_HERO_LAYOUTS.includes(theme.layout) && <HomeHero name={site.name} description={site.description} />}
-
-      {/* 页头区: 随机下拉词(全站搜索热词) + 换一批 */}
-      <section className="mb-5" aria-label="搜索热词">
-        <SuggestTagCloud count={16} refresh />
-      </section>
-
-      {/* 6 分类图文卡(代表书封面) */}
-      <div className="mb-6">
-        <CategoryShowcase />
-      </div>
-
-      {/* 排序切换 + 分类筛选提示 */}
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => {
-              setSort('latest')
-              navigate({ view: 'home', cat, page: 1 })
-            }}
-            // [R23-b-21] active 态按 buttonStyle 渲染, inactive 统一 surface+border
-            className="inline-flex min-h-[44px] items-center gap-1 px-3.5 py-1.5 text-xs font-medium transition-opacity hover:opacity-80"
-            style={sortBtnStyle(sort === 'latest')}
-            aria-pressed={sort === 'latest'}
-          >
-            <Home className="h-3.5 w-3.5" aria-hidden />
-            最新更新
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setSort('words')
-              navigate({ view: 'home', cat, page: 1 })
-            }}
-            className="inline-flex min-h-[44px] items-center gap-1 px-3.5 py-1.5 text-xs font-medium transition-opacity hover:opacity-80"
-            style={sortBtnStyle(sort === 'words')}
-            aria-pressed={sort === 'words'}
-          >
-            <ArrowDownWideNarrow className="h-3.5 w-3.5" aria-hidden />
-            字数最多
-          </button>
-        </div>
-        {cat && (
-          <button
-            type="button"
-            onClick={() => navigate({ view: 'home' })}
-            className="inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-xs"
-            style={{ background: withAlpha(v.accent, 0.14), color: v.accent, border: `1px solid ${withAlpha(v.accent, 0.4)}` }}
-            aria-label="清除分类筛选"
-          >
-            分类：{catName} · 点击清除
-          </button>
-        )}
-      </div>
-
+    <>
       {error ? (
-        <ErrorState message="书籍列表加载失败" detail={error} />
+        <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6">
+          <ErrorState message="书籍列表加载失败" detail={error} />
+        </div>
       ) : !loading && !books.length && !data ? (
-        <EmptyState />
+        <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6">
+          <EmptyState />
+        </div>
       ) : !loading && !books.length ? (
-        <EmptyState text="本页暂无书籍" hint="换个分类或翻页看看" />
+        <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6">
+          <EmptyState text="本页暂无书籍" hint="换个分类或翻页看看" />
+        </div>
+      ) : SiteHome ? (
+        <SiteHome books={books} loading={loading} />
       ) : (
-        <>
-          {theme.layout === 'shelf' && <HomeShelf books={books} loading={loading} />}
-          {theme.layout === 'list' && <HomeList books={books} loading={loading} />}
-          {theme.layout === 'grid' && <HomeGrid books={books} loading={loading} />}
-          {theme.layout === 'minimal' && <HomeMinimal books={books} loading={loading} />}
-          {theme.layout === 'magazine' && <HomeMagazine books={books} loading={loading} />}
-          {theme.layout === 'theater' && <HomeTheater books={books} loading={loading} />}
-          {theme.layout === 'pili' && <HomePili books={books} loading={loading} />}
-          {theme.layout === 'biquge' && <HomeBiquge books={books} loading={loading} />}
-          {/* [R23-II-b-15] 全新四布局分支(与既有 8 分支并排, props 同为 { books, loading }) */}
-          {theme.layout === 'newspaper' && <HomeNewspaper books={books} loading={loading} />}
-          {theme.layout === 'masonry' && <HomeMasonry books={books} loading={loading} />}
-          {theme.layout === 'dashboard' && <HomeDashboard books={books} loading={loading} />}
-          {theme.layout === 'timeline' && <HomeTimeline books={books} loading={loading} />}
-          {/* feat-round-7 B3: 防御性兜底 — 未知布局/loading 期无任何布局命中时用 BookGridSkeleton */}
-          {/* [R23-II-b-16] 兜底名单补入四新布局 id(loading 期骨架由各布局自渲染, 不再落到通用骨架) */}
-          {!['shelf', 'list', 'grid', 'minimal', 'magazine', 'theater', 'pili', 'biquge', 'newspaper', 'masonry', 'dashboard', 'timeline'].includes(theme.layout) && loading && (
-            <BookGridSkeleton count={12} />
-          )}
-        </>
+        // 防御性兜底: 未知布局 id(旧库脏数据) → aijjxs 克隆首页
+        <AijjxsHome books={books} loading={loading} />
       )}
-
-      {/* 热门标签云 */}
-      {!loading && books.length > 0 && (
-        <section className="pt-8" aria-label="热门标签">
-          <div className="mb-3 flex items-center gap-2">
-            <Hash className="h-4 w-4" style={{ color: v.primary }} aria-hidden />
-            <h2 className="text-sm font-bold tracking-widest" style={{ color: v.text }}>热门标签</h2>
-            <Flame className="h-3.5 w-3.5" style={{ color: v.accent }} aria-hidden />
-          </div>
-          <TagCloud tags={siteKeywordList(site)} />
-        </section>
-      )}
-    </div>
+    </>
   )
 }

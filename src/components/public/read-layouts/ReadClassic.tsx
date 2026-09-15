@@ -97,7 +97,8 @@ export function ReadClassic({
   const titleColor = night ? '#e6e9ee' : v.text
   const metaColor = night ? '#8b929e' : v.textMuted
   const lineColor = night ? 'rgba(255,255,255,0.08)' : withAlpha(v.border, 0.8)
-  const decoColor = night ? (theme.dark ? v.accent : '#5a6470') : theme.id === 'paper' ? v.accent : v.primary
+  // [R24-5] paper 主题已删, 装饰色统一 primary/accent 口径
+  const decoColor = night ? (theme.dark ? v.accent : '#5a6470') : v.primary
 
   const fontPx = actualFontPx(fontSize, read)
 

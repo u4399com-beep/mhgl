@@ -21,6 +21,8 @@ export interface SiteInfo {
   status: boolean
   /** 全局伪静态预设(/api/public/sites 附带, 前台 viewToUrl 按预设生成链接) */
   pseudoPreset?: string
+  /** [R24-4] 全局 SEO 模板(/api/public/sites 附带, 书籍页/目录页/章节页自动 TDK 与 SSR 同源) */
+  seoTpl?: import('@/lib/seo-tpl').SeoTplSet
 }
 
 /** 分类（/api/admin/categories 返回结构） */

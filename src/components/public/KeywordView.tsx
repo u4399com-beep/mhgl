@@ -97,9 +97,6 @@ export function KeywordView({ tag }: { tag?: string }) {
           style={{
             color: v.text,
             fontFamily: v.titleFont,
-            ...(theme.id === 'aurora'
-              ? { background: `linear-gradient(90deg, ${v.primary}, ${v.accent})`, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }
-              : {}),
           }}
         >
           {tag}

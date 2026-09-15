@@ -10,7 +10,7 @@ import type { BookItem } from './types'
 import { usePublic } from './ctx'
 import { fmtDate, formatWords, withAlpha } from './seo'
 import { BookCover } from './BookCover'
-import { bookNavProps, designVars, EmptyState, Sk, StatusBadge, BookGridSkeleton } from './bits'
+import { bookNavProps, designVars, EmptyState, StatusBadge, BookGridSkeleton } from './bits'
 
 /** 通用书籍卡片（网格布局，主题化圆角/阴影/描边） */
 export function BookCard({ book }: { book: BookItem }) {
@@ -174,46 +174,16 @@ export function BookPoster({ book }: { book: BookItem }) {
  * 按 theme.layout 自动切换 卡片网格 / 文字行 / 海报墙
  */
 export function ThemeBookList({ books, loading }: { books: BookItem[]; loading?: boolean }) {
-  const { theme } = usePublic()
-  const layout = theme.layout
+  // [R24-5] list/minimal/theater 变体已随旧主题删除, ThemeBookList 统一网格态
 
+  // [R24-5] list/minimal/theater 布局已随旧主题删除, loading 统一 BookGridSkeleton
   if (loading) {
-    if (layout === 'list' || layout === 'minimal') {
-      return (
-        <div className="space-y-4 py-2">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="flex items-center gap-3">
-              <Sk className="aspect-[3/4] w-14 shrink-0" />
-              <div className="flex-1 space-y-2">
-                <Sk className="h-4 w-1/3" />
-                <Sk className="h-3 w-1/2" />
-                <Sk className="h-3 w-3/4" />
-              </div>
-            </div>
-          ))}
-        </div>
-      )
-    }
-    // feat-round-7 B3: 网格布局 loading 用通用 BookGridSkeleton
     return <BookGridSkeleton count={12} />
   }
 
   if (!books.length) return <EmptyState text="没有找到相关书籍" hint="换个关键词或分类试试" />
 
-  if (layout === 'list' || layout === 'minimal') {
-    return (
-      <div className="divide-y-0">
-        {books.map((b, i) => <BookLine key={b.id} book={b} index={i} />)}
-      </div>
-    )
-  }
-  if (layout === 'theater') {
-    return (
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
-        {books.map((b) => <BookPoster key={b.id} book={b} />)}
-      </div>
-    )
-  }
+
   return (
     <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
       {books.map((b) => <BookCard key={b.id} book={b} />)}

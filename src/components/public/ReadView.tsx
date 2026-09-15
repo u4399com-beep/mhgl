@@ -12,13 +12,14 @@
 // ============================================================
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Clock, HelpCircle, Keyboard } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { fetchChapter } from './data'
+import { composeChapterTdk, seoText } from '@/lib/seo-tpl'
 import type { ChapterData } from './types'
 import { readCanonicalPath, usePublic } from './ctx'
-import { formatWords, useSiteSEO, withAlpha } from './seo'
+import { useSiteSEO, withAlpha } from './seo'
 import { sliceCodePoints } from '@/lib/utils'
 import { ErrorState } from './bits'
 import { readOf } from '@/lib/crawl/themes'
@@ -226,27 +227,29 @@ export function ReadView({ chapterId }: { chapterId?: string }) {
   const readSelfPath = data ? readCanonicalPath(data.book, data.chapter, site.id, pseudoPreset) : ''
   // [R15-a1-4] description 取章节正文摘要(修前仅固定句式, 搜索引擎抓不到正文关键词):
   // 正文为清洗后 HTML → 剥标签/实体还原/空白折叠, 码点截断防代理对劈半; 空正文回退原句式
-  const chapterText = data
-    ? data.chapter.content
-        .replace(/<[^>]+>/g, ' ')
-        .replace(/&lt;/g, '<')
-        .replace(/&gt;/g, '>')
-        .replace(/&quot;/g, '"')
-        .replace(/&#39;|&apos;/g, "'")
-        .replace(/&nbsp;/g, ' ')
-        .replace(/&amp;/g, '&')
-        .replace(/\s+/g, ' ')
-        .trim()
-    : ''
-  const chapterDesc = data
-    ? chapterText
-      ? `${data.chapter.title}：${sliceCodePoints(chapterText, 110)}`
-      : `${data.book.name} ${data.chapter.title} 在线阅读，${formatWords(data.chapter.wordCount)}。`
-    : undefined
+  const chapterText = data ? seoText(data.chapter.content) : ''
+  // [R24-4] 章节页自动 SEO/TDK —— 引擎单出处(site.seoTpl 与 SSR 同源; 未配置即默认「自动」模板)
+  const tdk = useMemo(() => {
+    if (!data) return undefined
+    return composeChapterTdk(
+      {
+        bookname: data.book.name,
+        author: data.book.author,
+        status: data.book.status,
+        sitename: site.name,
+        chaptername: data.chapter.title,
+        chapterno: data.chapter.idx,
+        excerpt: sliceCodePoints(chapterText, 110),
+        siteKeywords: data.book.keywords || '',
+      },
+      site.seoTpl,
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, site.id, site.seoTpl])
   useSiteSEO({
-    title: data ? `${data.chapter.title}_${data.book.name} - ${site.name}` : `阅读 - ${site.name}`,
-    description: chapterDesc,
-    keywords: data?.book.keywords || undefined,
+    title: tdk ? tdk.title : `阅读 - ${site.name}`,
+    description: tdk?.description,
+    keywords: tdk?.keywords,
     // 错误态 noindex 防软 404 被收录(直接 URL 由 catch-all 服务端 404 兜底, 此处覆盖客户端导航失败面)
     robots: error ? 'noindex,follow' : undefined,
     canonicalPath: data ? readSelfPath : undefined,

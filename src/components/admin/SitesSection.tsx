@@ -55,16 +55,17 @@ interface ThemeHitsResp {
   totalAll: number
 }
 
-/** [R10-a-5] 首页布局中文标签(与 theme-matrix LAYOUTS.homeLayout 对齐, 前端独立映射; R18-b +biquge) */
+/** [R24-5] 克隆站点中文标签(与 themes.ts SITE_CLONE_LABEL 对齐, 前端独立映射) */
 const HOME_LABEL: Record<string, string> = {
-  grid: '网格',
-  list: '列表',
-  shelf: '书架',
-  magazine: '杂志',
-  minimal: '极简',
-  theater: '剧院',
-  pili: '霹雳',
-  biquge: '笔趣阁经典',
+  aijjxs: '久久小说',
+  pili: '霹雳书屋',
+  kks101: '101看書',
+  qb23: '铅笔小说',
+  ddyueshu: '顶点小说',
+  x2552: '吾爱文学',
+  huangjinwu: '黄金屋',
+  ggd66: '格格党',
+  shipsay: '船说CMS',
 }
 
 interface SiteForm {
@@ -86,7 +87,7 @@ interface SiteForm {
 const emptyForm: SiteForm = {
   name: '',
   domain: '',
-  themeId: 'aurora',
+  themeId: 'aijjxs',
   title: '',
   description: '',
   keywords: '',

@@ -23,6 +23,7 @@ import {
   Palette,
   Settings,
   ShieldAlert,
+  SlidersHorizontal,
   Stethoscope,
 } from 'lucide-react'
 import { Dashboard } from './Dashboard'
@@ -39,6 +40,7 @@ import { BannedWordsSection } from './BannedWordsSection' // [R21-h-1] 违禁词
 import { FeedbackSection } from './FeedbackSection'
 import { BackupSection } from './BackupSection'
 import { SeoAuditSection } from './SeoAuditSection'
+import { SeoTplSection } from './SeoTplSection' // [R24-4] 自动 SEO/TDK 模板区块
 
 type SectionKey =
   | 'dashboard'
@@ -55,6 +57,7 @@ type SectionKey =
   | 'feedback'
   | 'backup'
   | 'seo-audit'
+  | 'seo-templates'
 
 const NAV: { key: SectionKey; label: string; icon: typeof LayoutDashboard }[] = [
   { key: 'dashboard', label: '仪表盘', icon: LayoutDashboard },
@@ -71,6 +74,7 @@ const NAV: { key: SectionKey; label: string; icon: typeof LayoutDashboard }[] = 
   { key: 'feedback', label: '用户反馈', icon: MessageSquare },
   { key: 'backup', label: '数据备份', icon: Database },
   { key: 'seo-audit', label: 'SEO 体检', icon: Stethoscope },
+  { key: 'seo-templates', label: 'SEO模板', icon: SlidersHorizontal },
 ]
 
 const SCROLLBAR_CSS = `
@@ -126,6 +130,8 @@ export default function AdminApp({ onPreviewSite }: { onPreviewSite?: (themeId?:
         return <BackupSection />
       case 'seo-audit':
         return <SeoAuditSection onNavigateSites={() => setSection('sites')} />
+      case 'seo-templates':
+        return <SeoTplSection />
       case 'dashboard':
       default:
         return <Dashboard onNavigate={(s) => setSection(s as SectionKey)} />

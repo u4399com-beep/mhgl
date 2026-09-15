@@ -15,6 +15,8 @@ import { notFound } from 'next/navigation'
 import * as cheerio from 'cheerio'
 import PrettyPublicShell from '@/components/public/PrettyPublicShell'
 import { resolvePrettyPath } from '@/lib/pseudostatic-server'
+import { composeBookTdk, composeTocTdk, composeChapterTdk } from '@/lib/seo-tpl'
+import { getSeoTemplates } from '@/lib/seo-tpl-server'
 import { db } from '@/lib/db'
 import { sliceCodePoints } from '@/lib/utils'
 
@@ -57,10 +59,15 @@ async function requestOrigin(): Promise<string | null> {
   }
 }
 
+// [R24-4] 站点关键词串(模板引擎 keywords 尾段追加用; 站名自身去重后不再追加)
+function siteKeywordsOf(s: { keywords?: string | null; name?: string | null }): string {
+  return (s.keywords || '').trim()
+}
+
 // [R21-g-1] 站点兜底链: 显式 ?site= → 默认站 → 任意启用站(与 sitemap R15-a1-6 同口径;
 // 与前台 PublicSite ii-a 修复一致, 停用站不进兜底链)
 async function resolveMetaSite(siteId?: string) {
-  const select = { id: true, name: true, status: true } as const
+  const select = { id: true, name: true, status: true, keywords: true } as const // [R24-4] +keywords: TDK 模板尾段追加
   if (siteId) {
     const s = await db.site.findUnique({ where: { id: siteId }, select })
     if (s && s.status !== false) return s
@@ -96,6 +103,7 @@ export async function generateMetadata({
       const v = sp[k]
       return (Array.isArray(v) ? v[0] : v) || undefined
     }
+    const pageN = Number(first('page')) || 1
 
     const resolved = await resolvePrettyPath(pathname)
     if (!resolved) return {}
@@ -110,32 +118,65 @@ export async function generateMetadata({
     if (resolved.view === 'read' && resolved.chapterId) {
       const chapter = await db.chapter.findUnique({
         where: { id: resolved.chapterId },
-        select: { title: true, content: true, book: { select: { name: true } } },
+        select: {
+          title: true, content: true, idx: true,
+          book: { select: { name: true, author: true, category: { select: { name: true } }, status: true, keywords: true } },
+        },
       })
       if (!chapter) return {}
-      const title = `${plainText(chapter.title)} - ${plainText(chapter.book?.name || '')} - ${plainText(site.name)}`
-      const bodyText = plainText(chapter.content || '')
-      // 正文摘要码点截断 110(R15-a1-4 同口径); 空正文回退固定句式
-      const description = bodyText
-        ? sliceCodePoints(bodyText, 110)
-        : `${plainText(chapter.book?.name || '')} ${plainText(chapter.title)} 在线阅读`
-      return buildMetadata({ title, description, siteName: plainText(site.name), canonicalPath, origin, ogType: 'article' })
+      // [R24-4] 章节页自动 TDK —— 模板引擎单出处(默认模板/管理端覆盖均走 Setting.seoTemplates)
+      const tpl = await getSeoTemplates()
+      const tdk = composeChapterTdk(
+        {
+          bookname: plainText(chapter.book?.name || ''),
+          author: plainText(chapter.book?.author || ''),
+          category: plainText(chapter.book?.category?.name || ''),
+          status: chapter.book?.status || '',
+          sitename: plainText(site.name),
+          chaptername: plainText(chapter.title),
+          chapterno: chapter.idx,
+          excerpt: sliceCodePoints(plainText(chapter.content || ''), 110),
+          siteKeywords: siteKeywordsOf(site),
+        },
+        tpl,
+      )
+      return buildMetadata({
+        title: tdk.title,
+        description: tdk.description,
+        keywords: tdk.keywords,
+        siteName: plainText(site.name),
+        canonicalPath,
+        origin,
+        ogType: 'article',
+      })
     }
 
     const book = await db.book.findUnique({
       where: { id: resolved.bookId },
-      select: { name: true, author: true, intro: true },
+      select: {
+        name: true, author: true, intro: true, status: true, keywords: true,
+        category: { select: { name: true } },
+        _count: { select: { chapters: true } },
+      },
     })
     if (!book) return {}
-    const bookName = plainText(book.name)
-    const introText = plainText(book.intro)
-    // 简介码点截断 150(R15-a1-3 同口径); 空简介兜底「书名,作者著」
-    const description = introText
-      ? sliceCodePoints(introText, 150)
-      : [bookName, book.author ? `${plainText(book.author)}著` : ''].filter(Boolean).join(',')
+    // [R24-4] 书籍页 / 章节目录页自动 TDK: 目录翻页(?page>1)用目录模板区分, 避免同书多 URL 标题撞车
+    const tpl = await getSeoTemplates()
+    const baseVars = {
+      bookname: plainText(book.name),
+      author: plainText(book.author),
+      category: plainText(book.category?.name || ''),
+      status: book.status || '',
+      sitename: plainText(site.name),
+      intro: plainText(book.intro),
+      chapterCount: book._count?.chapters ?? 0,
+      siteKeywords: siteKeywordsOf(site),
+    }
+    const tdk = pageN > 1 ? composeTocTdk(baseVars, tpl) : composeBookTdk(baseVars, tpl)
     return buildMetadata({
-      title: `${bookName} - ${plainText(site.name)}`,
-      description,
+      title: tdk.title,
+      description: tdk.description,
+      keywords: tdk.keywords,
       siteName: plainText(site.name),
       canonicalPath,
       origin,
@@ -150,9 +191,11 @@ export async function generateMetadata({
 
 // [R21-g-1] metadata 组装(openGraph 与 title/description 同值; metadataBase 供
 // Next 把相对 canonical 解析为绝对地址, 与客户端 origin+path 形态一致)
+// [R24-4] +keywords: 自动 SEO 关键词(模板引擎产出)SSR 直出 —— 爬虫不执行 JS 也能抓全 TDK
 function buildMetadata({
   title,
   description,
+  keywords,
   siteName,
   canonicalPath,
   origin,
@@ -160,6 +203,7 @@ function buildMetadata({
 }: {
   title: string
   description: string
+  keywords?: string
   siteName: string
   canonicalPath: string
   origin: string | null
@@ -169,6 +213,7 @@ function buildMetadata({
     ...(origin ? { metadataBase: new URL(origin) } : {}),
     title,
     description,
+    ...(keywords ? { keywords } : {}),
     alternates: { canonical: canonicalPath },
     openGraph: { title, description, type: ogType, siteName },
   }

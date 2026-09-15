@@ -9,7 +9,7 @@ const DOMAIN_RE = /^(localhost(:\d{1,5})?|[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-
 
 function validTheme(raw: unknown): string {
   const id = str(raw, 50).trim()
-  return getThemeById(id) ? id : 'aurora'
+  return getThemeById(id) ? id : 'aijjxs' // [R24-5] 'aurora' 默认值已随旧主题删除, 归一化回退改为 aijjxs
 }
 
 export async function GET() {

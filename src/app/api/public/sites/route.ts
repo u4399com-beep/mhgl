@@ -5,12 +5,13 @@ import { db } from '@/lib/db'
 import { ok } from '@/lib/api'
 import { withGuard } from '../../_lib/http'
 import { getPseudoPreset } from '@/lib/pseudostatic-server'
+import { getSeoTemplates } from '@/lib/seo-tpl-server'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET() {
   return withGuard(async () => {
-    const [sites, pseudoPreset] = await Promise.all([
+    const [sites, pseudoPreset, seoTpl] = await Promise.all([
       db.site.findMany({
         where: { status: true },
         orderBy: { createdAt: 'asc' },
@@ -32,7 +33,9 @@ export async function GET() {
         },
       }),
       getPseudoPreset(),
+      // [R24-4] 全局 SEO 模板随站点列表下发(客户端书籍页/目录页/章节页 TDK 与 SSR 同源同口径)
+      getSeoTemplates(),
     ])
-    return ok(sites.map((s) => ({ ...s, pseudoPreset })))
+    return ok(sites.map((s) => ({ ...s, pseudoPreset, seoTpl })))
   })
 }

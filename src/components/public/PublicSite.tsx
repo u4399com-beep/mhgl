@@ -12,7 +12,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeftCircle, Eye } from 'lucide-react'
-import { getThemeById as getTheme, THEMES } from '@/lib/crawl/themes'
+import { getTheme } from '@/lib/crawl/themes'
 import { parsePrettyPath } from '@/lib/pseudostatic'
 import { fetchSites } from './data'
 import { parseView, presetOfSites, PublicProvider, viewToUrl, type PublicCtxValue, type ViewParams } from './ctx'
@@ -160,8 +160,8 @@ export default function PublicSite({
   // 伪静态预设(全局设置, 站点列表接口附带); 预设≠query 时站内书籍页/阅读页链接走伪静态路径
   // (声明先于 navigate: 依赖数组立即求值, 后置声明会触发 TDZ)
   const pseudoPreset = useMemo(() => presetOfSites(sites), [sites])
-  // 主题解析: 预览覆盖(?theme=)优先于站点自身主题; getTheme 对非法 id 自带回退
-  const theme = useMemo(() => getTheme(themeOverride || site?.themeId) || THEMES[0], [themeOverride, site?.themeId])
+  // 主题解析: 预览覆盖(?theme=)优先于站点自身主题; getTheme 对非法 id(旧 preset/旧组合/'aurora')自回退 THEMES[0]
+  const theme = useMemo(() => getTheme(themeOverride || site?.themeId), [themeOverride, site?.themeId])
 
   // 站内导航：setState + pushState（保留历史，后退可回上一视图）+ 回顶
   // 伪静态: preset≠query 且注册表命中时 push /book/{num}.html / /read/{num}/{idx}.html
@@ -283,7 +283,8 @@ export default function PublicSite({
   return (
     <PublicProvider value={ctxValue}>
       <div
-        className="relative flex min-h-screen w-full flex-col"
+        // [R24-5] clone-{id} 作用域类: 主题 customCss(每站克隆细节 CSS)以此前缀选择器
+        className={`relative flex min-h-screen w-full flex-col clone-${theme.id}`}
         style={{
           background: v.bg,
           color: v.text,
@@ -291,6 +292,8 @@ export default function PublicSite({
           minHeight: '100vh',
         }}
       >
+        {/* [R24-5] 每站克隆细节 CSS(theme.customCss, 选择器以 .clone-{id} 作用域); 主题切换随 React 重渲染同步更新 */}
+        {theme.customCss ? <style data-theme-clone-css>{theme.customCss}</style> : null}
         {/* [R23-主-1] 全站装饰纹理层: 主题 patternBg 存在时铺底(纯 CSS 图案: 点阵/网格/织锦), 内容层 relative 置于其上 */}
         {v.patternBg && (
           <div aria-hidden className="pointer-events-none absolute inset-0" style={{ background: v.patternBg }} />

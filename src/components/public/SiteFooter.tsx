@@ -46,8 +46,9 @@ export function SiteFooter() {
   const hasFriend = !!footerLinks?.friend.length
   const hasWheel = !!footerLinks?.wheel.length
   return (
-    // [R23-c-11] relative+overflow-hidden 承载绝对定位装饰层; transparent 头部主题(ocean/rose)分支逻辑保留
-    <footer className="relative overflow-hidden" style={{ borderTop: `1px solid ${v.border}`, background: v.headerStyle === 'transparent' ? v.surface : 'transparent' }}>
+    // [R23-c-11] relative+overflow-hidden 承载绝对定位装饰层
+    // [R24-5] transparent 通用头部已删, footer 恒透明底(每站自绘)
+    <footer className="relative overflow-hidden" style={{ borderTop: `1px solid ${v.border}`, background: 'transparent' }}>
       {/* [R23-c-11] patternBg 存在时: surfaceAlt 半透明底 + 装饰纹理层(absolute, 不拦截交互)。
           注意: surfaceAlt 为 rgba 形态时 withAlpha 安全降级为原色(seo.ts 非 #rrggbb 原样返回) */}
       {dv.patternBg && (

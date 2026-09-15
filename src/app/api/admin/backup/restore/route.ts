@@ -186,7 +186,7 @@ export async function POST(req: Request) {
             create: {
               id: s.id, name: String(s.name || '').slice(0, 100) || `站点-${s.id.slice(-4)}`,
               domain,
-              themeId: String(s.themeId || 'aurora').slice(0, 50),
+              themeId: String(s.themeId || 'aijjxs').slice(0, 50), // [R24-5] aurora 已删, 恢复兜底改 aijjxs
               title: String(s.title || '').slice(0, 200),
               description: String(s.description || '').slice(0, 500),
               keywords: String(s.keywords || '').slice(0, 500),
@@ -200,7 +200,7 @@ export async function POST(req: Request) {
             },
             update: {
               name: String(s.name || '').slice(0, 100),
-              themeId: String(s.themeId || 'aurora').slice(0, 50),
+              themeId: String(s.themeId || 'aijjxs').slice(0, 50), // [R24-5] aurora 已删, 恢复兜底改 aijjxs
               title: String(s.title || '').slice(0, 200),
               description: String(s.description || '').slice(0, 500),
               keywords: String(s.keywords || '').slice(0, 500),
