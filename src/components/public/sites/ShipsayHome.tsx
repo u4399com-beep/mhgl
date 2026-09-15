@@ -26,6 +26,8 @@ import { CircleUserRound, Clock3, Flame, Link2, ThumbsUp } from 'lucide-react'
 import type { SiteHomeProps } from './shared'
 import { usePublic } from '../ctx'
 import { fetchBooks, fetchFooterLinks, type FooterFriendLink } from '../data'
+// [R27-5b-H1] 友链渲染出口 scheme 白名单(javascript: 伪协议存储型 XSS 防护)
+import { safeHref } from '../safe-href'
 import { bookNavProps, Sk } from '../bits'
 import { fmtDate, formatWords } from '../seo'
 import { BookCover } from '../BookCover'
@@ -460,7 +462,8 @@ export function ShipsayHome({ books, loading }: SiteHomeProps) {
             {friends.map((f) => (
               <a
                 key={f.id}
-                href={f.url}
+                // [R27-5b-H1] 渲染出口 scheme 白名单: 仅 http/https 放行, 其余置 '#'(javascript: 伪协议 XSS 防护)
+                href={safeHref(f.url)}
                 target="_blank"
                 rel="nofollow noopener noreferrer"
                 className="inline-block pb-[5px] pr-[10px] pt-[15px] hover:text-[#ed4259]"

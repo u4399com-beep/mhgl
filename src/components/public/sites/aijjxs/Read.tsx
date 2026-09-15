@@ -86,6 +86,10 @@ export function AijjxsRead({ data, loading, error }: SiteReadProps) {
   useEffect(() => {
     if (!book) return
     const onKey = (e: KeyboardEvent) => {
+      // [R27-5b-L8] 输入框/文本域聚焦时不翻章(与通用 ReadView isEditableTarget 守卫对齐,
+      // 修前在头部搜索框按 ←/→ 会翻章丢输入)
+      const t = e.target as HTMLElement | null
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return
       if (e.key === 'ArrowLeft' && prev) navigate({ view: 'read', chapterId: prev.id })
       if (e.key === 'ArrowRight' && next) navigate({ view: 'read', chapterId: next.id })
     }

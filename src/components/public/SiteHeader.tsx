@@ -35,7 +35,9 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { getTheme, type SiteCloneId } from '@/lib/crawl/themes'
-import { fetchCategories } from './data'
+import { fetchCategories, fetchSuggestTags } from './data'
+// [R27-5b-L1] 码点安全截断(UTF-16 slice 代理对防劈半)
+import { sliceCodePoints } from '@/lib/utils'
 import { usePublic } from './ctx'
 import { withAlpha } from './seo'
 import type { CategoryItem } from './types'
@@ -81,22 +83,12 @@ function useSuggestPool() {
   const [pool, setPool] = useState<string[] | null>(null)
   useEffect(() => {
     let alive = true
-    fetch('/api/public/tags?n=24', { cache: 'no-store' })
-      .then((r) => r.json().catch(() => null))
-      .then((j: { ok?: boolean; data?: { tags?: unknown } } | null) => {
-        if (!alive) return
-        if (!j?.ok || !j.data) {
-          setPool([])
-          return
-        }
-        const tags = Array.isArray(j.data.tags)
-          ? (j.data.tags as unknown[]).filter((t): t is string => typeof t === 'string' && !!t.trim())
-          : []
-        setPool(tags)
-      })
-      .catch(() => {
-        if (alive) setPool([])
-      })
+    // [R27-5b-M5] 词池改走 fetchSuggestTags 模块级缓存(in-flight 单飞 + sessionStorage 60s TTL):
+    // 修前每实例独立 fetch /api/public/tags?n=24 —— 仿站头部桌面+移动双实例同挂, 单页重复请求
+    // 3~6 次。120 词池客户端切片 24, 覆盖原 n=24 需求; 失败静默降级语义与原实现一致
+    fetchSuggestTags().then((entry) => {
+      if (alive) setPool(entry ? entry.tags.slice(0, 24) : [])
+    })
     return () => {
       alive = false
     }
@@ -1067,7 +1059,7 @@ function SiteMark() {
         style={{ background: `linear-gradient(135deg, ${v.primary}, ${v.accent})`, color: v.primaryText, borderRadius: v.radius }}
         aria-hidden
       >
-        {site.name.slice(0, 1)}
+        {sliceCodePoints(site.name, 1)}
       </span>
       <span
         className="text-lg font-bold tracking-wide"

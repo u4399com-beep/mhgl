@@ -9,7 +9,7 @@
 // ============================================================
 import { db } from '@/lib/db'
 import { ok, fail, readBody } from '@/lib/api'
-import { withGuard, isPlainObject, errText } from '../../../_lib/http'
+import { withGuard, isPlainObject, errText, httpUrl } from '../../../_lib/http'
 import { logger } from '@/lib/logger'
 import { cleanContentHtml } from '@/lib/crawl/cleaner'
 import { nextBookNum, invalidatePseudoPresetCache } from '@/lib/pseudostatic-server'
@@ -21,6 +21,19 @@ const BACKUP_VERSION = 1
 const RESTORE_MAX_BODY_BYTES = 200 * 1024 * 1024
 // R4A-10: 章节正文字段长度上限 500_000 字符(与 PUT /api/admin/chapters/[id] 同口径)
 const CHAPTER_CONTENT_MAX = 500_000
+
+/**
+ * [R27-5b-H1] 备份导入友链 url 消毒 —— 与 /api/admin/links 的 normalizeLinkUrl 同一 http(s)
+ * 白名单口径: 无 scheme:// → 自动补 https://; 白名单外(scheme: ///javascript: 等)返回 null
+ * (scheme 检测必须先行, 防 "ftp://bad" 被拼成合法 https)。修前外部 JSON 备份的
+ * friendLinks 原样入库, javascript: 伪协议可直达前台页脚(存储型 XSS 入口之二)。
+ */
+function sanitizeFriendLinkUrl(raw: string): string | null {
+  const s = raw.trim().slice(0, 2000)
+  if (!s) return null
+  const candidate = /^[a-z][a-z0-9+.-]*:\/\//i.test(s) ? s : `https://${s}`
+  return httpUrl(candidate, 2000)
+}
 
 /** 任务状态白名单(与 runner 状态机/normalizeTaskData 的 TASK_STATUSES 同口径) */
 const TASK_STATUS_WHITELIST = ['pending', 'running', 'paused', 'stopped', 'done', 'error'] as const
@@ -250,20 +263,25 @@ export async function POST(req: Request) {
         // friendLinks
         for (const l of friendLinks) {
           if (!l || typeof l.id !== 'string' || !l.id) continue
-          const url = String(l.url || '').trim()
-          if (!url) continue
+          // [R27-5b-H1] 入库卡口: url 走 http(s) 白名单(非法拒绝该条并告警, 不阻断整批导入);
+          // 无 scheme 的裸域名归一化为 https:// 补全
+          const url = sanitizeFriendLinkUrl(String(l.url || ''))
+          if (!url) {
+            warnings.push(`friendLinks ${l.id}: url 非法(仅支持 http/https), 该条已跳过`)
+            continue
+          }
           await tx.friendLink.upsert({
             where: { id: l.id },
             create: {
               id: l.id, name: String(l.name || '').slice(0, 60) || `友链-${l.id.slice(-4)}`,
-              url: url.slice(0, 2000),
+              url,
               logo: String(l.logo || '').slice(0, 2000),
               sortOrder: Number(l.sortOrder) || 0,
               enabled: l.enabled !== false,
             },
             update: {
               name: String(l.name || '').slice(0, 60),
-              url: url.slice(0, 2000),
+              url,
               logo: String(l.logo || '').slice(0, 2000),
               sortOrder: Number(l.sortOrder) || 0,
               enabled: l.enabled !== false,

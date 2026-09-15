@@ -62,10 +62,20 @@ function clamp(s: string, max: number): string {
   return pts.length <= max ? s : pts.slice(0, max).join('')
 }
 
-/** [R25-5b] 字面转义残留清洗: 存量简介里 JSON 转义未还原的 \r\n\t\u3000 双字序列
- *  (真换行/真空白不受影响 —— 只剥反斜杠+字母的字面形态), 防渗入 meta description */
+/** [R25-5b] 字面转义残留清洗: 存量简介里 JSON 转义未还原的 \r\n\t\f 与 \uXXXX 双字序列
+ *  (真换行/真空白/真字符不受影响 —— 只剥反斜杠+字母的字面形态), 防渗入 meta description */
 function stripLiteralEscapes(s: string): string {
-  return s.replace(/\\[rn(tfu)]/g, ' ')
+  return (
+    s
+      // [R27-5b-M2] 字面 \uXXXX → 还原真字符(修前字符类 /[rn(tfu)]/ 误含 u 且先行, 把 \u 吃成
+      // 空格后残留 " 3000"/" 4f60" hex 数字渗入 TDK)。代理对区段码点丢成空格防孤立代理对
+      .replace(/\\u([0-9a-fA-F]{4})/g, (_m, h: string) => {
+        const code = parseInt(h, 16)
+        return code >= 0xd800 && code <= 0xdfff ? ' ' : String.fromCharCode(code)
+      })
+      // 字面 \r \n \t \f \u → 空格(修后仅兜底非 4 位 hex 的 \u 残形态; 字符类去掉误入的 ( ))
+      .replace(/\\[rntfu]/g, ' ')
+  )
 }
 
 /** 折叠空白(简介/摘要公共清洗: 换行/全角空格/连续空白 → 单空格) */
@@ -94,6 +104,9 @@ function interpolate(tpl: string, vars: SeoTplVars): string {
     // [R25-5b] intro/excerpt 过 stripLiteralEscapes(存量字面 \n 残留不渗入 TDK)
     intro: clamp(stripLiteralEscapes(vars.intro || ''), 110),
     excerpt: clamp(stripLiteralEscapes(vars.excerpt || ''), 90),
+    // [R27-2-2] PSEO 变量(既有三件套模板不含这些占位符, 零回归面)
+    keyword: (vars as PseoTplVars).keyword || '',
+    bookCount: (vars as PseoTplVars).bookCount != null ? String((vars as PseoTplVars).bookCount) : '',
   }
   const out = tpl.replace(/\{(\w+)\}/g, (_m, key: string) => map[key] ?? '')
   return out
@@ -172,6 +185,51 @@ export function composeChapterTdk(vars: SeoTplVars, tpl?: SeoTplSet): ComposedTd
   const description = clamp(interpolate(t.chapter.description, vars), 160) || descFallback
   const kwBase = interpolate(t.chapter.keywords, vars)
   const kwList = (vars.siteKeywords ? kwBase + ',' + vars.siteKeywords : kwBase)
+    .split(/[,，、;；]/)
+    .map((k) => k.trim())
+    .filter(Boolean)
+  const seen = new Set<string>()
+  const keywords = clamp(
+    kwList.filter((k) => (seen.has(k) ? false : (seen.add(k), true))).join(','),
+    200,
+  )
+  return { title, description, keywords: keywords || undefined }
+}
+
+// ============================================================
+// [R27-2-2] PSEO 关键词落地页 TDK(下拉词/模板词 → /p/{slug}.html)
+//   · 独立于书籍/目录/章节三件套, 不进 Setting.seoTemplates 覆盖体系(PSEO 页由
+//     管理端批量生成, 模板族在生成期固化进 PseoPage.title/description/keywords)
+//   · title 产出为「干净标题」(不含站名后缀) —— 同时充当页面 H1; 站名后缀由
+//     [...slug] SSR 按当前站群上下文追加, 多站不撞车
+//   · 复用 interpolate: 未知变量整段丢弃 + 码点截断, 与既有引擎同口径
+// ============================================================
+
+/** PSEO 页 TDK 默认模板(statusText 不入句 — 未知状态时会留「，)」悬尾, 故不採用) */
+export const DEFAULT_PSEO_TEMPLATES = {
+  title: '{keyword}',
+  description:
+    '{keyword}。{sitename}收录《{bookname}》({author}著，{category}小说)等{bookCount}部相关作品，提供{bookname}全文免费在线阅读、最新章节列表与全本TXT下载。',
+  keywords: '{keyword},{bookname},{bookname}全文阅读,{bookname}txt,{author},{category}小说',
+} as const
+
+export interface PseoTplVars extends SeoTplVars {
+  /** 目标关键词(PSEO 页主体) */
+  keyword?: string
+  /** 相关书籍数(说明文案口径: "等 N 部相关作品") */
+  bookCount?: string | number
+}
+
+/** PSEO 关键词页 TDK(title ≤40 / description ≤160 / keywords ≤200, 与 composeBookTdk 同安全线) */
+export function composePseoTdk(vars: PseoTplVars): ComposedTdk {
+  const sitename = vars.sitename || '小说站'
+  const keyword = (vars.keyword || '').trim() || `${vars.bookname || '小说'}免费阅读`
+  const title = clamp(interpolate(DEFAULT_PSEO_TEMPLATES.title, { ...vars, keyword }), 40) || clamp(keyword, 40)
+  const description =
+    clamp(interpolate(DEFAULT_PSEO_TEMPLATES.description, { ...vars, keyword, sitename }), 160) ||
+    `${keyword} - ${sitename}提供${vars.bookname || '小说'}全文免费在线阅读。`
+  const kwBase = interpolate(DEFAULT_PSEO_TEMPLATES.keywords, { ...vars, keyword })
+  const kwList = (vars.siteKeywords ? `${kwBase},${vars.siteKeywords}` : kwBase)
     .split(/[,，、;；]/)
     .map((k) => k.trim())
     .filter(Boolean)

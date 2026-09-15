@@ -118,10 +118,23 @@ function clampInt(n: number): number | null {
 const bookNumById = new Map<string, number>()
 const chapterRefById = new Map<string, { bookId: string; idx: number }>()
 
+// [R27-5b-L3] 客户端注册表上限(长会话防无界增长): 超限淘汰最早写入项(Map 保插入序,
+// 重复 set 先删后插刷新新近度, LRU 近似)。服务端从不调用 register*, 本上限零服务端影响
+const REGISTRY_MAX = 500
+
+function registrySet<V>(map: Map<string, V>, key: string, value: V): void {
+  if (map.has(key)) map.delete(key)
+  map.set(key, value)
+  if (map.size > REGISTRY_MAX) {
+    const oldest = map.keys().next().value
+    if (oldest !== undefined) map.delete(oldest)
+  }
+}
+
 /** 登记书籍 id→num(来自公共 API 返回的 book 对象) */
 export function registerBookRef(id: string | null | undefined, num: number | null | undefined): void {
   const n = clampInt(Number(num))
-  if (id && n) bookNumById.set(id, n)
+  if (id && n) registrySet(bookNumById, id, n)
 }
 
 /** 登记章节 id→(书id, 书内序号)(来自 chapter/book API) */
@@ -131,7 +144,7 @@ export function registerChapterRef(
   idx: number | null | undefined,
 ): void {
   const i = clampInt(Number(idx))
-  if (chapterId && bookId && i) chapterRefById.set(chapterId, { bookId, idx: i })
+  if (chapterId && bookId && i) registrySet(chapterRefById, chapterId, { bookId, idx: i })
 }
 
 function lookupBookNum(bookId: string): number | null {

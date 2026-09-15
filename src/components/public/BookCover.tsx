@@ -7,6 +7,8 @@ import { useState } from 'react'
 import type { CSSProperties } from 'react'
 import { usePublic } from './ctx'
 import { coverSrc } from './seo'
+// [R27-5b-L1] 码点安全截断(UTF-16 slice 代理对防劈半)
+import { sliceCodePoints } from '@/lib/utils'
 
 export function BookCover({
   name,
@@ -58,7 +60,7 @@ export function BookCover({
             className="line-clamp-3 font-bold leading-snug"
             style={{ color: v.primaryText, writingMode: 'vertical-rl', letterSpacing: '0.15em' }}
           >
-            {name.slice(0, 12)}
+            {sliceCodePoints(name, 12)}
           </span>
           {showAuthor && (
             <span className="text-[10px] opacity-80" style={{ color: v.primaryText }}>{showAuthor}</span>

@@ -26,6 +26,10 @@ import { SearchView } from './SearchView'
 import { KeywordView } from './KeywordView'
 import { CategoryView } from './CategoryView'
 import { HistoryView } from './HistoryView'
+// [R27-5b-H2] 克隆模板注册表(theme.id → SiteTemplateSet): 五视图分发 + css 注入单一出处
+import { getTemplateSet } from './sites/registry'
+// [R27-5b-H2] 目录视图壳: renderView 补齐 ctx 已承认的 view='toc' 分支(修深链软死链)
+import { TocView } from './TocView'
 import { Sk } from './bits'
 import { FeedbackWidget } from './FeedbackWidget'
 import { BackToTop } from './BackToTop'
@@ -41,7 +45,7 @@ export default function PublicSite({
   embedMode,
 }: {
   initialSiteId?: string
-  initialView?: { view: 'home' | 'book' | 'read' | 'search' | 'keyword' | 'category' | 'history'; bookId?: string; chapterId?: string; q?: string; tag?: string; cat?: string; page?: number; theme?: string }
+  initialView?: { view: 'home' | 'book' | 'read' | 'search' | 'keyword' | 'category' | 'history' | 'toc'; bookId?: string; chapterId?: string; q?: string; tag?: string; cat?: string; page?: number; theme?: string }
   onBack?: () => void
   embedMode?: boolean
 }) {
@@ -120,15 +124,19 @@ export default function PublicSite({
               bookId: j.data.bookId || undefined,
               chapterId: j.data.chapterId || undefined,
               page: Number(sp.get('page')) || 1,
-              site,
+              // [R27-5b-L10] 无效 site 参数不进 view state(修前原样带上, viewToUrl 以旧 siteId 生成链接失同步)
+              site: site && sites.some((s) => s.id === site) ? site : undefined,
             })
           })
           .catch(() => {})
         return
       }
       const p = parseView(window.location.search)
-      setView(p)
-      if (p.site && sites.some((s) => s.id === p.site)) setSiteId(p.site)
+      // [R27-5b-L10] 无效 site 参数从 view 参数剥离: 修前 view.site 保留非法值,
+      // 后续 viewToUrl 以旧 siteId 生成链接 → view 与 siteId 轻微失同步
+      const siteValid = !p.site || sites.some((s) => s.id === p.site)
+      setView(siteValid ? p : { ...p, site: undefined })
+      if (siteValid && p.site) setSiteId(p.site)
     }
     window.addEventListener('popstate', onPop)
     return () => window.removeEventListener('popstate', onPop)
@@ -162,6 +170,8 @@ export default function PublicSite({
   const pseudoPreset = useMemo(() => presetOfSites(sites), [sites])
   // 主题解析: 预览覆盖(?theme=)优先于站点自身主题; getTheme 对非法 id(旧 preset/旧组合/'aurora')自回退 THEMES[0]
   const theme = useMemo(() => getTheme(themeOverride || site?.themeId), [themeOverride, site?.themeId])
+  // [R27-5b-H2] 克隆模板集(registry 命中才有): css 注入 + 视图壳内五视图分发
+  const tplSet = getTemplateSet(theme.id)
 
   // 站内导航：setState + pushState（保留历史，后退可回上一视图）+ 回顶
   // 伪静态: preset≠query 且注册表命中时 push /book/{num}.html / /read/{num}/{idx}.html
@@ -275,6 +285,9 @@ export default function PublicSite({
         return <KeywordView key={`kw-${view.tag || ''}`} tag={view.tag} />
       case 'category':
         return <CategoryView key={`cat-${view.cat || ''}-${site.id}`} cat={view.cat} page={view.page || 1} />
+      // [R27-5b-H2] 补齐 ctx VIEW_LIST 已承认的 'toc' 视图分支(修前缺 case → 深链静默渲染首页软死链)
+      case 'toc':
+        return <TocView key={`toc-${view.bookId || ''}-${site.id}`} bookId={view.bookId} page={view.page || 1} />
       default:
         return <HomeView key={`home-${site.id}-${view.cat || ''}`} page={view.page || 1} cat={view.cat} />
     }
@@ -294,6 +307,8 @@ export default function PublicSite({
       >
         {/* [R24-5] 每站克隆细节 CSS(theme.customCss, 选择器以 .clone-{id} 作用域); 主题切换随 React 重渲染同步更新 */}
         {theme.customCss ? <style data-theme-clone-css>{theme.customCss}</style> : null}
+        {/* [R27-5b-H2] 克隆模板 css(registry 命中站点的 SiteTemplateSet.css, 同 .clone-{id} 作用域通道叠加注入) */}
+        {tplSet?.css ? <style data-template-clone-css>{tplSet.css}</style> : null}
         {/* [R23-主-1] 全站装饰纹理层: 主题 patternBg 存在时铺底(纯 CSS 图案: 点阵/网格/织锦), 内容层 relative 置于其上 */}
         {v.patternBg && (
           <div aria-hidden className="pointer-events-none absolute inset-0" style={{ background: v.patternBg }} />

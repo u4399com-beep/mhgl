@@ -30,6 +30,8 @@ import type { ReactNode } from 'react'
 import type { SiteHomeProps } from './shared'
 import { usePublic } from '../ctx'
 import { fetchBooks, fetchFooterLinks, type FooterFriendLink } from '../data'
+// [R27-5b-H1] 友链渲染出口 scheme 白名单(javascript: 伪协议存储型 XSS 防护)
+import { safeHref } from '../safe-href'
 import { bookNavProps, Sk } from '../bits'
 import { BookCover } from '../BookCover'
 import type { BookItem } from '../types'
@@ -361,7 +363,8 @@ export function TrxswHome({ books, loading }: SiteHomeProps) {
           {friends.map((f) => (
             <a
               key={f.id}
-              href={f.url}
+              // [R27-5b-H1] 渲染出口 scheme 白名单: 仅 http/https 放行, 其余置 '#'(javascript: 伪协议 XSS 防护)
+              href={safeHref(f.url)}
               target="_blank"
               rel="noopener noreferrer"
               className="mr-3 transition-colors hover:text-[#C00] hover:underline"

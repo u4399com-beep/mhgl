@@ -2463,11 +2463,158 @@ const CURL_CHROME_TLS12_CIPHERS = 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES12
  *  (防同站会话内 h2/h1.1 + JA3 混杂翻转), 跨 host 三画像分散(默认h2 / --http1.1 / Chrome TLS1.2 套件表)
  *  [R22-e-7] HTTP/2 指纹边界说明: 本层只控制 ALPN/HTTP 版本与 TLS1.2 套件表 —— HTTP/2
  *  SETTINGS 帧参数(Akamai fingerprint2 类画像)随系统 curl 二进制固定, 进程内不可调,
- *  升级系统 curl 才会改变 h2 指纹画像(如实留档, 非遗漏) */
+ *  升级系统 curl 才会改变 h2 指纹画像(如实留档, 非遗漏)。
+ *  [R27-1b-1] 该边界在 impersonate 档位下被突破: curl-impersonate/curl_cffi 以真实浏览器
+ *  HTTP/2 SETTINGS/伪头指纹发车(实测 chrome116 档 akamai_h2 与真 Chrome 一致, 见 worklog)。 */
 function curlTlsProfileIndex(host: string): number {
   let h = 5381
   for (let i = 0; i < host.length; i++) h = ((h << 5) + h + host.charCodeAt(i)) >>> 0
   return h % 3
+}
+
+/** [R27-1b-1] curl 传输画像数组 —— 把 [R9-a-14] 的隐式三画像(curlTlsProfileIndex hash%3
+ *  下标)显式化, 每条目可携带可选 impersonate 档位字段(curl-impersonate/curl_cffi 浏览器
+ *  指纹档, chrome116/safari17_0/firefox135 等)。缺省条目均不带 impersonate = 既有系统
+ *  curl 行为零回归; 档位仅当规则 fetch 配置显式选档(cfg.curlImpersonate, types.ts 白名单)
+ *  或环境开关(CURL_IMPERSONATE_PROFILE 全局 / CURL_IMPERSONATE_HOSTS host 钉扎)时
+ *  经 resolveCurlImpersonateTier 解析生效, 默认不开(现有规则/任务零破坏)。 */
+interface CurlTransportProfile {
+  name: string
+  /** 强制 HTTP/1.1(画像 1, --http1.1) */
+  http11?: boolean
+  /** TLS1.2 套件表(画像 2, --ciphers) */
+  ciphers?: string
+  /** [R27-1b-1] impersonate 档位: 生效时该跳传输画像(TLS ClientHello/JA3-JA4 +
+   *  HTTP/2 SETTINGS/伪头序 + 浏览器头组)整体交 curl-impersonate 档位引擎接管
+   *  (二进制包装脚本或桥 /impersonate 等价引擎), 系统 curl 的 http11/ciphers 旗组与
+   *  引擎指纹头组让位(浏览器版本自洽由档位保证, 见 filterImpersonateHeaders)。
+   *  当前内置条目均不带(缺省关闭), 字段留作 host 钉扎档位的声明位。 */
+  impersonate?: string
+}
+const CURL_TRANSPORT_PROFILES: readonly CurlTransportProfile[] = [
+  { name: 'h2-default' },                                               // hash%3=0: 系统 curl 默认 h2
+  { name: 'http1.1', http11: true },                                    // hash%3=1: --http1.1
+  { name: 'chrome-tls12-ciphers', ciphers: CURL_CHROME_TLS12_CIPHERS }, // hash%3=2: Chrome TLS1.2 套件表
+]
+
+/** [R27-1b-1] host → 生效传输画像(hash 钉扎下标语义与旧三画像完全兼容) */
+function curlProfileOf(host: string): CurlTransportProfile {
+  return CURL_TRANSPORT_PROFILES[curlTlsProfileIndex(host)] ?? { name: 'h2-default' }
+}
+
+// ---------- [R27-1b-2] curl-impersonate 档位解析(默认关, 显式选档才启用) ----------
+/** 档位白名单: chrome/edge/safari/firefox + 2~3 位版本号(±A/B 观察版单字母后缀如
+ *  chrome133a) + _android/_ios 后缀形态(curl_cffi 目标命名), 也接受裸别名(= 该家族最新
+ *  档, 仅桥 curl_cffi 轨可用; 二进制轨包装脚本按版本命名)。与桥 server.py _TIER_RE 同口径
+ *  (改动需双侧同步)。 */
+const IMPERSONATE_TIER_RE = /^(chrome|edge|safari|firefox)(\d{2,3}(_[0-9])?(_android|_ios)?[a-z]?)?$/
+
+/** 全局档位开关(env CURL_IMPERSONATE_PROFILE): 设置后 curl 链全部请求按该档位走
+ *  impersonate 引擎(操作员级开关, 不改规则; 缺省空=关闭)。模块加载时读定, 进程重启生效。 */
+const ENV_IMPERSONATE_PROFILE = (process.env.CURL_IMPERSONATE_PROFILE || '').trim()
+
+/** [R27-1b-2] host 钉扎档位表(env CURL_IMPERSONATE_HOSTS="host=档位,host2=档位2"):
+ *  命中 host 的 curl 链请求按钉扎档位走 impersonate 引擎 —— "host 钉扎"在旧三画像语义
+ *  (hash→TLS/HTTP 版本组合)之上增加"host→完整浏览器指纹"维度。启动时解析,
+ *  非法对(host 空/档位不达白名单)静默丢弃。 */
+const IMPERSONATE_HOST_PINNING = (() => {
+  const map = new Map<string, string>()
+  for (const pair of (process.env.CURL_IMPERSONATE_HOSTS || '').split(',')) {
+    const idx = pair.indexOf('=')
+    if (idx <= 0) continue
+    const host = pair.slice(0, idx).trim().toLowerCase()
+    const tier = pair.slice(idx + 1).trim()
+    if (host && IMPERSONATE_TIER_RE.test(tier)) map.set(host, tier)
+  }
+  return map
+})()
+
+/** [R27-1b-2] impersonate 档位解析: 规则 curlImpersonate 显式选档 > CURL_IMPERSONATE_HOSTS
+ *  host 钉扎 > CURL_IMPERSONATE_PROFILE 全局开关 > 画像条目缺省(当前全空)。返回 ''=不启用
+ *  (系统 curl 既有画像, 零回归); 非法档位一律视为未选(sanitize 白名单已拦截, 此处运行时兜底)。 */
+function resolveCurlImpersonateTier(host: string, cfg: FetchConfig, profile: CurlTransportProfile): string {
+  const ruleTier = (cfg.curlImpersonate || '').trim()
+  if (ruleTier) return IMPERSONATE_TIER_RE.test(ruleTier) ? ruleTier.toLowerCase() : ''
+  const pinned = IMPERSONATE_HOST_PINNING.get(host.toLowerCase())
+  if (pinned) return pinned
+  if (ENV_IMPERSONATE_PROFILE && IMPERSONATE_TIER_RE.test(ENV_IMPERSONATE_PROFILE)) {
+    return ENV_IMPERSONATE_PROFILE.toLowerCase()
+  }
+  return profile.impersonate || ''
+}
+
+// ---------- [R27-1b-3] curl-impersonate 二进制(档位包装脚本)探测 ----------
+/** curl-impersonate(lexiforest fork)的档位启动形态是包装脚本(curl_chrome116/curl_safari17_0
+ *  等, 内部以完整旗组拉起 curl-impersonate-chrome 二进制, 覆盖 TLS ClientHello/JA3-JA4 +
+ *  HTTP/2 SETTINGS/伪头序 + 浏览器头组; v0.9.0 二进制无 --impersonate 聚合旗 —— 该旗是
+ *  curl_cffi(Python)侧 API 概念, 包装脚本即二进制侧官方档位形态)。包装脚本与同名二进制
+ *  探测顺序: CURL_IMPERSONATE_BIN(env, 指包装脚本所在目录或具体包装脚本路径) > PATH >
+ *  mini-services/scrapling-bridge/_bin(项目内随桥分发的副本)。命中缓存; 未命中按
+ *  IMPERSONATE_PROBE_RETRY_MS 冷却重试。全部未命中 → 该档位请求改走桥 /impersonate
+ *  (curl_cffi 等价引擎, impersonateOnceViaBridge [R27-1b-6])。 */
+const IMPERSONATE_PROBE_RETRY_MS = 60_000
+const impersonateBinCache = new Map<string, { path: string | null; checkedAt: number }>()
+
+async function probeImpersonateBin(path: string): Promise<boolean> {
+  try {
+    const { spawn } = await import('node:child_process')
+    return await new Promise<boolean>((resolve) => {
+      const child = spawn(path, ['--version'], { stdio: ['ignore', 'ignore', 'ignore'] })
+      const t = setTimeout(() => {
+        try { child.kill() } catch { /* ignore */ }
+        resolve(false)
+      }, 3000)
+      child.on('error', () => { clearTimeout(t); resolve(false) })
+      child.on('close', (code) => { clearTimeout(t); resolve(code === 0) })
+    })
+  } catch {
+    return false
+  }
+}
+
+/** [R27-1b-3] 解析某档位的 curl-impersonate 包装脚本可执行路径; 未命中返回 null(走桥轨) */
+async function resolveImpersonateBin(tier: string): Promise<string | null> {
+  const cached = impersonateBinCache.get(tier)
+  if (cached && (cached.path || Date.now() - cached.checkedAt < IMPERSONATE_PROBE_RETRY_MS)) return cached.path
+  const wrapper = `curl_${tier}`
+  const candidates: string[] = []
+  const envBin = (process.env.CURL_IMPERSONATE_BIN || '').trim()
+  if (envBin) {
+    // env 指目录 → 拼档位包装脚本; env 指具体文件 → 先按字面收(操作员直接指向某档位
+    // 包装脚本), 再按其父目录拼一次(包装脚本与二进制同目录布局)
+    candidates.push(`${envBin.replace(/\/+$/, '')}/${wrapper}`)
+    if (envBin.endsWith(`/${wrapper}`)) candidates.push(envBin)
+    else candidates.push(envBin.replace(/\/[^/]*$/, '') + '/' + wrapper)
+  }
+  candidates.push(wrapper) // PATH 探测(spawn 语义同 checkCurl)
+  candidates.push(`${process.cwd()}/mini-services/scrapling-bridge/_bin/${wrapper}`) // 项目内副本(Next dev cwd=项目根)
+  let found: string | null = null
+  for (const c of candidates) {
+    if (await probeImpersonateBin(c)) { found = c; break }
+  }
+  impersonateBinCache.set(tier, { path: found, checkedAt: Date.now() })
+  return found
+}
+
+// ---------- [R27-1b-4] impersonate 轨头组过滤(防同名双头 + 版本自洽) ----------
+/** 档位包装脚本自带完整浏览器头组(curl_chrome* 与 curl_edge* 系 12 项、curl_safari* 系 7 项,
+ *  实测脚本旗组): 引擎指纹头组(UA 轮换/Accept/Sec-Fetch-* 等)与之同名追加会产生重复头
+ *  (实测 wrapper + 追加 -H UA → 服务端收到双 User-Agent, 反成指纹破绽), 且引擎 UA 池
+ *  (Chrome 137~142)与档位 TLS 版本(如 chrome116)错配。故档位生效时过滤下列头键交档位
+ *  引擎自管(头组与 TLS/h2 指纹版本自洽), 仅透传 Cookie/Referer/规则显式自定义头。
+ *  桥 /impersonate 轨同口径: curl_cffi 档位默认头按名合并, 过滤后与二进制轨行为一致。 */
+const IMPERSONATE_WRAPPER_HEADER_KEYS = new Set([
+  'accept', 'accept-encoding', 'accept-language', 'sec-ch-ua', 'sec-ch-ua-mobile',
+  'sec-ch-ua-platform', 'sec-fetch-site', 'sec-fetch-mode', 'sec-fetch-user',
+  'sec-fetch-dest', 'upgrade-insecure-requests', 'user-agent',
+])
+
+function filterImpersonateHeaders(headers: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const [k, v] of Object.entries(headers)) {
+    if (!IMPERSONATE_WRAPPER_HEADER_KEYS.has(k.toLowerCase())) out[k] = v
+  }
+  return out
 }
 
 /** 单跳 curl 响应结果(手工重定向循环的底层产物) */
@@ -2480,41 +2627,71 @@ interface CurlHopResult {
   body: Buffer
 }
 
-/** [R9-a] 单跳 curl 子进程(无 -L): 目标侧单响应如实返回(含 3xx/4xx), 由 fetchViaCurl
- *  手工循环消费; 超时/10MB 溢出/畸形响应 reject。原 -L 整链单进程形态见 fetchViaCurl 注释 */
-async function curlOnce(url: string, headers: Record<string, string>, proxy: string, remainingMs: number): Promise<CurlHopResult> {
-  const [{ tmpdir }, { join }, { randomUUID }] = await Promise.all([
-    import('node:os'), import('node:path'), import('node:crypto'),
-  ])
-  const headerFile = join(tmpdir(), `novel-curl-${randomUUID()}.hdr`)
-  const args: string[] = [
-    '-sS', '--compressed',
-    '--max-time', String(Math.max(1, Math.ceil(remainingMs / 1000))),
-    '-D', headerFile, '-o', '-',
-  ]
-  // [R9-a-14] C.2: 按 host 钉扎的传输画像(仅 https 有 TLS 面; http 不加)
-  if (/^https:/i.test(url)) {
-    const profile = curlTlsProfileIndex(hostOf(url))
-    if (profile === 1) args.push('--http1.1')
-    else if (profile === 2) args.push('--ciphers', CURL_CHROME_TLS12_CIPHERS)
+// ---------- [R27-1b-6] 桥 /impersonate 单跳(无二进制时的档位等价引擎) ----------
+/** 桥 /impersonate 响应信封(ok:true 形态; ok:false 见 error 字段) */
+interface ImpersonateBridgePayload {
+  ok?: boolean
+  status?: number
+  html?: string
+  finalUrl?: string
+  error?: string
+  headers?: { location?: string; contentType?: string; retryAfter?: string; setCookies?: string[] }
+}
+
+/** [R27-1b-6] 桥 /impersonate 单跳: scrapling 桥 venv 内 curl_cffi(lexiforest 系)按档位
+ *  伪装 TLS ClientHello(JA3/JA4)+ HTTP/2 SETTINGS/伪头序指纹代发(与 curl-impersonate
+ *  二进制同指纹家族, 实测 chrome116 档两侧 JA4/akamai_h2 一致)。allow_redirects=False
+ *  单跳语义与 curlOnce 对齐; 信封 {ok,status,html,finalUrl,headers:{location,
+ *  contentType,retryAfter,setCookies}} 映射回 CurlHopResult 供 fetchViaCurl 手工重定向
+ *  循环无差别消费。桥不可达/桥内失败抛错(与 curl 进程失败同形态, 上层降级链语义不变)。
+ *  引擎侧 SSRF 守卫在此补一道(与 fetchViaScraplingBridge 双重保险同款)。注意: 桥返回
+ *  的 html 是 curl_cffi 已按目标 charset 解码后的文本, contentType 强制改写 charset=utf-8
+ *  防上层 decodeBuffer 按原 charset 二次解码出乱码。 */
+async function impersonateOnceViaBridge(url: string, headers: Record<string, string>, proxy: string, remainingMs: number, tier: string, bridge: string): Promise<CurlHopResult> {
+  const ssrf = await assertSafeTarget(url, { allowLoopback: false })
+  if (!ssrf.ok) throw new Error(`impersonate 桥跳目标被 SSRF 守卫拒绝(${ssrf.reason})`)
+  const timeoutMs = Math.max(1000, Math.min(Math.ceil(remainingMs), 120_000))
+  let res: Response
+  try {
+    res = await fetch(`${bridge}/impersonate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url, method: 'GET', impersonate: tier, headers, proxy: proxy || undefined, timeoutMs }),
+      signal: AbortSignal.timeout(timeoutMs + 5000),
+    })
+  } catch (e: any) {
+    if (e?.name === 'AbortError' || e?.code === 'ABORT_ERR') {
+      throw new Error(`impersonate 桥单跳超时(${timeoutMs}ms, 桥 ${bridge})`)
+    }
+    throw new Error(`impersonate 桥不可达(${bridge}): ${String(e?.message || e).slice(0, 120)}`)
   }
-  for (const [k, v] of Object.entries(headers)) {
-    // 控制字符清洗: 防 header 值/键换行注入额外 curl 指令(argv 传输仍单参数, 但 curl 自身按行解析);
-    // 键同样要洗(键来自 cfg.headers 用户配置), 且去冒号防 curl 把键值对解析错位
-    const key = String(k).replace(/[\r\n\0:]+/g, '').trim()
-    const clean = String(v).replace(/[\r\n\0]+/g, ' ').trim()
-    if (key && clean) args.push('-H', `${key}: ${clean}`)
+  if (!res.ok) throw new Error(`impersonate 桥响应形态异常(HTTP ${res.status})`)
+  const payload = (await res.json()) as ImpersonateBridgePayload
+  if (!payload?.ok || typeof payload.status !== 'number' || typeof payload.html !== 'string') {
+    throw new Error(`impersonate 桥内失败(${String(payload?.error || '响应形态非法').slice(0, 140)})`)
   }
-  if (proxy) {
-    // 出口代理: -x 全形态; 控制字符清洗与头注入同口径(curl 按行解析参数值)
-    args.push('-x', proxy.replace(/[\r\n\0]+/g, ''))
+  const h = payload.headers || {}
+  const contentType = typeof h.contentType === 'string' && h.contentType
+    ? h.contentType.replace(/charset=[^;]*/i, 'charset=utf-8')
+    : 'text/html; charset=utf-8'
+  return {
+    status: payload.status,
+    location: typeof h.location === 'string' ? h.location : '',
+    contentType,
+    setCookies: Array.isArray(h.setCookies) ? h.setCookies.map(String) : [],
+    retryAfter: typeof h.retryAfter === 'string' ? h.retryAfter : '',
+    body: Buffer.from(payload.html, 'utf8'),
   }
-  args.push('--', url)
+}
+
+/** [R27-1b-5] 通用 curl 进程单跳执行器 —— 原 curlOnce 内联 spawn/收流/头文件解析逻辑
+ *  原样抽出, 仅二进制参数化(系统 curl 与 curl-impersonate 档位包装脚本共用同一套
+ *  stdout 收流(10MB 上限防溢出)/异常退出拒收/多轮头解析取末轮/临时头文件清理语义)。 */
+async function runCurlProcess(bin: string, args: string[], headerFile: string, remainingMs: number): Promise<CurlHopResult> {
   const { spawn } = await import('node:child_process')
   const { readFile, unlink } = await import('node:fs/promises')
-
   return await new Promise<CurlHopResult>((resolve, reject) => {
-    const child = spawn('curl', args, { stdio: ['ignore', 'pipe', 'pipe'] })
+    const child = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'] })
     const chunks: Buffer[] = []
     let total = 0
     const MAX_HTML_BYTES = 10 * 1024 * 1024
@@ -2617,6 +2794,59 @@ async function curlOnce(url: string, headers: Record<string, string>, proxy: str
   })
 }
 
+/** [R9-a] 单跳 curl 子进程(无 -L): 目标侧单响应如实返回(含 3xx/4xx), 由 fetchViaCurl
+ *  手工循环消费; 超时/10MB 溢出/畸形响应 reject。原 -L 整链单进程形态见 fetchViaCurl 注释。
+ *  [R27-1b-5] impersonate 档位双轨: 档位生效(规则 curlImpersonate/env 开关, 见
+ *  resolveCurlImpersonateTier)且有档位包装脚本 → curl-impersonate 形态 spawn(轨 1,
+ *  bin=包装脚本, 传输画像全由包装脚本旗组接管, 不再加旧画像 --http1.1/--ciphers,
+ *  头组经 filterImpersonateHeaders 过滤档位自带指纹头); 无二进制 → 该画像请求改走桥
+ *  /impersonate(curl_cffi 等价引擎, 轨 2)。轨 2 失败如实抛错(与 curl 失败同形态),
+ *  不静默降级回弱指纹系统 curl(降级决策归上层降级链)。 */
+async function curlOnce(url: string, headers: Record<string, string>, proxy: string, remainingMs: number, impersonateTier = '', bridgeUrl = ''): Promise<CurlHopResult> {
+  const [{ tmpdir }, { join }, { randomUUID }] = await Promise.all([
+    import('node:os'), import('node:path'), import('node:crypto'),
+  ])
+  const headerFile = join(tmpdir(), `novel-curl-${randomUUID()}.hdr`)
+  const args: string[] = [
+    '-sS', '--compressed',
+    '--max-time', String(Math.max(1, Math.ceil(remainingMs / 1000))),
+    '-D', headerFile, '-o', '-',
+  ]
+  // [R27-1b-5] 传输画像双轨选择(缺省 impersonateTier='' → 旧轨零回归)
+  let bin = 'curl'
+  let hopHeaders = headers
+  if (impersonateTier) {
+    const impersonateBin = await resolveImpersonateBin(impersonateTier)
+    if (impersonateBin) {
+      // 轨 1: curl-impersonate 档位包装脚本(如 curl_chrome116) —— 完整真实浏览器指纹
+      bin = impersonateBin
+      hopHeaders = filterImpersonateHeaders(headers) // [R27-1b-4] 防同名双头/版本错配
+    } else {
+      // 轨 2: 桥 /impersonate(curl_cffi 等价引擎; 桥地址同 scrapling 桥)
+      return await impersonateOnceViaBridge(url, headers, proxy, remainingMs, impersonateTier, bridgeUrl || SCRAPLING_BRIDGE_URL)
+    }
+  } else if (/^https:/i.test(url)) {
+    // [R9-a-14] C.2 + [R27-1b-1]: 按 host 钉扎的传输画像(仅 https 有 TLS 面; http 不加;
+    // 画像数组显式化, hash 下标语义与旧三画像一致)
+    const profile = curlProfileOf(hostOf(url))
+    if (profile.http11) args.push('--http1.1')
+    else if (profile.ciphers) args.push('--ciphers', profile.ciphers)
+  }
+  for (const [k, v] of Object.entries(hopHeaders)) {
+    // 控制字符清洗: 防 header 值/键换行注入额外 curl 指令(argv 传输仍单参数, 但 curl 自身按行解析);
+    // 键同样要洗(键来自 cfg.headers 用户配置), 且去冒号防 curl 把键值对解析错位
+    const key = String(k).replace(/[\r\n\0:]+/g, '').trim()
+    const clean = String(v).replace(/[\r\n\0]+/g, ' ').trim()
+    if (key && clean) args.push('-H', `${key}: ${clean}`)
+  }
+  if (proxy) {
+    // 出口代理: -x 全形态; 控制字符清洗与头注入同口径(curl 按行解析参数值)
+    args.push('-x', proxy.replace(/[\r\n\0]+/g, ''))
+  }
+  args.push('--', url)
+  return await runCurlProcess(bin, args, headerFile, remainingMs)
+}
+
 /** curl 子进程传输(内部实现, 导出仅供诊断/冒烟脚本直接复用)
  *  proxy(dd-a): 非空时以 -x 透传(http/https/socks5(h)/socks4(a) 全形态, 内联凭证
  *  http://u:p@host:port 原生支持; 值清洗控制字符防 curl 参数注入)
@@ -2628,12 +2858,18 @@ async function curlOnce(url: string, headers: Record<string, string>, proxy: str
  *   - 每跳 Set-Cookie 归属该跳 URL 域键(与 native 逐跳一致);
  *   - 跨 scheme 降级拒绝 / http→https 升级放行; [R9-a-7] 重复跳 URL 环熔断;
  *   - 总超时预算分摊到各跳(--max-time 按剩余预算, 原 -L 单进程跑满全链同一预算)。
- *  [R9-a-14] C.2: 每跳按 host 钉扎的 TLS/HTTP 版本画像(见 curlTlsProfileIndex)。 */
+ *  [R9-a-14] C.2: 每跳按 host 钉扎的 TLS/HTTP 版本画像(见 curlTlsProfileIndex)。
+ *  [R27-1b-7] 每跳解析 impersonate 档位(与 curlTlsProfileIndex host 钉扎同口径: 重定向
+ *  跨 host 按新 host 重解析, host 钉扎表/规则选档各自生效); 档位命中时该跳走
+ *  curl-impersonate 双轨(二进制包装脚本/桥 /impersonate), 否则旧轨零回归。 */
 export async function fetchViaCurl(url: string, cfg: FetchConfig, ua: string, proxy = ''): Promise<string> {
   if (!/^https?:\/\//i.test(url)) throw new Error('curl 传输仅支持 http/https URL')
   if (!(await checkCurl())) throw new Error('curl 子进程不可用')
   const timeoutMs = cfg.timeout && cfg.timeout > 0 ? cfg.timeout : 20000
   const deadline = Date.now() + timeoutMs
+  // [R27-1b-7] impersonate 桥轨地址: 规则 scraplingBridgeUrl 优先(与 scrapling 模式同
+  // 桥同地址), 缺省 SCRAPLING_BRIDGE_URL(/impersonate 为同服务新增端点)
+  const bridgeUrl = (cfg.scraplingBridgeUrl || '').trim() || SCRAPLING_BRIDGE_URL
   const MAX_CURL_REDIRECT_HOPS = 5 // 与原 --max-redirs 5 同口径
   // [R9-a-7] C.4: 环检测 —— [R15-d1-3] 同 URL 至多 2 次访问(允许 1 次重访, 种 Cookie 回跳
   // A→B→A 不再被误熔断; 3 次访问仍熔断, 与 native 链同口径, 详见 fetchHttp 循环前注)
@@ -2654,7 +2890,9 @@ export async function fetchViaCurl(url: string, cfg: FetchConfig, ua: string, pr
     // 同类泄漏同批补齐(stripRuleSeedCookie 三链共用)
     const hopCfg = hostKeyOf(hopUrl) === hostKeyOf(url) ? cfg : stripRuleSeedCookie(cfg)
     const headers = buildHeaders(hopUrl, hopCfg, ua, { fingerprint: true })
-    const r = await curlOnce(hopUrl, headers, proxy, remaining)
+    // [R27-1b-7] 逐跳解析 impersonate 档位('' = 不启用 → curlOnce 旧轨, 零回归)
+    const hopTier = resolveCurlImpersonateTier(hostOf(hopUrl), hopCfg, curlProfileOf(hostOf(hopUrl)))
+    const r = await curlOnce(hopUrl, headers, proxy, remaining, hopTier, bridgeUrl)
     if (cfg.autoCookie !== false && r.setCookies.length) {
       // 每跳 Set-Cookie 记到该跳 URL 的 origin 名下(与 native 逐跳同语义)
       cookieJar.store(originHost(hopUrl), r.setCookies)

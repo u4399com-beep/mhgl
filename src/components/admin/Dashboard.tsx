@@ -45,6 +45,7 @@ import {
   Tag,
 } from 'lucide-react'
 import { HealthCard } from './HealthCard'
+import { PseoSection } from './PseoSection' // [R27-2-8] PSEO 关键词页面板(仪表盘内嵌)
 import {
   api,
   BOOK_STATUS_META,
@@ -131,6 +132,7 @@ const CARD_META: { key: string; label: string; group: DashboardCardGroup }[] = [
   { key: 'catWords', label: '分类字数排行', group: 'chart' },
   { key: 'taskStatus', label: '任务状态分布', group: 'chart' },
   { key: 'health', label: '系统健康', group: 'panel' },
+  { key: 'pseo', label: 'PSEO 关键词页', group: 'panel' }, // [R27-2-8] 注册: 可隐藏面板
   { key: 'recentTasks', label: '最近任务', group: 'panel' },
   { key: 'recentBooks', label: '最近入库书籍', group: 'panel' },
   { key: 'catDist', label: '分类分布', group: 'panel' },
@@ -884,6 +886,9 @@ export function Dashboard({ onNavigate }: DashboardProps) {
         )}
       </div>
       )}
+
+      {/* [R27-2-8] PSEO 关键词页面板(统计卡+生成表单+列表; [R21-h-2] 卡片开关可隐藏) */}
+      {show('pseo') && <PseoSection />}
 
       {/* [R21-h-2] 全部隐藏时的空态提示(入口回到卡片开关面板) */}
       {allCardsHidden && (

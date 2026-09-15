@@ -5,7 +5,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { Clock, Flame, History, Search, Trash2, X } from 'lucide-react'
-import { fetchSearch } from './data'
+import { fetchSearch, fetchSuggestTags } from './data'
 import type { SearchData } from './types'
 import { usePublic } from './ctx'
 import { siteKeywordList, useSiteSEO, withAlpha } from './seo'
@@ -18,7 +18,9 @@ export function SearchView({ q }: { q?: string }) {
   const v = theme.vars
   const [input, setInput] = useState(q || '')
   const [data, setData] = useState<SearchData | null>(null)
-  const [loading, setLoading] = useState(false)
+  // [R27-5b-M3] 初始 loading = !!q: 修前首挂载 loading=false + data=null → ThemeBookList 空态判定
+  // (!loading && !books.length) 在 fetch resolve 前闪现「没有找到相关书籍」(直达/刷新带 q 必现)
+  const [loading, setLoading] = useState(!!q)
   const [error, setError] = useState('')
   const [hotTags, setHotTags] = useState<string[] | null>(null)
   const [historyTick, setHistoryTick] = useState(0) // 移除/清空后强制重读 history
@@ -43,22 +45,11 @@ export function SearchView({ q }: { q?: string }) {
   useEffect(() => {
     if (q) return
     let alive = true
-    fetch('/api/public/tags?n=20', { cache: 'no-store' })
-      .then((r) => r.json().catch(() => null))
-      .then((j: { ok?: boolean; data?: { tags?: unknown } } | null) => {
-        if (!alive) return
-        if (!j?.ok || !j.data) {
-          setHotTags([])
-          return
-        }
-        const tags = Array.isArray(j.data.tags)
-          ? (j.data.tags as unknown[]).filter((t): t is string => typeof t === 'string' && !!t.trim())
-          : []
-        setHotTags(tags)
-      })
-      .catch(() => {
-        if (alive) setHotTags([])
-      })
+    // [R27-5b-M5] 复用 fetchSuggestTags 模块级缓存(in-flight 单飞 + sessionStorage 60s TTL):
+    // 修前独立 fetch /api/public/tags?n=20, 与头部搜索框重复请求; 120 词池客户端切片 20
+    fetchSuggestTags().then((entry) => {
+      if (alive) setHotTags(entry ? entry.tags.slice(0, 20) : [])
+    })
     return () => {
       alive = false
     }

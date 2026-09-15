@@ -27,7 +27,7 @@ export function invalidatePseudoPresetCache(): void {
 /** 当前伪静态预设(Setting.pseudostatic, 消毒兜底; 60s 缓存) */
 export async function getPseudoPreset(): Promise<PseudoPreset> {
   if (presetCache && Date.now() - presetCache.at < PRESET_TTL_MS) return presetCache.preset
-  let preset: PseudoPreset = PSEUDO_DEFAULT
+  let preset: PseudoPreset | null = null
   try {
     const row = await db.setting.findUnique({ where: { key: PSEUDO_SETTING_KEY }, select: { value: true } })
     if (row?.value) {
@@ -36,12 +36,16 @@ export async function getPseudoPreset(): Promise<PseudoPreset> {
       } catch {
         preset = sanitizePseudoPreset(row.value)
       }
+    } else {
+      // DB 可达但未配置 → 默认预设即真实配置, 可缓存
+      preset = PSEUDO_DEFAULT
     }
   } catch {
-    preset = PSEUDO_DEFAULT
+    // [R27-5b-L6] 瞬态 DB 错误不把「默认值」写进 60s 缓存(下次请求重试, 防抖动期全站伪静态按默认渲染)
+    return PSEUDO_DEFAULT
   }
-  presetCache = { at: Date.now(), preset }
-  return preset
+  presetCache = { at: Date.now(), preset: preset! }
+  return preset!
 }
 
 // ---------------- 路径解析(直达/刷新/后退共用) ----------------

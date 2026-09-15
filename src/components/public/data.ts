@@ -47,6 +47,8 @@ export interface BooksQuery {
   sort?: 'latest' | 'words'
   page?: number
   size?: number
+  /** [R27-5b-M4] 批量 ids 直查(≤50, 我的书架用)—— 命中时服务端忽略分页/站群偏移/排序 */
+  ids?: string[]
 }
 
 export interface BooksData {
@@ -56,13 +58,14 @@ export interface BooksData {
   books: BookItem[]
 }
 
-/** 书籍列表（site 传站点ID，后端按站点偏移量切片） */
+/** 书籍列表（site 传站点ID，后端按站点偏移量切片; [R27-5b-M4] ids 批量直查走同端点） */
 export function fetchBooks(qy: BooksQuery): Promise<BooksData> {
   const sp = new URLSearchParams()
   if (qy.site) sp.set('site', qy.site)
   if (qy.q) sp.set('q', qy.q)
   if (qy.cat) sp.set('cat', qy.cat)
   if (qy.status) sp.set('status', qy.status)
+  if (qy.ids?.length) sp.set('ids', qy.ids.join(','))
   sp.set('sort', qy.sort || 'latest')
   sp.set('page', String(qy.page || 1))
   sp.set('size', String(qy.size || 24))
@@ -226,6 +229,14 @@ function suggestCacheRead(): SuggestTagsEntry | null {
 function suggestCacheWrite(c: SuggestTagsEntry) {
   suggestMemory = c
   try {
+    // [R27-5b-L4] 写入前清前缀旧键: 缓存按 poolSize 分键, 词池条数变化即换新键,
+    // 修前旧键永不清除且每次 suggestCacheRead 全量扫描 sessionStorage
+    const stale: string[] = []
+    for (let i = 0; i < sessionStorage.length; i++) {
+      const k = sessionStorage.key(i)
+      if (k && k.startsWith(SUGGEST_KEY_PREFIX) && k !== SUGGEST_KEY_PREFIX + c.poolSize) stale.push(k)
+    }
+    for (const k of stale) sessionStorage.removeItem(k)
     sessionStorage.setItem(SUGGEST_KEY_PREFIX + c.poolSize, JSON.stringify(c))
   } catch {
     // 隐私模式/配额满 → 仅内存

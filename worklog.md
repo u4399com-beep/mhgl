@@ -4817,3 +4817,208 @@ Stage Summary:
   块级形态复刻; ⑦阅读页 A-/A+ 自左坞设置面板平移至顶条, 橙 tab 短线为任务「橙色章头」要求的
   站内 DNA 迁移(真站章题无橙饰); ⑧read.css 为起点系移植皮, hover 红 #ed4259 非全站橙系, 按
   真站原样保留
+---
+Task ID: R27-1
+Agent: general-purpose(tools-research)
+Task: 反反爬 10 工具探讨与择优评估
+
+Work Log:
+- 前置勘察: worklog 末段(R24-R26 网络边界实证: fanqianxs=CF IP 级封锁/trxsw=HTTP2 framing 拒绝/shipsay 直连可达) + fetcher.ts 引擎链现场(native→curl 链[curlTlsProfileIndex:2467 host 钉扎]→fetch-relay:2735/:3011→scrapling 桥:2885/:3012→obscuraFetch:1377→cloak-browser:3016→qidian:3017) + fetchMode 白名单 types.ts:644-648(native/scrapling-static/stealthy/playwright) + fetchPageOnce 桥分流 fetcher.ts:3598-3616 + mini-services 清单(10 服务, 端口 3010-3017 全占用)
+- 本地只读探测: curl-impersonate 二进制未装(系统 curl 8.14.1 OpenSSL=默认 JA3); 主 venv 有 playwright+aiohttp 3.13.3, 无 scrapling/curl_cffi/trafilatura; 桥 venv 有 scrapling 0.4.15+curl_cffi 0.16.3+patchright; :3012 health ok(selfTestOk, 3 modes)
+- web-search skill 调研 10 工具(13 次检索): Scrapling(41K stars BSD-3 已在链)/curl-impersonate(lexiforest fork 活跃, 桥内 curl_cffi 0.16.3 已消费)/Trafilatura(2.x 正文提取第一梯队)/CloakBrowser(CloakHQ 30.2K stars 补丁级 chromium fork, 与内部自研 :3016 同名不同物)/invisible_playwright(feder-cr, 无头 Firefox 补丁 playwright, 全链唯一 Firefox 形)/MediaCrawler(CDP 挂真 Chrome+签名服务范式)/Obscura(h4ckf0r0day Rust 无头, 极新, 与内部 obscura.ts 同名不同物)/BrowserAct(SaaS AI agent)/aiohttp(JA3 天然短板)/Dokobot(无法确证, 仅 X persona 玩具 org)
+- 报告落盘 docs/anticrawler-tools-eval.md: 摘要表+本地现状+fetcher 扩展点行号表+逐工具详析(定位/反检测/部署/集成方式/评分/结论)+落地草图
+- 纪律: 仅写 docs/anticrawler-tools-eval.md 一个文件; /tmp/r27 搜索产物已清理; 未碰 src//DB/dev server/lint/tsc/git
+
+Stage Summary:
+- 择优集成清单(本轮): ①curl-impersonate→bun curl 链换装(扩展点 fetcher.ts:2467 画像数组加 impersonate 字段+2423 子进程构造处, CURL_IMPERSONATE_BIN 环境变量, 验证靶 trxsw.com/阴性对照 fanqianxs.com) ②trafilatura→scrapling-bridge venv 安装+server.py 新增 POST /extract 端点(fetcher 零改动, 供 parser/calibrate 兜底留接口)
+- 二轮候选: 外部 CloakBrowser/invisible_playwright→独立 mini-service :3018(复制 scrapling 桥四件套: types.ts:644-648 白名单+212-225 注释+fetcher.ts:2891 新 modeOf+3598 分流); camoufox 补装为 Firefox 形首选
+- 弃: BrowserAct(SaaS 定位不合)/aiohttp(无反检测价值)/Dokobot(无法确证); 仅评估: MediaCrawler(只借鉴中间件, AGPL 风险不引代码)/外部 Obscura(太新待 benchmark)
+- 同名辨析: 内部 src/lib/crawl/obscura.ts 与 mini-services/cloak-browser 均为本项目自研资产, 与外部同名工具(h4ckf0r0day/obscura, CloakHQ/CloakBrowser)严格区分, 内部版无替换动机
+---
+Task ID: R27-5a
+Agent: general-purpose(audit)
+Task: R27 轮审查 — 未审计区逐行深度审查(admin/** + public/** + lib 七文件), 只读零修改
+
+Work Log:
+- 前置: 读 worklog 末段(R25-5a/5b、R26-1/2/3/4 克隆交付与历史 28+22 bug 修复记录), 把历史 bug 模式列为 checklist(StrictMode aliveRef/seq 竞态、UTF-16 slice 斩代理对、inflight 分键、canonical joiner、实体字面渗漏、N+1、错误吞噬卡 loading、信封双轨、缓存失效钩子), 逐文件扫描 + grep 交叉验证; 全程零代码修改/未跑 lint/tsc/build/未动 dev server/未碰 git/DB
+- 覆盖: admin 40 文件(重点 Dashboard/TaskWizard/TaskMonitor/BookDetail/SitesSection/ThemesSection/RulesSection/SettingsSection/helpers 全读, 其余 seq/alive/定时器清理 grep 核实); public core 全读(PublicSite/SiteHeader 2300 行/HomeView/BookView/ReadView/SearchView/HistoryView/bits/ctx/data/seo/read-layouts shared+三存储/Pagination/BackToTop/BookCover/SiteFooter/FeedbackWidget/InstallPrompt/KeywordView/BookCard); 克隆抽查 aijjxs/pili/qb23 六文件 + template-kit/shared.ts 契约 + 10 旧单文件 Home effect 守卫核对; lib 七文件全读
+- 已核实历史修复不复发(未计新报): StrictMode aliveRef 复位+seq 模式八组件全对、ii-a inflight 分站键、R15-a1-1/1-2、R3-42 DOMParser、R6-3 流式限额、API-3 信封双轨、API-11 inflight 指针、三缓存失效钩子与写路由接线完整、TaskMonitor 日志 asc+gt 契约与 logs 路由一致
+- 报告: /tmp/r27-audit/audit-report.md(file:line/severity/触发/影响/修法, 按文件分组, 与 worklog 去重)。计数: 高 2 / 中 5 / 低 11
+
+Stage Summary:
+- 交付: 审计报告 /tmp/r27-audit/audit-report.md; 项目零写入
+- 高严重度清单(修复 agent 照此干活, 每条含 file:line+修法):
+  1. [H1] 友情链接 URL 零协议校验 → javascript: 存储型 XSS 直达公共页脚: src/components/public/SiteFooter.tsx:106-116 `href={l.url}`、sites/TrxswHome.tsx:361-372、sites/ShipsayHome.tsx:约455-470 同款; 入口含 /api/admin/links 与 /api/admin/backup/restore(导入 JSON)。修法: ①渲染出口加 safeHref() 白名单(仅 http/https, 其余置 # 或丢弃, 三处共用) ②根因修: links POST/PUT + backup/restore friendLinks 入库前同一 sanitize(http/https 白名单, 拒绝或改写)
+  2. [H2] R26 五套克隆模板(SiteTemplateSet: aijjxs/pili/kks101/qb23/ddyueshu)与 view:'toc' 未接线: sites/*/index.ts 导出全库无消费方、无 registry 文件; HomeView.tsx:20-30 仍指旧单文件 sites/AijjxsHome.tsx 等; PublicSite.tsx:264-281 renderView 缺 case 'toc'(ctx.tsx:95 VIEW_LIST 已含) → /?view=toc 深链静默渲染首页(软死链), 新模板 30+ 处 navigate({view:'toc'}) 接线后会落首页。修法: ①建 sites/registry.tsx({[themeId]:SiteTemplateSet}, 其余 5 站回退默认) ②renderView 补 case 'toc'+TocView 壳 ③若暂不接线则显式 404 拒绝 'toc' 并给模板标 @deprecated(worklog R26-3 待办核实至今未接线, 软死链为新增观察)
+- 中严重度 5: M1 阅读消毒器实体编码绕过(read-layouts/shared.tsx:137-159, jav&#x09;ascript: 复活); M2 seo-tpl stripLiteralEscapes 字符类错误+\u 先吃致字面 \u3000 产出" 3000"/\uXXXX 残留 hex 渗入 meta(seo-tpl.ts:67-69,77,95-96); M3 SearchView 带 q 首载闪「没有找到相关书籍」(SearchView.tsx:21,27-34+BookCard.tsx:184); M4 HistoryView 挂载并发 50 个 fetchBook N+1 扇出(HistoryView.tsx:48-81); M5 SiteHeader 搜索框各实例独立拉 /api/public/tags 单页 3~6 重复请求绕过 fetchSuggestTags 缓存(SiteHeader.tsx:80-105+六处双实例)
+- 低严重度 11: 组件层 UTF-16 slice 斩代理对 3 处(BookCover.tsx:61/SiteHeader.tsx:1070/SiteFooter.tsx:71, R25-5a 同型)、BookView 预览卸载未清 timer/fetch(BookView.tsx:100-123)、pseudostatic 客户端注册 Map 无上限(pseudostatic.ts:118-119)、data.ts 下拉词 sessionStorage 旧键不清(data.ts:205-233)、useRecordReading 无 visibility 门+节流丢尾(template-kit.tsx:57-77)、seo-tpl/pseudostatic-server 瞬态 DB 错误缓存默认 60s(seo-tpl-server.ts:25-28/pseudostatic-server.ts:40-43)、X2552 搜作者=搜书(SiteHeader.tsx:1354-1367)、aijjxs Read 键盘无输入守卫(sites/aijjxs/Read.tsx:86-94, 未接线暂不生效)、BackToTop 500ms 永续轮询(BackToTop.tsx:76)、popstate 无效 site 失同步(PublicSite.tsx:107-135)、theme.customCss 注入面留档(PublicSite.tsx:296, admin 信任边界内)
+- 待主控: ①修复 agent 按 H1/H2 高清单 + M1~M5 领活(中低可批量) ②H2 需主控决策: registry 接线 or 显式拒绝 'toc'; 接线时连带 L8(aijjxs 键盘守卫) ③报告全文见 /tmp/r27-audit/audit-report.md
+---
+Task ID: R27-2
+Agent: general-purpose(pseo)
+Task: 下拉词聚合 → PSEO 书籍落地页(关键词→SEO 页, /p/{slug}.html), 提升站群长尾收录
+
+Work Log:
+- 前置勘察: worklog 末段(R25-3 七端点实测) + suggest.ts 五引擎聚合 + pseudostatic(-server) 宽容解析/buildBookPath + [...slug] R21-g-1 SSR TDK 模式 + seo-tpl 模板引擎 + schema(BookTag JSON 多值先例) + sitemap 分页/缓存 + proxy.ts /api/admin 会话闸门 + Dashboard CARD_META 注册与 zinc/violet 深色系 + admin books 搜索契约
+- [R27-2-1] suggest.ts: sogou sugproxy 端点死(R25-3 实测 404)——从 ENGINES 池剔除(省 8s 必败等待+腾引擎位), 旧实现留注释备恢复; 头注同步
+- [R27-2-2] prisma PseoPage: id/siteId?/keyword@unique/slug@unique/title/description/keywords/primaryBookId→Book(SetNull)/matchedBookIds(JSON 字符串, Prisma 基本类型无数组, 参照 BookTag)/status(active|disabled)/source(template|suggest)/createdAt/updatedAt + @@index([status,updatedAt])+(primaryBookId); Book 反向关系 pseoPages[]; bun run db:push ✅(client v6.19.2 重生成)
+- [R27-2-2] seo-tpl.ts: 新增 DEFAULT_PSEO_TEMPLATES + composePseoTdk(title={keyword} 干净标题兼 H1 不含站名后缀—站名由 SSR 按站群追加; description/keywords 生成期固化; interpolate map 补 keyword/bookCount 两变量, 既有三件套零回归); statusText 不入 PSEO 句式(未知态留「，)」悬尾实测后剔除)
+- [R27-2-3] src/lib/pseo.ts(纯函数): normalizeKeyword(40 码点)/模板族(templateKeywordsOf: {name}txt下载、{name}{author}全集、《{name}》最新章节、{name}无弹窗在线阅读、《{name}》{category}小说)/keywordFromSuggestWord(含书名直用, 否则《书名》+词)/pseoSlugOf(非[Han\p{L}\p{N}_-]→'-', 正文≤72 码点, FNV-1a 32bit→base36 6 位确定性后缀: 同词再生同 slug, 碰撞由 P2002+随机熵重试兜底)/pickMatchedBookIds(主书恒首, 同分类字数序前 4 + 字数榜补位→非 thin content ≥3 本)
+- [R27-2-4] src/lib/pseo-server.ts(生成服务): generatePseoPages({bookIds?|all,useLiveSuggest?,perBook?}) — 书籍集合(指定≤200/全部≤500 字数序)→BookTag 库内词一次取齐→既有关键词 Set 快查(少走 P2002)→每书累计页数 groupBy(PER_BOOK_TOTAL_MAX=30 跨次硬顶防膨胀)→模板族→实时下拉词(useLiveSuggest 默认关防刷, ≤50 本串行)→书籍 keywords→BookTag, 每书每次 min(perBook,余量) 页, 书名裸词跳过; composePseoTdk 固化 TDK; createPseoRow: keyword P2002→skip, slug P2002→附随机熵重试≤3; 单次全局 PSEO_RUN_LIMIT=500; 另供 getPseoStats/listPseoPages + 可选 runner 钩子入口 generateForBook(bookId,≤5)/pseoAutoEnabled()/PSEO_AUTO_SETTING_KEY('pseoAutoGenerate')
+- [R27-2-5] API /api/admin/pseo: GET 列表(?page&size)+统计; POST 生成(空 bookIds+非 all 拒绝防误全库; 返回 generated/skippedExisting/booksScanned/liveBooks/cappedByRunLimit+stats); DELETE 清空(confirm='wipe' 查询串或 body); [id]/route.ts DELETE 单条(P2025→404); 鉴权由 proxy.ts /api/admin/* 会话闸门承接, 信封 ok/fail+withGuard 与相邻路由同模式
+- [R27-2-6] [...slug]/page.tsx: matchPseoPath(/^\/p\/(.+?)(\.html?)?$/)+pseoSlugCandidates(Next 已段解码, 再 decode 兜底双编码直链)+pseoMatchedIds 脏 JSON 安全; generateMetadata PSEO 分支先于 book/read: title=row.title+「 - 站名」/description/keywords/canonical=pathname?site=(buildMetadata 复用, og website); 页面分支 db 直查(active)→matchedBookIds 顺序取书(主书最前, 已删书排除)→PseoLanding 服务端组件 SSR 直出: 面包屑/H1=row.title/关键词 chip/说明文案(description+主书简介摘要 150 码点)/相关书卡(封面[无图降级书名块]/作者/分类/状态/字数/最新章/简介 76 码点/书籍页+章节目录+分类专区三链)/站内内链 footer(首页/搜索/前 6 书「{书名}全文阅读」); 书链 buildBookPath 按 pseudo 预设否则 ?view=book 永不死链, 目录 ?view=toc&id=, 分类 ?view=cat=; 未命中/停用→notFound
+- [R27-2-7] sitemap(/api/public/sitemap): pseoSitemapEntries(active 按 updatedAt desc, take 2000=PSEO_SITEMAP_LIMIT, loc=/p/{encodeURIComponent(slug)}.html, weekly/0.6); legacy 单页形态 home 后并入; 分页模式仅并入第 1 页头(单页 7000<5 万协议上限, totalPages 不变); 与 5min 缓存共存
+- [R27-2-8] PseoSection.tsx(管理端, zinc-900/violet): 统计卡×4(已生成[来源 split]/启用/覆盖书籍/启用站)+生成表单(范围 全部|指定书籍[名称搜索 chips]/每书页数 1~30/实时拉词开关默认关)+列表(title+来源徽章+状态/路径/主书/时间/删除)+分页+清空(双 confirm); Dashboard.tsx 最小接线仅三处: import PseoSection/CARD_META 补 {key:'pseo',group:'panel'}/{show('pseo') && <PseoSection/>} 渲染分支(AdminApp 未碰)
+- 验证: /tmp 一次性 bun 脚本(新进程新 client): 首轮 all+perBook=3 生成 9 页→二轮+generateForBook 累计 25 页全库 keyword/slug 全唯一(distinct=rows✅)→slug 确定性(同词同 slug✅)→SSR slug 候选查库模拟命中✅→matchedBookIds=3✅→route handler 直调冒烟 GET200 统计/POST200(词槽耗尽 generated=0)/DELETE200+再删 404(P2025 映射)✅; 修 2 处: PSEO description statusText 悬尾剔除+每书跨次 30 页硬顶; bun build --external '*' 十文件(含 2 修改核心+2 新 lib+2 新 route+sitemap+PseoSection+Dashboard+page.tsx)全 0 错; 遗留 24 页真实书派生数据供主控 E2E; 脚本已删
+- 纪律说明: runner.ts 钩子(交付项 8)本轮主动跳过——runner.ts 归并行 agent 所有权, 冲突风险高; 已在 pseo-server 预置 generateForBook/pseoAutoEnabled/PSEO_AUTO_SETTING_KEY 一行接线口(mergeSuggestWords 落库后 if(await pseoAutoEnabled()) try{await generateForBook(bookId,5)}catch{}); 未动 fetcher/runner/parser/cleaner/themes/public 组件/其他 admin 组件/mini-services; 零 git/零重启 dev server; 伪静态预设本轮未改, dev 进程 prisma client 为旧版
+
+Stage Summary:
+- 文件清单: prisma/schema.prisma(PseoPage+Book.pseoPages) / src/lib/crawl/suggest.ts(sogou 剔除) / src/lib/seo-tpl.ts(+composePseoTdk) / src/lib/pseo.ts(新, 纯函数) / src/lib/pseo-server.ts(新, 生成服务) / src/app/api/admin/pseo/{route.ts,[id]/route.ts}(新) / src/app/[...slug]/page.tsx(/p/ 分支+PseoLanding) / src/app/api/public/sitemap/route.ts(PSEO 段) / src/components/admin/PseoSection.tsx(新) / src/components/admin/Dashboard.tsx(3 行接线)
+- 路由形态: /p/{slug}.html(catch-all 内新分支; slug=清洗后关键词(≤72 码点, 非 Han/L/N/_- →'-')+6 位 base36 FNV-1a 确定性哈希; canonical=/{path}?site={siteId}; sitemap loc 百分号编码)
+- 生成算法: 候选=模板族(5)→实时下拉词(开关默认关)→书籍 keywords→BookTag; 含书名词直用否则《书名》+词; 书名裸词跳过; 全站 keyword 唯一(Set 快查+P2002 兜底); 每书每次 min(perBook,30-已有); 单次 ≤500 页; matchedBookIds=主书+同分类字数前 4+字数榜补位(≥3 防 thin)
+- TDK 口径: 生成期 composePseoTdk 固化进行(title=干净关键词标题=H1, description≤160 带「等N部相关作品」句式, keywords≤200); SSR 追加「 - 站名」后缀与 ?site= canonical, 站群不撞车
+- 待主控: ①重启 dev server 后 E2E: GET /p/{slug}.html 200+SSR TDK(库内已留 24 页, 如 /p/%E5%BA%87%E6%8A%A4%E6%89%80%E8%BF%9B%E5%8C%96%E8%AE%BAtxt%E4%B8%8B%E8%BD%BD-wi757p.html)+管理端 /api/admin/pseo GET/POST/DELETE 与仪表盘 PSEO 面板 ②runner.ts 接线(见上, 一行) ③串行 lint/tsc ④Setting 'pseoAutoGenerate'='1' 可开启入库自动生成(钩子就位后生效)
+---
+Task ID: R27-5b
+Agent: general-purpose(audit-fix)
+Task: 修复 R27-5a 审计全部高危+中危发现 + 完成 R26 遗留克隆模板 registry 接线
+
+Work Log:
+- 前置: 通读 /tmp/r27-audit/audit-report.md 全量发现 + worklog 末段(R26-1~4 交付契约/R27-1/2/5a) + shared.ts SiteTemplateSet 五 props + 五套 index.ts 导出名 + PublicSite renderView + ctx VIEW_LIST/parseView/viewToUrl + HomeView/BookView/ReadView/CategoryView/data.ts 全读; 确认 /api/admin/links 写侧已有 http(s) 白名单(normalizeLinkUrl, 本轮只补渲染出口与 restore 入库卡口)
+- [R27-5b-H2] registry 接线(最大交付): 新建 sites/registry.tsx —— 静态 import 五套(aijjxs/pili/kks101/qb23/ddyueshu, 导出名逐一核对), TEMPLATE_SETS 按 theme.id 索引, 导出 getTemplateSet(themeId)(未接入站返回 null 走旧路径); css 注入复用 PublicSite 既有 .clone-{id} 通道, 新增 <style data-template-clone-css> 与 theme.customCss(data-theme-clone-css) 叠加; 五视图分发落在各视图壳内(数据获取/SEO/TDK/伪静态注册仍单出处): HomeView(registry 命中→tpl.Home, 未知布局兜底 aijjxs 模板 Home)/CategoryView(data,loading,error,catName=label,cat,page)/BookView(data,tocPage,currentChapterId=URL ?chapter=)/ReadView(data,loading,error)/新建 TocView(fetchBook(page,100)+composeTocTdk+BreadcrumbList+模板分支, 旧路径通用目录兜底=行式章节列表+Pagination, 注释声明非 1:1); PublicSite renderView 补 case 'toc'(修 ?view=toc 深链软死链)+initialView 类型 +'toc'; 未接线 5 站(x2552/huangjinwu/ggd66/shipsay/trxsw)零回归, registry 头注留扩展位(六文件克隆完成后加一行即全视图接线); themes.ts 零改动(registry 以 SiteCloneId 命名空间对齐, customCss 通道已存在)
+- [R27-5b-H1] 友链 javascript: XSS: 新建 components/public/safe-href.ts(scheme 白名单 http/https+站内相对, //协议相对/#/其余伪协议一律 '#', 实体编码形态天然免疫), 渲染出口 SiteFooter 友链+链轮/TrxswHome/ShipsayHome 三处接线; restore route friendLinks 入库卡口 sanitizeFriendLinkUrl(无 scheme 补 https:// + httpUrl 白名单, 非法跳过该条并 warnings 提示不阻断整批)
+- [R27-5b-M1] 阅读消毒器: sanitizeTagAttrs 重写为 href/src 整属性出口白名单 —— 探测副本先单遍实体解码(charRefToChar 防代理对/fromCodePoint 抛错; tab/newline/colon/sol/semi 命名实体)+剥 \t\n\r(URL 解析器同款)后 scheme 判定, 仅 http/https/相对放行; 原串原样保留或整属性移除(&quot; 还原 breakout 风险归零), 覆盖 jav&#x09;ascript:/&#58;/&#0009;/裸换行/data&#58; 全部变体; on* 剥离语义不变
+- [R27-5b-M2] seo-tpl stripLiteralEscapes: \uXXXX 先行还原真字符(代理对区段丢空格), 字符类 [rn(tfu)]→[rntfu] 去误入括号; seoText/interpolate 两出口共用单函数; bun 冒烟实测 'a\u3000b'→'a b'/'\u4f60'→'你'/TDK 无 hex 残留
+- [R27-5b-M3] SearchView: 初始 loading=!!q(修带 q 首载闪「没有找到相关书籍」)
+- [R27-5b-M4] 书架 N+1: /api/public/books +ids 批量参数(≤50, 字符集白名单+去重, 命中时忽略分页/偏移/排序, inList 一发, DTO 抽 toBookDto 复用); data.ts BooksQuery.ids; HistoryView 改一次批量直查(本地去重+缺失即失败集, 卡片降级口径不变), fetchBooks 内部照旧 registerBookRef
+- [R27-5b-M5] 词池单飞: SiteHeader useSuggestPool 改调 fetchSuggestTags(120 池切片 24, in-flight+sessionStorage TTL 复用), SearchView 热搜词同步切片 20; 单页重复 /api/public/tags 请求 3~6 次→0
+- 低危 7 修: L1 sliceCodePoints×3(BookCover:61/SiteHeader:1060/SiteFooter:75) L2 TocChapterButton 卸载清 timer L3 pseudostatic 注册表 LRU≈500 上限(registrySet 先删后插刷新近度) L4 suggestCacheWrite 写前清前缀旧键 L5 useRecordReading 标准防抖(重置式)+阅读时长按可见段累计(10s 采样+卸载补算) L6 getSeoTemplates/getPseudoPreset 瞬态 DB 错误不写缓存(未配置=真实配置仍缓存) L8 aijjxs Read 键盘补 editable-target 守卫
+- 低危 4 跳(见 Stage Summary)
+- 质量门: bun build --external '*' 25 个改动/新建文件全 0 错(两批); /home/z 下一次性 bun 冒烟脚本 38 断言全过(M1 消毒 16 变体/H1 safeHref 11/M2 7/M4 3/tocTdk 1)后已删; 未跑 lint/tsc(主控串行门)/零 DB/零 git/未动 dev server; 修改严格限定允许清单(sites/registry.tsx+TocView.tsx+safe-href.ts 三个新文件)
+- 边界确认: [...slug]/page.tsx/pseo*/fetcher/runner/parser/cleaner/mini-services 全未触碰; PublicSite initialView 类型加 'toc' 向后兼容 SSR 现有传参
+
+Stage Summary:
+- 修复对照表: H1 修复(渲染出口×3+restore 卡口; links route 写侧经核已有白名单无需改) | H2 修复(registry 五视图全接线+case 'toc'+TocView) | M1 修复 | M2 修复 | M3 修复 | M4 修复(批量端点) | M5 修复 | L1 修复 | L2 修复 | L3 修复 | L4 修复 | L5 修复 | L6 修复 | L7 跳过(搜作者需 author 检索 API 参数, 涉公开 API 语义扩展+X2552 头部视觉克隆保真, 超出本轮边界) | L8 修复 | L9 跳过(BackToTop 500ms 轮询换 MutationObserver 属工作组件重构, 清理正确仅纯性能项) | L10 修复(popstate 无效 site 剥离, resolve 分支同步修) | L11 跳过(theme.customCss admin 信任边界内, 审计自评留档; 未来开放低权角色需 CSS 白名单)
+- registry 接线设计要点: ①单一出处 sites/registry.tsx(Record<SiteCloneId,SiteTemplateSet>, getTemplateSet 纯查表) ②五视图分发在视图壳内 —— SEO/TDK/伪静态注册/canonical 全部保持单出处, 模板零数据逻辑(契约原样落地), 未命中站零回归 ③css 双通道注入: theme.customCss(data-theme-clone-css)+tplSet.css(data-template-clone-css)同 .clone-{id} 作用域 ④'toc' 软死链修复: renderView 分支+TocView 壳(模板分支/通用兜底双路径) ⑤权衡声明: registry 静态 import 使五套模板进主 chunk(不再 per-home 动态分包), 换取 book/toc/read/category 五视图无动态 import 等待与闪烁; 其余 5 站旧单文件仍走 dynamic() ⑥themes.ts 零改动
+- 删除文件清单(共 5, 删前 grep 确认仅 HomeView 引用且已解除): sites/AijjxsHome.tsx / sites/PiliHome.tsx / sites/Kks101Home.tsx / sites/Qb23Home.tsx / sites/DdyueshuHome.tsx; 其余 5 站旧单文件保留(尚无六文件替代)
+- 新建文件: sites/registry.tsx / TocView.tsx / safe-href.ts
+- 遗留风险/待主控: ①registry 静态化后主 chunk 增大(~1.3 万行克隆代码), 如在意可后续把 registry 内改 React.lazy 按视图分包 ②真主题建站需目检五页型(375px/桌面/夜间)与 /?view=toc 深链 ③备份导入对非法友链 url 现为「跳过+警告」, 管理端 BackupSection 若需显性展示 warnings 可后续接线 ④串行 lint/tsc 待主控
+---
+Task ID: R27-1b
+Agent: general-purpose(anticrawl-integration)
+Task: 集成 curl-impersonate 与 trafilatura 进采集链并实测调试(按 R27-1 评估报告方案)
+
+Work Log:
+- 前置勘察: docs/anticrawler-tools-eval.md 方案草图 + worklog 末三段(R27-1/5a/2 并行动向) + fetcher.ts
+  curl 链现场(2423 起 curlOnce/fetchViaCurl 手工逐跳 + 2467 curlTlsProfileIndex hash%3 画像) + 桥现场
+  (mini-services/scrapling-bridge:3012, .venv 内 curl_cffi 0.16.3 已在位, 进程 cmdline=.venv/bin/python server.py)
+- [R27-1b-安装] curl-impersonate 二进制: GitHub lexiforest v0.9.0 tarball(curl-impersonate-chrome
+  BoringSSL curl 8.7.0-DEV + chrome100~131/edge/safari 系档位包装脚本)装至 /usr/local/bin(23 个可执行,
+  包装脚本与二进制同目录布局, $dir 相对解析成立), 并留 3 份副本于 mini-services/scrapling-bridge/_bin/
+  (curl-impersonate-chrome/curl_chrome116/curl_safari17_0, 项目内自含 fallback); 关键实证: v0.9.0
+  二进制无 --impersonate 聚合旗(该旗是 curl_cffi API 概念), 档位形态=包装脚本(curl_chrome116 内部
+  以 ciphers/http2-settings/alps/permute/grease 全套旗组拉起二进制); 指纹验证(tls.peet.ws): 系统 curl
+  JA4=t13d3013h2_1d37bd780c83 UA=curl/8.14.1 vs curl_chrome116 JA4=t13d1516h2_8daaf6152771
+  akamai_h2=1:65536;2:0;3:1000;4:6291456;6:262144|15663105|0(与真 Chrome 一致); 实测 wrapper 追加
+  -H UA 会产生双 User-Agent 头 → 引出 filterImpersonateHeaders 头过滤设计
+- [R27-1b-1] fetcher.ts: 隐式三画像显式化为 CURL_TRANSPORT_PROFILES 数组(CurlTransportProfile
+  {name,http11?,ciphers?,impersonate?}, hash%3 下标语义不变, curlProfileOf 兼容包装); 条目 imperso-
+  nate 字段为 host 钉扎档位声明位(当前全空=默认关, 零回归)
+- [R27-1b-2] fetcher.ts: 档位解析 resolveCurlImpersonateTier —— 优先级 规则 cfg.curlImpersonate >
+  CURL_IMPERSONATE_HOSTS host 钉扎表(env, host=tier 逗号对) > CURL_IMPERSONATE_PROFILE 全局开关
+  (env) > 画像条目缺省; IMPERSONATE_TIER_RE 白名单(chrome/edge/safari/firefox+版本号±A/B 后缀
+  +_android/_ios, 与桥 _TIER_RE 同口径), 非法档位一律视为未选
+- [R27-1b-3] fetcher.ts: 档位包装脚本探测 resolveImpersonateBin(CURL_IMPERSONATE_BIN env 指目录/
+  具体文件 > PATH > mini-services/scrapling-bridge/_bin 项目内副本; spawn --version 探测 3s 超时,
+  命中缓存/未命中 60s 冷却, 仿 checkCurl 模式)
+- [R27-1b-4] fetcher.ts: filterImpersonateHeaders —— 档位生效时过滤 12 项包装脚本自带指纹头
+  (UA/Accept/Sec-Fetch-*/sec-ch-ua* 等), 仅透传 Cookie/Referer/规则自定义头(防双头+UA/ TLS 版本
+  错配; 桥轨同口径使两侧行为一致)
+- [R27-1b-5] fetcher.ts: curlOnce 双轨改造 —— 原 spawn/收流/头文件解析逻辑原样抽出为
+  runCurlProcess(bin,args,headerFile,remainingMs) 通用执行器; curlOnce 加 impersonateTier/bridgeUrl
+  两参: 有包装脚本 → bin=包装脚本(curl-impersonate 形态, 不再加旧画像 --http1.1/--ciphers); 无二进
+  制 → 改走桥 /impersonate(轨 2); 缺省 tier='' → 旧轨逐字节零回归; 轨 2 失败如实抛错不静默降级弱指纹
+- [R27-1b-6] fetcher.ts: impersonateOnceViaBridge —— POST {bridge}/impersonate {url,method:'GET',
+  impersonate,headers,proxy,timeoutMs}, 信封 {ok,status,html,finalUrl,headers:{location,contentType,
+  retryAfter,setCookies}} 映射回 CurlHopResult 供 fetchViaCurl 手工重定向循环无差别消费; 引擎侧
+  assertSafeTarget 补守卫(双重保险同款); contentType 强制改写 charset=utf-8 防二次解码乱码(桥内
+  curl_cffi 已按目标 charset 解码); AbortError 转译普通 Error 防上层误分类
+- [R27-1b-7] fetcher.ts: fetchViaCurl 逐跳解析档位(与 curlTlsProfileIndex host 钉扎同口径, 重定向跨
+  host 重解析)+桥地址取 cfg.scraplingBridgeUrl||SCRAPLING_BRIDGE_URL
+- [R27-1b-8] types.ts: FetchConfig.curlImpersonate?: string 字段+文档注释; sanitizeFetchConfig 白名单
+  (safeStr 40 + safeSingleLine + 同口径正则, 非法整字段丢弃); 仅 curl 链维度, native/scrapling/浏览器链
+  不受影响, 缺省关闭
+- [R27-1b-1/2 桥] server.py(+170 行): POST /impersonate(curl_cffi 档位伪装单跳, allow_redirects=False
+  与 curlOnce 契约对齐, method 白名单 GET/HEAD/POST, _TIER_RE 档位白名单, proxies 全形态, Set-Cookie
+  经 Headers.get_list 多值取回); POST /extract(trafilatura, html 直提/url 形态桥内 fetch_static 抓取后
+  提, bare_extraction→title/author/text + extract markdown 副产物, include_links 控制 md 内链, 失败
+  ok:false 信封); /health 增 capabilities{impersonate,extract}+versions(curl_cffi/trafilatura);
+  do_POST 三端点统一异常信封; 惰性加载 get_cffi_requests/get_trafilatura(仿 get_fetchers 双检锁);
+  trafilatura 2.2.0 经 uv pip install --python .venv/bin/python 装入桥 venv(与 scrapling 0.4.15/curl_cffi
+  0.16.3 共存); 桥重启两次(均 kill :3012 pid + setsid .venv/bin/python server.py 同款命令, /health 确认)
+- [R27-1b-实测A] 引擎级对比(一次性 bun 脚本, fetchViaCurl 直调, 已删): aijjxs.com 首页 legacy-curl vs
+  chrome116 双轨同为 200/53135 chars(~560ms, 内容一致) —— 二进制轨与桥轨均验证(桥轨经 PATH/cwd 剥离
+  强制, 桥日志 200 /impersonate 53135 chars 实证); trxsw.com 阴性: 系统 curl/chrome116 二进制/curl_cffi
+  chrome116·124·131·136/safari17_0/firefox135/edge101 全体 HTTP/2 PROTOCOL_ERROR(stream reset),
+  http1.1 亦拒(empty reply/unexpected EOF) —— 指纹升级不解决, 判定 IP 级/更深封锁(同 fanqianxs 边界),
+  非客户端工具可解, 如实记录不虚报战果
+- [R27-1b-实测B] /extract 质量(一次性 python 脚本, 已删): 真章节页 aijjxs /read/47/57361/2.html(第1章
+  新婚) url 形态 → 2110 chars/47 段/零导航噪声/章节名+全文完整, title 回退 '<title>' 生效; favor_recall
+  vs 默认实测: favor_recall 会收进面包屑噪声行(2143 vs 2110, 差异即面包屑) → server.py 弃用评估报告
+  草案的 favor_recall=True 改默认旗组(注释留档); html 形态与 url 形态输出一致; 空 body 错误信封正确;
+  /fetch 旧契约回归 200/53135 无破坏; 修复 server.py 一处 global 语句笔误+set_cookies 简化(get_list
+  已实证)
+
+Stage Summary:
+- 文件清单: src/lib/crawl/fetcher.ts(画像数组显式化+档位解析/探测/头过滤/双轨 curlOnce+runCurlProcess
+  抽取+impersonateOnceViaBridge+fetchViaCurl 逐跳接线, [R27-1b-1..7] 注释) / src/lib/crawl/types.ts
+  (curlImpersonate 字段+sanitize 白名单, [R27-1b-8]) / mini-services/scrapling-bridge/server.py(/imperso-
+  nate+/extract+capabilities, [R27-1b-1/2]) / mini-services/scrapling-bridge/_bin/(3 个二进制副本, 新目录);
+  桥已重启生效(pid 23171, /health capabilities 双 true); 系统级 /usr/local/bin 23 个 curl-impersonate 可执行
+- 启用方式(默认全关零回归): ①规则 fetch.curlImpersonate='chrome116' 等(sanitize 白名单) ②env
+  CURL_IMPERSONATE_HOSTS="www.x.com=chrome116" host 钉扎 ③env CURL_IMPERSONATE_PROFILE=chrome116
+  全局; 引擎可用性 CURL_IMPERSONATE_BIN 指包装脚本目录/文件; /extract 本轮 fetcher 零接线(端点留
+  parser 规则全失败兜底/calibrate 素材, 后续轮次)
+- 指纹实证: chrome116 档 JA4=t13d1516h2_8daaf6152771(JA3 hash 两侧引擎各一, BoringSSL), akamai_h2
+  与真 Chrome SETTINGS/伪头序一致; 头组由档位包装脚本/curl_cffi 默认头接管(版本自洽, 无双头)
+- 遗留风险: ①trxsw.com 类 IP 级封锁站指纹工具无效, 需代理池/出口换 IP(与 R24 实证一致) ②curl-
+  impersonate v0.9.0 停在 chrome131/safari18_0 档, 新档位需升级 release 或走桥轨(curl_cffi 0.16.3 档更
+  全, firefox 系仅桥轨可达成——本机无 ff 二进制 tarball) ③/extract title 回退保留站名后缀未清洗(author
+  对书站模板页常空), 消费方需自行处理 ④桥 /impersonate 无并发闸(static 同为无闸, 浏览器档才有), 高并
+  发规则配 impersonate 档时与 scrapling-static 同风险面 ⑤CURL_IMPERSONATE_* env 为模块加载期读定,
+  dev server 重启后才生效
+---
+Task ID: R27-6
+Agent: general-purpose(clone-batch2)
+Task: 剩余站点克隆重试(最多 2 站, 六文件形态; 单站完成即记一笔)
+
+Work Log:
+- 可达性探测(直连 curl Chrome UA 15s + 桥 :3012 /fetch static 兜底各一次): huangjinwu.org 200 ✓ /
+  ggd66.com 200 ✓ / x2552.com 连接拒绝(直连 http=000 瞬断, 桥 ConnectionError: Could not connect) ✗ /
+  demo.shipsay.com 连接超时(直连 15s 超时, 桥 30s Timeout) ✗ → 不可达站: x2552 / shipsay, 如实跳过
+- [R27-6-g1] ggd66(格格党) 完成 —— 真站勘察: /tmp/r27-f/ 存档 ggd66-home.html(24.8KB)/ggd66-sort.html
+  (15.3KB)/ggd66-book.html(17.9KB)/ggd66-read.html(13.6KB)/ggd66-style.css(11.5KB, @charset gb2312 全量)
+  + /qu/33779/3476058.html 章节页; 五页型 DOM 逐节解析(HTMLParser 缩进树), 真站无独立目录页(书页内
+  #list-chapterAll 即全量目录, JS「查看全部章节↓」展开) → Toc 独立成页映射声明
+- [R27-6-g1] 六文件落地 src/components/public/sites/ggd66/: Home.tsx(302 行, fengtui 封面推荐两列+
+  fengyou 搜索/排行+zuixin 最新+gengxin 五段更新行) / Category.tsx(240, .class 分类条+bookbox 三列文字卡
+  +num 序号角标+.pages 分页) / Book.tsx(291, breadcrumb+thumbnail 140×190+booktag chips+bookmore 按钮+
+  最新/全部章节 dd 网格+分页) / Toc.tsx(157, 目录块独立页+当前章 #f50 高亮+分页) / Read.tsx(217, 米黄
+  #FBF4EC 纸面+24px/180% 正文+三钮导航+键盘 ←/→/Enter+相关阅读) / index.ts(64, ggd66Template+css 字符串
+  全 .clone-ggd66 前缀 16 条逐条注明真站规则出处); 共 1271 行; 六文件 bun build --external '*' 0 错;
+  TXT 下载唯一 <a>(/api/public/download?book=) / 导航全 button+navigate / 骨架+空态+ErrorState /
+  375px 无横滚(版心恒 90% max 1200px)
+- [R27-6-g1] ggd66 实测色板(ggd66-style.css 逐条规则): body 底 #f9f9f9 · 正文 #888/15px 微软雅黑 ·
+  链接 #00886d · 悬停橙 #f50 · 主青绿 #56ccb5(×10: btn-info/搜索边钮/footer/分页 hover+当前页/num 角标) ·
+  头部青 #1abc9c(SiteHeader 域) · 面包屑底 #cdf3eb · h2 #333/18px 底边 #ccc · 封面边 #ccc/#ddd ·
+  booktag red 字 #bf2c24 边 #ffb0b4 · blue 字 #3f5a93 边 #89d4ff · 阅读纸面 #FBF4EC · 阅读 h1 #00886d
+  26px(≤467px 20px) · 正文 24px/180%/ls .1em(≤467px 18px) · 章节行 dashed #ccc · 分页边 #e6e6e6 ·
+  白卡阴影 rgba(0,0,0,.05)
+- [R27-6-g1] 降级/推断说明: ①真站分类卡第三行「阅读量：N」无数据契约 → 分类名替代 ②真站「N人读过」
+  chip → 分类名 chip ③真站「加入书架/加入书签」登录态 → TXT 下載(.btn-info 同形)/不渲染 ④最新章节块取
+  当前目录页尾部 12 条倒序(真站为站方倒序 12 条; 多页书第 1 页≈最早, 声明) ⑤真站目录 JS 整页展开 → 契约
+  100 章/页分页 ⑥Read 書首頁钮(void(0))位置补「上一章」+键盘键等价实现(真站温馨提示明示按键) ⑦相关阅读
+  真站为同分类书链, ChapterData 无分类 → 字数热榜替代 ⑧面包屑(Read/Toc)无分类字段 → 书名直达 ⑨章节 dd
+  列数断点 lg:25%/sm:50%/移动 100%(真站 947/767/467 三档近似) ⑩移动端 .tuijian a 8px 全宽虚线行未复刻
+  (可读性), gengxin 移动端隐藏列对齐真站 s3/s4
+(下一站 huangjinwu 进行中, 完成后续写本段)

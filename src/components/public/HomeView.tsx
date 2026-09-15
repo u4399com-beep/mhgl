@@ -1,6 +1,7 @@
 // ============================================================
-// 首页视图 — [R24-5] 按 theme.layout(=站点克隆 id)分发 9 个 {Site}Home 克隆首页组件;
-// [R25-4] +trxsw(同人小说网)第 10 套。
+// 首页视图 — [R24-5] 按 theme.layout(=站点克隆 id)分发克隆首页组件;
+// [R25-4] +trxsw(同人小说网)第 10 套; [R27-5b-H2] 克隆五站(aijjxs/pili/kks101/qb23/ddyueshu)
+// 改由 sites/registry(SiteTemplateSet.Home) 接管, 其余 5 站仍走旧单文件 dynamic import。
 // 数据口径: 一次拉 48 本最新(与旧 12 布局同源 fetchBooks), SEO/TDK 由本壳统一注入。
 // 旧 12 种通用布局(与全部旧主题一起)已按用户指令删除 —— 见 [R24-5] themes.ts 头注。
 // ============================================================
@@ -14,14 +15,14 @@ import { useSiteSEO } from './seo'
 import { EmptyState, ErrorState } from './bits'
 import type { BookItem } from './types'
 import type { SiteHomeProps } from './sites/shared'
+// [R27-5b-H2] 克隆模板注册表(theme.id → SiteTemplateSet)
+import { getTemplateSet } from './sites/registry'
 
-// [R24-5] 9 站克隆首页全部按需分包: 站点/主题经客户端 fetch 获知, SSR 首屏命中默认站主题,
-// 非默认布局只在数据到达后的客户端渲染分支中触发 chunk 拉取, 无首屏闪烁/CLS 回归面
-const AijjxsHome = dynamic(() => import('./sites/AijjxsHome').then((m) => m.AijjxsHome))
-const PiliHome = dynamic(() => import('./sites/PiliHome').then((m) => m.PiliHome))
-const Kks101Home = dynamic(() => import('./sites/Kks101Home').then((m) => m.Kks101Home))
-const Qb23Home = dynamic(() => import('./sites/Qb23Home').then((m) => m.Qb23Home))
-const DdyueshuHome = dynamic(() => import('./sites/DdyueshuHome').then((m) => m.DdyueshuHome))
+// [R24-5] 克隆首页按需分包: 站点/主题经客户端 fetch 获知, SSR 首屏命中默认站主题,
+// 非默认布局只在数据到达后的客户端渲染分支中触发 chunk 拉取, 无首屏闪烁/CLS 回归面。
+// [R27-5b-H2] aijjxs/pili/kks101/qb23/ddyueshu 五站已升级为六文件克隆
+// (sites/registry 静态接管全五视图), 旧单文件 AijjxsHome/PiliHome/Kks101Home/
+// Qb23Home/DdyueshuHome.tsx 已删除; 其余 5 站(尚无六文件替代)保留旧单文件。
 const X2552Home = dynamic(() => import('./sites/X2552Home').then((m) => m.X2552Home))
 const HuangjinwuHome = dynamic(() => import('./sites/HuangjinwuHome').then((m) => m.HuangjinwuHome))
 const Ggd66Home = dynamic(() => import('./sites/Ggd66Home').then((m) => m.Ggd66Home))
@@ -30,11 +31,6 @@ const ShipsayHome = dynamic(() => import('./sites/ShipsayHome').then((m) => m.Sh
 const TrxswHome = dynamic(() => import('./sites/TrxswHome').then((m) => m.TrxswHome))
 
 const SITE_HOMES: Record<string, React.ComponentType<SiteHomeProps>> = {
-  aijjxs: AijjxsHome,
-  pili: PiliHome,
-  kks101: Kks101Home,
-  qb23: Qb23Home,
-  ddyueshu: DdyueshuHome,
   x2552: X2552Home,
   huangjinwu: HuangjinwuHome,
   ggd66: Ggd66Home,
@@ -103,7 +99,10 @@ export function HomeView({ page, cat }: { page: number; cat?: string }) {
   })
 
   const books: BookItem[] = data?.books || []
-  const SiteHome = SITE_HOMES[theme.layout]
+  // [R27-5b-H2] 克隆模板接线: registry 命中(theme.id ∈ 克隆五站)→ SiteTemplateSet.Home;
+  // 未命中站点走旧单文件 SITE_HOMES; 未知布局兜底 aijjxs 克隆首页(与原防御分支同语义)
+  const tplSet = getTemplateSet(theme.id)
+  const SiteHome = tplSet?.Home || SITE_HOMES[theme.layout] || getTemplateSet('aijjxs')?.Home
 
   return (
     <>
@@ -122,8 +121,9 @@ export function HomeView({ page, cat }: { page: number; cat?: string }) {
       ) : SiteHome ? (
         <SiteHome books={books} loading={loading} />
       ) : (
-        // 防御性兜底: 未知布局 id(旧库脏数据) → aijjxs 克隆首页
-        <AijjxsHome books={books} loading={loading} />
+        // 双重防御: theme 与 registry 均未命中时不再渲染(EmptyState 已在上分支覆盖空态;
+        // 此分支仅可能出现在 theme.id 非法且被上层 getTheme 兑底成 aijjxs 前的极端边角)
+        <EmptyState text="首页布局暂不可用" hint="请在后台检查站点主题设置" />
       )}
     </>
   )

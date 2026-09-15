@@ -18,12 +18,14 @@ export function invalidateSeoTplCache(): void {
 /** 当前 SEO 模板(Setting.seoTemplates, 消毒兜底; 60s 缓存; 未配置 = 全默认「自动」) */
 export async function getSeoTemplates(): Promise<SeoTplSet> {
   if (tplCache && Date.now() - tplCache.at < TPL_TTL_MS) return tplCache.tpl
-  let tpl: SeoTplSet = sanitizeSeoTpl(null)
+  let tpl: SeoTplSet | null = null
   try {
     const row = await db.setting.findUnique({ where: { key: SEO_TPL_SETTING_KEY }, select: { value: true } })
-    if (row?.value) tpl = sanitizeSeoTpl(JSON.parse(row.value))
+    // DB 可达但未配置 → 默认模板即真实配置, 可缓存; DB 异常 → 不写缓存(下次请求重试)
+    tpl = sanitizeSeoTpl(row?.value ? JSON.parse(row.value) : null)
   } catch {
-    tpl = sanitizeSeoTpl(null)
+    // [R27-5b-L6] 瞬态 DB 错误不把「默认值」写进 60s 缓存(修前抖动期间全站 TDK 按默认渲染 1 分钟)
+    return sanitizeSeoTpl(null)
   }
   tplCache = { at: Date.now(), tpl }
   return tpl

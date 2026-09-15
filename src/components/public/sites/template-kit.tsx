@@ -45,17 +45,22 @@ export function useReaderFont(min = 14, max = 24): { font: number; inc: () => vo
 
 /**
  * 阅读位置与时长记忆 —— 章节页模板挂一次即可:
- * - 滚动 debounce 300ms 写 saveReadPos(bookId, {chapterId, scrollRatio, title})
- * - 每 10s 累计阅读时长 setReadTimeMs(bookId, ...)
+ * - 滚动 debounce 300ms 写 saveReadPos(bookId, {chapterId, scrollRatio, title}) [R27-5b-L5 标准防抖]
+ * - 阅读时长按可见段累计(10s 采样, 后台标签页不计), setReadTimeMs(bookId, ...) [R27-5b-L5]
  */
 export function useRecordReading(bookId?: string, chapterId?: string, title?: string): void {
   useEffect(() => {
     if (!bookId || !chapterId || typeof window === 'undefined') return
     let timer = 0
     const base = getReadTimeMs(bookId)
-    const t0 = Date.now()
+    // [R27-5b-L5] 阅读时长改按可见段累计: 修前 10s 心跳不看 visibilityState(后台标签页也
+    // 累计时长, 与通用 useReadingTimeTracker 的可见判定不一致)且按墙钟 Date.now()-t0 结算
+    let visibleMs = 0
+    let lastTickAt = Date.now()
     const onScroll = () => {
-      if (timer) return
+      // [R27-5b-L5] 标准防抖(重置式): 修前 if (timer) return 为节流, 停止滚动落在 pending
+      // 窗内时尾部事件可能不落盘; 改后停滚 300ms 后一次落盘最终位置(滚动中读写合并)
+      if (timer) window.clearTimeout(timer)
       timer = window.setTimeout(() => {
         timer = 0
         const doc = document.documentElement
@@ -66,14 +71,18 @@ export function useRecordReading(bookId?: string, chapterId?: string, title?: st
       }, 300)
     }
     const tick = window.setInterval(() => {
-      setReadTimeMs(bookId, base + (Date.now() - t0))
+      const now = Date.now()
+      if (document.visibilityState === 'visible') visibleMs += now - lastTickAt
+      lastTickAt = now
+      setReadTimeMs(bookId, base + visibleMs)
     }, 10_000)
     window.addEventListener('scroll', onScroll, { passive: true })
     return () => {
       window.removeEventListener('scroll', onScroll)
       if (timer) window.clearTimeout(timer)
       window.clearInterval(tick)
-      setReadTimeMs(bookId, base + (Date.now() - t0))
+      if (document.visibilityState === 'visible') visibleMs += Date.now() - lastTickAt
+      setReadTimeMs(bookId, base + visibleMs)
     }
   }, [bookId, chapterId, title])
 }

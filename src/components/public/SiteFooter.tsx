@@ -10,6 +10,10 @@ import { usePublic } from './ctx'
 import { siteKeywordList, withAlpha } from './seo'
 import { TagCloud, SuggestTagCloud, designVars } from './bits'
 import { fetchFooterLinks, type FooterLinksData } from './data'
+// [R27-5b-H1] 友链/外链渲染出口白名单(javascript: 伪协议存储型 XSS 防护)
+import { safeHref } from './safe-href'
+// [R27-5b-L1] 码点安全截断(UTF-16 slice 代理对防劈半)
+import { sliceCodePoints } from '@/lib/utils'
 
 export function SiteFooter() {
   const { site, theme, navigate } = usePublic()
@@ -68,7 +72,7 @@ export function SiteFooter() {
               style={{ background: `linear-gradient(135deg, ${v.primary}, ${v.accent})`, color: v.primaryText, borderRadius: v.radius, boxShadow: `0 0 12px ${withAlpha(glow, 0.45)}` }}
               aria-hidden
             >
-              {site.name.slice(0, 1)}
+              {sliceCodePoints(site.name, 1)}
             </span>
             <span className="text-sm font-bold" style={{ color: v.text }}>{site.title || site.name}</span>
             <span className="text-xs" style={{ color: v.textMuted }}>{site.domain}</span>
@@ -105,7 +109,8 @@ export function SiteFooter() {
                 {footerLinks!.friend.map((l) => (
                   <a
                     key={l.id}
-                    href={l.url}
+                    // [R27-5b-H1] 渲染出口 scheme 白名单: 仅 http/https 放行, 其余(含 javascript: 伪协议存量脏数据)置 '#'
+                    href={safeHref(l.url)}
                     target="_blank"
                     rel="noopener noreferrer"
                     title={l.name}
@@ -124,7 +129,8 @@ export function SiteFooter() {
                 {footerLinks!.wheel.map((l) => (
                   <a
                     key={l.url}
-                    href={l.url}
+                    // [R27-5b-H1] 同友链: 链轮出口同样过白名单(数据源为站内生成, 纵深防御)
+                    href={safeHref(l.url)}
                     target="_blank"
                     rel="noopener"
                     title={l.text}

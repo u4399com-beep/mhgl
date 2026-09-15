@@ -57,6 +57,8 @@ model Book {
   chapters Chapter[]
   tags     BookTag[]
   downloads DownloadJob[]
+  // [R27-2-2] PSEO 关键词落地页(主书关联; 页面删除时书保留)
+  pseoPages PseoPage[]
 
   @@index([categoryId])
   @@index([updatedAt])
@@ -215,6 +217,37 @@ model DownloadJob {
 model Setting {
   key   String @id
   value String @default("{}")
+}
+
+// ==================== [R27-2] PSEO 关键词落地页 ====================
+// 搜索下拉词/模板词 → SEO 落地页, 路径 /p/{slug}.html(伪静态 catch-all 分支)。
+// 注意: Prisma 基本类型不能用数组 → matchedBookIds 存 JSON 字符串(参照 BookTag 多值先例)。
+model PseoPage {
+  id        String   @id @default(cuid())
+  // 生成时的主站点(默认启用站; 站群 canonical/site 参数兜底), 可空
+  siteId    String?
+  // 目标关键词(全站唯一, 防同词内耗竞争)
+  keyword   String   @unique
+  // 路径段(不含 /p/ 前缀与 .html 后缀; CJK 清洗 + 短哈希后缀防碰撞), 全站唯一
+  slug      String   @unique
+  // 页面标题(H1 + <title> 基底, 不含站名后缀 — 站名由 SSR 按站群上下文追加)
+  title       String @default("")
+  description String @default("")
+  keywords    String @default("")
+  // 主书籍(页面主体; 书删除时置空, 页面转纯模板页仍可渲染)
+  primaryBookId String?
+  primaryBook   Book?  @relation(fields: [primaryBookId], references: [id], onDelete: SetNull)
+  // 相关书籍 id 列表(JSON 字符串数组, 主书在最前; 页面按此渲染书卡列表)
+  matchedBookIds String @default("[]")
+  // active | disabled(前台仅渲染 active)
+  status  String @default("active")
+  // template | suggest (生成来源, 统计口径)
+  source  String @default("suggest")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, updatedAt])
+  @@index([primaryBookId])
 }
 
 // ==================== 友情链接 ====================

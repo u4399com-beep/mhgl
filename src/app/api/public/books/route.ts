@@ -1,7 +1,39 @@
-// 前台书籍列表 — 支持站群偏移量/分类/搜索/分页
+// 前台书籍列表 — 支持站群偏移量/分类/搜索/分页; [R27-5b-M4] +ids 批量直查(我的书架去 N+1)
 import { db } from '@/lib/db'
 import { ok } from '@/lib/api'
 import { withGuard, str, likeSafe, clampInt } from '../../_lib/http'
+
+/** 单本书公开 DTO(与列表/批量两出口共用, 字段口径不变) */
+function toBookDto(b: {
+  id: string
+  num: number | null
+  name: string
+  author: string
+  intro: string | null
+  cover: string | null
+  status: string
+  wordCount: number
+  latestChapter: string | null
+  categoryId: string | null
+  updatedAt: Date
+  category: { name: string } | null
+}) {
+  return {
+    id: b.id,
+    // 伪静态数字书号: 前台据此生成 /book/{num}.html 链接
+    num: b.num,
+    name: b.name,
+    author: b.author,
+    intro: (b.intro || '').slice(0, 120),
+    cover: b.cover,
+    status: b.status,
+    wordCount: b.wordCount,
+    latestChapter: b.latestChapter,
+    category: b.category?.name || '未分类',
+    categoryId: b.categoryId,
+    updatedAt: b.updatedAt,
+  }
+}
 
 export async function GET(req: Request) {
   return withGuard(async () => {
@@ -11,6 +43,27 @@ export async function GET(req: Request) {
     const cat = str(url.searchParams.get('cat'), 64).trim()
     const status = str(url.searchParams.get('status'), 20).trim()
     const sort = str(url.searchParams.get('sort'), 20).trim() || 'latest'
+    // [R27-5b-M4] 批量 ids 直查(我的书架 N+1 修复): 逗号分隔 id 列表(≤50, 字符集白名单,
+    // 去重)。命中时忽略分页/站群偏移/排序, 一次 inList 取齐 —— 修前 HistoryView 挂载即
+    // 并发最多 50 个 /api/public/book(每请求 book+chapters+tags 三类查询)扇出风暴
+    const idsParam = str(url.searchParams.get('ids'), 64 * 50 + 64).trim()
+    const ids = idsParam
+      ? [...new Set(idsParam.split(',').map((s) => s.trim()).filter((s) => /^[a-zA-Z0-9]{8,64}$/.test(s)))].slice(0, 50)
+      : []
+    if (ids.length) {
+      const rows = await db.book.findMany({
+        where: { id: { in: ids } },
+        take: ids.length,
+        include: { category: true },
+      })
+      // 按传入顺序返回(调用方按 bookId 索引消费, 顺序仅兜底可读性)
+      const byId = new Map(rows.map((b) => [b.id, b]))
+      const books = ids.flatMap((id) => {
+        const b = byId.get(id)
+        return b ? [toBookDto(b)] : []
+      })
+      return ok({ total: books.length, page: 1, size: ids.length, books })
+    }
     // 分页边界: page≥1 / size 1~60, 防 skip/take 负数导致 Prisma 500
     const page = clampInt(url.searchParams.get('page'), 1, 1, 1_000_000)
     const size = clampInt(url.searchParams.get('size'), 24, 1, 60)
@@ -61,21 +114,7 @@ export async function GET(req: Request) {
       // 超出 skip 上限时返回空数组而非报错(公共路由, 容错优先), 通过 note 字段提示上游
       books: skipCapped
         ? []
-        : books.map((b) => ({
-            id: b.id,
-            // 伪静态数字书号: 前台据此生成 /book/{num}.html 链接
-            num: b.num,
-            name: b.name,
-            author: b.author,
-            intro: (b.intro || '').slice(0, 120),
-            cover: b.cover,
-            status: b.status,
-            wordCount: b.wordCount,
-            latestChapter: b.latestChapter,
-            category: b.category?.name || '未分类',
-            categoryId: b.categoryId,
-            updatedAt: b.updatedAt,
-          })),
+        : books.map(toBookDto),
       note: skipCapped ? '已超出最大可分页深度(10000), 请使用搜索或分类筛选缩小范围' : undefined,
     })
   })

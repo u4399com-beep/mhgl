@@ -123,7 +123,7 @@ export function contentToHtml(raw: string): string {
  * 浏览器会直接执行恶意 HTML。客户端轻量正则消毒(不用 cheerio, 客户端包大小敏感):
  *  1. 剥 <script>/<iframe>/<object>/<embed>/<noscript> 完整标签 + 内部文本
  *  2. 剥 on* 事件属性(onclick/onerror/onload…)
- *  3. 剥 javascript: URLs(href/src 含此协议的标签整段去掉)
+ *  3. href/src 出口 scheme 白名单(仅 http/https + 相对地址; 实体编码/夹 \t\n\r 变体探测后拦截)
  * 不影响正常 <p>/<br>/<a href=https...>/<img src=https...> 白名单标签
  */
 /**
@@ -134,17 +134,56 @@ export function contentToHtml(raw: string): string {
  * 解析后是纯文本节点, 根本不会成为属性, 只需对字面 <tag ...> span 做属性消毒, 语义等价
  * 且防御力不减(真属性必然位于字面标签内)。
  */
+/**
+ * [R27-5b-M1] 字符引用解码(单遍、幂等, 仅探测用) —— 浏览器解析属性值时先做一次实体
+ * 解码, 修前消毒器只字面匹配连续 javascript/vbscript/data:text/html, `jav&#x09;ascript:`、
+ * `jav&#58;avascript:`、`data&#58;text/html` 等形态消毒后仍复活。本函数还原数字实体
+ * (十/十六进制, 兼容无分号形态)与 URL 走私相关命名实体, 输出与浏览器单遍解码结果一致;
+ * 探测在副本上进行, 原串原样保留(避免还原出 \" 破坏属性引号边界)。
+ */
+function charRefToChar(code: number): string {
+  // 非法/超范围/代理对区段码点 → 丢成空串(防 fromCodePoint 抛错或产出孤立代理对)
+  if (!Number.isFinite(code) || code < 0 || code > 0x10ffff || (code >= 0xd800 && code <= 0xdfff)) return ''
+  return String.fromCodePoint(code)
+}
+
+function decodeCharRefsOnce(s: string): string {
+  return s
+    .replace(/&#x([0-9a-f]+);?/gi, (_m, h: string) => charRefToChar(parseInt(h, 16)))
+    .replace(/&#([0-9]+);?/g, (_m, d: string) => charRefToChar(parseInt(d, 10)))
+    .replace(/&(tab|newline|colon|sol|semi);/gi, (_m, name: string) => {
+      const map: Record<string, string> = { tab: '\t', newline: '\n', colon: ':', sol: '/', semi: ';' }
+      return map[name.toLowerCase()] ?? _m
+    })
+}
+
+/**
+ * [R27-5b-M1] URL 值 scheme 白名单判定 —— 探测串剥 \t\n\r(浏览器 URL 解析器同款行为,
+ * 修前 `jav\nascript:` 裸换行形态同样漏网)后, 仅 http/https 与无 scheme 相对地址放行,
+ * 其余伪协议(javascript:/vbscript:/data: 等)一律判不安全。
+ */
+function isSafeUrlValue(raw: string): boolean {
+  const probe = decodeCharRefsOnce(raw).replace(/[\t\n\r]/g, '')
+  const m = /^([a-zA-Z][a-zA-Z0-9+.\-]*):/.exec(probe)
+  if (!m) return true // 无 scheme → 相对地址/锚点
+  return /^https?$/i.test(m[1])
+}
+
 function sanitizeTagAttrs(tag: string): string {
   return (
     tag
       // 剥 on* 事件属性(onclick/onerror/onload…)——匹配 on 开头 + 字母数字 + ="..."或='...'或=`...`
       .replace(/\s+on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|`[^`]*`|[^\s>]+)/gi, '')
-      // 剥 javascript: / vbscript: / data:text/html URL(href/src 属性值整段去掉该属性, 防 javascript:alert(1))
-      .replace(/\s+(href|src)\s*=\s*"(?:javascript|vbscript|data:text\/html)[^"]*"/gi, '')
-      .replace(/\s+(href|src)\s*=\s*'(?:javascript|vbscript|data:text\/html)[^']*'/gi, '')
-      .replace(/\s+(href|src)\s*=\s*`(?:javascript|vbscript|data:text\/html)[^`]*`/gi, '')
-      // 无引号形态: <a href=javascript:alert(1)>
-      .replace(/\s+(href|src)\s*=\s*(?:javascript|vbscript|data:text\/html)[^\s>]+/gi, '')
+      // [R27-5b-M1] href/src 整属性出口白名单: 探测值(实体解码+剥 \t\n\r)命中 scheme
+      // 白名单外的(含 jav&#x09;ascript: 等全部编码变体)整属性剥离; 原属性串原样保留/移除
+      .replace(/\s+(?:href|src)\s*=\s*(?:"[^"]*"|'[^']*'|`[^`]*`|[^\s>]+)/gi, (m) => {
+        const eq = m.indexOf('=')
+        const val = m.slice(eq + 1).trim()
+        const quoted = /^[\"'`]([\s\S]*)[\"'`]$/.exec(val)
+        // 有引号形态取引号内原值; 无引号形态取整段(浏览器对无引号值同样做实体解码)
+        const raw = quoted ? quoted[1] : val
+        return isSafeUrlValue(raw) ? m : ''
+      })
   )
 }
 

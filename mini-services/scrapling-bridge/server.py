@@ -24,6 +24,25 @@
 #                → 200 { ok: false, error }                    桥内异常(url 非法/
 #                  mode 未知/网络层失败/超时/浏览器启动失败), 引擎侧据此降级 native 链
 #
+#   [R27-1b-1] POST /impersonate  body: { url, impersonate, method?, headers?,
+#                                          timeoutMs?, proxy? }
+#                curl-impersonate 等价引擎(桥内 curl_cffi, lexiforest 系 TLS/JA3-JA4
+#                + HTTP/2 指纹伪装): 引擎侧 curl 链画像命中 impersonate 档位且本机无
+#                curl-impersonate 二进制时, 把该跳改走本端点(与 curl 子进程单跳语义对齐:
+#                allow_redirects=False 不跟重定向, Location/Set-Cookie 原样回传由引擎
+#                手工逐跳)。档位白名单 _TIER_RE 与引擎侧 fetcher.ts 同口径。
+#                → 200 { ok: true, status, html, finalUrl,
+#                         headers: { location, contentType, retryAfter, setCookies[] } }
+#                → 200 { ok: false, error }
+#
+#   [R27-1b-2] POST /extract  body: { html? | url?, include_links?, timeoutMs?, proxy?, headers? }
+#                trafilatura 自适应正文/元数据提取(解析侧兜底, 引擎 fetcher.ts 零接线,
+#                供 parser 规则全失败兜底 / calibrate 规则推荐素材后续轮次消费):
+#                html 形态直接提取; url 形态桥内 fetch_static(curl_cffi TLS 伪装)抓取后提取。
+#                → 200 { ok: true, title, author, text, markdown, chars, url? }
+#                → 200 { ok: false, error }
+#
+
 # 安全: 仅绑 127.0.0.1(不对局域网暴露); url 仅 http/https 且限长; 请求头键经
 #       RFC 7230 token 白名单过滤、值剥 CR/LF/NUL(与引擎 safeHeaderKey/safeSingleLine
 #       同向); 响应体上限 MAX_BODY_BYTES; 超时上限 MAX_TIMEOUT_MS; 浏览器类模式
@@ -120,6 +139,9 @@ def versions() -> dict:
     try:
         import importlib.metadata as md
         v['scrapling'] = md.version('scrapling')
+        # [R27-1b-1]/[R27-1b-2] 新增能力版本(缺包时如实缺省, /health capabilities 同步可见)
+        v['curl_cffi'] = md.version('curl_cffi')
+        v['trafilatura'] = md.version('trafilatura')
     except Exception:
         pass
     return v
@@ -131,6 +153,59 @@ def self_test() -> bool:
         return all(x is not None for x in (F, S, D))
     except Exception:
         return False
+
+
+# ---------- [R27-1b-1] curl-impersonate 等价引擎(桥内 curl_cffi)惰性加载 ----------
+_CFFI = None
+_CFFI_ERR = None
+_CFFI_LOCK = threading.Lock()
+
+
+def get_cffi_requests():
+    """惰性加载 curl_cffi.requests(桥 venv 随 scrapling[fetchers] 在位), 进程内缓存"""
+    global _CFFI, _CFFI_ERR
+    if _CFFI is None and _CFFI_ERR is None:
+        with _CFFI_LOCK:
+            if _CFFI is None and _CFFI_ERR is None:
+                try:
+                    from curl_cffi import requests as cffi_requests
+                    _CFFI = cffi_requests
+                except Exception as e:  # noqa: BLE001 — 留档导入失败原因
+                    _CFFI_ERR = f'{type(e).__name__}: {e}'
+    if _CFFI is None:
+        raise RuntimeError(f'curl_cffi 不可用: {_CFFI_ERR}')
+    return _CFFI
+
+
+# impersonate 档位白名单: chrome/edge/safari/firefox + 2~3 位版本号(±A/B 观察版单字母
+# 后缀如 chrome133a) + _android/_ios 后缀形态(curl_cffi 目标命名), 也接受裸别名
+# (chrome/firefox/... = 该家族最新档)。与引擎侧 fetcher.ts IMPERSONATE_TIER_RE 同口径,
+# 改动需双侧同步。
+_TIER_RE = re.compile(r'^(chrome|edge|safari|firefox)(\d{2,3}(_[0-9])?(_android|_ios)?[a-z]?)?$')
+
+
+# ---------- [R27-1b-2] trafilatura 正文提取惰性加载 ----------
+_TRAF = None
+_TRAF_ERR = None
+_TRAF_LOCK = threading.Lock()
+
+
+def get_trafilatura():
+    """惰性加载 trafilatura(桥 venv 内 `uv pip install --python .venv/bin/python trafilatura`),
+    进程内缓存。2.x: bare_extraction 返回 Document(含 title/author/text 等), extract 返回 str"""
+    global _TRAF, _TRAF_ERR
+    if _TRAF is None and _TRAF_ERR is None:
+        with _TRAF_LOCK:
+            if _TRAF is None and _TRAF_ERR is None:
+                try:
+                    import trafilatura
+                    _TRAF = trafilatura
+                except Exception as e:  # noqa: BLE001
+                    _TRAF_ERR = f'{type(e).__name__}: {e}'
+    if _TRAF is None:
+        raise RuntimeError(f'trafilatura 不可用: {_TRAF_ERR}(修复: uv pip install '
+                           f"--python .venv/bin/python trafilatura 后重启本桥)")
+    return _TRAF
 
 
 # ---------- 头清洗(与引擎 safeHeaderKey/safeSingleLine 同向) ----------
@@ -227,6 +302,154 @@ IMPLS = {
 BROWSER_MODES = {'stealthy', 'playwright'}
 
 
+def do_impersonate(payload) -> dict:
+    """[R27-1b-1] curl-impersonate 等价引擎单跳: 桥内 curl_cffi 按档位伪装 TLS ClientHello
+    (JA3/JA4)+ HTTP/2 SETTINGS/伪头序指纹代发。调用方: 引擎 fetcher.ts curl 链画像命中
+    impersonate 档位且本机无 curl-impersonate 档位包装脚本时(fetcher.ts [R27-1b-5]/[R27-1b-6])。
+    单跳语义: allow_redirects=False 不跟重定向(重定向循环归引擎手工逐跳, 与 curl 子进程
+    -D 头文件逐跳契约对齐); Location/Set-Cookie/Retry-After 原样回传供引擎消费。
+    headers 为显式头组(引擎已过滤档位自带指纹头, 见 fetcher.ts filterImpersonateHeaders),
+    curl_cffi 语义: 显式头与档位默认头按名合并覆盖(无双头)。"""
+    url = payload.get('url')
+    if not isinstance(url, str) or not re.match(r'^https?://', url, re.I) or len(url) > 2048:
+        return {'ok': False, 'error': 'url 非法(仅 http/https, ≤2048 字符)'}
+    tier = payload.get('impersonate')
+    if not isinstance(tier, str) or not _TIER_RE.match(tier):
+        return {'ok': False, 'error': f'impersonate 档位非法: {str(tier)[:60]}'}
+    method = payload.get('method') or 'GET'
+    if method not in ('GET', 'HEAD', 'POST'):
+        return {'ok': False, 'error': f'method 非法(GET/HEAD/POST): {str(method)[:20]}'}
+    timeout_ms = payload.get('timeoutMs')
+    if not isinstance(timeout_ms, (int, float)) or timeout_ms <= 0:
+        timeout_ms = 30_000
+    timeout_ms = min(int(timeout_ms), MAX_TIMEOUT_MS)
+    proxy = payload.get('proxy')
+    if proxy is not None:
+        if not isinstance(proxy, str) or not re.match(
+            r'^(https?|socks5h?|socks4a?)://[^\s,]+$', proxy
+        ) or len(proxy) > 500:
+            return {'ok': False, 'error': 'proxy 形态非法'}
+    headers = safe_headers(payload.get('headers'))
+
+    cffi = get_cffi_requests()
+    kwargs = {
+        'impersonate': tier,
+        'timeout': max(1.0, timeout_ms / 1000),
+        'allow_redirects': False,   # 单跳契约: 重定向交引擎手工逐跳
+    }
+    if headers:
+        kwargs['headers'] = headers
+    if proxy:
+        kwargs['proxies'] = {'http': proxy, 'https': proxy}
+    resp = cffi.request(method, url, **kwargs)
+    html = resp.text or ''
+    if len(html.encode('utf-8', errors='replace')) > MAX_BODY_BYTES:
+        return {'ok': False, 'error': f'响应体超限({len(html)} chars)'}
+
+    hh = resp.headers
+    # curl_cffi Headers(Headers, 实证有 get_list)取多值 Set-Cookie; 无 get_list 的异常形态
+    # 退化逐项扫(仅防未来版本 API 变动, 不丢多值)
+    if hasattr(hh, 'get_list'):
+        set_cookies = [str(x) for x in (hh.get_list('Set-Cookie') or [])]
+    else:
+        set_cookies = [str(v) for k, v in hh.items() if str(k).lower() == 'set-cookie']
+
+    def _h(key: str) -> str:
+        val = hh.get(key)
+        return str(val) if isinstance(val, str) else ''
+
+    final_url = getattr(resp, 'url', None)
+    return {
+        'ok': True,
+        'status': int(resp.status_code),
+        'html': html,
+        'finalUrl': str(final_url) if final_url else url,
+        'headers': {
+            'location': _h('Location'),
+            'contentType': _h('Content-Type'),
+            'retryAfter': _h('Retry-After'),
+            'setCookies': set_cookies,
+        },
+    }
+
+
+def do_extract(payload) -> dict:
+    """[R27-1b-2] trafilatura 自适应正文/元数据提取(解析侧兜底端点):
+      body { html? | url?, include_links?, timeoutMs?, proxy?, headers? }
+      - html 形态: 直接提取(规则全失败站点的引擎侧拿到 HTML 后送来即可)
+      - url 形态: 桥内 fetch_static(curl_cffi TLS 伪装)抓取后提取
+      → { ok, title, author, text, markdown, chars, url? }
+      markdown 恒产出(include_links 控制是否内链 <a>); 提取失败/无主内容 → ok:false 信封。
+      引擎 fetcher.ts 本轮零接线 —— 端点预留给 parser 规则全失败兜底 / calibrate 规则
+      推荐素材(后续轮次消费, 见 worklog R27-1b 交付 B)。"""
+    url = payload.get('url')
+    if url is not None and (not isinstance(url, str) or not re.match(r'^https?://', url, re.I) or len(url) > 2048):
+        return {'ok': False, 'error': 'url 非法(仅 http/https, ≤2048 字符)'}
+    html = payload.get('html')
+    if html is not None and (not isinstance(html, str) or not html.strip()):
+        return {'ok': False, 'error': 'html 形态非法(需非空字符串)'}
+    if not html and not url:
+        return {'ok': False, 'error': '需提供 html(直接提取)或 url(桥内抓取后提取)之一'}
+    include_links = payload.get('include_links') is True
+    timeout_ms = payload.get('timeoutMs')
+    if not isinstance(timeout_ms, (int, float)) or timeout_ms <= 0:
+        timeout_ms = 30_000
+    timeout_ms = min(int(timeout_ms), MAX_TIMEOUT_MS)
+    proxy = payload.get('proxy')
+    if proxy is not None and (not isinstance(proxy, str) or not re.match(
+        r'^(https?|socks5h?|socks4a?)://[^\s,]+$', proxy
+    ) or len(proxy) > 500):
+        return {'ok': False, 'error': 'proxy 形态非法'}
+    headers = safe_headers(payload.get('headers'))
+
+    final_url = url
+    if not html:
+        page = fetch_static(url, timeout_ms, headers, proxy, True)
+        html = body_to_text(page)
+        got = getattr(page, 'url', None)
+        final_url = got if isinstance(got, str) and got else url
+    if len(html) > MAX_BODY_BYTES:
+        return {'ok': False, 'error': f'页面过大({len(html)} chars)'}
+
+    trafilatura = get_trafilatura()
+    try:
+        # 实测(书站模板真章节页): 默认旗组比 favor_recall 更净 —— favor_recall 会把面包屑
+        # (如「犹怜 · 穿越小说 · 464 KB · …」)收进正文(+1 噪声行), 默认旗组无导航噪声且不丢
+        # 正文(差异仅面包屑); 故不传 favor_recall(评估报告草图中的 favor_recall=True 实测后废弃)
+        doc = trafilatura.bare_extraction(html, url=final_url)
+    except Exception as e:  # noqa: BLE001 — 提取器异常按 ok:false 信封返回(200)
+        return {'ok': False, 'error': f'bare_extraction 异常: {type(e).__name__}: {str(e)[:200]}'}
+    text = str(getattr(doc, 'text', '') or '') if doc is not None else ''
+    if not text.strip():
+        return {'ok': False, 'error': '正文提取失败(未识别到主内容)'}
+    title = str(getattr(doc, 'title', '') or '') if doc is not None else ''
+    if not title:
+        # [R27-1b-2] 实测补齐: 书站模板页 bare_extraction 常产空 title → 回退 <title>
+        # 标签原文(不去站名后缀保真, 清洗交消费方)
+        m = re.search(r'<title[^>]*>(.*?)</title>', html, re.S | re.I)
+        if m:
+            title = re.sub(r'\s+', ' ', m.group(1)).strip()[:300]
+    author = str(getattr(doc, 'author', '') or '') if doc is not None else ''
+    try:
+        markdown = trafilatura.extract(
+            html, url=final_url, output_format='markdown',
+            include_links=include_links,
+        ) or ''
+    except Exception:  # noqa: BLE001 — markdown 副产物失败不拖垮主结果
+        markdown = ''
+    out = {
+        'ok': True,
+        'title': title,
+        'author': author,
+        'text': text,
+        'markdown': markdown,
+        'chars': len(text),
+    }
+    if final_url:
+        out['url'] = final_url
+    return out
+
+
 def do_fetch(payload) -> dict:
     url = payload.get('url')
     if not isinstance(url, str) or not re.match(r'^https?://', url, re.I) or len(url) > 2048:
@@ -313,6 +536,8 @@ class Handler(BaseHTTPRequestHandler):
                 'selfTestOk': st_ok,
                 'versions': versions(),
                 'modes': list(MODES),
+                # [R27-1b-1]/[R27-1b-2] 新增端点能力位(引擎/运维可感知; 旧消费方不读此键零影响)
+                'capabilities': {'impersonate': True, 'extract': True},
                 'ts': int(time.time() * 1000),
             }
             # [R9-b-19]: selfTest 失败时附可操作修复提示(运维/引擎侧可直接感知 venv 缺失原因)
@@ -325,7 +550,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):  # noqa: N802
         path = self.path.split('?')[0]
-        if path != '/fetch':
+        # [R27-1b-1]/[R27-1b-2]: /impersonate(curl-impersonate 等价引擎)与 /extract
+        # (trafilatura 正文提取)复用 /fetch 的请求体读取/JSON 解析/异常信封框架
+        if path not in ('/fetch', '/impersonate', '/extract'):
             self._send_json({'ok': False, 'error': 'not found'}, status=404)
             return
         try:
@@ -366,17 +593,27 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json({'ok': False, 'error': f'请求体非 JSON 对象: {type(e).__name__}'})
             return
         started = time.time()
-        result = do_fetch(payload)
+        # [R27-1b-1]/[R27-1b-2] 三端点统一异常信封: 桥内任何异常都以 ok:false 200 返回
+        # (与 /fetch 错误形态一致, 引擎侧据此降级)
+        try:
+            if path == '/fetch':
+                result = do_fetch(payload)
+            elif path == '/impersonate':
+                result = do_impersonate(payload)
+            else:
+                result = do_extract(payload)
+        except Exception as e:  # noqa: BLE001
+            result = {'ok': False, 'error': f'{type(e).__name__}: {e}'[:600]}
         cost = int((time.time() - started) * 1000)
         if result.get('ok'):
             print(
-                f"[scrapling-bridge] {result.get('status')} {payload.get('mode')} "
-                f"{str(payload.get('url'))[:120]} ({cost}ms, {len(result.get('html', ''))} chars)",
+                f"[scrapling-bridge] {result.get('status', '')} {path} "
+                f"{str(payload.get('url'))[:120]} ({cost}ms, {len(result.get('html', '') or result.get('text', ''))} chars)",
                 flush=True,
             )
         else:
             print(
-                f"[scrapling-bridge] FAIL {payload.get('mode')} "
+                f"[scrapling-bridge] FAIL {path} "
                 f"{str(payload.get('url'))[:120]} ({cost}ms): {str(result.get('error'))[:200]}",
                 flush=True,
             )

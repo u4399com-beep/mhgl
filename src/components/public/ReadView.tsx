@@ -28,6 +28,8 @@ import { ReadImmersive } from './read-layouts/ReadImmersive'
 import { ReadPaginated } from './read-layouts/ReadPaginated'
 import { ReadPili } from './read-layouts/ReadPili'
 import { readerActionsRef, useReadingProgress } from './read-layouts/shared'
+// [R27-5b-H2] 克隆模板接线: registry 命中(theme.id ∈ 克隆五站)→ SiteTemplateSet.Read 分发
+import { getTemplateSet } from './sites/registry'
 
 const READER_FONT_KEY = 'public_reader_fontSize'
 const READER_NIGHT_KEY = 'public_reader_night'
@@ -272,6 +274,15 @@ export function ReadView({ chapterId }: { chapterId?: string }) {
   })
 
   if (!chapterId) return <ErrorState message="缺少章节参数" />
+
+  // [R27-5b-H2] 克隆模板接线: registry 命中且有 Read 克隆 → 模板组件(自带章节导航/字号/夜态/阅读记忆)。
+  // props 按 SiteTemplateSet 契约从本壳数据流直传; SEO/TDK/伪静态注册仍由本壳统一负责
+  const tplSet = getTemplateSet(theme.id)
+  if (tplSet?.Read) {
+    const TplRead = tplSet.Read
+    return <TplRead data={data} loading={loading} error={error} />
+  }
+
   if (error) return <ErrorState message="章节不存在" detail={error} />
 
   // 按主题阅读布局原型分发（缺省回退 classic）

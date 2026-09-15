@@ -11,6 +11,8 @@ import { useSiteSEO } from './seo'
 import { ErrorState, Sk } from './bits'
 import { Pagination } from './Pagination'
 import { ThemeBookList } from './BookCard'
+// [R27-5b-H2] 克隆模板接线: registry 命中(theme.id ∈ 克隆五站)→ SiteTemplateSet.Category 分发
+import { getTemplateSet } from './sites/registry'
 
 export function CategoryView({ cat, page }: { cat?: string; page: number }) {
   const { site, theme, navigate } = usePublic()
@@ -84,6 +86,15 @@ export function CategoryView({ cat, page }: { cat?: string; page: number }) {
       },
     ],
   })
+
+  // [R27-5b-H2] 克隆模板接线: registry 命中且有 Category 克隆 → 模板组件(错误态由模板内部呈现)。
+  // props 按 SiteTemplateSet 契约从本壳数据流直传; SEO/TDK(含 catName 解析)仍由本壳统一负责
+  // (数据口径 fetchBooks({cat, page, size:24}) 与契约一致, 零回归面)
+  const tplSet = getTemplateSet(theme.id)
+  if (tplSet?.Category) {
+    const TplCategory = tplSet.Category
+    return <TplCategory data={data} loading={loading} error={error} catName={label} cat={cat} page={page} />
+  }
 
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 sm:py-8">

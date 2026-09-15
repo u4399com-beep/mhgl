@@ -1,7 +1,7 @@
 // ============================================================
 // 我的书架 — 公开阅读历史页
 // - 数据源: listReadPos() 返回 localStorage 中所有保存过阅读位置的书籍
-// - 每本书的封面/书名/作者经 fetchBook 异步补全 (Promise.all, 上限 50)
+// - 每本书的封面/书名/作者经 /api/public/books?ids= 批量补全 [R27-5b-M4](修前并发 fetchBook ×N)
 // - 卡片: 封面 + 标题/作者 + 阅读进度条 + 已读时长 + 相对时间 + 继续阅读/移除
 // - 清空历史: AlertDialog 二次确认
 // - 空态: BookMarked 大图标 + 文案 + 去书城入口
@@ -11,8 +11,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 import { BookMarked, BookOpen, Clock, Library, Trash2, X } from 'lucide-react'
-import { fetchBook } from './data'
-import type { BookDetail } from './types'
+import { fetchBooks } from './data'
+import type { BookItem } from './types'
 import { usePublic } from './ctx'
 import { useSiteSEO, withAlpha } from './seo'
 import { BookCover } from './BookCover'
@@ -25,7 +25,7 @@ interface ShelfEntry extends ReadPos {
 }
 
 interface EnrichedEntry extends ShelfEntry {
-  book?: BookDetail
+  book?: BookItem
   failed?: boolean
 }
 
@@ -35,7 +35,7 @@ export function HistoryView() {
   const { site, theme, navigate } = usePublic()
   const v = theme.vars
   const [entries, setEntries] = useState<ShelfEntry[] | null>(null)
-  const [enriched, setEnriched] = useState<Record<string, BookDetail | undefined>>({})
+  const [enriched, setEnriched] = useState<Record<string, BookItem | undefined>>({})
   const [failedIds, setFailedIds] = useState<Set<string>>(new Set())
   const [confirmOpen, setConfirmOpen] = useState(false)
 
@@ -44,39 +44,44 @@ export function HistoryView() {
     setEntries(listReadPos().slice(0, MAX_BOOKS))
   }, [])
 
-  // 批量补全书籍详情 (Promise.all, 上限 50)
+  // 批量补全书籍详情 —— [R27-5b-M4] 改为一次批量直查 /api/public/books?ids=…(≤50 本一发);
+  // 修前 Promise.all 并发最多 50 个 fetchBook(每请求 book+chapters+tags 三类查询)扇出风暴
   useEffect(() => {
     if (!entries) return
     let alive = true
-    const missing = entries.filter((e) => !enriched[e.bookId] && !failedIds.has(e.bookId))
+    // 本地去重 + 过滤已补全/已失败项
+    const missing = [...new Set(entries.map((e) => e.bookId))].filter(
+      (id) => !enriched[id] && !failedIds.has(id),
+    )
     if (!missing.length) return
-    Promise.all(
-      missing.map((e) =>
-        fetchBook(e.bookId, 1, 1)
-          .then((d) => ({ bookId: e.bookId, book: d.book as BookDetail }))
-          .catch(() => ({ bookId: e.bookId, book: null as BookDetail | null })),
-      ),
-    ).then((results) => {
-      if (!alive) return
-      setEnriched((prev) => {
-        const next = { ...prev }
-        for (const r of results) {
-          if (r.book) next[r.bookId] = r.book
-        }
-        return next
+    fetchBooks({ ids: missing, page: 1, size: 60 })
+      .then((d) => {
+        if (!alive) return
+        const found = new Map(d.books.map((b) => [b.id, b]))
+        setEnriched((prev) => {
+          const next = { ...prev }
+          for (const [id, b] of found) next[id] = b
+          return next
+        })
+        // 库内已删除的书 → 失败集(卡片降级为占位封面+未知书名, 与原口径一致)
+        setFailedIds((prev) => {
+          const next = new Set(prev)
+          for (const id of missing) if (!found.has(id)) next.add(id)
+          return next
+        })
       })
-      setFailedIds((prev) => {
-        const next = new Set(prev)
-        for (const r of results) {
-          if (!r.book) next.add(r.bookId)
-        }
-        return next
+      .catch(() => {
+        if (!alive) return
+        setFailedIds((prev) => {
+          const next = new Set(prev)
+          for (const id of missing) next.add(id)
+          return next
+        })
       })
-    })
     return () => {
       alive = false
     }
-    // 仅在 entries 变化时触发 (enriched 渐进填充不再触发新请求, missing 为空时 effect 自动 return)
+    // 仅在 entries 变化时触发(批量一发, 无渐进重入面; missing 为空时 effect 自动 return)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entries])
 

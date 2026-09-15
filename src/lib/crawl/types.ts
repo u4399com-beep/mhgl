@@ -223,6 +223,18 @@ export interface FetchConfig {
   /** scrapling 桥地址(fetchMode=scrapling-* 时生效), 缺省 http://127.0.0.1:3012
    *  (可用环境变量 SCRAPLING_BRIDGE_URL 改全局缺省); 桥服务见 mini-services/scrapling-bridge */
   scraplingBridgeUrl?: string
+  /** [R27-1b-8] curl-impersonate 档位(仅 curl 链传输画像维度, 默认不开): 规则显式选档
+   *  后, fetchViaCurl 逐跳将传输画像(TLS ClientHello/JA3-JA4 + HTTP/2 SETTINGS/伪头序 +
+   *  浏览器头组)整体交 curl-impersonate 档位引擎接管 —— 双轨: 本机有档位包装脚本
+   *  (CURL_IMPERSONATE_BIN/PATH/mini-services/scrapling-bridge/_bin 探测 curl_chrome116
+   *  等) → curl-impersonate 形态 spawn; 无二进制 → 改走 scrapling 桥 POST /impersonate
+   *  (桥内 curl_cffi 等价引擎)。白名单正则: chrome/edge/safari/firefox + 版本号(±A/B
+   *  观察版后缀) + _android/_ios 后缀(chrome116/safari17_0/firefox135/chrome99_android 等),
+   *  与 fetcher.IMPERSONATE_TIER_RE / 桥 _TIER_RE 同口径; 非法值 sanitize 丢弃(缺省关闭
+   *  零回归)。档位生效时引擎 UA 轮换等指纹头让位给档位自带浏览器头组(版本自洁, 防
+   *  双头); 仅影响 curl 链, native/scrapling/浏览器链不受此字段影响。运维级开关(env,
+   *  不改规则): CURL_IMPERSONATE_PROFILE 全局档位 / CURL_IMPERSONATE_HOSTS host 钉扎 */
+  curlImpersonate?: string
 }
 
 /** 内容清洗配置 */
@@ -651,6 +663,16 @@ export function sanitizeFetchConfig(v: unknown): Partial<FetchConfig> {
   if (scraplingBridgeUrlRaw !== undefined) {
     const scraplingBridgeUrl = safeSingleLine(scraplingBridgeUrlRaw)
     if (scraplingBridgeUrl && /^https?:\/\/\S+$/i.test(scraplingBridgeUrl)) out.scraplingBridgeUrl = scraplingBridgeUrl
+  }
+  // [R27-1b-8] curl-impersonate 档位(规则显式选档): 白名单正则与 fetcher.IMPERSONATE_TIER_RE
+  // / 桥 server.py _TIER_RE 同口径(改动需三侧同步); 非法值整字段丢弃(缺省关闭零回归)
+  const curlImpersonateRaw = safeStr(r.curlImpersonate, 40)
+  if (curlImpersonateRaw !== undefined) {
+    const curlImpersonate = safeSingleLine(curlImpersonateRaw)
+    if (
+      curlImpersonate &&
+      /^(chrome|edge|safari|firefox)(\d{2,3}(_[0-9])?(_android|_ios)?[a-z]?)?$/.test(curlImpersonate)
+    ) out.curlImpersonate = curlImpersonate
   }
   return out
 }

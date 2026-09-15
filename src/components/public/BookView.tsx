@@ -15,6 +15,8 @@ import { composeBookTdk, composeTocTdk, seoText, type SeoTplVars } from '@/lib/s
 import { sliceCodePoints } from '@/lib/utils'
 import { bookCanonicalPath, usePublic } from './ctx'
 import { coverSrc, fmtDate, formatWords, statusLabel, useSiteSEO, withAlpha } from './seo'
+// [R27-5b-H2] 克隆模板接线: registry 命中(theme.id ∈ 克隆五站)→ SiteTemplateSet 五视图分发
+import { getTemplateSet } from './sites/registry'
 import { BookCover } from './BookCover'
 import { EmptyState, ErrorState, SecTitle, Sk, StatusBadge, TagCloud, ChapterListSkeleton } from './bits'
 import { ReadFirstButton } from './BookCard'
@@ -99,6 +101,15 @@ function TocChapterButton({
 }) {
   const [preview, setPreview] = useState<PreviewState | null>(null)
   const timerRef = useRef<number>(0)
+
+  // [R27-5b-L2] 卸载清理: 挂起的 300ms 预览定时器不再打在已卸载组件上(修前仅 onLeave 清,
+  // 切书/翻页卸载时定时器与 fetchChapter 继续跑)
+  useEffect(
+    () => () => {
+      if (timerRef.current) window.clearTimeout(timerRef.current)
+    },
+    [],
+  )
 
   const onEnter = () => {
     if (cache.current.has(ch.id)) {
@@ -451,6 +462,16 @@ export function BookView({ bookId, tocPage }: { bookId?: string; tocPage: number
   })
 
   if (!bookId) return <ErrorState message="缺少书籍参数" />
+
+  // [R27-5b-H2] 克隆模板接线: registry 命中且有 Book 克隆 → 模板组件(错误态由模板内部呈现)。
+  // props 按 SiteTemplateSet 契约从本壳现有数据流直传; SEO/TDK/伪静态注册/阅读位置徽章
+  // 等副面仍由本壳统一负责(数据口径 fetchBook(bookId, tocPage, 100) 与契约一致, 零回归面)
+  const tplSet = getTemplateSet(theme.id)
+  if (tplSet?.Book) {
+    const TplBook = tplSet.Book
+    return <TplBook data={data} loading={loading} error={error} tocPage={tocPage} currentChapterId={currentChapterId} />
+  }
+
   if (error) return <ErrorState message="书籍不存在" detail={error} />
 
   /* ---------- 目录面板（按主题差异化） ---------- */

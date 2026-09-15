@@ -1,6 +1,6 @@
 // ============================================================
 // 搜索引擎下拉关键词聚合
-// 百度 / 必应 / 搜狗 / 360 / DuckDuckGo 下拉建议
+// 百度 / 必应 / 360 / DuckDuckGo 下拉建议 (sogou 已于 [R27-2-1] 剔除, 端点 404)
 // 作为书籍辅助标签/关联词, 独立访问页面均指向主书籍信息页
 // ============================================================
 import { fetchBinary } from './fetcher'
@@ -32,16 +32,10 @@ const ENGINES: SuggestEngine[] = [
       } catch { return [] }
     },
   },
-  {
-    name: 'sogou',
-    url: (kw) => `https://www.sogou.com/sugproxy/sug?action=get&encode=utf-8&query=${encodeURIComponent(kw)}`,
-    parse: (body) => {
-      try {
-        const j = JSON.parse(body)
-        return (j?.data || []).map((x: any) => (typeof x === 'string' ? x : x?.word || x?.q)).filter(Boolean)
-      } catch { return [] }
-    },
-  },
+  // [R27-2-1] sogou 下拉端点已死(R25-3 实测 sugproxy 404): 从引擎池剔除, 省一次必然失败的
+  //   8s 超时等待并腾出引擎位。若后续搜狗恢复, 参考旧实现:
+  //   url: https://www.sogou.com/sugproxy/sug?action=get&encode=utf-8&query={kw}
+  //   parse: JSON j.data[] → string | {word|q}
   {
     name: 'so360',
     url: (kw) => `https://sug.so.360.cn/suggest?word=${encodeURIComponent(kw)}&encode=utf-8`,

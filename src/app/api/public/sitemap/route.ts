@@ -11,6 +11,8 @@ import { db } from '@/lib/db'
 import { withGuard, str, clampInt } from '../../_lib/http'
 import { buildBookPath, buildReadPath, type PseudoPreset } from '@/lib/pseudostatic'
 import { getPseudoPreset } from '@/lib/pseudostatic-server'
+// [R27-2-7] PSEO URL 纳入: 上限常量取自纯函数层(无 Prisma 依赖, 服务端安全)
+import { PSEO_SITEMAP_LIMIT } from '@/lib/pseo'
 
 // R4A-13: PAGE_SIZE 50k → 5k —— 单次 50k 行扫描 + 100k 字符串构建, 120 req/min × 50k = 6M 行/min
 //   会饱和 SQLite。降到 5k 与 legacy 同口径, MAX_PAGES 仍 1000 → 5M URLs 总量上限不变
@@ -66,13 +68,38 @@ async function totalPages(): Promise<number> {
   return Math.min(MAX_PAGES, Math.ceil(total / PAGE_SIZE))
 }
 
-/** 取第 N 页的 URL 条目(N 从 1 起) —— books 在前, chapters 在后, 跨表合并分页 */
+/**
+ * [R27-2-7] PSEO 关键词页 URL 条目(上限 PSEO_SITEMAP_LIMIT=2000):
+ *   loc = {base}/p/{encodeURIComponent(slug)}.html; slug 含 CJK, loc 内必须百分号编码。
+ *   仅收录 active 页; lastmod 取页面 updatedAt, weekly/0.6(低于书籍页 0.8)。
+ *   放置策略: 分页模式仅并入第 1 页(页容量 5000, 追加 2000 后单页 7000 仍低于
+ *   sitemap 协议单文件 5 万上限), 其余分页与 totalPages 逻辑不变。
+ */
+async function pseoSitemapEntries(base: string, siteQ: string, limit = PSEO_SITEMAP_LIMIT): Promise<string[]> {
+  const rows = await db.pseoPage.findMany({
+    where: { status: 'active' },
+    orderBy: { updatedAt: 'desc' },
+    take: limit,
+    select: { slug: true, updatedAt: true },
+  })
+  return rows.map((r) => {
+    const loc = `${base}/p/${encodeURIComponent(r.slug)}.html`
+    return `  <url><loc>${appendSiteQ(loc, siteQ)}</loc><lastmod>${r.updatedAt.toISOString()}</lastmod><changefreq>weekly</changefreq><priority>0.6</priority></url>`
+  })
+}
+
+/** 取第 N 页的 URL 条目(N 从 1 起) —— PSEO 在第 1 页, books 在前, chapters 在后, 跨表合并分页 */
 async function fetchPageEntries(page: number, base: string, preset: PseudoPreset, siteQ: string): Promise<string[]> {
   const skip = (page - 1) * PAGE_SIZE
   if (skip < 0) return []
 
   const booksCount = await db.book.count()
   const entries: string[] = []
+
+  // [R27-2-7] PSEO 段(仅第 1 页头部并入)
+  if (page === 1) {
+    entries.push(...(await pseoSitemapEntries(base, siteQ)))
+  }
 
   // books 段
   if (skip < booksCount) {
@@ -232,6 +259,7 @@ ${sitemapEntries.join('\n')}
       take: LEGACY_TAKE,
       select: { id: true, num: true, updatedAt: true },
     })
+    // [R27-2-7] PSEO 行与 book/chapter 行独立查询(互不挤占 LEGACY_TAKE 名额)
     const chapters = await db.chapter.findMany({
       orderBy: { updatedAt: 'desc' },
       take: LEGACY_TAKE,
@@ -241,6 +269,8 @@ ${sitemapEntries.join('\n')}
     const entries: string[] = []
     // [R15-a1-6] 首页 loc 对齐 HomeView canonical(/?site=X); 无站点时维持 /?view=home
     entries.push(`  <url><loc>${base}/${siteQ ? `?${siteQ}` : '?view=home'}</loc><changefreq>daily</changefreq><priority>1.0</priority></url>`)
+    // [R27-2-7] PSEO 关键词页段(legacy 单页形态同样纳入, 上限 2000)
+    entries.push(...(await pseoSitemapEntries(base, siteQ)))
     for (const b of books) {
       const path = buildBookPath({ id: b.id, num: b.num }, preset)
       const loc = path || `/?view=book&id=${encodeURIComponent(b.id)}`
