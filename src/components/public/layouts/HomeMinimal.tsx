@@ -1,6 +1,7 @@
 // ============================================================
 // 首页布局 · minimal（青竹听雨 bamboo）
 // 大量留白 + 双栏细线文字列表 + 顶部锚点式分类导航，无封面图
+// R23-b: 64px 字符排版标语区(大号衬线+字距+底部细线) + 列表行 hover 主色竖条
 // ============================================================
 'use client'
 
@@ -33,6 +34,16 @@ export function HomeMinimal({ books, loading }: { books: BookItem[]; loading: bo
 
   return (
     <div className="mx-auto max-w-5xl">
+      {/* [R23-b-12] 字符排版标语区: 64px 高, 大号衬线标题字+宽字距, 底部细线(极简风不做 hero) */}
+      <div className="flex h-16 items-center justify-center border-b" style={{ borderColor: withAlpha(v.border, 0.9) }}>
+        <p
+          className="truncate px-4 text-lg sm:text-xl"
+          style={{ color: v.text, fontFamily: v.titleFont, letterSpacing: '0.5em', textIndent: '0.5em' }}
+        >
+          一期一会 · 好书慢读
+        </p>
+      </div>
+
       {/* 极简报头：大量留白 */}
       <div className="pb-10 pt-4 text-center">
         <p className="text-[11px] tracking-[0.5em]" style={{ color: v.textMuted }}>MINIMAL READING</p>
@@ -63,6 +74,13 @@ export function HomeMinimal({ books, loading }: { books: BookItem[]; loading: bo
               {...bookNavProps(navigate, b.id)}
               aria-label={`查看《${b.name}》详情`}
             >
+              {/* [R23-b-13] hover 行首主色竖条(scale-y 过渡浮现) */}
+              <span className="flex w-1.5 shrink-0 items-center justify-center self-stretch" aria-hidden>
+                <span
+                  className="h-7 w-[3px] origin-center scale-y-0 rounded-full transition-transform duration-200 group-hover:scale-y-100"
+                  style={{ background: v.primary }}
+                />
+              </span>
               <span className="w-5 shrink-0 text-right text-[11px] tabular-nums" style={{ color: v.textMuted }}>
                 {String(i + 1).padStart(2, '0')}
               </span>

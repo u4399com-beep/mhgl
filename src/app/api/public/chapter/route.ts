@@ -2,6 +2,7 @@
 import { db } from '@/lib/db'
 import { ok, fail } from '@/lib/api'
 import { readChapterTxt } from '@/lib/crawl/storage'
+import { decodeEntitiesOnce } from '@/lib/crawl/cleaner'
 import { applyBannedWordsToHtml } from '@/lib/banned-words'
 import { getBannedWordsConfig } from '@/lib/banned-words-server'
 import { withGuard, str } from '../../_lib/http'
@@ -29,9 +30,15 @@ export async function GET(req: Request) {
         // 此处按空行切段后 <p>${p}</p> 直拼, 前台 ReadView 检测到内容含 <p> 会原样
         // 放行 dangerouslySetInnerHTML → 字面量成为活动节点。段落内容先转义 & < >
         // 再包 <p>(与 ReadView 对无标签纯文本的转义分支同语义)
+        // [R23-主-2] 存量实体解码: R22-b 清洗器落地前入库的落盘文件含未解码命名/数字实体
+        // (全量实测 6063/6974 章节文件含 &nbsp;), 修前"实体已解码"假设对存量失效 ——
+        // &nbsp; 经下方安全转义变 &amp;nbsp;, 前台渲染成字面 "&nbsp;" 垃圾(阅读页实证)。
+        // 此处在转义【前】先 decodeEntitiesOnce(与 R22-b 主清洗链同口径, 白名单实体+代理区拒绝),
+        // 再走既定安全转义 —— 解码产物(如 &lt;img…&gt; 还原的标签字面量)随即被转义拒活,
+        // 注入面零回归; 已干净文件解码为无操作, 幂等。download 成品 TXT 为独立流式链路, 另档。
         content = content
           .split(/\n{2,}/)
-          .map((p) => `<p>${p.trim().replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>`)
+          .map((p) => `<p>${decodeEntitiesOnce(p.trim()).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>`)
           .join('')
       }
     }

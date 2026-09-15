@@ -1,5 +1,6 @@
 // ============================================================
 // 前台通用小组件 — 状态徽章 / 标签云 / 空态 / 错误态 / 主题化骨架
+// [R23-c-1] R23-c 设计语言化: SecTitle 七种标题装饰 / 标签五形态 / 设计 token 镜像
 // ============================================================
 'use client'
 
@@ -10,6 +11,13 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { usePublic, usePublicOptional, type ViewParams } from './ctx'
 import { statusLabel, statusStyle, withAlpha } from './seo'
 import { fetchSuggestTags } from './data'
+import type { ThemeDef } from '@/lib/crawl/themes'
+
+/** [R23-a 对账] 设计 token 契约已合入 ThemeDef.vars(枚举见 themes.ts HeadingDecoKind/ButtonStyleKind/CardHoverKind),
+ *  直读之 —— 并行时序期的本地镜像+断言壳已拆除; 消费点一律 ?? 本地 fallback */
+export function designVars(theme: ThemeDef): ThemeDef['vars'] {
+  return theme.vars
+}
 
 /** 可点击书籍卡片的键盘可达属性（Enter/Space 触发，配合 onClick 使用） */
 export function bookNavProps(navigate: (p: ViewParams) => void, bookId: string) {
@@ -34,7 +42,12 @@ export function StatusBadge({ status, small }: { status?: string | null; small?:
   return (
     <span
       className={`inline-flex shrink-0 items-center gap-1 rounded-full font-medium ${small ? 'px-1.5 py-px text-[10px]' : 'px-2 py-0.5 text-xs'}`}
-      style={st}
+      // [R23-c-2] 精致化: statusStyle 语义不变, 仅叠加顶部高光渐变 + 内描细边(1px inset 高光)
+      style={{
+        ...st,
+        backgroundImage: 'linear-gradient(180deg, rgba(255,255,255,0.18), rgba(255,255,255,0) 70%)',
+        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.14)',
+      }}
     >
       <Feather className={small ? 'h-2.5 w-2.5' : 'h-3 w-3'} aria-hidden />
       {statusLabel(status)}
@@ -42,11 +55,58 @@ export function StatusBadge({ status, small }: { status?: string | null; small?:
   )
 }
 
+// [R23-c-3] 标签芯片五形态 — buttonStyle token 驱动(TagCloud/SuggestTagCloud/换一批 共用);
+// 返回完整 className+style, 调用方零样式逻辑。dark 主题对比度: primary/surface ≥4.5 由主题矩阵保证。
+function chipVisual(theme: ThemeDef): { className: string; style: CSSProperties } {
+  const v = theme.vars
+  const d = designVars(theme)
+  const bs = d.buttonStyle ?? 'solid'
+  const glow = d.glowColor ?? v.primary
+  const className = 'rounded-full px-3 py-1 text-xs transition-opacity hover:opacity-80'
+  switch (bs) {
+    case 'outline': // 透明底 + 1.5px 主色边 + 主色字
+      return {
+        className,
+        style: { background: 'transparent', color: v.primary, border: `1.5px solid ${withAlpha(v.primary, 0.8)}`, borderRadius: v.radius },
+      }
+    case 'gradient': // 主→accent 渐变底 + primaryText 字
+      return {
+        className,
+        style: { background: `linear-gradient(120deg, ${v.primary}, ${v.accent})`, color: v.primaryText, border: '1px solid transparent', borderRadius: v.radius },
+      }
+    case 'pill': // 全圆角胶囊 + 主色浅底
+      return {
+        className,
+        style: { background: withAlpha(v.primary, theme.dark ? 0.2 : 0.1), color: v.primary, border: `1px solid ${withAlpha(v.primary, 0.28)}`, borderRadius: '999px' },
+      }
+    case 'neon': {
+      // 深色底(暗主题 surfaceAlt / 亮主题深色 10%)+ glowColor 辉光边 + 轻辉光
+      const bg = theme.dark ? v.surfaceAlt : withAlpha(v.text, 0.1)
+      return {
+        className,
+        style: {
+          background: bg,
+          color: v.primary,
+          border: `1px solid ${glow}`,
+          borderRadius: v.radius,
+          boxShadow: `0 0 8px ${withAlpha(glow, 0.35)}, inset 0 0 6px ${withAlpha(glow, 0.12)}`,
+        },
+      }
+    }
+    default: // solid(默认): 现状药丸
+      return {
+        className,
+        style: { background: withAlpha(v.primary, theme.dark ? 0.16 : 0.08), color: v.primary, border: `1px solid ${withAlpha(v.primary, 0.35)}`, borderRadius: v.radius },
+      }
+  }
+}
+
 /** 标签云（点击跳关键词落地页） */
 export function TagCloud({ tags, align }: { tags: string[]; align?: 'center' | 'left' }) {
   const { theme, navigate } = usePublic()
-  const v = theme.vars
   if (!tags.length) return null
+  // [R23-c-3] 芯片形态由 buttonStyle token 驱动(默认 solid = 原药丸)
+  const chip = chipVisual(theme)
   return (
     <div className={`flex flex-wrap gap-2 ${align === 'center' ? 'justify-center' : ''}`}>
       {tags.map((t, i) => (
@@ -54,13 +114,8 @@ export function TagCloud({ tags, align }: { tags: string[]; align?: 'center' | '
           key={`${t}-${i}`}
           type="button"
           onClick={() => navigate({ view: 'keyword', tag: t })}
-          className="rounded-full px-3 py-1 text-xs transition-opacity hover:opacity-80"
-          style={{
-            background: withAlpha(v.primary, theme.dark ? 0.16 : 0.08),
-            color: v.primary,
-            border: `1px solid ${withAlpha(v.primary, 0.35)}`,
-            borderRadius: v.radius,
-          }}
+          className={chip.className}
+          style={chip.style}
           aria-label={`关键词 ${t}`}
         >
           {t}
@@ -90,6 +145,8 @@ function shufflePick(pool: readonly string[], n: number): string[] {
 export function SuggestTagCloud({ count, refresh }: { count: number; refresh?: boolean }) {
   const { theme, navigate } = usePublic()
   const v = theme.vars
+  // [R23-c-4] 芯片与「换一批」按钮同步 buttonStyle 形态
+  const chip = chipVisual(theme)
   const [pool, setPool] = useState<string[] | null>(null)
   const [failed, setFailed] = useState(false)
   const [round, setRound] = useState(0)
@@ -132,13 +189,8 @@ export function SuggestTagCloud({ count, refresh }: { count: number; refresh?: b
           key={t}
           type="button"
           onClick={() => navigate({ view: 'search', q: t })}
-          className="rounded-full px-3 py-1 text-xs transition-opacity hover:opacity-80"
-          style={{
-            background: withAlpha(v.primary, theme.dark ? 0.16 : 0.08),
-            color: v.primary,
-            border: `1px solid ${withAlpha(v.primary, 0.35)}`,
-            borderRadius: v.radius,
-          }}
+          className={chip.className}
+          style={chip.style}
           aria-label={`搜索 ${t}`}
         >
           {t}
@@ -148,8 +200,8 @@ export function SuggestTagCloud({ count, refresh }: { count: number; refresh?: b
         <button
           type="button"
           onClick={() => setRound((r) => r + 1)}
-          className="inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-xs transition-opacity hover:opacity-80"
-          style={{ color: v.textMuted, border: `1px dashed ${withAlpha(v.border, 0.9)}`, borderRadius: v.radius }}
+          className={`${chip.className} inline-flex shrink-0 items-center gap-1`}
+          style={chip.style}
           aria-label="换一批搜索推荐词"
         >
           <RefreshCw className="h-3 w-3" aria-hidden />
@@ -160,15 +212,130 @@ export function SuggestTagCloud({ count, refresh }: { count: number; refresh?: b
   )
 }
 
-/** 区块标题（主题化） */
+/**
+ * 区块标题（主题化）
+ * [R23-c-5] headingDeco 七形态装饰(纯 CSS/字符, 零图片零依赖):
+ *   bar(默认)=渐变竖条 / swash=主→accent 楔形渐变下划线 / ribbon=skew 实底色块+accent 补边 /
+ *   bracket=『』括角(衬线) / badge=实底圆角块+accent 方点 / ornament=✦ 花饰+点线 / dual=渐变文字+辉光线。
+ * props 签名 {icon?, children, right?} 与外层 mb-4/justify-between 布局行为完全不变。
+ */
 export function SecTitle({ icon, children, right }: { icon?: ReactNode; children: ReactNode; right?: ReactNode }) {
   const { theme } = usePublic()
   const v = theme.vars
+  const d = designVars(theme)
+  const deco = d.headingDeco ?? 'bar'
+  const glow = d.glowColor ?? v.primary
+
+  // 图标色: 实底块形态(ribbon/badge)内用 primaryText 保证可读, 其余用 primary
+  const iconOnBlock = deco === 'ribbon' || deco === 'badge'
+  const iconNode = icon ? <span style={{ color: iconOnBlock ? v.primaryText : v.primary }}>{icon}</span> : null
+
+  const title = (() => {
+    switch (deco) {
+      case 'swash':
+        // 文字下方 3px 主→accent 渐变下划线, clipPath 楔形模拟"左端粗右端细"; 文字保持 v.text
+        return (
+          <>
+            {iconNode}
+            <span className="relative inline-block pb-1">
+              {children}
+              <span
+                aria-hidden
+                className="absolute inset-x-0 bottom-0 h-[3px]"
+                style={{ background: `linear-gradient(90deg, ${v.primary}, ${v.accent})`, clipPath: 'polygon(0 0, 100% 0, 100% 30%, 0 100%)', borderRadius: 2 }}
+              />
+            </span>
+          </>
+        )
+      case 'ribbon':
+        // 左侧 skew(-8deg) 实底色块(v.primary)内嵌白字, 块外右下补 accent 细边(offset 阴影)
+        return (
+          <span
+            className="inline-flex items-center"
+            style={{ transform: 'skewX(-8deg)', background: v.primary, color: v.primaryText, borderRadius: 2, padding: '3px 12px', boxShadow: `3px 3px 0 0 ${withAlpha(v.accent, 0.9)}` }}
+          >
+            <span className="inline-flex items-center gap-1.5" style={{ transform: 'skewX(8deg)' }}>
+              {iconNode}
+              {children}
+            </span>
+          </span>
+        )
+      case 'bracket':
+        // 文字两侧『』括角装饰(accent + 主题衬线 titleFont)
+        return (
+          <>
+            {iconNode}
+            <span className="inline-flex items-center gap-1">
+              <span aria-hidden className="text-base leading-none" style={{ color: v.accent, fontFamily: v.titleFont }}>『</span>
+              {children}
+              <span aria-hidden className="text-base leading-none" style={{ color: v.accent, fontFamily: v.titleFont }}>』</span>
+            </span>
+          </>
+        )
+      case 'badge':
+        // 整块标题装进实底 v.primary 圆角小块, 左上角叠一枚小 accent 方点
+        return (
+          <span className="relative inline-flex items-center">
+            <span aria-hidden className="absolute -left-1 -top-1 h-2 w-2" style={{ background: v.accent, borderRadius: 2 }} />
+            <span className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1" style={{ background: v.primary, color: v.primaryText }}>
+              {iconNode}
+              {children}
+            </span>
+          </span>
+        )
+      case 'ornament':
+        // 文字两侧 ✦ 菱形花饰(accent) + 下方细点线
+        return (
+          <>
+            {iconNode}
+            <span className="relative inline-block pb-1.5">
+              <span className="inline-flex items-center gap-2">
+                <span aria-hidden style={{ color: v.accent }}>✦</span>
+                {children}
+                <span aria-hidden style={{ color: v.accent }}>✦</span>
+              </span>
+              <span aria-hidden className="absolute inset-x-0 bottom-0" style={{ borderBottom: `1px dotted ${withAlpha(v.accent, 0.55)}` }} />
+            </span>
+          </>
+        )
+      case 'dual':
+        // 主→accent 渐变文字(background-clip:text) + 底部辉光细线(glowColor, blur 感 box-shadow)
+        return (
+          <>
+            {iconNode}
+            <span className="relative inline-block pb-1.5">
+              <span
+                style={{
+                  background: `linear-gradient(90deg, ${v.primary} 15%, ${v.accent} 100%)`,
+                  WebkitBackgroundClip: 'text',
+                  backgroundClip: 'text',
+                  WebkitTextFillColor: 'transparent',
+                  color: 'transparent',
+                }}
+              >
+                {children}
+              </span>
+              <span aria-hidden className="absolute inset-x-0 bottom-0 h-[2px] rounded-full" style={{ background: glow, boxShadow: `0 0 8px ${withAlpha(glow, 0.65)}` }} />
+            </span>
+          </>
+        )
+      default:
+        // bar(默认): 现状竖条微调为主→accent 纵向渐变
+        return (
+          <>
+            {iconNode || (
+              <span aria-hidden className="inline-block h-4 w-1 rounded-full" style={{ background: `linear-gradient(180deg, ${v.primary}, ${withAlpha(v.accent, 0.85)})` }} />
+            )}
+            {children}
+          </>
+        )
+    }
+  })()
+
   return (
     <div className="mb-4 flex items-center justify-between gap-3">
       <h2 className="flex items-center gap-2 text-lg font-bold tracking-wide" style={{ color: v.text }}>
-        {icon ? <span style={{ color: v.primary }}>{icon}</span> : <span className="inline-block h-4 w-1 rounded-full" style={{ background: v.primary }} aria-hidden />}
-        {children}
+        {title}
       </h2>
       {right}
     </div>
@@ -179,10 +346,13 @@ export function SecTitle({ icon, children, right }: { icon?: ReactNode; children
 export function EmptyState({ text = '暂无内容', hint }: { text?: string; hint?: string }) {
   const { theme, navigate } = usePublic()
   const v = theme.vars
+  const d = designVars(theme)
   return (
     <div className="flex flex-col items-center gap-3 py-16 text-center">
-      <span className="flex h-14 w-14 items-center justify-center rounded-full" style={{ background: v.surfaceAlt, color: v.textMuted }}>
-        <Inbox className="h-6 w-6" aria-hidden />
+      {/* [R23-c-6] 圆形底改 surfaceGradient(?? surface) + 淡 pattern 感虚线环 */}
+      <span className="relative flex h-14 w-14 items-center justify-center rounded-full" style={{ background: d.surfaceGradient ?? v.surface, color: v.textMuted }}>
+        <span aria-hidden className="absolute -inset-1.5 rounded-full" style={{ border: `1.5px dashed ${withAlpha(v.primary, 0.35)}` }} />
+        <Inbox className="relative h-6 w-6" aria-hidden />
       </span>
       <p className="text-sm font-medium" style={{ color: v.text }}>{text}</p>
       {hint && <p className="text-xs" style={{ color: v.textMuted }}>{hint}</p>}
@@ -202,10 +372,13 @@ export function EmptyState({ text = '暂无内容', hint }: { text?: string; hin
 export function ErrorState({ message = '内容加载失败', detail }: { message?: string; detail?: string }) {
   const { theme, navigate } = usePublic()
   const v = theme.vars
+  const d = designVars(theme)
   return (
     <div className="flex flex-col items-center gap-3 py-20 text-center">
-      <span className="flex h-14 w-14 items-center justify-center rounded-full" style={{ background: withAlpha(v.primary, 0.12), color: v.primary }}>
-        <AlertCircle className="h-6 w-6" aria-hidden />
+      {/* [R23-c-7] 圆形底改 surfaceGradient(?? surface) + 淡 pattern 感虚线环(与 EmptyState 同语言) */}
+      <span className="relative flex h-14 w-14 items-center justify-center rounded-full" style={{ background: d.surfaceGradient ?? v.surface, color: v.primary }}>
+        <span aria-hidden className="absolute -inset-1.5 rounded-full" style={{ border: `1.5px dashed ${withAlpha(v.primary, 0.35)}` }} />
+        <AlertCircle className="relative h-6 w-6" aria-hidden />
       </span>
       <p className="text-base font-semibold" style={{ color: v.text }}>{message}</p>
       {detail && <p className="max-w-md text-xs leading-relaxed" style={{ color: v.textMuted }}>{detail}</p>}

@@ -283,7 +283,7 @@ export default function PublicSite({
   return (
     <PublicProvider value={ctxValue}>
       <div
-        className="flex min-h-screen w-full flex-col"
+        className="relative flex min-h-screen w-full flex-col"
         style={{
           background: v.bg,
           color: v.text,
@@ -291,9 +291,15 @@ export default function PublicSite({
           minHeight: '100vh',
         }}
       >
-        <SiteHeader />
-        <main className="w-full flex-1">{renderView()}</main>
-        <SiteFooter />
+        {/* [R23-主-1] 全站装饰纹理层: 主题 patternBg 存在时铺底(纯 CSS 图案: 点阵/网格/织锦), 内容层 relative 置于其上 */}
+        {v.patternBg && (
+          <div aria-hidden className="pointer-events-none absolute inset-0" style={{ background: v.patternBg }} />
+        )}
+        <div className="relative flex w-full flex-1 flex-col">
+          <SiteHeader />
+          <main className="w-full flex-1">{renderView()}</main>
+          <SiteFooter />
+        </div>
 
         {embedMode && (
           <button

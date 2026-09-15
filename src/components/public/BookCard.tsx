@@ -1,28 +1,52 @@
 // ============================================================
 // 主题化书籍卡片 / 行 / 海报 / 通用结果列表
+// [R23-c-8] R23-c 设计语言化: cardHover 四形态(lift/glow/grow/none) + surfaceGradient 卡面
 // ============================================================
 'use client'
 
+import { useState } from 'react'
 import { BookOpen, Clock3, User } from 'lucide-react'
 import type { BookItem } from './types'
 import { usePublic } from './ctx'
 import { fmtDate, formatWords, withAlpha } from './seo'
 import { BookCover } from './BookCover'
-import { bookNavProps, EmptyState, Sk, StatusBadge, BookGridSkeleton } from './bits'
+import { bookNavProps, designVars, EmptyState, Sk, StatusBadge, BookGridSkeleton } from './bits'
 
 /** 通用书籍卡片（网格布局，主题化圆角/阴影/描边） */
 export function BookCard({ book }: { book: BookItem }) {
   const { theme, navigate } = usePublic()
   const v = theme.vars
+  // [R23-c-8] cardHover 四形态 + surfaceGradient 卡面 + glowColor 辉光(全部 ?? 本地 fallback)
+  const d = designVars(theme)
+  const hover = d.cardHover ?? 'lift'
+  const glow = d.glowColor ?? v.primary
+  const [hov, setHov] = useState(false)
+
+  // 位移/缩放走静态 Tailwind 类(与原 hover:-translate-y-1 / hover:scale-[1.03] 同一 JIT 词汇);
+  // 阴影/描边染色需 withAlpha 动态配色, 走 hover 态内联样式(onMouseEnter/Leave + 焦点对等)。
+  const hoverCls = hover === 'lift' ? ' hover:-translate-y-1' : hover === 'grow' ? ' hover:scale-[1.03]' : ''
+  const baseShadow = v.cardShadow === 'none' ? undefined : v.cardShadow
+  const hoverShadow =
+    hover === 'glow'
+      ? `0 8px 30px ${withAlpha(glow, 0.55)}`
+      : hover === 'lift'
+        ? `0 14px 30px ${withAlpha(glow, 0.22)}, ${v.cardShadow === 'none' ? '0 10px 24px rgba(0,0,0,0.14)' : v.cardShadow}`
+        : undefined
+  const borderColor = hov && hover === 'glow' ? withAlpha(glow, 0.4) : v.border
+
   return (
     <article
-      className="group relative cursor-pointer overflow-hidden transition-all duration-200 hover:-translate-y-1 hover:shadow-lg"
+      className={`group relative cursor-pointer overflow-hidden transition-all duration-200${hoverCls}`}
       style={{
-        background: v.surface,
-        border: `1px solid ${v.border}`,
+        background: d.surfaceGradient ?? v.surface,
+        border: `1px solid ${borderColor}`,
         borderRadius: v.radius,
-        boxShadow: v.cardShadow === 'none' ? undefined : v.cardShadow,
+        boxShadow: hov && hoverShadow ? hoverShadow : baseShadow,
       }}
+      onMouseEnter={() => setHov(true)}
+      onMouseLeave={() => setHov(false)}
+      onFocus={() => setHov(true)}
+      onBlur={() => setHov(false)}
       {...bookNavProps(navigate, book.id)}
       aria-label={`查看《${book.name}》详情`}
     >
@@ -53,17 +77,30 @@ export function BookCard({ book }: { book: BookItem }) {
 export function BookLine({ book, index }: { book: BookItem; index?: number }) {
   const { theme, navigate } = usePublic()
   const v = theme.vars
+  // [R23-c-9] 行 hover: 行首序号徽章变实底主色(有 index 时) + 行面 surfaceGradient(40%)
+  const d = designVars(theme)
+  const [hov, setHov] = useState(false)
+  const sg = d.surfaceGradient
+  const rowBg = hov ? (sg ? withAlpha(sg, 0.4) : withAlpha(v.surface, 0.4)) : undefined
   return (
     <article
       className="group flex cursor-pointer items-center gap-3 py-3 transition-colors"
-      style={{ borderBottom: `1px solid ${withAlpha(v.border, 0.7)}` }}
+      style={{ borderBottom: `1px solid ${withAlpha(v.border, 0.7)}`, background: rowBg }}
+      onMouseEnter={() => setHov(true)}
+      onMouseLeave={() => setHov(false)}
+      onFocus={() => setHov(true)}
+      onBlur={() => setHov(false)}
       {...bookNavProps(navigate, book.id)}
       aria-label={`查看《${book.name}》详情`}
     >
       {typeof index === 'number' && (
         <span
-          className="w-8 shrink-0 text-center text-lg font-bold tabular-nums"
-          style={{ color: index < 3 ? v.primary : v.textMuted, fontFamily: v.titleFont }}
+          className="w-8 shrink-0 rounded-md py-0.5 text-center text-lg font-bold tabular-nums transition-colors"
+          style={{
+            color: hov ? v.primaryText : index < 3 ? v.primary : v.textMuted,
+            background: hov ? v.primary : 'transparent',
+            fontFamily: v.titleFont,
+          }}
         >
           {String(index + 1).padStart(2, '0')}
         </span>
@@ -93,10 +130,21 @@ export function BookLine({ book, index }: { book: BookItem; index?: number }) {
 export function BookPoster({ book }: { book: BookItem }) {
   const { theme, navigate } = usePublic()
   const v = theme.vars
+  // [R23-c-10] cardHover(默认 grow) + 底部遮罩渐变叠主色 tint(withAlpha(primary,0.25))
+  const d = designVars(theme)
+  const hover = d.cardHover ?? 'grow'
+  const glow = d.glowColor ?? v.primary
+  const [hov, setHov] = useState(false)
+  const hoverCls = hover === 'lift' ? ' hover:-translate-y-1' : hover === 'grow' ? ' hover:scale-[1.03]' : ''
+  const hoverShadow = hover === 'glow' ? `0 8px 30px ${withAlpha(glow, 0.55)}` : undefined
   return (
     <article
-      className="group relative cursor-pointer overflow-hidden transition-transform duration-200 hover:scale-[1.03]"
-      style={{ borderRadius: v.radius, boxShadow: v.cardShadow === 'none' ? undefined : v.cardShadow }}
+      className={`group relative cursor-pointer overflow-hidden transition-all duration-200${hoverCls}`}
+      style={{ borderRadius: v.radius, boxShadow: hov && hoverShadow ? hoverShadow : v.cardShadow === 'none' ? undefined : v.cardShadow }}
+      onMouseEnter={() => setHov(true)}
+      onMouseLeave={() => setHov(false)}
+      onFocus={() => setHov(true)}
+      onBlur={() => setHov(false)}
       {...bookNavProps(navigate, book.id)}
       aria-label={`查看《${book.name}》详情`}
     >
@@ -105,7 +153,10 @@ export function BookPoster({ book }: { book: BookItem }) {
       <BookCover name={book.name} cover={book.cover} className="aspect-[3/4] w-full" />
       <div
         className="absolute inset-x-0 bottom-0 p-2.5 pt-8"
-        style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.45) 55%, transparent 100%)' }}
+        style={{
+          // [R23-c-10] 双层背景: 主色 tint(自下而上 55% 内衰减)叠于原暗部渐变之上, 白字对比度不降级
+          background: `linear-gradient(to top, ${withAlpha(v.primary, 0.25)} 0%, transparent 55%), linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.45) 55%, transparent 100%)`,
+        }}
       >
         <div className="mb-1 flex items-center gap-1.5">
           <StatusBadge status={book.status} small />

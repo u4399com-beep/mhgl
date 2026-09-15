@@ -13,6 +13,7 @@
 
 import { useEffect, useMemo, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { Search } from 'lucide-react'
+import type { ThemeDef } from '@/lib/crawl/themes'
 import type { BookItem, CategoryItem } from '../types'
 import { usePublic } from '../ctx'
 import { fmtDate, formatWords, withAlpha } from '../seo'
@@ -20,26 +21,61 @@ import { fetchBooks, fetchCategories, fetchFooterLinks, type FooterLinksData } f
 import { BookCover } from '../BookCover'
 import { bookNavProps, Sk, StatusBadge } from '../bits'
 
-/** 板块标题条 — 笔趣阁经典样式: 主色底白字 + 右侧「更多」 */
-function BiqugeBar({ title, onMore }: { title: string; onMore?: () => void }) {
+/** [R23-b-19] 渐变标题条 token 解析(heroBg 底 + heroText 白字), BiqugeBar 与独立板块头共用 */
+function biqugeBarVars(v: ThemeDef['vars']) {
+  const tv = v
+  return {
+    heroBg: tv.heroBg || `linear-gradient(120deg, ${withAlpha(v.primary, 0.92)}, ${withAlpha(v.accent, 0.85)})`,
+    heroText: tv.heroText || v.primaryText,
+  }
+}
+
+/** [R23-b-19] 板块标题条 → 渐变标题条: heroBg 底 + heroText 白字 + 左侧 4px accent 竖条(全宽板块头)。
+ *  attached=true 时仅上圆角(贴卡片顶); level=2 用于独立板块 h2 语义; right 放右侧附加信息 */
+function BiqugeBar({
+  title,
+  onMore,
+  attached = true,
+  level = 3,
+  right,
+  className,
+}: {
+  title: string
+  onMore?: () => void
+  attached?: boolean
+  level?: 2 | 3
+  right?: ReactNode
+  className?: string
+}) {
   const v = usePublic().theme.vars
+  const { heroBg, heroText } = biqugeBarVars(v)
+  const Tag = (level === 2 ? 'h2' : 'h3') as 'h2' | 'h3'
   return (
     <div
-      className="flex min-h-[44px] items-center justify-between gap-3 px-4 py-2"
-      style={{ background: `linear-gradient(90deg, ${v.primary}, ${withAlpha(v.primary, 0.82)})`, color: v.primaryText, borderRadius: `${v.radius} ${v.radius} 0 0` }}
+      className={`flex min-h-[44px] items-center gap-3 px-4 py-2 ${className || ''}`}
+      style={{
+        background: heroBg,
+        color: heroText,
+        borderRadius: attached ? `${v.radius} ${v.radius} 0 0` : v.radius,
+      }}
     >
-      <h3 className="text-sm font-bold tracking-[0.2em]">{title}</h3>
-      {onMore && (
-        <button
-          type="button"
-          onClick={onMore}
-          className="shrink-0 text-xs opacity-80 transition-opacity hover:opacity-100"
-          style={{ color: v.primaryText }}
-          aria-label={`查看更多 ${title}`}
-        >
-          更多 »
-        </button>
-      )}
+      {/* 左侧 4px accent 竖条 */}
+      <span className="inline-block h-4 w-1 shrink-0" style={{ background: v.accent }} aria-hidden />
+      <Tag className="text-sm font-bold tracking-[0.2em]">{title}</Tag>
+      <div className="ml-auto flex min-w-0 items-center gap-3">
+        {right}
+        {onMore && (
+          <button
+            type="button"
+            onClick={onMore}
+            className="shrink-0 text-xs opacity-80 transition-opacity hover:opacity-100"
+            style={{ color: heroText }}
+            aria-label={`查看更多 ${title}`}
+          >
+            更多 »
+          </button>
+        )}
+      </div>
     </div>
   )
 }
@@ -300,12 +336,19 @@ function BiqugeSmallCard({ book }: { book: BookItem }) {
   )
 }
 
-/** 更新行: 书名 + 最新章节 + 时间(经典笔趣阁更新列表 DNA) */
-function BiqugeUpdateRow({ book, showCat }: { book: BookItem; showCat?: boolean }) {
+/** 更新行: 书名 + 最新章节 + 时间(经典笔趣阁更新列表 DNA); idx 用于斑马纹交替 */
+function BiqugeUpdateRow({ book, showCat, idx }: { book: BookItem; showCat?: boolean; idx?: number }) {
   const { theme, navigate } = usePublic()
   const v = theme.vars
   return (
-    <li className="border-t last:border-b-0" style={{ borderColor: withAlpha(v.border, 0.55) }}>
+    // [R23-b-20] 表格感增强: 奇偶行斑马纹(surfaceAlt 40% 交替; 非.hex 色值时 withAlpha 原样返回, 视觉安全)
+    <li
+      className="border-t last:border-b-0"
+      style={{
+        borderColor: withAlpha(v.border, 0.55),
+        background: idx !== undefined && idx % 2 === 1 ? withAlpha(v.surfaceAlt, 0.4) : undefined,
+      }}
+    >
       <button
         type="button"
         onClick={() => navigate({ view: 'book', bookId: book.id })}
@@ -392,11 +435,14 @@ function BiqugeGroupedLatest({ cats, siteId }: { cats: CategoryItem[] | null; si
 
   return (
     <section data-biquge="grouped-latest" aria-label="最新更新">
-      <div className="mb-3 flex items-center gap-2.5">
-        <span className="inline-block h-5 w-1.5" style={{ background: v.primary }} aria-hidden />
-        <h2 className="text-lg font-bold" style={{ color: v.text }}>最新更新</h2>
-        <span className="hidden text-xs sm:inline" style={{ color: v.textMuted }}>按分类分组 · 每列展示该分类最新 8 本</span>
-      </div>
+      {/* [R23-b-19] 最新更新升级渐变标题条(全宽板块头 + 副说明) */}
+      <BiqugeBar
+        title="最新更新"
+        attached={false}
+        level={2}
+        className="mb-3"
+        right={<span className="hidden truncate text-xs opacity-85 sm:inline">按分类分组 · 每列展示该分类最新 8 本</span>}
+      />
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {pending || !cats || !grouped
           ? Array.from({ length: 6 }).map((_, i) => (
@@ -420,7 +466,7 @@ function BiqugeGroupedLatest({ cats, siteId }: { cats: CategoryItem[] | null; si
                   </span>
                 </div>
                 <ul>
-                  {g.books.map((b) => <BiqugeUpdateRow key={b.id} book={b} />)}
+                  {g.books.map((b, i) => <BiqugeUpdateRow key={b.id} book={b} idx={i} />)}
                 </ul>
               </div>
             ))}
@@ -481,6 +527,8 @@ function BiqugeSkeleton() {
   return (
     <div data-biquge="home" aria-hidden>
       <Sk className="mb-4 h-28 w-full" />
+      {/* [R23-b-18] 公告条骨架位(与真实结构对齐防 CLS) */}
+      <Sk className="mb-5 h-10 w-full" />
       <div className="grid gap-4 lg:grid-cols-[176px_minmax(0,1fr)_264px]">
         <Sk className="hidden h-64 w-full lg:block" />
         <div className="space-y-4">
@@ -523,6 +571,23 @@ export function HomeBiquge({ books, loading }: { books: BookItem[]; loading: boo
 
   return (
     <div data-biquge="home" className="space-y-5">
+      {/* [R23-b-18] 公告通知条: 主色 4px 左边框 + 浅底(经典笔趣阁公告 DNA) */}
+      <aside
+        className="flex items-start gap-2 px-4 py-2.5 text-xs leading-relaxed"
+        style={{
+          borderLeft: `4px solid ${v.primary}`,
+          background: withAlpha(v.primary, 0.06),
+          color: v.textMuted,
+          borderRadius: `0 ${v.radius} ${v.radius} 0`,
+        }}
+        aria-label="本站公告"
+      >
+        <span className="shrink-0 font-bold" style={{ color: v.primary }}>公告：</span>
+        <span className="min-w-0 flex-1">
+          本站小说均收集自互联网，仅供学习交流；每日持续更新，完结好书持续收录，使用顶部搜索框可按书名 / 作者查找。
+        </span>
+      </aside>
+
       {/* [R18-d-4] aijjxs 仿站: 深酒红导航条+米白报头已由 SiteHeader headerStyle='aijjxs' 呈现, 不再重复渲染导航卡 */}
       {v.headerStyle !== 'aijjxs' && <BiqugeNav />}
 
@@ -534,10 +599,8 @@ export function HomeBiquge({ books, loading }: { books: BookItem[]; loading: boo
         <div className="min-w-0 space-y-5">
           {featured.length > 0 && (
             <section aria-label="本周强推">
-              <div className="mb-3 flex items-center gap-2.5">
-                <span className="inline-block h-5 w-1.5" style={{ background: v.primary }} aria-hidden />
-                <h2 className="text-lg font-bold" style={{ color: v.text }}>本周强推</h2>
-              </div>
+              {/* [R23-b-19] 本周强推升级渐变标题条(独立全宽板块头, h2 语义) */}
+              <BiqugeBar title="本周强推" attached={false} level={2} className="mb-3" />
               <div className="grid gap-3 md:grid-cols-2">
                 {featured.map((b) => <BiqugeFeatureCard key={b.id} book={b} />)}
               </div>
@@ -555,7 +618,7 @@ export function HomeBiquge({ books, loading }: { books: BookItem[]; loading: boo
           {today.length > 0 && (
             <BiqugeCard title="今日更新" onMore={moreCats}>
               <ul>
-                {today.map((b) => <BiqugeUpdateRow key={b.id} book={b} showCat />)}
+                {today.map((b, i) => <BiqugeUpdateRow key={b.id} book={b} showCat idx={i} />)}
               </ul>
             </BiqugeCard>
           )}
@@ -567,14 +630,14 @@ export function HomeBiquge({ books, loading }: { books: BookItem[]; loading: boo
           {sideRec.length > 0 && (
             <BiqugeCard title="本站推荐" onMore={moreCats}>
               <ol>
-                {sideRec.map((b) => <BiqugeUpdateRow key={b.id} book={b} />)}
+                {sideRec.map((b, i) => <BiqugeUpdateRow key={b.id} book={b} idx={i} />)}
               </ol>
             </BiqugeCard>
           )}
           {sideLatest.length > 0 && (
             <BiqugeCard title="最近更新" onMore={moreCats}>
               <ol>
-                {sideLatest.map((b) => <BiqugeUpdateRow key={b.id} book={b} />)}
+                {sideLatest.map((b, i) => <BiqugeUpdateRow key={b.id} book={b} idx={i} />)}
               </ol>
             </BiqugeCard>
           )}

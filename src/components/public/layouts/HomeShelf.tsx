@@ -1,6 +1,7 @@
 // ============================================================
 // 首页布局 · shelf（星夜幻紫 aurora）
-// 顶部渐变 hero 精选 + 按分类分组的横向滚动玻璃书架
+// 按分类分组的横向滚动玻璃书架
+// R23-b: 书架横幅 hero(heroBg 打底 + 底部 8px 渐变「搁板」粗线, 书卡立搁板取书 hover)
 // ============================================================
 'use client'
 
@@ -43,6 +44,12 @@ export function HomeShelf({ books, loading }: { books: BookItem[]; loading: bool
   const { theme, navigate } = usePublic()
   const v = theme.vars
 
+  // [R23-b-7] token 消费(未落地走 fallback)
+  const tv = v
+  const heroBg = tv.heroBg || `linear-gradient(120deg, ${withAlpha(v.primary, 0.92)}, ${withAlpha(v.accent, 0.85)})`
+  const heroText = tv.heroText || v.primaryText
+  const heroMuted = tv.heroMuted || withAlpha(heroText, 0.8)
+
   if (loading) return <ShelfSkeleton />
   if (!books.length) return null
 
@@ -68,16 +75,13 @@ export function HomeShelf({ books, loading }: { books: BookItem[]; loading: bool
 
   return (
     <div className="space-y-10">
-      {/* 顶部渐变 hero 精选 */}
+      {/* [R23-b-7] 书架横幅: heroBg 打底 + 底部 8px 主色→accent 渐变「搁板」粗线, 书卡如立在搁板上 */}
       <section
-        className="overflow-hidden p-5 sm:p-8"
-        style={{
-          background: `linear-gradient(120deg, ${withAlpha(v.primary, 0.28)}, ${withAlpha(v.accent, 0.14)} 55%, transparent)`,
-          border: `1px solid ${v.border}`,
-          borderRadius: v.radius,
-        }}
-        aria-label="精选推荐"
+        className="overflow-hidden"
+        style={{ background: heroBg, border: `1px solid ${v.border}`, borderRadius: v.radius }}
+        aria-label="书架精选"
       >
+        <div className="p-5 pb-6 sm:p-8">
         <div className="grid gap-6 md:grid-cols-[220px_1fr] md:gap-8">
           <div
             className="cursor-pointer overflow-hidden transition-transform duration-300 hover:scale-[1.02] mx-auto w-44 md:mx-0 md:w-full"
@@ -89,13 +93,13 @@ export function HomeShelf({ books, loading }: { books: BookItem[]; loading: bool
           </div>
           <div className="flex flex-col justify-center gap-3">
             <span className="inline-flex w-fit items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium"
-              style={{ background: withAlpha(v.accent, 0.16), color: v.accent, border: `1px solid ${withAlpha(v.accent, 0.4)}` }}>
+              style={{ background: withAlpha(heroText, 0.16), color: heroText, border: `1px solid ${withAlpha(heroText, 0.4)}` }}>
               <Sparkles className="h-3.5 w-3.5" aria-hidden />
               本站精选
             </span>
             <h2
               className="text-2xl font-black leading-tight sm:text-3xl"
-              style={{ color: v.text, fontFamily: v.titleFont }}
+              style={{ color: heroText, fontFamily: v.titleFont }}
             >
               <button
                 type="button"
@@ -107,24 +111,24 @@ export function HomeShelf({ books, loading }: { books: BookItem[]; loading: bool
                 {featured.name}
               </button>
             </h2>
-            <div className="flex flex-wrap items-center gap-2 text-xs" style={{ color: v.textMuted }}>
+            <div className="flex flex-wrap items-center gap-2 text-xs" style={{ color: heroMuted }}>
               <StatusBadge status={featured.status} />
               <span>{featured.author}</span>
-              <span style={{ color: v.primary }}>{featured.category}</span>
+              <span className="font-semibold" style={{ color: heroText }}>{featured.category}</span>
               <span>{formatWords(featured.wordCount)}</span>
             </div>
-            <p className="line-clamp-3 max-w-xl text-sm leading-relaxed" style={{ color: v.textMuted }}>
+            <p className="line-clamp-3 max-w-xl text-sm leading-relaxed" style={{ color: heroMuted }}>
               {featured.intro || '暂无简介'}
             </p>
-            <p className="text-xs" style={{ color: v.textMuted }}>
-              最新：<span style={{ color: v.accent }}>{featured.latestChapter || '暂无章节'}</span>
+            <p className="text-xs" style={{ color: heroMuted }}>
+              最新：<span style={{ color: heroText }}>{featured.latestChapter || '暂无章节'}</span>
             </p>
             <div className="pt-1">
               <button
                 type="button"
                 onClick={() => navigate({ view: 'book', bookId: featured.id })}
                 className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium transition-opacity hover:opacity-85"
-                style={{ background: v.primary, color: v.primaryText, borderRadius: v.radius }}
+                style={{ background: v.surface, color: v.text, border: `1px solid ${withAlpha(heroText, 0.35)}`, borderRadius: v.radius }}
               >
                 <BookOpen className="h-4 w-4" aria-hidden />
                 查看详情
@@ -132,14 +136,14 @@ export function HomeShelf({ books, loading }: { books: BookItem[]; loading: bool
             </div>
           </div>
         </div>
-        {/* 次级精选封面条 */}
+        {/* 次级精选封面条(书立搁板: hover 抬起取书 translateY(-4px)) */}
         {restList.length > 0 && (
           <div className="mt-6 flex gap-3 overflow-x-auto pb-1">
             {restList.slice(0, 8).map((b) => (
               <button
                 key={b.id}
                 type="button"
-                className="w-24 shrink-0 overflow-hidden text-left transition-transform hover:scale-[1.04] sm:w-28"
+                className="w-24 shrink-0 overflow-hidden text-left transition-transform duration-200 hover:-translate-y-1 sm:w-28"
                 style={glass}
                 onClick={() => navigate({ view: 'book', bookId: b.id })}
                 aria-label={b.name}
@@ -150,6 +154,9 @@ export function HomeShelf({ books, loading }: { books: BookItem[]; loading: bool
             ))}
           </div>
         )}
+        </div>
+        {/* [R23-b-7] 搁板粗线: 8px 主色→accent 渐变(全宽, 书架底部) */}
+        <div className="h-2 w-full" style={{ background: `linear-gradient(90deg, ${v.primary}, ${v.accent})` }} aria-hidden />
       </section>
 
       {/* 按分类分组的横向书架 */}
@@ -179,6 +186,7 @@ export function HomeShelf({ books, loading }: { books: BookItem[]; loading: bool
             {list.map((b) => (
               <article
                 key={b.id}
+                // [R23-b-8] 书卡立搁板: hover translateY(-4px) 抬起取书感
                 className="w-24 shrink-0 cursor-pointer overflow-hidden transition-transform duration-200 hover:-translate-y-1 sm:w-28"
                 style={glass}
                 {...bookNavProps(navigate, b.id)}

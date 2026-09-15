@@ -4441,3 +4441,91 @@ Work Log:
 
 Stage Summary:
 - R22 交付: 27 条规则全量复测闭环(21 PASS+5 ENV+1 设计边界) + 清洗链 9 项修复(\n/&nbsp; 专项) + fetcher 8 项增强 + runner 6 项修复 + 智能分类 4 项修复(词表死键复活/全角归一/耽美行/LLM 空表跳过) + BrowserAct 评估(结论: 不接入) + 三文档重写(1490/544/116 行) + 数据破坏级缺陷 1 个(High) 根修
+---
+Task ID: R23-a
+Agent: frontend-styling-expert
+Task: 主题设计语言 token 层重设计(theme-matrix + themes)
+
+Work Log:
+- 通读 worklog 末段 + theme-matrix.ts(387 行)/themes.ts(385 行) 全量, 确认 512 组合 ID 体系/兜底链/导出面零触碰约束; 勘察 tsconfig(strict, 无 exactOptionalPropertyTypes)与全库 StyleDef/ColorScheme 构造点(仅 theme-matrix 内部, 扩展接口无外溢破坏面)
+- [R23-a-1/2] themes.ts: 新增 HeadingDecoKind/ButtonStyleKind/CardHoverKind 三枚举(统一定义供 preset 与矩阵共用, 矩阵侧 type-only import 编译期擦除无运行时环); ThemeDef.vars 增 10 个可选 token(heroBg/heroText/heroMuted/surfaceGradient/patternBg/headingDeco/buttonStyle/cardHover/glowColor/gradientText), 逐字段注释写明 fallback 契约
+- [R23-a-3~11] 9 个 preset 逐一补齐全套设计语言 token: aurora=neon 系(网格纹理/dual/neon 按钮/accent 青辉光/gradientText) / paper=宣纸书卷(纸纤维点纹/ornament/水墨晕染 hero, heroText 手调深墨) / mango=现代 ribbon(斜条纹/双色卡片表面) / bamboo=瑞士极简(dots/bar/outline) / rose=杂志 bracket(暗夜报头 hero/grow) / ocean=影院(swash 渐变下划线/gradientText/天青辉光) / biquge=典籍(diagonal 织锦/badge/hover none/赭橙报头) / aijjxs=仿站气质(bar 竖条贴近真站/青绿报头+琥珀高光) / pili=复古书城(stripes/ribbon/pill)
+- [R23-a-12~15] theme-matrix.ts: 新增 PatternKind 导出类型; StyleDef 增 pattern/headingDeco/buttonStyle/cardHover/gradientText 五个必填人格字段; ColorScheme 增可选 heroBg/heroText; 新增 4 个纯函数 helper —— hexToRgba(6 位 hex→rgba, 非 hex 返回 undefined 由调用方中性兜底) / patternOf(dots 22px 点阵·grid 34px 网格·stripes -45° 条纹·diagonal 45° 织锦, ink=text 色 dark?0.10:0.06 透明度, none→undefined 不发 token) / surfaceGradientOf(glasswa 半透明白磨砂按暗亮分档 0.16/0.85, modern=surface→surfaceAlt 双色渐变, 其余 undefined 走 surface fallback) / glowColorOf(neon 用 accent 其余用 primary)
+- [R23-a-16] 8 配色 heroBg 全部显式手调(多层 radial/linear 叠加, 禁用派生渐变): amber 赭橙+右上奶油高光 / violet 薰衣草深紫+两颗漂浮光球 / emerald 薄荷深绿+底部径向光晕 / cyan 斜向高光带 / sakura 双柔焦花瓣光斑 / graphite 灰金双层光晕 / noir 深黑+金色辉光(heroText 显式手调 #f3ead8 —— primaryText #221703 是金底按钮字色在黑底不可读) / aurora 浓紫青双球 mesh; 白字 hero 渐变起点均校到对比度≥3:1(大字号阈值)
+- [R23-a-17] 8 风格人格重定义(纹理/标题装饰/按钮/hover/渐变文字五维互异), desc 同步为设计语言描述: minimal=瑞士编辑(dots/bar/outline/lift) glasswa=真玻璃拟态(none/swash/gradient/glow/gradientText) paper=宣纸书卷(dots/ornament/solid/lift) modern=双色调色块(stripes/ribbon/gradient/lift) magazine=编辑部大报(none/bracket/solid/grow) neon=赛博网格(grid/dual/neon/glow/gradientText) classic=传统典籍(diagonal/badge/solid/none) pili=复古书城(stripes/ribbon/pill/lift)
+- [R23-a-18] generateTheme 合成期写入全部 token: heroBg=scheme.heroBg 优先否则 linear-gradient(120deg, primary, accent) / heroText=scheme.heroText??primaryText / heroMuted=hexToRgba(heroText,0.8)??heroText / surfaceGradient/patternBg 按 helper / glowColor=glowColorOf / headingDeco+buttonStyle+cardHover+gradientText 直传 StyleDef; parseThemeId/getThemeById/getThemeList/getThemeListCached/searchThemeList/readOf/READ_DEFAULTS 与 512 ID 格式逐字未动
+- 质量门: bunx eslint 两文件 0 错 0 警; 按铁律未跑全量 tsc(留主控串行); bun 运行时冒烟(临时脚本用毕即删): 512 组合全量合成 token 完整性(10 字段×512) + pattern none→patternBg undefined 唯一例外 + glasswa/modern surfaceGradient 有值其余 undefined + neon accent 辉光 + 暗 0.10/亮 0.06 墨色透明度 + amber-magazine-biquge 可解析且 bracket + getThemeList 512 + 兜底链 aurora + 9 preset token 齐备 —— 除 1 条测试脚本自身误用矩阵层 getThemeById 查 preset(设计如此, themes 层同名函数实证 preset 命中正常)外全 PASS; 零依赖新增/零服务重启/零 DB 接触/未 git commit
+
+Stage Summary:
+- 设计语言 token 层落地: themes.ts 契约(10 可选 token+3 枚举导出 HeadingDecoKind/ButtonStyleKind/CardHoverKind) + theme-matrix 人格合成(StyleDef 5 必填字段含导出 PatternKind, ColorScheme 可选 heroBg/heroText, 4 helper) —— 8 风格五维人格互异 + 8 配色富渐变 heroBg 手调 + 9 preset 全套补齐, 8×8×8=512 组合与 ID 体系/导出面完全不变
+- 消费端可直接按 ThemeDef.vars 新字段取用: 缺省 fallback 契约见字段注释(patternBg 仅 pattern none 场景为 undefined; surfaceGradient 仅 glasswa/modern 产出, 其余走 surface fallback)
+- 遗留: 全量 tsc 由主控串行复验; 纹理/hero 均为纯 CSS 多层渐变, 消费端渲染层(absolute 纹理层/hero 区)由并行 agent 按契约为实现方
+---
+Task ID: R23-c
+Agent: frontend-styling-expert
+Task: 共享组件设计语言化(SecTitle 7 装饰/标签 5 形态/卡片 4 hover/主题化页脚)
+
+Work Log:
+- 前置勘察: worklog 末 200 行 + 通读 bits/BookCard/SiteFooter/ctx(usePublic/theme)/seo(withAlpha/statusStyle)/themes(ThemeDef)/theme-matrix(512 组合合成)/BookCover; 关键确认: ①withAlpha 对非 #rrggbb 原样返回(aurora 系 rgba surfaceAlt/border 安全降级路径) ②512 组合与 9 preset 的 vars 均未含新 token → 新 token 缺省时全走 ?? fallback, 默认形态=改造前现状(bar/solid/lift/grow) ③SecTitle/TagCloud 等调用方遍布 Home*/Search/Keyword/Category/Book/Read/SiteHeader/PublicSite, 签名不可动
+- [R23-c-1] bits.tsx: 新增 DesignTokens 本地镜像接口(headingDeco/buttonStyle/cardHover/surfaceGradient/patternBg/glowColor/heroBg/heroText/gradientText, 全可选, 与契约逐字段一致)+designVars() 单点 `as unknown as` 断言壳 — ThemeDef.vars 类型合入前/后均可编译(并行时序无关), 主控对账后可删壳直读; hero 三 token 属首页 hero 辖区仅镜像契约
+- [R23-c-2] StatusBadge: statusStyle 语义不动, 仅叠加 180° 白高光渐变(backgroundImage)+1px inset 高光内描边(精致化)
+- [R23-c-3] bits.tsx: 新增 chipVisual() 标签五形态工厂(返回 className+style): solid=原药丸(现状) / outline=透明底+1.5px 主色边 / gradient=主→accent 渐变底+primaryText / pill=999px 全圆角+主色浅底 / neon=深色底(暗主题 surfaceAlt / 亮主题 text@10%)+glowColor 辉光边+内外轻辉光 box-shadow; TagCloud 消费
+- [R23-c-4] SuggestTagCloud: 推荐词与「换一批」按钮同步 buttonStyle 形态(点击语义/aria-label/骨架分支/洗牌逻辑零改动)
+- [R23-c-5] SecTitle 七形态(props 签名 {icon?, children, right?} 与外层 mb-4/justify-between 布局行为不变; 图标在实底块形态(ribbon/badge)自动换 primaryText 色): bar=竖条微调为主→accent 纵向渐变 / swash=3px 主→accent 渐变下划线+clipPath 楔形模拟左粗右细(文字保持 v.text) / ribbon=skewX(-8deg) primary 实底块+accent offset 补边(内层 skewX(8deg) 反变形) / bracket=『』括角(accent+titleFont 衬线) / badge=primary 圆角块+左上角 accent 方点 / ornament=两侧 ✦ 花饰+底部 1px dotted 点线 / dual=background-clip:text 渐变文字+glowColor 辉光细线(0 0 8px blur 感); 全部纯 CSS/字符, 零图片零依赖
+- [R23-c-6/7] EmptyState/ErrorState: 圆形底改 surfaceGradient??surface + 外扩 1.5px dashed 虚线环(withAlpha(primary,0.35), aria-hidden), 两态同一装饰语言
+- [R23-c-8] BookCard: 卡面 background=surfaceGradient??surface; hover 四形态 — lift=保留 hover:-translate-y-1+辉光加重阴影(withAlpha(glow,0.22) 叠原 cardShadow, none 阴影主题兜底中性灰) / glow=hover 阴影 0 8px 30px withAlpha(glowColor,0.55)+边框染 withAlpha(glowColor,0.4) / grow=hover:scale-[1.03] / none=无位移保留 cursor; 实现策略: 位移/缩放用既有 Tailwind JIT 词汇静态类(hover:-translate-y-1 / hover:scale-[1.03] 本就在源码中), 动态配色阴影/描边走 hover 态内联(mouseenter/leave+focus/blur 双通道), aria/键盘导航(bookNavProps)原样
+- [R23-c-9] BookLine: 行 hover 行面 background=surfaceGradient@40%(缺省 surface@40%; withAlpha 对渐变串形态安全降级原样), 行首序号徽章(有 index 时)变实底 primary+primaryText 文字(rounded-md+transition-colors), focus 对等; 其余结构零改动
+- [R23-c-10] BookPoster: cardHover 消费(默认 grow, 四形态同 BookCard); 底部遮罩改双层背景=主色 tint(withAlpha(primary,0.25) 自下而上 55% 内衰减)叠于原暗部渐变之上, 白字对比度不降级
+- [R23-c-11] SiteFooter: footer 加 relative+overflow-hidden 承载装饰层; 顶部 3px 主→accent 渐变条(absolute 独立 div); patternBg 存在时叠两层 absolute 层=surfaceAlt 半透明底(withAlpha(surfaceAlt,0.5); rgba 形态按 withAlpha 语义安全降级为原色)+patternBg 纹理层(均 pointer-events-none+aria-hidden); transparent 头部主题(ocean/rose)背景分支原样保留; 内容容器加 relative 保证层级
+- [R23-c-12] 页脚站名首字徽章: 渐变底(原有)+0 0 12px withAlpha(glowColor,0.45) 辉光
+- [R23-c-13] 版权行上方新增两端淡出渐变细分隔线(1px, 主色 45%), 该行原 dashed borderTop 移除; 友链/链轮/标签云区块与全部 fetch 逻辑零改动
+- 质量门: 按纪律未跑全量 tsc(OOM 风险, 留主控串行跑); bunx eslint 三文件 0 错 0 警(exit 0); 导出签名清单逐一核对未变(SecTitle/TagCloud/SuggestTagCloud/StatusBadge/Sk/EmptyState/ErrorState/BookGridSkeleton/ChapterListSkeleton/bookNavProps/BookCard/BookLine/BookPoster/ThemeBookList/ReadFirstButton/SiteFooter); 未新增依赖/未启停服务/零 DB 触碰/未跑 git
+
+Stage Summary:
+- 交付: 共享组件升级为设计语言感知 — 同一组件在 512 主题下呈现 7 种标题装饰(headingDeco)/5 种标签形态(buttonStyle)/4 种卡片 hover(cardHover)+主题化页脚(patternBg/辉光), 三个文件共 13 处 [R23-c-N] 标注改动, eslint 0 错 0 警
+- token 消费清单: headingDeco(SecTitle)/buttonStyle(chipVisual→TagCloud+SuggestTagCloud)/cardHover(BookCard/BookLine/BookPoster)/surfaceGradient(BookCard 卡面+Empty/Error 圆底+BookLine 行面)/patternBg(SiteFooter)/glowColor(SecTitle dual/标签 neon/卡片 glow/页脚徽章) 已消费; heroBg/heroText/gradientText 仅镜像契约(hero 辖区); 全部 ?? 本地 fallback, 新 token 未注入时默认形态=改造前现状(零回归)
+- 类型策略: DesignTokens 本地镜像+designVars 单点断言壳(bits.tsx 头部) — 并行 token 类型合入 ThemeDef.vars 后全站对账仅此一处, 可删壳直读
+- 遗留风险: ①dual/swash 依赖 background-clip:text 与 clip-path(现代浏览器全支持, 极旧内核渐变文字不显示) ②glow/lift hover 阴影走 JS hover 态而非纯 CSS(每卡片一次 re-render, 卡片量级无感; 换取 withAlpha 动态配色) ③ribbon/badge/gradient 标签的 primary/primaryText 对比度沿用主题既有按钮组合(矩阵保证 primary/surface≥4.5, 白字大字号≥3:1) ④surfaceAlt 为 rgba 形态时页脚半透明底/行 hover 底按 withAlpha 语义降级为原色(不产生非法 CSS) ⑤patternBg 全量 512 组合当前未注入, 需主题侧/主控后续按需分配才可见
+---
+Task ID: R23-b
+Agent: frontend-styling-expert
+Task: 首页布局视觉重设计(8 布局差异化 hero+板块升级)
+
+Work Log:
+- 前置勘察: 通读 worklog 末 200 行 + HomeView/CategoryShowcase/8 布局/ctx/seo/themes.ts; 核实 ThemeDef.vars 尚无 R23-c 新 token → 全部按「可选交叉类型 + || / ?? 本地 fallback」消费(v as typeof v & Partial<{...}>, 禁 any; R23-c 落地后交叉类型自动兼容, 作用域 tsc 实证)
+- HomeGrid(R23-b-1~3): hero 升级富横幅 = heroBg + patternBg 纹理层(存在才渲染, pointer-events-none) + 3 个纯 CSS 漂浮光斑圆(主/强调/heroText 半透明 blur) + gradientText 渐变大标题(非 hex fallback 92deg heroText→accent, WebkitBackgroundClip); 卡片 = surfaceGradient 底 + cardHover 消费(lift=-translate-y-1.5/grow=scale-[1.03]/glow=hover:shadow-[…var(--glow-c)] 经 style 注入 CSS 变量/none=无) + 每卡顶部 2px 主→accent 渐变条
+- HomeList(R23-b-4~6): 顶部窄条 hero(heroBg+标语, 无标题语义防双 h1) + 「本站速览」3 数字块统计条(收书量=本页 books.length/今日更新=updatedAt 为今日计数/在更作品=ongoing 计数, 全部当前书单真实推导并标注口径, 禁造假) + top3 序号升级实底主→accent 渐变圆徽(描边其余)
+- HomeShelf(R23-b-7~8): 书架横幅重写 = heroBg 全量打底(替换原 0.28 淡渐变) + 徽章/文案换 heroText/heroMuted + CTA 改 surface 玻璃反白 + 底部 8px 主→accent 渐变「搁板」粗线(内容区收进 padded 内层 div, 搁板全宽贴底); 次级封面条 hover 由 scale 改 translateY(-4px) 抬起取书, 分组书卡注释对齐
+- HomeMagazine(R23-b-9~11): 编辑部头版重写 = 第一本书「头条」大卡(左封面 220px 右文案双栏, surfaceGradient 底 + 4px heroBg 细顶条 + 「今日焦点」clip-path 斜切 ribbon + 阅读头条 CTA); 原「头条书目」右栏独立为「本期要目」SecTitle 榜单(sm 起双栏); 栏目分区标题统一 SecTitle(Drama 图标), 装饰交 R23-c headingDeco
+- HomeMinimal(R23-b-12~13): 顶部加 64px 字符排版标语区(h-16 + 大号衬线 titleFont + letterSpacing 0.5em + textIndent 补偿居中 + 底部细线, 无 heroBg 保持极简); 列表行首加 w-1.5 常驻槽位 + 3px 主色竖条 scale-y-0→group-hover:scale-y-100 过渡浮现
+- HomeTheater(R23-b-14~15): 「正在热映」横幅重构 = heroBg 打底层(替代纯色 fallback) + 封面氛围层降透明度(opacity-40 blur) + 底部渐变遮罩 + 布局换左文右封面 + gradientText 消费(开=92deg text→accent 渐变字, 关=原 textShadow); 海报卡 cardHover 消费(默认 grow), glow 同款 CSS 变量辉光
+- HomePili(R23-b-16~17): 顶部跑马灯风格公告条(heroBg 底 + heroText 公告文案 + Megaphone, 纯 CSS 静态) + 精品推荐/最新入库/最近更新/点击排行四大板块升级双边框盒(1px border + box-shadow 0 0 0 3px surface + 0 0 0 4px border 模拟 double border, 内衬 surface, 内容区加 p-3/smp-4); 骨架屏补公告条位防 CLS
+- HomeBiquge(R23-b-18~20): 顶部公告通知条(主色 4px 左边框 + withAlpha(primary,0.06) 浅底); BiqugeBar 升级「渐变标题条」= heroBg 底 + heroText 白字 + 左侧 4px accent 竖条, 新增 attached/level(2|h3 语义)/right/className 参数, 「本周强推」「最新更新」独立板块头同步接入(全宽 h2); 更新列表斑马纹 = BiqugeUpdateRow 加 idx 参(奇数行 withAlpha(surfaceAlt,0.4)), 今日更新/本站推荐/最近更新/分类分组列表全接入; 骨架屏补公告位
+- HomeView(R23-b-21~22): 排序按钮消费 buttonStyle(gradient=主→accent 渐变/outline=描边主色字/pill=全圆角/neon=辉光边+glowColor/solid=实底, inactive 统一 surface+border) + 触控目标升至 min-h-[44px]; 新增内部 HomeHero 小节 + SHARED_HERO_LAYOUTS 挂载表(按规格逐布局核对: grid/theater/magazine/shelf 均已在布局内自建 hero, list/minimal/pili/biquge 各有顶部板块 → 空表待命防双 hero 叠加, 未来新布局加 id 即挂); 数据拉取/SEO JSON-LD/路由零改动
+- CategoryShowcase(R23-b-23): 6 卡升级 = 主/强调色交替 tint 渐变(alpha 0.08+4 循环 0.08~0.14) + 封面容器 overflow-hidden + group-hover:scale-105 微放大 + 左上角分类名色块徽章(h3 语义/主色块 primaryText 字) + 卡底 2px 主→accent 渐变条 + hover 抬升保留; 点击语义/catNavProps 键盘可达/骨架/静默失败零改动
+- 质量门: bunx eslint(10 文件) 0 错 0 警; 临时 tsconfig(仅含 10 个改动文件, extends 主配置)跑 bunx tsc --noEmit 0 错(验证 token 交叉类型消费在 R23-c 未落地时即编译通过, 临时配置已删; 未跑全量 tsc 遵 OOM 约定)
+- 铁律遵守: 零新依赖(装饰全纯 CSS + 既有 lucide-react 图标); 导出名/props 签名({page,cat}/{books,loading})零变化; 每页单 h1 核对(grid/list/magazine/minimal/theater 各 1 个, shelf/pili/biquge 0 个, 共享 hero 用 h2); 触控目标≥44px; 未动 bits/SiteHeader/themes/数据层
+
+Stage Summary:
+- 交付: 8 种首页布局全部拥有差异化顶部板块与升级结构 —— grid=富 hero(纹理+光斑+渐变字)+卡片三态 hover+顶部渐变条 / list=窄横幅+本站速览真实统计条+top3 渐变徽章 / shelf=书架横幅+8px 搁板粗线+取书 hover / magazine=头条大卡+今日焦点 ribbon+SecTitle 化 / minimal=64px 衬线标语区+行首竖条 / theater=heroBg 影院横幅左文右封面+渐变字 / pili=公告条+四板块双边框盒 / biquge=公告条+全宽渐变标题条+斑马纹表格感; 另排序按钮 buttonStyle 五形态 + CategoryShowcase 六卡 tint/徽章/微缩放/底渐变条
+- 新 token 消费清单(全 || / ?? fallback): heroBg(8 处)/heroText(6)/heroMuted(2)/surfaceGradient(2)/patternBg(1 条件渲染)/buttonStyle(1)/cardHover(2)/glowColor(3, 经 --glow-c CSS 变量)/gradientText(2); headingDeco 未消费(按规格留给 bits.tsx SecTitle=R23-c)
+- 质量: eslint 0/0 + 作用域 tsc 0 错; 52 处 [R23-b-N] 注释(N=1~23); 遗留风险: ①token 实际视觉需 R23-c 落地后在真实主题下目检 ②glow hover 用 Tailwind 任意值类(静态字符串, v4 JIT 可扫到) ③magazine 栏目分区改 SecTitle 后失去原 h-px 装饰线(设计取舍, 归 headingDeco 统一升级)
+---
+Task ID: R23
+Agent: main-orchestrator(+frontend-styling-expert×3 并行)
+Task: 主题模版视觉重设计(R22 后用户新指令: 样式/风格/布局仍太单调)
+
+Work Log:
+- 勘察诊断: 512 组合共用同一套扁平组件词汇(SecTitle=竖条+文字/标签=同款药丸/页脚=素面/卡片=平面白盒), 8 风格仅参数级微差, 无纹理/无装饰语言 → 单调根因
+- 设计方案: 主题系统新增「设计语言 token 层」10 个可选 vars(heroBg/heroText/heroMuted/surfaceGradient/patternBg/headingDeco×7/buttonStyle×5/cardHover×4/glowColor/gradientText), 全部 ?? fallback 向后兼容, 512 ID 与导出零变化
+- R23-a(theme-matrix+themes): 8 风格重定义为 8 种设计人格(瑞士点阵/真玻璃/宣纸/双色缎带/大报括角/赛博网格/典籍徽章/书城条纹), 8 配色手调多层渐变 heroBg, patternOf 纯 CSS 纹理生成器, 9 preset 补齐人格
+- R23-b(HomeView+8 layouts+CategoryShowcase): 8 布局各自差异化 hero(富横幅/速览数字条/书架搁板/编辑部头版/衬线标语区/影院海报墙/跑马灯公告/渐变标题条+斑马纹), 卡片消费 surfaceGradient+cardHover, 排序按钮消费 buttonStyle 五形态
+- R23-c(bits+BookCard+SiteFooter): SecTitle 七种标题装饰(bar/swash/ribbon/bracket/badge/ornament/dual), 标签五形态 chipVisual 工厂, 卡片四 hover 形态, 主题化页脚(渐变顶条+纹理层+辉光徽章)
+- 主控对账: 拆除 9 处并行期类型断言壳(Partial 交叉/designVars 镜像)→直读 ThemeDef['vars']; PublicSite 全站 patternBg 纹理层(absolute 铺底+内容 relative 包裹层, 吸顶/页脚语义保持)
+- 【R23-主-2】重大数据缺陷修复(E2E 发现): 阅读页正文全篇字面 "&nbsp;" 垃圾+巨型 "&n" 首字下沉 —— 根因=R22-b 清洗器落地前入库的存量 txt 文件(实测 6063/6974 章节文件含 &nbsp;)在 chapter/route.ts 安全转义后渲染为字面量; 修复=转义前 decodeEntitiesOnce(R22-b 同口径白名单+代理区拒绝), 不改存量文件/零采集扰动, 注入面零回归; 浏览器复验正文干净+dropcap 正常
+- E2E: 5 主题多人格验证(biquge 渐变标题条/aurora 网格纹理+霓虹标签+渐变标题/glasswa 渐变标签+mesh hero/noir-neon-theater 影院海报墙+金辉光/paper 点阵+衬线标语+速览数字)+书籍页+阅读页+页脚触底(0 残距)+移动端 390px 两主题, page errors 0; 浏览器关闭+Chrome 清杀
+- 质量门: bun run lint 0/0 + bunx tsc --noEmit 0 错(串行); 终验主站 3000+8 mini-service 全 UP, 内存 1654MB available
+
+Stage Summary:
+- 主题系统从「参数级差异」升级为「设计语言级差异」: 同一组件在 512 主题下呈现 7 种标题装饰/5 种按钮形态/4 种卡片 hover/4 种全站纹理; 存量 &nbsp; 污染(6063 文件)服务出口统一自愈
+- 遗留: download 成品 TXT 流式链路含存量实体(独立链路, 影响面小)已留档; HomeBiquge 仿站版权块与全局页脚双版权为既有仿站还原结构非本轮回归

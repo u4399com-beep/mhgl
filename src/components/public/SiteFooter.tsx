@@ -1,5 +1,6 @@
 // ============================================================
 // 站群页脚 — 站名 / 描述 / 友情链接+站群链轮 / 备案风格文本，随 flex 布局置底
+// [R23-c-11] R23-c 主题化页脚: 顶部渐变条 / patternBg 装饰层 / 首字徽章辉光 / 版权渐变分隔线
 // ============================================================
 'use client'
 
@@ -7,12 +8,16 @@ import { useEffect, useState } from 'react'
 import { Landmark, Loader2, RefreshCw, ShieldCheck } from 'lucide-react'
 import { usePublic } from './ctx'
 import { siteKeywordList, withAlpha } from './seo'
-import { TagCloud, SuggestTagCloud } from './bits'
+import { TagCloud, SuggestTagCloud, designVars } from './bits'
 import { fetchFooterLinks, type FooterLinksData } from './data'
 
 export function SiteFooter() {
   const { site, theme, navigate } = usePublic()
   const v = theme.vars
+  // [R23-c-11] 设计 token: patternBg 装饰纹理 / glowColor 辉光(全部 ?? 本地 fallback);
+  // 命名 dv 避免与下方 fetch 回调参数 d 遮蔽混淆
+  const dv = designVars(theme)
+  const glow = dv.glowColor ?? v.primary
   const year = new Date().getFullYear()
 
   // 友链/链轮 — 客户端拉取, 失败静默降级不渲染模块
@@ -41,13 +46,25 @@ export function SiteFooter() {
   const hasFriend = !!footerLinks?.friend.length
   const hasWheel = !!footerLinks?.wheel.length
   return (
-    <footer style={{ borderTop: `1px solid ${v.border}`, background: v.headerStyle === 'transparent' ? v.surface : 'transparent' }}>
-      <div className="mx-auto w-full max-w-6xl space-y-4 px-4 py-8 sm:px-6">
+    // [R23-c-11] relative+overflow-hidden 承载绝对定位装饰层; transparent 头部主题(ocean/rose)分支逻辑保留
+    <footer className="relative overflow-hidden" style={{ borderTop: `1px solid ${v.border}`, background: v.headerStyle === 'transparent' ? v.surface : 'transparent' }}>
+      {/* [R23-c-11] patternBg 存在时: surfaceAlt 半透明底 + 装饰纹理层(absolute, 不拦截交互)。
+          注意: surfaceAlt 为 rgba 形态时 withAlpha 安全降级为原色(seo.ts 非 #rrggbb 原样返回) */}
+      {dv.patternBg && (
+        <>
+          <div aria-hidden className="pointer-events-none absolute inset-0" style={{ background: withAlpha(v.surfaceAlt, 0.5) }} />
+          <div aria-hidden className="pointer-events-none absolute inset-0" style={{ background: dv.patternBg }} />
+        </>
+      )}
+      {/* [R23-c-11] 顶部 3px 主→accent 渐变条(独立 div) */}
+      <div aria-hidden className="absolute inset-x-0 top-0 h-[3px]" style={{ background: `linear-gradient(90deg, ${v.primary}, ${v.accent})` }} />
+      <div className="relative mx-auto w-full max-w-6xl space-y-4 px-4 py-8 sm:px-6">
         <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
           <div className="flex items-center gap-2">
             <span
               className="flex h-7 w-7 items-center justify-center text-xs font-black"
-              style={{ background: `linear-gradient(135deg, ${v.primary}, ${v.accent})`, color: v.primaryText, borderRadius: v.radius }}
+              // [R23-c-12] 首字徽章升级: 渐变底(原有) + glowColor 辉光
+              style={{ background: `linear-gradient(135deg, ${v.primary}, ${v.accent})`, color: v.primaryText, borderRadius: v.radius, boxShadow: `0 0 12px ${withAlpha(glow, 0.45)}` }}
               aria-hidden
             >
               {site.name.slice(0, 1)}
@@ -130,7 +147,9 @@ export function SiteFooter() {
             )}
           </nav>
         )}
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px]" style={{ color: v.textMuted, borderTop: `1px dashed ${withAlpha(v.border, 0.7)}`, paddingTop: 12 }}>
+        {/* [R23-c-13] 版权行上方渐变细分隔线(两端淡出, 替代素面 dashed 边) */}
+        <div aria-hidden className="h-px" style={{ background: `linear-gradient(90deg, transparent, ${withAlpha(v.primary, 0.45)}, transparent)` }} />
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px]" style={{ color: v.textMuted }}>
           <span className="inline-flex items-center gap-1">
             <Landmark className="h-3 w-3" aria-hidden />
             © {year} {site.name} · {site.domain} · 保留所有权利

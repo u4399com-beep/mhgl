@@ -1,10 +1,12 @@
 // ============================================================
 // 首页布局 · theater（深海影院 ocean）
-// 全宽沉浸横幅（封面做背景 + 渐变遮罩）+ 海报式封面卡
+// 全宽沉浸横幅（heroBg 打底 + 封面氛围 + 渐变遮罩）+ 海报式封面卡
+// R23-b: 「正在热映」横幅重构(左文右封面 + gradientText 标题) + 海报卡 cardHover 消费
 // ============================================================
 'use client'
 
 import type { BookItem } from '../types'
+import type { CSSProperties } from 'react'
 import { usePublic } from '../ctx'
 import { coverSrc, formatWords, withAlpha } from '../seo'
 import { BookCover } from '../BookCover'
@@ -28,11 +30,31 @@ export function HomeTheater({ books, loading }: { books: BookItem[]; loading: bo
   const { theme, navigate } = usePublic()
   const v = theme.vars
 
+  // [R23-b-14] token 消费(未落地走 fallback)
+  const tv = v
+  const heroBg = tv.heroBg || `linear-gradient(120deg, ${withAlpha(v.primary, 0.92)}, ${withAlpha(v.accent, 0.85)})`
+  const glowColor = tv.glowColor || v.primary
+  const cardHover = tv.cardHover || 'grow'
+
   if (loading) return <TheaterSkeleton />
   if (!books.length) return null
 
   const [featured, ...rest] = books
   const bg = coverSrc(featured.cover)
+
+  // [R23-b-15] 海报卡 hover: 消费 cardHover token(默认 grow), glow 经 CSS 变量注入辉光色
+  const posterHoverClass =
+    cardHover === 'grow'
+      ? 'hover:scale-[1.03]'
+      : cardHover === 'lift'
+        ? 'hover:-translate-y-1.5'
+        : cardHover === 'glow'
+          ? 'hover:shadow-[0_14px_34px_-8px_var(--glow-c)]'
+          : ''
+  const posterStyle: CSSProperties = {
+    borderRadius: v.radius,
+    boxShadow: v.cardShadow === 'none' ? undefined : v.cardShadow,
+  }
 
   return (
     <div className="space-y-8">
@@ -42,35 +64,27 @@ export function HomeTheater({ books, loading }: { books: BookItem[]; loading: bo
         aria-label="正在热映"
         style={{ minHeight: 320 }}
       >
-        {/* 背景封面 + 渐变遮罩 */}
+        {/* 背景层: heroBg 打底 + 封面氛围(半透明模糊) + 底部渐变遮罩 */}
         <div className="absolute inset-0" aria-hidden>
-          {bg ? (
+          <div className="absolute inset-0" style={{ background: heroBg }} />
+          {bg && (
             <img
               src={bg}
               alt=""
               loading="lazy"
-              className="h-full w-full scale-110 object-cover blur-md"
+              className="h-full w-full scale-110 object-cover opacity-40 blur-md"
               onError={(e) => {
                 e.currentTarget.style.display = 'none'
               }}
             />
-          ) : (
-            <div className="h-full w-full" style={{ background: `linear-gradient(120deg, ${v.primary}, ${v.surfaceAlt})` }} />
           )}
           <div
             className="absolute inset-0"
-            style={{ background: `linear-gradient(to top, ${withAlpha(v.bg, 0.98)} 0%, ${withAlpha(v.bg, 0.6)} 55%, ${withAlpha(v.bg, 0.35)} 100%)` }}
+            style={{ background: `linear-gradient(to top, ${withAlpha(v.bg, 0.98)} 0%, ${withAlpha(v.bg, 0.62)} 55%, ${withAlpha(v.bg, 0.25)} 100%)` }}
           />
         </div>
         <div className="relative mx-auto flex max-w-6xl items-end gap-6">
-          <div
-            className="hidden w-44 shrink-0 cursor-pointer overflow-hidden transition-transform hover:scale-[1.03] sm:block"
-            style={{ borderRadius: v.radius, boxShadow: v.cardShadow === 'none' ? undefined : v.cardShadow }}
-            {...bookNavProps(navigate, featured.id)}
-            aria-label={`查看《${featured.name}》详情`}
-          >
-            <BookCover name={featured.name} cover={featured.cover} className="aspect-[3/4] w-full" />
-          </div>
+          {/* 左: 文案 */}
           <div className="flex-1 space-y-3 pb-1">
             <span
               className="inline-flex w-fit items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold"
@@ -81,7 +95,16 @@ export function HomeTheater({ books, loading }: { books: BookItem[]; loading: bo
             </span>
             <h1
               className="text-3xl font-black leading-tight sm:text-5xl"
-              style={{ color: v.text, textShadow: '0 2px 12px rgba(0,0,0,0.6)' }}
+              style={
+                tv.gradientText
+                  ? {
+                      backgroundImage: `linear-gradient(92deg, ${v.text} 20%, ${v.accent})`,
+                      WebkitBackgroundClip: 'text',
+                      backgroundClip: 'text',
+                      color: 'transparent',
+                    }
+                  : { color: v.text, textShadow: '0 2px 12px rgba(0,0,0,0.6)' }
+              }
             >
               <button
                 type="button"
@@ -122,6 +145,15 @@ export function HomeTheater({ books, loading }: { books: BookItem[]; loading: bo
               </button>
             </div>
           </div>
+          {/* 右: 封面海报(左文右封面) */}
+          <div
+            className="hidden w-44 shrink-0 cursor-pointer overflow-hidden transition-transform duration-200 hover:-translate-y-1 sm:block"
+            style={{ borderRadius: v.radius, boxShadow: v.cardShadow === 'none' ? undefined : v.cardShadow }}
+            {...bookNavProps(navigate, featured.id)}
+            aria-label={`查看《${featured.name}》详情`}
+          >
+            <BookCover name={featured.name} cover={featured.cover} className="aspect-[3/4] w-full" />
+          </div>
         </div>
       </section>
 
@@ -138,8 +170,12 @@ export function HomeTheater({ books, loading }: { books: BookItem[]; loading: bo
           {rest.map((b) => (
             <article
               key={b.id}
-              className="group relative cursor-pointer overflow-hidden transition-transform duration-200 hover:scale-[1.03]"
-              style={{ borderRadius: v.radius, boxShadow: v.cardShadow === 'none' ? undefined : v.cardShadow }}
+              className={`group relative cursor-pointer overflow-hidden transition-all duration-200 ${posterHoverClass}`}
+              style={
+                cardHover === 'glow'
+                  ? ({ ...posterStyle, '--glow-c': glowColor } as CSSProperties)
+                  : posterStyle
+              }
               {...bookNavProps(navigate, b.id)}
               aria-label={`查看《${b.name}》详情`}
             >

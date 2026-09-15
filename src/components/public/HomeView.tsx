@@ -1,10 +1,12 @@
 // ============================================================
 // 首页视图 — 随机下拉词 + 6 分类图文卡 + 排序切换 + 按 theme.layout 分发 8 种布局（全主题去分页, 一次拉 48 本）
+// R23-b: 排序按钮消费 buttonStyle token + 共享 HomeHero 小节(待命, 防与布局内自建 hero 叠加)
 // ============================================================
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
 import dynamic from 'next/dynamic'
+import type { CSSProperties } from 'react'
 import { ArrowDownWideNarrow, Flame, Hash, Home } from 'lucide-react'
 import { fetchBooks, type BooksData } from './data'
 import { usePublic } from './ctx'
@@ -30,9 +32,60 @@ interface FetchState {
   error?: string
 }
 
+// [R23-b-22] 共享 HomeHero 小节(可选渲染, h2 语义避免与布局内 h1 叠加):
+// R23-b 规格下 grid/theater/magazine/shelf 四布局均在布局内部自建差异化 hero(heroBg 富横幅/书架搁板/头条大卡/影院海报),
+// list/minimal/pili/biquge 亦有各自顶部板块(窄横幅/标语区/跑马灯公告/通知条),
+// 因此 8 布局全部有自建顶部板块 —— 为避免「布局内 hero + 共享 hero」双重叠加, 本共享 hero 保持待命(空表 = 不渲染);
+// 未来新增无自建 hero 的布局时, 将其 layout id 加入下表即可挂载。
+const SHARED_HERO_LAYOUTS: string[] = []
+
+function HomeHero({ name, description }: { name: string; description?: string }) {
+  const { theme } = usePublic()
+  const v = theme.vars
+  const tv = v
+  const heroBg = tv.heroBg || `linear-gradient(120deg, ${withAlpha(v.primary, 0.92)}, ${withAlpha(v.accent, 0.85)})`
+  const heroText = tv.heroText || v.primaryText
+  const heroMuted = tv.heroMuted || withAlpha(heroText, 0.8)
+  return (
+    <section className="mb-6 px-5 py-6 sm:px-8" style={{ background: heroBg, borderRadius: v.radius }} aria-label="站点导语">
+      <h2 className="text-xl font-black leading-snug sm:text-2xl" style={{ color: heroText }}>
+        {name}
+      </h2>
+      {description && (
+        <p className="mt-1.5 line-clamp-2 text-sm" style={{ color: heroMuted }}>
+          {description}
+        </p>
+      )}
+    </section>
+  )
+}
+
 export function HomeView({ page, cat }: { page: number; cat?: string }) {
   const { site, theme, navigate } = usePublic()
   const v = theme.vars
+  // [R23-b-21] token 消费: 排序按钮 active 态按 buttonStyle 渲染(未落地走 'solid' fallback)
+  const tv = v
+  const buttonStyle = tv.buttonStyle || 'solid'
+  const glowColor = tv.glowColor || v.primary
+  const activeSortStyle = (): CSSProperties => {
+    switch (buttonStyle) {
+      case 'gradient':
+        return { background: `linear-gradient(90deg, ${v.primary}, ${v.accent})`, color: v.primaryText, border: '1px solid transparent' }
+      case 'outline':
+        return { background: v.surface, color: v.primary, border: `1.5px solid ${v.primary}` }
+      case 'pill':
+        return { background: v.primary, color: v.primaryText, border: `1px solid ${v.primary}`, borderRadius: '999px' }
+      case 'neon':
+        return { background: withAlpha(v.primary, 0.1), color: v.primary, border: `1px solid ${v.primary}`, boxShadow: `0 0 12px ${withAlpha(glowColor, 0.55)}` }
+      default: // solid
+        return { background: v.primary, color: v.primaryText, border: `1px solid ${v.primary}` }
+    }
+  }
+  // inactive 统一 surface+border(主题化圆角)
+  const sortBtnStyle = (active: boolean): CSSProperties =>
+    active
+      ? activeSortStyle()
+      : { background: v.surface, color: v.text, border: `1px solid ${v.border}` }
   const [sort, setSort] = useState<'latest' | 'words'>('latest')
   const [state, setState] = useState<FetchState | null>(null)
 
@@ -91,6 +144,9 @@ export function HomeView({ page, cat }: { page: number; cat?: string }) {
 
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
+      {/* [R23-b-22] 共享 hero 条(仅无自建顶部板块的布局渲染; 当前 8 布局均有自建板块, 恒待命) */}
+      {SHARED_HERO_LAYOUTS.includes(theme.layout) && <HomeHero name={site.name} description={site.description} />}
+
       {/* 页头区: 随机下拉词(全站搜索热词) + 换一批 */}
       <section className="mb-5" aria-label="搜索热词">
         <SuggestTagCloud count={16} refresh />
@@ -110,13 +166,9 @@ export function HomeView({ page, cat }: { page: number; cat?: string }) {
               setSort('latest')
               navigate({ view: 'home', cat, page: 1 })
             }}
-            className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium transition-opacity hover:opacity-80"
-            style={{
-              background: sort === 'latest' ? v.primary : v.surface,
-              color: sort === 'latest' ? v.primaryText : v.text,
-              border: `1px solid ${sort === 'latest' ? v.primary : v.border}`,
-              borderRadius: v.radius,
-            }}
+            // [R23-b-21] active 态按 buttonStyle 渲染, inactive 统一 surface+border
+            className="inline-flex min-h-[44px] items-center gap-1 px-3.5 py-1.5 text-xs font-medium transition-opacity hover:opacity-80"
+            style={sortBtnStyle(sort === 'latest')}
             aria-pressed={sort === 'latest'}
           >
             <Home className="h-3.5 w-3.5" aria-hidden />
@@ -128,13 +180,8 @@ export function HomeView({ page, cat }: { page: number; cat?: string }) {
               setSort('words')
               navigate({ view: 'home', cat, page: 1 })
             }}
-            className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium transition-opacity hover:opacity-80"
-            style={{
-              background: sort === 'words' ? v.primary : v.surface,
-              color: sort === 'words' ? v.primaryText : v.text,
-              border: `1px solid ${sort === 'words' ? v.primary : v.border}`,
-              borderRadius: v.radius,
-            }}
+            className="inline-flex min-h-[44px] items-center gap-1 px-3.5 py-1.5 text-xs font-medium transition-opacity hover:opacity-80"
+            style={sortBtnStyle(sort === 'words')}
             aria-pressed={sort === 'words'}
           >
             <ArrowDownWideNarrow className="h-3.5 w-3.5" aria-hidden />

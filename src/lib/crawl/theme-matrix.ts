@@ -13,14 +13,22 @@
 // 与 themes.ts 中的 9 个手写 preset 共存: getThemeById 先查 preset, 未命中再走合成;
 // 旧版主题 ID(如 50400 时代的 "violet-glasswa-grid-cl")不再可解析, 调用方
 // (PublicSite/SiteHeader/admin sites)按约定回退默认主题, 不崩不白屏。
+//
+// R23-a 设计语言 token 层: 8 风格各持鲜明视觉人格(pattern 纹理形态/headingDeco 标题
+// 装饰/buttonStyle 按钮形态/cardHover 卡片 hover/gradientText 渐变文字), 8 配色各自
+// 手调富渐变 heroBg(多层 radial/linear 叠加, 禁用千篇一律的派生渐变); 全部纯 CSS
+// 无图片无新依赖, 由 generateTheme 在合成期写入 vars(patternBg/surfaceGradient 等
+// 可选 token 契约见 themes.ts ThemeDef.vars 字段注释)。
 // ============================================================
-import type { ThemeDef, ThemeReadConfig, ReadVars } from './themes'
+import type { ThemeDef, ThemeReadConfig, ReadVars, HeadingDecoKind, ButtonStyleKind, CardHoverKind } from './themes'
 
 // ---------- 公共类型 ----------
 export type HeaderStyleKind = 'solid' | 'gradient' | 'transparent' | 'split' | 'centered' | 'pili'
 export type ShadowKind = 'none' | 'sm' | 'md' | 'lg' | 'glow' | 'depth'
 export type TextureKind = 'none' | 'paper' | 'vignette'
 export type ChapterDecoKind = 'rule' | 'ornament' | 'none'
+// [R23-a-12] 全站纹理图案形态(none=不发 patternBg token)
+export type PatternKind = 'dots' | 'grid' | 'stripes' | 'diagonal' | 'none'
 export type HomeLayoutKind = ThemeDef['layout']
 export type ReadLayoutKind = ReadVars['layout']
 
@@ -39,6 +47,10 @@ export interface ColorScheme {
   border: string
   /** 预览三色: [bg, primary, accent] */
   preview: [string, string, string]
+  // [R23-a-13] hero 富背景(可选): generateTheme 优先取用, 缺省回退 `linear-gradient(120deg, primary, accent)`
+  heroBg?: string
+  // [R23-a-13] hero 主文字色(可选): 缺省回退 primaryText; 深底配色(如 noir 的 primaryText 是金底按钮字色)在此显式手调保证可读
+  heroText?: string
 }
 
 export interface StyleDef {
@@ -51,6 +63,17 @@ export interface StyleDef {
   fontFamily: 'sans' | 'serif' | 'mono' | 'handwritten'
   texture: TextureKind
   chapterDeco: ChapterDecoKind
+  // [R23-a-14] 设计语言人格字段(R23-a): 每风格显式赋值, 8 风格人格互不重复
+  /** 全站纹理图案形态(dots=细点阵/grid=网格/stripes=斜条纹/diagonal=斜纹织锦; none=不发 patternBg token) */
+  pattern: PatternKind
+  /** 区块标题装饰形态(枚举定义见 themes.ts HeadingDecoKind) */
+  headingDeco: HeadingDecoKind
+  /** 主按钮形态(枚举定义见 themes.ts ButtonStyleKind) */
+  buttonStyle: ButtonStyleKind
+  /** 卡片 hover 形态(枚举定义见 themes.ts CardHoverKind) */
+  cardHover: CardHoverKind
+  /** hero 标题渐变文字 */
+  gradientText: boolean
 }
 
 export interface LayoutDef {
@@ -72,6 +95,54 @@ export const FONT_FAMILIES: Record<StyleDef['fontFamily'], string> = {
   serif: 'Georgia,"Noto Serif SC","Songti SC",serif',
   mono: '"JetBrains Mono","Courier New",monospace',
   handwritten: '"Ma Shan Zheng","Caveat","Noto Serif SC",cursive',
+}
+
+// ============================================================
+// [R23-a-15] 设计语言合成 helpers(R23-a): hex→rgba / 纹理 / 卡片表面渐变 / 辉光色
+// 全部纯 CSS 无图片无新依赖, 仅在 generateTheme 合成期调用
+// ============================================================
+/** 6 位 hex → rgba(alpha); 非 hex 形态(rgba/渐变/3 位 hex 等)返回 undefined, 由调用方走中性色兜底 */
+function hexToRgba(hex: string, alpha: number): string | undefined {
+  const m = /^#([0-9a-f]{6})$/i.exec(hex.trim())
+  if (!m) return undefined
+  const n = parseInt(m[1], 16)
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${alpha})`
+}
+
+/** 全站纹理 patternBg(完整 background 简写, 自含 size/repeat)
+ *  ink = text 色淡化(暗色 0.10 / 亮色 0.06); text 非 hex 时安全回退中性墨色
+ *  仅作低透明装饰层, 消费端以 absolute 层渲染; pattern none → undefined(不发 token) */
+function patternOf(pattern: PatternKind, scheme: ColorScheme): string | undefined {
+  if (pattern === 'none') return undefined
+  const alpha = scheme.dark ? 0.1 : 0.06
+  const ink = hexToRgba(scheme.text, alpha) ?? (scheme.dark ? `rgba(255,255,255,${alpha})` : `rgba(0,0,0,${alpha})`)
+  switch (pattern) {
+    case 'dots': return `radial-gradient(circle, ${ink} 1.5px, transparent 1.5px) 0 0 / 22px 22px repeat`
+    case 'grid': return `linear-gradient(${ink} 1px, transparent 1px) 0 0 / 34px 34px repeat, linear-gradient(90deg, ${ink} 1px, transparent 1px) 0 0 / 34px 34px repeat`
+    case 'stripes': return `repeating-linear-gradient(-45deg, ${ink} 0 1px, transparent 1px 14px)`
+    case 'diagonal': return `repeating-linear-gradient(45deg, ${ink} 0 2px, transparent 2px 18px)`
+  }
+}
+
+/** 卡片表面渐变(surfaceGradient): glasswa=半透明白磨砂(暗/亮分档), modern=双色 surface 渐变;
+ *  其余风格按契约可省略(undefined → 消费端走 surface fallback) */
+function surfaceGradientOf(styleId: string, scheme: ColorScheme): string | undefined {
+  if (styleId === 'glasswa') {
+    // 暗色=经典磨砂玻璃; 亮色=更高不透明白保证卡片表面可读
+    return scheme.dark
+      ? 'linear-gradient(150deg, rgba(255,255,255,0.16) 0%, rgba(255,255,255,0.04) 100%)'
+      : 'linear-gradient(150deg, rgba(255,255,255,0.85) 0%, rgba(255,255,255,0.55) 100%)'
+  }
+  if (styleId === 'modern') {
+    // 双色调色块: surface → surfaceAlt 两停渐变(rgba 形态 stop 亦为合法 CSS)
+    return `linear-gradient(160deg, ${scheme.surface} 0%, ${scheme.surfaceAlt} 100%)`
+  }
+  return undefined
+}
+
+/** 辉光色(glowColor): neon 人格用 accent(青/金点缀更跳), 其余用 primary */
+function glowColorOf(styleId: string, scheme: ColorScheme): string {
+  return styleId === 'neon' ? scheme.accent : scheme.primary
 }
 
 // 卡片阴影映射(由配色 primary 派生, 透传给 generateTheme 在合成期生成实际值)
@@ -107,6 +178,9 @@ export const COLOR_SCHEMES: ColorScheme[] = [
     text: '#38261a', textMuted: '#8c7358',
     primary: '#b3401f', primaryText: '#ffffff', accent: '#a16207',
     border: '#e6d9c2', preview: ['#f7f2e7', '#b3401f', '#a16207'],
+    // [R23-a-16] 赭橙→深赭 ramp + 右上奶油色 radial 高光(白字 hero 全程可读)
+    heroBg: 'radial-gradient(circle at 82% 14%, rgba(255,236,200,0.5) 0%, rgba(255,236,200,0) 54%), linear-gradient(135deg, #c96f2e 0%, #b0521c 48%, #8a370e 100%)',
+    heroText: '#ffffff',
   },
   {
     id: 'violet', name: '紫罗兰', dark: false,
@@ -114,6 +188,9 @@ export const COLOR_SCHEMES: ColorScheme[] = [
     text: '#2e1a47', textMuted: '#7c6da3',
     primary: '#6d28d9', primaryText: '#ffffff', accent: '#0e7490',
     border: '#e2d5ff', preview: ['#faf7ff', '#6d28d9', '#0e7490'],
+    // [R23-a-16] 薰衣草→深紫 ramp + 淡紫/青两颗漂浮光斑(radial 光球)
+    heroBg: 'radial-gradient(circle at 18% 24%, rgba(196,160,255,0.5) 0%, rgba(196,160,255,0) 42%), radial-gradient(circle at 80% 72%, rgba(34,211,238,0.28) 0%, rgba(34,211,238,0) 46%), linear-gradient(135deg, #7c3aed 0%, #5b21b6 52%, #3b0d6e 100%)',
+    heroText: '#ffffff',
   },
   {
     id: 'emerald', name: '翡翠绿', dark: false,
@@ -121,6 +198,9 @@ export const COLOR_SCHEMES: ColorScheme[] = [
     text: '#0c2b16', textMuted: '#5f8b6d',
     primary: '#047857', primaryText: '#ffffff', accent: '#b45309',
     border: '#cfe8d4', preview: ['#f2faf3', '#047857', '#b45309'],
+    // [R23-a-16] 薄荷→深绿 ramp + 底部翡翠径向光晕
+    heroBg: 'radial-gradient(circle at 50% 118%, rgba(52,211,153,0.4) 0%, rgba(52,211,153,0) 56%), linear-gradient(160deg, #2f9e73 0%, #047857 48%, #05452f 100%)',
+    heroText: '#ffffff',
   },
   {
     // 清爽蓝绿系(8 分之 1 的蓝色取向选项, 非默认)
@@ -129,6 +209,9 @@ export const COLOR_SCHEMES: ColorScheme[] = [
     text: '#083741', textMuted: '#4f8894',
     primary: '#0369a1', primaryText: '#ffffff', accent: '#0d9488',
     border: '#cfe6ef', preview: ['#f0f9fa', '#0369a1', '#0d9488'],
+    // [R23-a-16] 天青→深青 ramp + 斜向高光带(115° 半透明白带)
+    heroBg: 'linear-gradient(115deg, rgba(255,255,255,0) 36%, rgba(186,240,255,0.22) 50%, rgba(255,255,255,0) 64%), linear-gradient(135deg, #0e7db8 0%, #0369a1 46%, #07506f 100%)',
+    heroText: '#ffffff',
   },
   {
     id: 'sakura', name: '樱粉', dark: false,
@@ -136,6 +219,9 @@ export const COLOR_SCHEMES: ColorScheme[] = [
     text: '#420f2a', textMuted: '#a06a84',
     primary: '#be185d', primaryText: '#ffffff', accent: '#b45309',
     border: '#f4d7e4', preview: ['#fdf3f7', '#be185d', '#b45309'],
+    // [R23-a-16] 腮红→玫红 ramp + 双柔焦花瓣感光斑
+    heroBg: 'radial-gradient(circle at 22% 28%, rgba(255,214,228,0.55) 0%, rgba(255,214,228,0) 44%), radial-gradient(circle at 76% 70%, rgba(255,175,205,0.35) 0%, rgba(255,175,205,0) 48%), linear-gradient(135deg, #d94f8c 0%, #be185d 48%, #8f1046 100%)',
+    heroText: '#ffffff',
   },
   {
     // 高级灰 + 金点缀
@@ -144,6 +230,9 @@ export const COLOR_SCHEMES: ColorScheme[] = [
     text: '#26261f', textMuted: '#85857a',
     primary: '#4f4b40', primaryText: '#ffffff', accent: '#a16207',
     border: '#e2e1da', preview: ['#f5f5f3', '#4f4b40', '#a16207'],
+    // [R23-a-16] 暖灰→炭灰 ramp + 金色细光晕+冷白微光双层 radial
+    heroBg: 'radial-gradient(circle at 80% 18%, rgba(196,154,74,0.3) 0%, rgba(196,154,74,0) 46%), radial-gradient(circle at 14% 86%, rgba(226,225,218,0.12) 0%, rgba(226,225,218,0) 42%), linear-gradient(135deg, #6b675c 0%, #4f4b40 46%, #2e2c25 100%)',
+    heroText: '#ffffff',
   },
   {
     id: 'noir', name: '暗夜黑金', dark: true,
@@ -151,6 +240,10 @@ export const COLOR_SCHEMES: ColorScheme[] = [
     text: '#f3ead8', textMuted: '#a89c86',
     primary: '#d9a441', primaryText: '#221703', accent: '#e7c877',
     border: '#4a4032', preview: ['#131110', '#d9a441', '#e7c877'],
+    // [R23-a-16] 深黑底 + 金色 radial 辉光 + 底部金微光
+    heroBg: 'radial-gradient(circle at 78% 20%, rgba(217,164,65,0.32) 0%, rgba(217,164,65,0) 50%), radial-gradient(circle at 50% 120%, rgba(231,200,119,0.18) 0%, rgba(231,200,119,0) 55%), linear-gradient(180deg, #1a1512 0%, #0c0a08 100%)',
+    // primaryText #221703 是金底按钮字色, 在黑底 hero 上不可读 → 显式手调为亮米色
+    heroText: '#f3ead8',
   },
   {
     // 深底紫青渐变感(暗)
@@ -160,21 +253,66 @@ export const COLOR_SCHEMES: ColorScheme[] = [
     text: '#ede9fe', textMuted: '#a78bda',
     primary: '#b06cf0', primaryText: '#ffffff', accent: '#22d3ee',
     border: 'rgba(176,108,240,0.28)', preview: ['#1a1033', '#b06cf0', '#22d3ee'],
+    // [R23-a-16] 更浓紫青双球 mesh(辉光球叠加在深紫 ramp 上)
+    heroBg: 'radial-gradient(circle at 22% 26%, rgba(176,108,240,0.55) 0%, rgba(176,108,240,0) 48%), radial-gradient(circle at 76% 72%, rgba(34,211,238,0.4) 0%, rgba(34,211,238,0) 48%), linear-gradient(150deg, #241242 0%, #171034 55%, #0b1030 100%)',
+    heroText: '#ffffff',
   },
 ]
 
 // ============================================================
 // 2. 8 风格 — R18-b 精选(差异化: 头部形态/阴影/圆角/字体/纹理/章节装饰)
+//    [R23-a-17] R23-a 设计语言人格重定义: 每风格独立纹理/标题装饰/按钮形态/
+//    卡片 hover/渐变文字组合, desc 同步为设计语言描述
 // ============================================================
 export const STYLES: StyleDef[] = [
-  { id: 'minimal', name: '极简白', desc: '白底极简·细线分隔·无阴影·sans 字体', headerStyle: 'solid', cardShadow: 'none', radius: 4, fontFamily: 'sans', texture: 'none', chapterDeco: 'rule' },
-  { id: 'glasswa', name: '玻璃拟态', desc: '半透磨砂卡片·渐变头·辉光阴影·大圆角', headerStyle: 'gradient', cardShadow: 'glow', radius: 16, fontFamily: 'sans', texture: 'none', chapterDeco: 'none' },
-  { id: 'paper', name: '纸面书卷', desc: '宣纸纹理·衬线字体·菱形花饰·小圆角', headerStyle: 'solid', cardShadow: 'sm', radius: 4, fontFamily: 'serif', texture: 'paper', chapterDeco: 'ornament' },
-  { id: 'modern', name: '现代卡片', desc: '中圆角卡片·中等阴影·横线分隔·sans 字体', headerStyle: 'solid', cardShadow: 'md', radius: 12, fontFamily: 'sans', texture: 'none', chapterDeco: 'rule' },
-  { id: 'magazine', name: '杂志风', desc: '分栏标题·中阴影·衬线·菱形花饰', headerStyle: 'split', cardShadow: 'md', radius: 8, fontFamily: 'serif', texture: 'none', chapterDeco: 'ornament' },
-  { id: 'neon', name: '霓虹暗夜', desc: '渐变头·辉光晕染·暗角氛围·无装饰', headerStyle: 'gradient', cardShadow: 'glow', radius: 12, fontFamily: 'sans', texture: 'vignette', chapterDeco: 'none' },
-  { id: 'classic', name: '书卷典雅', desc: '居中报头·纸纹·衬线·横线章节头', headerStyle: 'centered', cardShadow: 'sm', radius: 4, fontFamily: 'serif', texture: 'paper', chapterDeco: 'rule' },
-  { id: 'pili', name: '霹雳仿站', desc: '仿霹雳书屋·奶油报头分类条·直角小圆角', headerStyle: 'pili', cardShadow: 'sm', radius: 3, fontFamily: 'sans', texture: 'none', chapterDeco: 'rule' },
+  {
+    // [R23-a-17] 瑞士编辑风: 细点阵纹理 + 竖条标题 + 描边按钮 + 卡片 lift
+    id: 'minimal', name: '极简白', desc: '瑞士编辑风·细点阵纹理·竖条标题·描边按钮·克制留白',
+    headerStyle: 'solid', cardShadow: 'none', radius: 4, fontFamily: 'sans', texture: 'none', chapterDeco: 'rule',
+    pattern: 'dots', headingDeco: 'bar', buttonStyle: 'outline', cardHover: 'lift', gradientText: false,
+  },
+  {
+    // [R23-a-17] 真·玻璃拟态: 无纹理 + mesh 渐变 hero + 渐变下划线标题 + 渐变按钮 + 半透白磨砂卡片
+    id: 'glasswa', name: '玻璃拟态', desc: '真·玻璃拟态·mesh 渐变横幅·渐变下划线标题·磨砂半透卡片·辉光悬浮',
+    headerStyle: 'gradient', cardShadow: 'glow', radius: 16, fontFamily: 'sans', texture: 'none', chapterDeco: 'none',
+    pattern: 'none', headingDeco: 'swash', buttonStyle: 'gradient', cardHover: 'glow', gradientText: true,
+  },
+  {
+    // [R23-a-17] 宣纸书卷: 纸纤维点纹 + 菱形花饰标题 + 实底按钮 + 水墨晕染 hero
+    id: 'paper', name: '纸面书卷', desc: '宣纸书卷·纸纤维点纹·菱形花饰标题·水墨晕染横幅·衬线书卷气',
+    headerStyle: 'solid', cardShadow: 'sm', radius: 4, fontFamily: 'serif', texture: 'paper', chapterDeco: 'ornament',
+    pattern: 'dots', headingDeco: 'ornament', buttonStyle: 'solid', cardHover: 'lift', gradientText: false,
+  },
+  {
+    // [R23-a-17] 双色调色块: 斜条纹纹理 + 缎带标题 + 渐变按钮 + 双色渐变卡片表面
+    id: 'modern', name: '现代卡片', desc: '双色调色块·斜条纹纹理·缎带标题·渐变按钮·双色渐变卡片',
+    headerStyle: 'solid', cardShadow: 'md', radius: 12, fontFamily: 'sans', texture: 'none', chapterDeco: 'rule',
+    pattern: 'stripes', headingDeco: 'ribbon', buttonStyle: 'gradient', cardHover: 'lift', gradientText: false,
+  },
+  {
+    // [R23-a-17] 编辑部大报: 无纹理 + 书名号括角标题 + 实底按钮 + grow 放大卡片 + 报头式 hero
+    id: 'magazine', name: '杂志风', desc: '编辑部大报·书名号括角标题·报头式米白横幅·grow 放大卡片·衬线分栏',
+    headerStyle: 'split', cardShadow: 'md', radius: 8, fontFamily: 'serif', texture: 'none', chapterDeco: 'ornament',
+    pattern: 'none', headingDeco: 'bracket', buttonStyle: 'solid', cardHover: 'grow', gradientText: false,
+  },
+  {
+    // [R23-a-17] 赛博网格: 网格纹理 + 渐变文字/辉光下划线双标题 + 霓虹按钮 + accent 辉光卡片
+    id: 'neon', name: '霓虹暗夜', desc: '赛博网格·网格纹理·渐变文字标题·霓虹按钮·accent 辉光卡片',
+    headerStyle: 'gradient', cardShadow: 'glow', radius: 12, fontFamily: 'sans', texture: 'vignette', chapterDeco: 'none',
+    pattern: 'grid', headingDeco: 'dual', buttonStyle: 'neon', cardHover: 'glow', gradientText: true,
+  },
+  {
+    // [R23-a-17] 传统典籍: 极淡斜纹织锦 + 实底徽章标题 + 静态稳重卡片(无 hover 动效)
+    id: 'classic', name: '书卷典雅', desc: '传统典籍·极淡斜纹织锦·徽章标题·静态稳重卡片·居中报头',
+    headerStyle: 'centered', cardShadow: 'sm', radius: 4, fontFamily: 'serif', texture: 'paper', chapterDeco: 'rule',
+    pattern: 'diagonal', headingDeco: 'badge', buttonStyle: 'solid', cardHover: 'none', gradientText: false,
+  },
+  {
+    // [R23-a-17] 复古书城: 条纹纹理 + 缎带标题 + 胶囊大按钮
+    id: 'pili', name: '霹雳仿站', desc: '复古书城·条纹纹理·缎带标题·胶囊大按钮·奶油报头分类条',
+    headerStyle: 'pili', cardShadow: 'sm', radius: 3, fontFamily: 'sans', texture: 'none', chapterDeco: 'rule',
+    pattern: 'stripes', headingDeco: 'ribbon', buttonStyle: 'pill', cardHover: 'lift', gradientText: false,
+  },
 ]
 
 // ============================================================
@@ -283,6 +421,23 @@ export function generateTheme(colorSchemeId: string, styleId: string, layoutId: 
       cardShadow: shadowOf(s.cardShadow, c.primary, c.dark),
       headerStyle: s.headerStyle,
       titleFont: s.fontFamily === 'serif' ? '"Noto Serif SC","Songti SC",serif' : undefined,
+      // ---------------- [R23-a-18] 设计语言 token 层合成(style × scheme) ----------------
+      // hero 富背景: 配色手调 heroBg 优先, 缺省回退双色渐变(向后兼容未来新增配色)
+      heroBg: c.heroBg ?? `linear-gradient(120deg, ${c.primary}, ${c.accent})`,
+      // hero 主文字色: 配色手调 heroText 优先, 缺省 primaryText
+      heroText: c.heroText ?? c.primaryText,
+      // hero 次文字色: heroText 80% 不透明度(hex 可算时), 非 hex 原样透传由消费端兜底
+      heroMuted: hexToRgba(c.heroText ?? c.primaryText, 0.8) ?? c.heroText ?? c.primaryText,
+      // 卡片表面渐变: glasswa 半透明白磨砂 / modern 双色, 其余 undefined 走 surface fallback
+      surfaceGradient: surfaceGradientOf(s.id, c),
+      // 全站纹理层: pattern none → undefined(不发 token), 其余按形态合成低透明装饰层
+      patternBg: patternOf(s.pattern, c),
+      headingDeco: s.headingDeco,
+      buttonStyle: s.buttonStyle,
+      cardHover: s.cardHover,
+      // 辉光色: neon 人格用 accent, 其余用 primary
+      glowColor: glowColorOf(s.id, c),
+      gradientText: s.gradientText,
     },
     preview: c.preview,
   }

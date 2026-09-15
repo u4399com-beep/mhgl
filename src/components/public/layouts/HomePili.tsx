@@ -2,14 +2,25 @@
 // 首页布局 · pili（仿霹雳书屋 pilishuwu.com）
 // 白卡书城 DNA: 左主栏(精品推荐封面网格/最新入库/最近更新表格) + 右侧橙色头排行榜
 // 奶油区块标题(左橙竖条) + 复古直角白卡 + 橙色点缀红号次
+// R23-b: 跑马灯风格公告条(heroBg+heroText) + 各板块双边框盒(box-shadow 模拟 double border)
 // ============================================================
 'use client'
 
 import type { BookItem } from '../types'
+import type { CSSProperties } from 'react'
 import { usePublic } from '../ctx'
 import { fmtDate, formatWords, withAlpha } from '../seo'
 import { BookCover } from '../BookCover'
 import { bookNavProps, Sk, StatusBadge } from '../bits'
+import { Megaphone } from 'lucide-react'
+
+/** [R23-b-17] 复古双边框盒: 1px border + box-shadow 外扩 3px 内衬 surface + 1px 外线 = double border 效果 */
+function doubleFrameStyle(v: { border: string; surface: string }): CSSProperties {
+  return {
+    border: `1px solid ${v.border}`,
+    boxShadow: `0 0 0 3px ${v.surface}, 0 0 0 4px ${v.border}`,
+  }
+}
 
 /** 区块标题 — 左橙竖条 + 深色主字 + 橙色副字 + 右侧「更多」(原站 in-title-big DNA) */
 function PiliSecTitle({ main, sub, more }: { main: string; sub: string; more?: boolean }) {
@@ -60,7 +71,13 @@ function PiliRankPanel({ books }: { books: BookItem[] }) {
   return (
     <section
       data-pili-rank
-      style={{ background: v.surface, border: `1px solid ${v.border}`, borderRadius: v.radius, boxShadow: v.cardShadow === 'none' ? undefined : v.cardShadow }}
+      // [R23-b-17] 排行榜板块双边框盒
+      style={{
+        background: v.surface,
+        borderRadius: v.radius,
+        boxShadow: v.cardShadow === 'none' ? undefined : v.cardShadow,
+        ...doubleFrameStyle(v),
+      }}
       aria-label="点击排行"
     >
       <header
@@ -102,7 +119,13 @@ function PiliUpdateTable({ books }: { books: BookItem[] }) {
   const rows = books.slice(0, 18)
   if (!rows.length) return null
   return (
-    <section data-pili-section="latest-updates" aria-label="最近更新">
+    // [R23-b-17] 最近更新板块双边框盒(内层表格外壳保持自身 border, 复古双线感)
+    <section
+      data-pili-section="latest-updates"
+      aria-label="最近更新"
+      className="p-3 sm:p-4"
+      style={{ ...doubleFrameStyle(v), borderRadius: v.radius }}
+    >
       <PiliSecTitle main="最近" sub="更新" more />
       <div className="overflow-x-auto" style={{ background: v.surface, border: `1px solid ${v.border}`, borderRadius: v.radius }}>
         <table data-pili-table className="w-full min-w-[480px] border-collapse text-left text-[13px]">
@@ -156,6 +179,8 @@ function PiliUpdateTable({ books }: { books: BookItem[] }) {
 function PiliSkeleton() {
   return (
     <div className="space-y-8">
+      {/* [R23-b-16] 公告条骨架位(与真实结构对齐防 CLS) */}
+      <Sk className="h-9 w-full" />
       <div>
         <Sk className="mb-4 h-7 w-40" />
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-5">
@@ -180,6 +205,11 @@ function PiliSkeleton() {
 
 export function HomePili({ books, loading }: { books: BookItem[]; loading: boolean }) {
   const v = usePublic().theme.vars
+  // [R23-b-16] token 消费(未落地走 fallback: 主色→强调色渐变 + primaryText, 恰为霹雳橙红复古配色)
+  const tv = v
+  const heroBg = tv.heroBg || `linear-gradient(120deg, ${withAlpha(v.primary, 0.92)}, ${withAlpha(v.accent, 0.85)})`
+  const heroText = tv.heroText || v.primaryText
+
   if (loading) return <div data-pili-home><PiliSkeleton /></div>
   if (!books.length) return null
 
@@ -187,10 +217,29 @@ export function HomePili({ books, loading }: { books: BookItem[]; loading: boole
   const fresh = books.slice(10, 22)
 
   return (
-    <div data-pili-home className="flex flex-col gap-8 lg:flex-row lg:gap-6">
+    <div data-pili-home>
+      {/* [R23-b-16] 跑马灯风格公告条: heroBg 底 + heroText 公告文案(纯 CSS 静态, 不动画) */}
+      <div
+        className="mb-6 flex items-center gap-2 overflow-hidden px-4 py-2.5 text-xs"
+        style={{ background: heroBg, color: heroText, borderRadius: v.radius }}
+        aria-label="书屋公告"
+      >
+        <Megaphone className="h-3.5 w-3.5 shrink-0" aria-hidden />
+        <p className="min-w-0 flex-1 truncate tracking-wider">
+          公告：本站全部小说免费在线阅读，每日持续更新；使用顶部搜索框可按书名 / 作者查找好书。
+        </p>
+        <span className="hidden shrink-0 tracking-[0.3em] opacity-80 sm:inline">PILI BOOKSTORE</span>
+      </div>
+
+      <div className="flex flex-col gap-8 lg:flex-row lg:gap-6">
       {/* 左主栏 */}
       <div className="min-w-0 flex-1 space-y-8">
-        <section data-pili-section="featured" aria-label="精品推荐">
+        <section
+          data-pili-section="featured"
+          aria-label="精品推荐"
+          className="p-3 sm:p-4"
+          style={{ ...doubleFrameStyle(v), borderRadius: v.radius }}
+        >
           <PiliSecTitle main="精品" sub="推荐" more />
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-5">
             {featured.map((b) => <PiliCoverCard key={b.id} book={b} />)}
@@ -198,7 +247,12 @@ export function HomePili({ books, loading }: { books: BookItem[]; loading: boole
         </section>
 
         {fresh.length > 0 && (
-          <section data-pili-section="fresh" aria-label="最新入库">
+          <section
+            data-pili-section="fresh"
+            aria-label="最新入库"
+            className="p-3 sm:p-4"
+            style={{ ...doubleFrameStyle(v), borderRadius: v.radius }}
+          >
             <PiliSecTitle main="最新" sub="入库" more />
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-6">
               {fresh.map((b) => <PiliCoverCard key={b.id} book={b} />)}
@@ -222,6 +276,7 @@ export function HomePili({ books, loading }: { books: BookItem[]; loading: boole
           <p style={{ opacity: 0.85 }}>本站所有小说均可免费在线阅读，完结好书持续收录中。使用顶部搜索框可按书名 / 作者查找。</p>
         </section>
       </aside>
+      </div>
     </div>
   )
 }
