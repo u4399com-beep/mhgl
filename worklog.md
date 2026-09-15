@@ -4691,3 +4691,129 @@ Work Log:
 Stage Summary:
 - 采集规则 27→29 条(fanqianxs+trxsw 入库+内置库重生成, 快照离线实证 list 段 fanq 127 书/trxsw 94 书, 真网四段留 FANQ_PROBE/TRXSW_PROBE 复验口); 清洗链全字段覆盖(R25-2: 42 断言全过, 短字段站尾/intro 裸站名行/链接实体/status·volume 等裸奔字段全修); 第 10 套克隆主题 trxsw 落地(结构=真站快照逐节复刻, 配色=杰奇默认模板规范, b.css 无存档已注明); multi-search-engine 探讨结论=架构已在位, 3/5 引擎实活, 死端点替换与第六引擎接入留后续
 - 沙箱网络边界实证: fanqianxs/fehuu/trxsw 对本项目全部抓取链(含 cloak-maximum 浏览器)与 Jina reader 均不可达 —— 两站规则四段实测与真站主题截图比对在换出口 IP/代理池接入前不可为, 已分别以 PROBE 环境变量口+快照逐节还原替代
+
+---
+Task ID: R26-1
+Agent: general-purpose(aijjxs-clone)
+Task: aijjxs 久久小说 5 页型完整克隆(Home/Category/Book/Toc/Read)
+
+Work Log:
+- 勘察: 首页用现成快照 probe-www.aijjxs.com.html(57KB), 补抓 4 内页+3 样式 —— aijjxs-book.html(/txt/57361.html 书籍详情 12KB)/aijjxs-category.html(/txt/chuanyue/ 分类列表 23KB)/aijjxs-read.html(/read/57361/ 目录页 22KB, 章节列表内联 style)/aijjxs-chapter.html+chapter2.html(/read/47/57361/1~2.html 章节页, 夜车内核 read-v3 皮肤); CSS 全量实抓 aijjxs-style.css(skin/yellow/style.css 39.9KB)/aijjxs-read.css(skin/yellow/read.css 13KB)/aijjxs-yecha.css(yecha/Common.css, 仅提示框/下拉词, 阅读页样式实际在 read.css)
+- 实测色板: 主站 :root --bg:#f3efe7 --paper:#fffdf8 --ink:#1f2937 --muted:#6b7280 --line:#e5dccd --brand:#0f766e --brand-dark:#115e59 --accent:#b45309 --chip:#eef9f7 --rank:#fff5e6 --radius:14px --shadow:0 10px 30px rgba(17,24,39,.08) + hover #09B295/.new #F03/.rank .no #9a3412/download-btn 渐变 #da5627→#b13e18/.sfwj #09B295/面板 h3::before 竖条 #0f766e→#b45309; 阅读页 read.css 专属暖羊皮纸: --bg #efe6d8/#eadfcf --panel #fff8ec --paper #fffcf6 --ink #27231f --muted #75695b --line #e2d6c5 --link #6b3418 --intro-line #d8c6af --reading-size 23px --page-max 1080px; 顶部固定 nav 酒红 rgba(110,28,43,.68)(全局 AijjxsHeader 已承担)
+- Home: 旧 AijjxsHome.tsx 精华整体平移(结构本就对齐真站 panel.latest-upload/grid2 封面推荐/小说分类 4 组/grid3 专题书单/aside rank 双榜+热门作者/hero KPI), 新快照核对修正 3 处: ①封面推荐「新」badge 改 isToday 判定(真站快照两卡均带 badge) ②「展示更多」hover(#d6a63d/#b27400/#fffaf0)迁入 index.ts css 字段 ③热门作者胶囊 padding 对齐真站 .tags a(4px 10px); 降级: KPI 会员口径→可推导四项/文件 KB→字数/今日签到头像墙不渲染(注释注明)
+- Category: 复刻 /txt/chuanyue/ —— cenMain(.path 虚线面包屑+.articleInfo h1「XX电子书下载」+.filters 胶囊行+catalog .listbg 图文块[92×128 绝对定位封面/18px #0b3b2e 书名/两行简介/mainGreen 元信息行]+.pager[总数 pill/当前页 brand 底/页码窗 10/下一页/尾页])+aside(panel.rank 热门分类榜 12 行/热门作者 tags/相关分类真实分类列表); 真站 4 行筛选仅「最新上传」可映射数据契约, 其余 3 芯片 aria-disabled 保留视觉不造假交互(注释注明)
+- Book: 复刻 /txt/57361.html —— panel h3《书名》+.body.detail(112×148 封面+.copy-btn 等位「TXT下载」+.kv 七行: 作者/分类(链分类)/大小/写作进度 .sfwj 徽章/上传时间/最新章节(契约补充行)/下载方式)+内容简介 intro-panel.desc(15px 透明底)+「下载与说明」panel(download-btn 渐变橙开始阅读/查看完整目录/电子书下载地址 + .tips TIP 橙章虚线框)+契约章节预览 panel(100 章虚线行+currentChapterId chip 高亮+书页翻页 navigate book page)+作品标签 tags→keyword+猜您喜欢 grid2(同分类 fetch 排除自身)+aside 热门分类榜/上下部翻页(无相邻书数据→返回列表+最新上传)
+- Toc: 复刻 /read/57361/ 独立目录页 —— read-wrap 1200+read-panel(白底 #e5e8ed 边 radius 12 shadow)+h1.read-title 28px「{书名}全文阅读」+.read-meta(作者|共 N 章|大小|上传时间|TXT下载|查看书页+42×58 封面缩略)+.read-intro 内容提要(#f8fafc 面板)+ul.chapter-list 3 列格子(960→2 列/640→1 列, li #e9eef5 radius 8 单行省略, hover #cfd9e8/#f9fbff 入 css 字段, 当前章 brand 边+#f0faf6 底)+分卷 groupTocVolumes(卷名行 grid-column 1/-1 青绿渐变小标题)+.read-foot 真站文案+.pager 补分页(真站整页单列, 本站 100 章/页)
+- Read: 复刻 /read/47/57361/2.html read-v3 羊皮纸阅读器 —— 整页铺底 #efe6d8→#eadfcf 渐变+1080px 版心+.sk_gb 工具条(背景 6 色板圆点 18px[c1 蓝#cde4ff/c2 灰/c3 青/c6 粉/c4 黄/c5 白]+字号 5 档[小/中/大/加大/极大→useReaderFont.set(14/17/20/22/24)]+A+/A-+当前 px 显示)+.view_t 居中标题面板(#d9c4a6 边/#fffcf5→#f8eddd 渐变/h1 clamp(16,2.1vw,22))+.view_content 正文面板(radius 16/#fffcf6 72% 可换底色/段距 1.2em 缩进 2.4em 入 css 字段/字号 hook+4≈真站 23px 基准)+.view_page 导航(章节目录/上一章←第 N 章→下一章)+.view_tips(真站文案+←/→ 键盘翻章真实实现)+.footer 渐变(书信息/返回书页/章节目录); 挂 useRecordReading; 真站字体下拉/字体颜色/双击滚屏无数据面不渲染
+- 验证: bun build --external '*' index.ts + 5 个 tsx 逐文件语法门全 0 错; 修复注释标 [R26-1-x]; 未动所有权外任何文件, 未跑 lint/tsc, 未碰 dev server/DB/git
+- 纪律说明: 旧 sites/AijjxsHome.tsx 未删未改(主控处置); aijjxs 目录外零写入; /tmp/r26 他人快照未动, 本站产物以 aijjxs- 前缀命名
+
+Stage Summary:
+- 文件清单: src/components/public/sites/aijjxs/{Home.tsx(781 行), Category.tsx(534), Book.tsx(637), Toc.tsx(272), Read.tsx(364), index.ts(59)} 共 2647 行; index.ts 导出 aijjxsTemplate(五组件+css 字符串, 全选择器 .clone-aijjxs 前缀 23 条规则)
+- 实测色板(主控刷新 themes.ts 用): bg #f3efe7 / surface #fffdf8 / text #1f2937 / textMuted #6b7280 / primary #0f766e / primaryText #ffffff / accent #b45309 / border #e5dccd / radius 14px / fontFamily "PingFang SC","Hiragino Sans GB","Microsoft YaHei","Helvetica Neue",Arial,sans-serif; 补充实测: surfaceAlt(chip) #eef9f7 / rank 面板 #fff5e6 / brandDark #115e59 / brandHover #09B295 / new 红 #FF0033 / 序号 #9a3412 / 下载渐变 #da5627→#b13e18 / sfwj 徽章 #09B295; 阅读页专色(建议入 themes 或组件注释): 阅读底 #efe6d8→#eadfcf / 阅读面板 #fff8ec / 阅读纸面 #fffcf6 / 阅读墨 #27231f / 阅读灰 #75695b / 阅读边线 #e2d6c5 / 阅读链接 #6b3418(hover #a85a2a) / 正文字号基准 23px 行高 1.76 缩进 2.4em / 版心: 主站 1220px, 阅读 1080px, 目录 1200px
+- 推断/降级说明: ①分类页大小/时间/人气筛选与「荐」badge 无数据契约→禁用态芯片/不渲染 ②文件体积 KB→formatWords 字数 ③KPI 会员注册/签到墙→真实可推导口径替换 ④相邻书翻页无数据→返回列表 ⑤阅读页字体选择/字色/滚屏→不渲染 ⑥真站章节页为章内 238 分页→按本站章粒度映射上一章/下一章+键盘←/→; 以上全部在组件头注释留痕, 与真站视觉形态一一对应
+---
+Task ID: R26-3
+Agent: general-purpose(kks101-clone)
+Task: kks101 101看書 5 页型完整克隆
+
+Work Log:
+- 前置勘察: 读 worklog 末段(R23-II kks101 preset/头部先例 + R26-c shared 契约) + shared.ts(SiteTemplateSet 五 props) + template-kit(useReaderFont/useRecordReading/ChapterContent/groupTocVolumes) + ctx(navigate/toc 视图) + bits/bookNavProps/ErrorState/Sk + seo(formatWords/fmtDate/coverSrc) + BookCover + data.ts(fetchBooks/fetchCategories/fetchSuggestTags 签名) + themes.ts kks101 preset(#1f6cb2/#56a6c3/#f2f3f4/#fff2df 已实测在案) + SiteHeader 722~895(KksSearchBox/KksAnnounce/KksNav/KksHeader 归属确认, 本轮零改动)
+- 真站勘察(直连可达, UA curl 全成): 首页已有快照 /tmp/r26/probe-101kks.com.html; 补抓 /css/style.css(60KB)+/css/block_booklist.css(7.9KB)+/all.html(全部小說, 11 组 home-all)+/novels/class+novels/class/3_1.html(真分类页)+/book/99.html(书页)+/book/99/index.html(目录页)+/txt/99/17136919.html(章节页)+/book/99_2.html(404 实证伪静态翻页不存在) → 存 /tmp/r26/kks101-*.css/html
+- 实测 DOM 结构(逐页记入各组件头注释): 首页 .main>.container>ul.row>li.col-xinindex>.mybox = xinlogo(35px/550)→.error-text.searchBox(600px/50px 高/25px 圆角/阴影 0 4px 20px rgba(0,25,104,.05))→.indexdaohang 4 蓝块(20%/50px/10px 圆角/#f6f6f6 1rem)→h3.mytitle 熱門書單推薦+.booklist-card×12(封面区渐变 #667eea→#764ba2+白卡扇形+"+"角标)→.tag 空 mytitle 分隔线+标签墙(~80 枚 .8rem/1.8rem/#56a6c3 边/rgb(232,244,255) 底); 分类页 /novels/class/3_1.html 单 .mybox = 小說分類标题→.weekl_yrank.droplist 筛选条(#56a6c3 边框盒)→.newnovels.newnovels2 封面网格(14.285%=7 列/imgbox 125×180)→.newbox 點擊排行列表(imgbox 100×140/.labelbox 右边线 #ddd/ol.ellipsis_2/.zxzj 最近章節/.newright .piaos 圆号前 3 红#f00·橙rgb(255,111,0)·黄rgb(222,204,1)+btn-tp 红钮/btn-jrsj 白钮)→.pages>.pagelink 分页(a #f1f1f1/#7a7a7a/45×35, strong #caf1ff/#1f6cb2 — .pagelink 后载覆盖 .pages strong #56ccb5 实证); 书页 ul.row col-8(66%)+col-4(32%) = .bread→.bookbox(bookimg2 180×240+status 角标/booknav2 h1 24px+p 15px #757575)→.addbtn 蓝 3 钮(36px 行高/15px 内距/5px 圆角)→.infotag 標籤→ul.tabs(33% 等分/active #1f6cb2 底边 2px)→.qustime 章节行/ul.infolist(#f4f4f4 18px 700)+.navtxt(16px/35px 行高)→more-btn 完整目錄; 侧栏 本周最強+.ranking(前 3 序号徽章/active 首项封面 80×105); 目录页 .mybox(min-height 50vh) = h3.mytitle.shuye flex(.bread+.titxt 書頁+.sorting 正序/倒序)→.catalog(分组 h3 底纹 rgba(140,140,140,.05)+:before 4px #1f6cb2 竖条+三列 li 33.333%/a 16px #222 py15px)→jQuery LoadMore 展开整目录; 章节页 .mybox = .bread(.hide720)→.tools 圆钮条(36px/100px 圆角/#4c5356)→.txtnav(0 30px/line-height 2; h1 居中 20px; .txtinfo 居中 14px; #txtcontent)→.page1 四格(底 #f2f3f4/边 #e4e4e4/48px 行高/右边线 rgb(191 191 191 / 24%)/hover #f8f8f8)
+- [R26-3-1] Home.tsx: 旧 Kks101Home 精华(booklist-card 封面堆叠卡+大搜索+四入口)保留并与新快照逐项核对修正; 48 本 props 切板块=熱門書單推薦 12 卡(fetchBooks sort:words 18 喂卡, 失败/空回退 props)+最新小說 36 行(.booklist li 家族行式: 48×64 封面/14px 700 标题/#757575 信息行/hover #f9f9f9+封面 scale1.1)+标签云(fetchSuggestTags 48 枚, 空池整块不渲染); xinlogo/搜索/快捷入口全部对齐真站数值; loading 三段骨架
+- [R26-3-2] Category.tsx: 面包屑(真站分类页无 .bread, 按同族书页规格补齐并注释)+h1 小說分類+droplist 筛选(fetchCategories, 全部分類+各分类, active #404040 700)+{catName}小說推薦 封面网格(桌面 7 列/平板 4/移动 3)+點擊排行(共 N 本) 列表行(newbox 全规格: labelbox/2 行简介/最近章節/圆号前三色/點擊閱讀 红钮+加入書架 白钮, lg 以下隐右列)+KksPagelink 分页({view:'category',cat,page}); 24 本=data.grid 12+rows 12
+- [R26-3-3] Book.tsx: col-8+col-4 双列(lg:flex, 移动堆叠=真站 ≤990px 全宽); 面包屑/封面 180×240+連載/完本文字角标/status0 图简化声明/booknav2 五行(作者·分類·字數|狀態·更新·最新)/.addbtn 按钮组(開始閱讀→read chapters[0]、查看完整目錄→toc p1、TXT下載=唯一 <a href="/api/public/download?book=">) /.infotag 標籤(data.tags→keywords 兜底)/tabs 目錄|簡介(真站三 tab 含書評, 无书评实体双 tab 声明)/qustime 行式章节 100/页+currentChapterId 高亮+页内 tocPage 翻页({view:'book',bookId,page})/infolist(字數·章節數)+navtxt 简介+關鍵詞/侧栏 本周最強 .ranking 10 行(fetchBooks words 10, 首项 active 封面+h4 红字)
+- [R26-3-4] Toc.tsx: shuye 页头 flex(.bread 尾结「書名章節列表」+書頁移动显+.sorting 正序/倒序本地态互斥)+書名页头块(封面 60×80+共 N 章)+CatalogH3 分组条(底纹+竖条)+groupTocVolumes 有卷分组/无卷平铺, 三列(移动单列/平板双列)+当前章 #1f6cb2 加粗高亮(增强, 真站无此态, 声明)+分页 10 号窗({view:'toc',bookId,page}); 真站 LoadMore 整页展开→契約分页差异声明
+- [R26-3-5] Read.tsx: 面包屑(≤sm 隐藏=真站 hide720)+.tools 圆钮条(書頁/目錄/A-/A+/黑夜=真站 setbg 夜间模式本地态翻色, 收藏/聽書广告位不克隆声明)+.txtnav(h1 居中 20px+.txtinfo(真站 时间+作者, 无章节时间字段→全文字數+作者 替代声明)+ChapterContent fontSize=useReaderFont)+.page1 四格 上一章/書頁/目錄/下一章(prev/next 缺失置灰); useRecordReading(bookId,chapterId,title) 挂载即调
+- [R26-3-6] index.ts: kks101Template 五组件+css 字符串(全部 .clone-kks101 作用域, 14 条逐条注明真站规则出处: .mybox 阴影白卡/.mytitle/.bread/.btn/.tagbtn(+sm 变体)/.kks-txt p(line-height 2/padding 10px 0/text-indent 5%)/.page1-cell/.tool 圆钮/.pg 分页(+cur #caf1ff)/.bookrow·.cell hover scale/.newtitle hover/.labelbox-item; <768px 白盒收窄+页1 44px+分页窄号); 版心 max-w-[1112px](真站 .container 1112px)
+- 修复注记: [R26-3-x] 编号贯穿六文件; 清理未消费常量/导入(eslint no-unused-vars error 级); h1 内 div→span 修正嵌套; statusLabel 简体文案→本地 twStatus(連載/完本)繁体对齐真站
+- 质量门: bun build --external '*' 官方命令 0 错 + 五 tsx 逐文件转译 0 错; 未跑 lint/tsc(主控串行); 未动所有权外文件(Kks101Home.tsx 旧件保留待主控删, SiteHeader/themes/HomeView/registry 均未碰); 未起 dev server/零 DB/零 git
+
+Stage Summary:
+- 文件清单(全部位于 src/components/public/sites/kks101/, 仅此 6 文件): Home.tsx(292 行)/Category.tsx(310 行)/Book.tsx(423 行)/Toc.tsx(250 行)/Read.tsx(181 行)/index.ts(94 行, 导出 kks101Template: Home/Category/Book/Toc/Read/css)
+- 实测色板 hex 表(kks101-style.css 逐条规则, 主控刷新 themes.ts 用): body 底 #f2f3f4 · 正文 #333 · 主蓝 #1f6cb2(×32, 导航/按钮/标签字/筛选字/面包屑链) · 深蓝 hover #17508a · 链接 hover #06c · 链接常态 #666 · 标签描边 #56a6c3 · 标签底 rgb(232,244,255)=#e8f4ff · 公告条 #fff2df(header 已用) · 分隔线 rgba(150,150,150,.2) · 列表边线 #eee/#eaeaea/#ddd/#e4e4e4 · 白卡阴影 rgba(0,0,0,.12)/.24 · .mytitle 分隔 rgba(150,150,150,.2) · 榜单前三 #f00/rgb(255,111,0)/rgb(222,204,1) · 分页底 #f1f1f1/字 #7a7a7a/当前页底 #caf1ff 字 #1f6cb2 · infolist 底 #f4f4f4 · 简介 #777 · 辅文 #757575/#999/#666 · 工具圆钮 #4c5356 · 书单卡封面区渐变 #667eea→#764ba2 · 搜索框边 #eef0f4/阴影 rgba(0,25,104,.05) · 快捷入口字 #f6f6f6 · page1 hover #f8f8f8 · catalog h3 底 rgba(140,140,140,.05) · 状态绿角标 #4caf50(自拟, 真站为图片) · 夜间态 #22282b/#b8bcc0(自拟, 对应真站 setbg)
+- 推断/降级说明: ①真站首页书单卡为「书单(收藏夹)」实体, 模板无书单数据→以字数热榜喂同款卡形, meta 三项顺延为排名/分类/作者 ②首页新增「最新小說」行式板块消化 48 本 props 余量(样式取自同站 style.css .booklist li 家族, 非首页原生板块, 注释声明) ③分类页面包屑为同族规格补齐(真站分类页无 .bread) ④书页 status0/status1 连载角标为 PNG 图→文字角标替代 ⑤书页三 tab(目錄/簡介/書評)→双 tab(无书评实体) ⑥目录页真站 jQuery LoadMore 整页展开→按契约 100/页分页; 書籤登录区不渲染; 正序/倒序 jQuery→本地态 ⑦章节页收藏/聽書按钮列与 .yuedutuijian 外链书墙为登录态/运营位, 不克隆 ⑧txtinfo 时间字段缺失→全文字數替代 ⑨当前章高亮(目录/书页)为增强态 ⑩分页控件真实还原 .pages+.pagelink 双类嵌套的后载覆盖结果(#caf1ff 当前页而非 #56ccb5 — grep 行序实证)
+- 待主控: ①旧 sites/Kks101Home.tsx 按计划删除(本轮未动) ②registry/五视图层接线(HomeView 现仍指 9 旧组件) ③themes.ts 如需补色可参考上表(#caf1ff 分页当前页底为 themes.ts 未载的新实测值) ④串行 lint/tsc + 真主题建站目检五页型(375px 单列/1112 版心/夜间模式)
+---
+Task ID: R26-4
+Agent: general-purpose(qb23-clone)
+Task: qb23 铅笔小说 5 页型完整克隆
+
+Work Log:
+- 前置勘察: 通读 worklog 末段(R23-II 精仿先例/R24-6-c 旧 Qb23Home/R25 克隆先例) + shared.ts 契约 + template-kit 工具箱 + SiteHeader QbHeader/QbSearchBox/QbNav(897~1053, 头部不归本任务) + themes.ts qb23 条目 + BookCover/bits/seo/data 契约 + ctx navigate 路由
+- 真站补抓(直连可用): /tmp/r26/qb23-style.css(/mxstatic/css/style.css 118KB 全量) + 内页四页 qb23-category.html(/book/lastupdate_0_6_0_0_0_0_0_1_0.html)/qb23-book.html(/book/100/)/qb23-toc.html(/book/100/catalog 445KB 全量目录)/qb23-read.html(/book/100/71298.html); CSS 规则逐条提取(rule walker 含 @media 嵌套), 色频统计 #ff2a14×63/#eaedf1×25/#f3f5f7×12/#fef0e5×7 等
+- 真站结构确认: 首页=.box(module-items 封面网格 16 本)+.list(12 分类榜单列×10 行, item-title #ECEEF1 火焰栏头); 分类页=.page-heading(.box 内 library-box 筛选行×4: 分类/字数/排序/进度 + h1.library-stat)+module-items 网格+#page 分页(上一页/strong 红底/页码/下一页); 书页=.box.view-heading(novel-cover 桌面右浮 200px+page-title 38px text-shadow+tag-link chips 首片暖杏)+最新章节(module-row-info 行绿 icon)+完整目录 catalog-more(绿)+相关作品; 目录页=.heading 裸页头+.box 分卷 module-title.type+module-row-info 三列(min-768 33%); 章节页=.article 680px 版心+chepnav 面包屑+article-title 2.75rem/800+article-content p 18px/1.6/.825rem+.footer 半圆章节导航(f-left/f-center/f-right, 无下章文案「没有了~」)+fixed_right_bar 悬浮球
+- [R26-4-1~4] Home.tsx: 旧 Qb23Home 精华为基底+新快照核对 —— 网格 10→15 本(真站 16 本/1740 版心 8×2, 克隆 1152 版心 5×3 取整行, 卡宽 204px≈真站 200px), 斜角序号 Impact 900/top1~3 #e50914/#f73/#ffa82e, caption ≤559px 隐藏(真站 @media), 榜单栏头补 1px #f5f5f5 底线+hover 行底 #fff/.keyword #ff2a14; 数据=props(最新48)+1 维 fetchBooks(sort:words,60)(网格前15+榜单分组池, alive 防竞态, 失败回退 props); 骨架 15 卡+4 栏防 CLS
+- [R26-4-5~9] Category.tsx: library-box 筛选行真站复刻 —— 「分类」行全功能(fetchCategories+navigate category), 字数/排序/进度三行真站可点但数据层无参数→视觉复刻+aria-disabled 降级装饰片; h1.library-stat「{catName}全部_更新时间_全部」+追加共 N 本; module-items 封面网格(真站 caption span 为空→省略渐变条)+#page 分页(窗口化 ±3 首尾恒显)
+- [R26-4-10~15] Book.tsx: view-heading 布局(移动居中 46vw 白描边封面/桌面 flex-row-reverse 右置 200px)+page-title 38px/700 text-shadow #a9a9a9+novel-info-aux chips(作者首片 #fef0e5/分类/标签 slash 分隔 #d7dae1→keyword 视图/字数/状态)+按钮组按真站三型映射(开始阅读=btn-collect 红渐变 to right #fc000c→#f9444d/查看完整目录=btn-aux 绿渐变 90deg #7ec53d→#34a853/TXT下载=btn-aux-o 绿描边 #ecf9f0, 唯一 <a>)+最新章节(module-heading.newchapter+更新时间+module-row-info 倒序 10 行)+页内章节列表预览(分卷 groupTocVolumes+三列+currentChapterId 高亮 #fef0e5/#ff2a14+?page= 翻页)+相关作品(同分类书单替代真站协同过滤, 空则整框不渲染)
+- [R26-4-16~17] Toc.tsx: 真站 .heading 裸页头(书名链/作者/更新时间/共 N 章)+#shuqian 阅读进度块(currentChapterId 存在时呈现+继续阅读)+分卷 module-title.type+module-row 三列网格(min-768)+#page 分页(真站目录单页全量无分页, 数据层 100 章/页→复用真站分页形态)
+- [R26-4-18~20] Read.tsx: .article 680px 版心+chepnav 面包屑来源行+h1.article-title 44px/800(移动 28px)+元信息行(卷名 h3.text-muted 因 ChapterData 无卷字段降级为 书名·作者·字数)+ChapterContent 正文(容器 fontSize 驱动 A+/A-, p 1em/1.6/.825rem 对齐真站 18px)+.footer 半圆导航(上一章/目录/下一章, 60px 高 #f3f5f7)+fixed_right_bar 悬浮球挂 A+/A-/目录(真站该栏为日夜切换, 交互等价映射); useRecordReading 挂一次+切章回顶
+- index.ts: css 字段承载真站伪类/媒体查询级细节(qb23-cover::before 径向暗角 opacity .1→1/≤559 caption 隐藏/章节行斑马 even+min-768 全行 #f7f8f9/hover 白/aria-current 暖杏 !important/正文段落 1em·1.6·.825rem/行 min-height 44px 触控), 全部选择器 .clone-qb23 开头零全局污染; 导出名 Home→Qb23Home/Category→Qb23Category/Book→Qb23Book/Toc→Qb23Toc/Read→Qb23Read
+- 通用纪律: 交互色全部走 tailwind class(inline style 会压死 hover 的坑已全档排查), 数据只读 props+允许的 fetchBooks/fetchCategories, 键盘可达(bookNavProps/role=button+tabIndex+onKeyDown), aria-label/aria-current 全覆盖, loading 骨架+ErrorState+空态降级, <768 单列(网格 3 列=真站移动形态)/无横滚, 未动所有权外任何文件, 未跑 lint/tsc/未重启 dev/零 DB
+- 质量门: bun build --external '*' 五文件逐个转译 0 错 + 指定 gate 命令(index.ts)0 错; grep 复核: 唯一 <a>=TXT 下载/0 any/'use client'×5
+
+Stage Summary:
+- 文件清单(全部在 src/components/public/sites/qb23/, 共 6 文件): Home.tsx(~236 行)/Category.tsx(~274 行)/Book.tsx(~481 行)/Toc.tsx(~259 行)/Read.tsx(~210 行)/index.ts(含 scoped css) —— index.ts 导出 qb23Template: SiteTemplateSet 供 registry 按 theme.id='qb23' 消费
+- 实测色板 hex 表(主控刷新 themes.ts 用; 出处 /mxstatic/css/style.css 直抓+四内页): body 底 #f8f9f9 · 文字 #282828 · 主色朱红 #ff2a14 · 边线/分隔 #eaedf1 · hr/描边 #e3e6eb · 灰钮/#page/页脚 #f3f5f7 · 斑马行/块链底 #f7f8f9 · 暖杏 chip #fef0e5(hover #fde6dd) · 绿 #34a853(渐变伴生 #7ec53d) · 橙 #ff9800 · slash/描边 #d7dae1 · caption 字 #c2c6d0 · 次级 #999/#8f8f8f/#aaadb5 · 灰阶 rgba(0,0,0,.4/.51/.62/.68/.83/.92) · 序号 #fc4274/#ff8155/#fcb80a · 角标 #e50914/#f73/#ffa82e/#9e9e9e · 红渐变 #fc000c→#f9444d(btn-collect) · 橙→红 #ff9800→#ff2a14(btn-important) · 绿渐变 #7ec53d→#34a853(btn-aux) · 大投影 0 7px 21px rgba(149,157,165,.22) · .box 白卡 padding25/radius18 · module-title 26px/600 · page-title 38px/700 · 正文 p 18px/1.6/.825rem · 版心 .content max-width 1740px(克隆收窄 1152 与站内 qb 头部对齐, 组件头注释已声明)
+- 推断/降级说明: ①首页网格 16→15 本(版心收窄取整行, 注释声明) ②分类页字数/排序/进度筛选行=视觉复刻+aria-disabled(数据层无查询参数) ③书页「最新章节」取当前 tocPage 尾部倒序(单页书=真最新, 多页书第 1 页≈最早, 注释声明) ④书页相关作品=同分类字数前 6(真站协同过滤无数据源) ⑤书页页内章节列表+分页=任务要求增补(真站完整目录在独立 /book/{id}/catalog 页, 样式对齐该页) ⑥目录页 #page 分页=数据层 100 章/页所需(真站单页全量) ⑦目录页当前章高亮/书页 currentChapterId 高亮=任务要求增补(真站无, 采用真站 selected chip 语言 #fef0e5/#ff2a14) ⑧Read 卷名 h3.text-muted 降级为书名·作者·字数元信息行(ChapterData 无卷字段) ⑨Read fixed_right_bar 真站为日夜切换→等价挂 A+/A-/目录(字号键与通用阅读器互通) ⑩真站 .module-row-shortcuts 悬浮「阅读/下载」钮未复刻(无对应端点) ⑪封面径向暗角 backdrop-filter(contrast/saturate) 未复刻, 仅保留 opacity 渐进
+- 待主控: registry/views 接线后真实站点目检五页型(375px/桌面双断点)+串行 lint/tsc; themes.ts qb23 preset 现有 customCss(.clone-qb23 a 过渡+页脚 #f0f2f4)可按上表微调(可选: .site-footer 对齐真站 #f3f5f7)
+---
+Task ID: R26-2
+Agent: general-purpose(pili-clone)
+Task: pili 霹雳书屋 5 页型完整克隆(R26 第 2 站, sites/pili/ 六文件)
+
+Work Log:
+- [R26-2-勘察] 真站内页补抓(本机 scrapling 桥 :3012 stealthy, 共 6 请求): 分类页 /1/list/1.html(83KB)
+  + 目录页 /5/2951/menu/1.html(58KB) + 4 份 CSS —— read/read.css(207KB, 起点系阅读皮全文)、
+  wmcms.page.comicall.css(6KB, ret-* 检索页)、wmcms.page.works.css(90KB, works-* 作品页)、
+  SunZX/SunZX_type.css(黑条/简介 override); 书页/章节页用上轮 /tmp/sites/pilishuwu-book|chapter.html
+  实证。首页复用 /tmp/r26/probe-www.pilishuwu.com.html(318KB, 与上轮一致, 板块顺序核对无误:
+  mod-tags → banner+rank → in-strong「精品推荐」→ in-vip(最新入库+月票排行) → main(男频/女频列)+side)。
+- [R26-2-css] 关键实测(wmcms.global + index + comicall + works + read + 分类页内联 <style>):
+  版心 .ui-wm 1200px; ui-btn-orange #f89157/#ec7d4d(hover #f59966/active #f1854b);
+  ui-btn-pink #fffbf6/#b6724d/#e0cfb1(hover #fcf1e1/active #faead0); 分页 mod-page 30px
+  (current/hover #ff9a6a 底 #ef7559 边), ret-head-page 小分页 2px 5px; 检索项 ret-search-item
+  391×180 双列分格线 #e8e7e6 + 封面 133×177 #bebebe 边 + 22px rgba(0,0,0,.6) 章节黑条;
+  分类侧栏 category-left-rank(白底 p15) + rank-side-title 5px #ff6600 左线 + rank-num
+  #ff4a4a/#ff7e3e/#ffb83d/#ccd0d7; 作品页 works-intro-wr 880px #cec7bd 边 + 封面 250×308(图 210×280)
+  + 角标 160×32 + 标题 32px 微软雅黑 #555 + 简介 130px 滚动 #999 + 标签圆片 #efddd3 + 按钮 112×45
+  + works-chapter-item 四列 294px(:visited #A75646, hover #fa8729) + words-xone-menu 橙 tab
+  4px #ff9a6a + chapter-page-btn 68×30; 目录页 menu = 白盒 #e0dedc 边 + 同橙 tab「章节列表/
+  返回《书名》」+ .vloume 卷分隔(真站无样式规则, 默认块级) + chapter-end 40px; 阅读页
+  body #ede7da 画布 + text-wrap #faf5eb 纸面(theme-0 实证) 1px #d8d8d8 边 + main-text-wrap
+  padding 60px 64px + h3 24px/32px + text-info 12px/16px rgba(0,0,0,.4)(hover #ed4259) +
+  read-content p{1.8/1.2em/2em} + chapter-control 70px 18px/70px(hover rgba(0,0,0,.03)) +
+  左坞 60px dd hover #ed4259。
+- [R26-2-交付] sites/pili/ 六文件 1904 行: Home(旧 PiliHome 精华全搬+新增 in-vip 双列「最新入库
+  hover 简介黑纱+月票排行」板块对齐真站顺序; 标题双色 em 形态 精品<em>推荐</em>/xx<em>小说</em>;
+  48 本切分 0..10 banner+精品 / 11..30 最新入库 / 分类分组双列 / 侧栏更新表, 另拉 sort:words 喂三榜);
+  Category(ret-* 复刻: ret-title 页头+共N个结果+排序 tab(更新 active)+双列检索列表+月点击排行
+  侧栏+顶/底双分页 navigate 翻页); Book(works-intro 左封角标+32px 标题+简介+标签圆片+橙大钮
+  开始阅读/章节目录+TXT <a>+统计行+右侧作者卡+四列章节预览+currentChapterId 橙高亮+翻页);
+  Toc(独立视图: 橙 tab 页头(书名/共N章/去书页)+groupTocVolumes 分卷四列网格+当前章高亮+分页);
+  Read(#ede7da 画布+rgba(255,255,255,.4) 顶条+A-/A+(useReaderFont, 基准平移 17→18 对齐真站
+  inline 18px)+800px 纸面 #faf5eb+ChapterContent(useRecordReading 挂记忆)+文末 in-flow
+  chapter-control+移动端底部固定条+≥lg 左坞 目录/书页/首页)。
+- [R26-2-验证] bun build --external '*' index.ts → 0 错; 六文件逐个 bun build 语法全过; 无 any/
+  ts-ignore; 全部 'use client'; 全部站内跳转走 navigate, TXT 下载唯一 <a>。
+
+Stage Summary:
+- 文件清单: src/components/public/sites/pili/{Home.tsx, Category.tsx, Book.tsx, Toc.tsx, Read.tsx,
+  index.ts}(新目录, 未动所有权外任何文件; 旧 sites/PiliHome.tsx 未删未改)
+- index.ts css(.clone-pili 作用域): a 过渡 / .pili-read-content p 段落规则(1.8/1.2em/2em) /
+  .pili-ch-link:visited #A75646 / .pili-ctrl-link:hover #1a1a1a+rgba(0,0,0,.03) /
+  .pili-dock-btn:hover #ed4259 / ≥lg 奇数项右分格线 #e8e7e6
+- 实测色板(主控刷新 themes.ts 用): 主橙 #fd8929 | 浅橙 #ff9a6a(压线/tab/榜单头/分页 current) |
+  按钮橙 #f89157+边 #ec7d4d(hover #f59966/active #f1854b) | 米色 #faead0+边 #eed3a4 |
+  米钮 #fffbf6/#b6724d/#e0cfb1(hover #fcf1e1) | 红强调 #d71704, 最新章红 #cd1604, 阅读 hover 红 #ed4259 |
+  阅读画布 #ede7da, 纸面 #faf5eb, 边 #d8d8d8, 正文 #262626 | 深榜 #373533, 徽章 #908aa2/#f0efee,
+  月票橙 #ff8a2b, 侧栏 rank #ff6600/#ff4a4a/#ff7e3e/#ffb83d | 文字 #333/#555/#666/#999 |
+  分类分格 #e8e7e6, 边 #dadada/#cec7bd/#e0dedc/#dbd9d6 | preview [' #fafafa','#fd8929','#d71704'] 不变
+- 推断/降级: ①分类页无页标题 DOM → 按任务要求以真站 .ret-title 样式补画(注明); ②排序 tab 视图层
+  无 sort 参数 → active 恒「更新」, 点击回第 1 页; ③ret-works-view 开始阅读无章节 id → 转书籍页;
+  ④works-vote 鲜花/鸡蛋与点击/收藏统计无数据源 → 书档字段统计行(works-status DNA)+作者卡改书档;
+  ⑤作者公告空时显示真站原文「此作者暂时没有公告！」式占位; ⑥目录页 .vloume 真站无样式 → 默认
+  块级形态复刻; ⑦阅读页 A-/A+ 自左坞设置面板平移至顶条, 橙 tab 短线为任务「橙色章头」要求的
+  站内 DNA 迁移(真站章题无橙饰); ⑧read.css 为起点系移植皮, hover 红 #ed4259 非全站橙系, 按
+  真站原样保留

@@ -1,0 +1,103 @@
+// ============================================================
+// [R26-c-3] 站点克隆模板工具箱 —— 各站 {Page}.tsx 模板组件共用的阅读侧小件
+// (字号调节 / 阅读位置记忆 / 章节正文渲染 / 分卷分组), 让 10 站模板不必各自复制这些逻辑。
+// ============================================================
+'use client'
+
+import { useEffect, useRef, useState } from 'react'
+import type { CSSProperties } from 'react'
+import { contentToHtml } from '../read-layouts/shared'
+import { getReadTimeMs, saveReadPos, setReadTimeMs } from '../read-layouts/reading-memory'
+import type { TocChapter } from '../types'
+
+const READER_FONT_KEY = 'public_reader_fontSize'
+
+function readStoredFont(): number {
+  if (typeof window === 'undefined') return 17
+  try {
+    const n = Number(window.localStorage.getItem(READER_FONT_KEY))
+    return Number.isFinite(n) && n >= 14 && n <= 24 ? n : 17
+  } catch {
+    return 17
+  }
+}
+
+/**
+ * 章节页字号调节(localStorage 与通用阅读器同一键, 用户偏好互通)。
+ * 返回当前字号(px)与放大/缩小回调; 模板里 A+/A- 按钮直接接 inc/dec。
+ */
+export function useReaderFont(min = 14, max = 24): { font: number; inc: () => void; dec: () => void; set: (n: number) => void } {
+  const [font, setFont] = useState(readStoredFont)
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(READER_FONT_KEY, String(font))
+    } catch {
+      /* 隐私模式忽略 */
+    }
+  }, [font])
+  return {
+    font,
+    inc: () => setFont((s) => Math.min(max, s + 1)),
+    dec: () => setFont((s) => Math.max(min, s - 1)),
+    set: (n: number) => setFont(Math.min(max, Math.max(min, n))),
+  }
+}
+
+/**
+ * 阅读位置与时长记忆 —— 章节页模板挂一次即可:
+ * - 滚动 debounce 300ms 写 saveReadPos(bookId, {chapterId, scrollRatio, title})
+ * - 每 10s 累计阅读时长 setReadTimeMs(bookId, ...)
+ */
+export function useRecordReading(bookId?: string, chapterId?: string, title?: string): void {
+  useEffect(() => {
+    if (!bookId || !chapterId || typeof window === 'undefined') return
+    let timer = 0
+    const base = getReadTimeMs(bookId)
+    const t0 = Date.now()
+    const onScroll = () => {
+      if (timer) return
+      timer = window.setTimeout(() => {
+        timer = 0
+        const doc = document.documentElement
+        const max = doc.scrollHeight - window.innerHeight
+        const ratio = max > 0 ? Math.min(1, Math.max(0, window.scrollY / max)) : 0
+        // saveReadPos 为四参位置签名(内部保留 readTimeMs), 时长另由 setReadTimeMs 累计
+        saveReadPos(bookId, chapterId, ratio, title || '')
+      }, 300)
+    }
+    const tick = window.setInterval(() => {
+      setReadTimeMs(bookId, base + (Date.now() - t0))
+    }, 10_000)
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => {
+      window.removeEventListener('scroll', onScroll)
+      if (timer) window.clearTimeout(timer)
+      window.clearInterval(tick)
+      setReadTimeMs(bookId, base + (Date.now() - t0))
+    }
+  }, [bookId, chapterId, title])
+}
+
+/**
+ * 章节正文渲染 —— 内部走 contentToHtml(段落规整 + 客户端 XSS 消毒),
+ * 容器样式由模板按真站规格传入(通常: 固定栏宽 + 行高 + 段距)。
+ */
+export function ChapterContent({ content, style, className }: { content: string; style?: CSSProperties; className?: string }) {
+  return <div className={className} style={style} dangerouslySetInnerHTML={{ __html: contentToHtml(content) }} />
+}
+
+/**
+ * 目录分卷分组(与通用 BookView 同口径): 连续相同 volume 一组, 空卷归「正文」。
+ * 无卷数据返回 null(模板渲染平铺列表)。
+ */
+export function groupTocVolumes(chapters: TocChapter[]): { volume: string; chapters: TocChapter[] }[] | null {
+  if (!chapters.some((c) => c.volume)) return null
+  const gs: { volume: string; chapters: TocChapter[] }[] = []
+  for (const c of chapters) {
+    const vol = c.volume || ''
+    const last = gs[gs.length - 1]
+    if (last && last.volume === vol) last.chapters.push(c)
+    else gs.push({ volume: vol, chapters: [c] })
+  }
+  return gs
+}
