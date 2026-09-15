@@ -4529,3 +4529,72 @@ Work Log:
 Stage Summary:
 - 主题系统从「参数级差异」升级为「设计语言级差异」: 同一组件在 512 主题下呈现 7 种标题装饰/5 种按钮形态/4 种卡片 hover/4 种全站纹理; 存量 &nbsp; 污染(6063 文件)服务出口统一自愈
 - 遗留: download 成品 TXT 流式链路含存量实体(独立链路, 影响面小)已留档; HomeBiquge 仿站版权块与全局页脚双版权为既有仿站还原结构非本轮回归
+---
+Task ID: R23-II-a
+Agent: frontend-styling-expert
+Task: 主题精仿头部实现 — SiteHeader 新增 kks(101看書)/qb(铅笔小说)/biquge-x(笔趣阁 laoniu1) 三个渲染分支 + 主 switch 重组为仿站 early-return 映射
+
+Work Log:
+- 前置勘察: 通读 worklog R23-a/b/c/主控段 + SiteHeader.tsx 全文(897 行) + ctx.tsx(PublicCtxValue: site/sites/theme/pseudoPreset/embedMode/navigate) + types.ts(SiteInfo.title/description 作 slogan 源) + themes.ts(确认 headerStyle 10 值联合与 kks101/qb23/biquge 精仿 preset 色板已就位) + seo.ts withAlpha(6 位 hex→rgba, 本轮硬编码 hex 安全); 核实 admin/ThemesSection.tsx 仅有 READ_LABEL/HOME_LABEL 映射、全站不存在 headerStyle 中文标签映射表 → 例外条款无需动用, ThemesSection 零改动
+- [R23-II-a-1] 文件头注释更新为 10 种取值(仿站 5 分支 early-return 映射 + 通用 5 分支尾段)
+- [R23-II-a-2] KksSearchBox: 101看書直角搜索 = 白底输入(#1f6cb2 蓝框 4px 圆角 h-8 13px) + 蓝色方块图标提交钮(hover #17508a), compact 收缩 w-44(参考通用 SearchBox 做法); 复用 useSearchBoxLogic+SuggestDropdown(热词/历史/键盘导航全量继承)
+- [R23-II-a-3] KksAnnounce = 真站 .headerad{background:#fff2df;text-align:center} 米黄公告条: 站名+slogan(site.description??site.title??兜底) 深棕 #6b5b3e 13px 居中 truncate; KksNav = 蓝色导航条 #1f6cb2 白字 14px(text-sm) 紧凑 min-h-[40px], 首页 font-bold + cats 前 12, hover #17508a, overflow-x-auto 横滚 + 蓝底半透明白骨架
+- [R23-II-a-4] KksHeader 三行结构: 白底报头(v.surface, 主题蓝 #1f6cb2=kks preset primary 加粗纯文字 logo+titleFont) + 米黄公告条 + 蓝色导航条; 书架入口蓝描边扁平风(withAlpha('#1f6cb2',0.06) 浅底) 桌面带文字/移动仅图标; 4px 圆角扁平无阴影贴真站 14px 密集列表站气质
+- [R23-II-a-5] QbSearchBox: 铅笔小说 system-ui 气质搜索 = 输入(#e3e6eb 边线 8px 圆角 h-9) + 朱红 #ff2a14 方块提交钮(hover #ea2611), compact 同法
+- [R23-II-a-6] QbNav 浅色分类条(真站关键差异: 非红底白字!) = #f8f9f9 浅底 + 底部 1px #e3e6eb 边线, 菜单项 700 加重(text-[15px] font-bold) #282828, hover 红 #ff2a14(Tailwind 静态任意值类, 规避 inline style 压不住 hover 的坑); 首页作当前项红色高亮(头部无当前视图态, 沿 PiliCategoryNav 首项高亮先例)
+- [R23-II-a-7] QbHeader 双行: 白底报头(#ff2a14 朱红粗体纯文字 logo) + 浅色分类条; 书架 chip 朱红浅底 8px 圆角; embedMode SiteSwitcher 同 pili 位
+- [R23-II-a-8] BiqugeXSearchBox: 笔趣阁 laoniu1 粉框输入(#F47983 4px 圆角 h-8 13px) + 粉色方块提交钮(hover #f85c7d=主题 accent)
+- [R23-II-a-9] BiqugeXNav = 真站 .header-common-nav{background:#F47983;height:2.2rem;line-height:2.2rem} a{color:#ffffff}: 粉红导航条白字 0.8rem 均分排布 — 真站 width:10% float:left 用 flex-1 等分实现且桌面全宽不设 max-w 上限贴真站; 内层 w-max+min-w-full: 项少铺满均分/项多横滚, sm:w-auto 桌面恢复等分; 首页+cats 前 9 ≈ 真站 10 列; BiqugeXHeader 双行: 白底报头(#F47983 粗体 22px logo, min-h-12≈3rem+py-1.5+flex-wrap 防窄屏溢出) + 粉红导航条
+- [R23-II-a-10] aijjxs 内联分支逐字提取为 AijjxsHeader 独立子组件(JSX 零改动, 视觉行为不变, 仅数据源改自持 usePublic 的 embedMode/navigate)
+- [R23-II-a-11] 主组件重组: 新增 ImitationHeaderProps/ImitationHeaderStyle + IMITATION_HEADERS: Record<五仿站值, ComponentType> 映射表 + 早退分支(pili/aijjxs 外层 header 样式逐像素还原 — 透明底 + aijjxs 保留 1px v.border 外层底边线/pili none); 通用尾段三元链收敛(solid/centered 合并 surface 分支, pili 底边线特例注释移交映射层), centered/split/常规两行 JSX 逐字未动; navigate 从主组件解构下沉 AijjxsHeader
+- 质量门: 按纪律未跑 bun run lint / bunx tsc(主控串行), 改以 bun build --external '*' 单文件转译验语法通过(非类型检查); strict 类型书写逐点自查: Record 索引靠 if 链收窄 ImitationHeaderStyle/ComponentType 泛型/withAlpha 6hex 入参/lineHeight 2.2rem 合法 CSSProperties/titleFont 可选直传 fontFamily; 未新增依赖/未写测试/零 DB/未动 themes.ts·PublicSite.tsx·HomeView.tsx·ThemesSection.tsx
+
+Stage Summary:
+- 交付: SiteHeader.tsx 新增 3 个精仿头部子组件组(KksSearchBox/KksAnnounce/KksNav/KksHeader, QbSearchBox/QbNav/QbHeader, BiqugeXSearchBox/BiqugeXNav/BiqugeXHeader 共 9 个新函数) + aijjxs 提取为 AijjxsHeader + IMITATION_HEADERS 映射 early-return 分发, 文件 897→1434 行(+537); 11 处 [R23-II-a-N] 注释
+- 视觉要点: kks=白底报头(蓝字 logo)+#fff2df 米黄公告条(深棕 13px 居中)+#1f6cb2 蓝导航条(白 14px, hover #17508a) 4px 扁平; qb=白底报头(朱红 #ff2a14 粗体 logo)+#f8f9f9 浅分类条(底边 #e3e6eb, 700 粗字 #282828, 当前/hover 朱红) 8px system-ui; biquge-x=白底报头(#F47983 粗体 logo 高 3rem)+粉红导航条(2.2rem 白字 0.8rem flex-1 均分贴真站 width:10%, hover #f85c7d) 4px
+- 决策: ①真站特异色全部硬编码(循 PiliHeader 先例), kks logo/书架用 v.primary(=真站 #1f6cb2)保组合主题兼容 ②qb hover 用 Tailwind 静态任意值类而非 inline(inline 压不住 hover) ③qb「当前项」按真站首项高亮惯例落在首页(头部无视图态) ④三搜索框全量复用 useSearchBoxLogic+SuggestDropdown(建议/历史/键盘零重复实现)
+- 三分支移动端统一: 导航条 overflow-x-auto 横滚 + 搜索 md 断点收缩(compact 窄输入), 与现有分支同策略; 骨架屏逐分支配底色防闪烁
+- 风险移交: ①未跑全量 lint/tsc(主控串行) ②kks 蓝条 min-h-[40px] 低于 44px 触控惯例(真站紧凑气质取舍) ③biquge 粉条白字对比 ~2.9:1 为真站原样还原(精仿忠实性优先)
+
+---
+Task ID: R23-II-b
+Agent: frontend-styling-expert
+Task: 全新首页布局组件实现 — 新建 newspaper/masonry/dashboard/timeline 四个布局组件并接入 HomeView(只做研究+写代码, 不做测试)
+
+Work Log:
+- 前置勘察: 读 worklog R23-a/b/c 段落 + HomeView/ctx/bits/seo/types/BookCover/HomeGrid/HomeTheater/HomeList/HomeMagazine + themes.ts 四新主题 preset(inkstone/drift/mission/chronicle); 核实 titleFont/heroBg/cardHover 等均为可选 token, props 契约沿用 { books: BookItem[], loading }(BookItem 直接 import 自 ../types), 空态按既有 8 布局约定 return null(由 HomeView EmptyState 统一渲染)
+- HomeNewspaper.tsx(249 行, [R23-II-b-1~4]): 报头 masthead(衬线大字 h1 + 日期线「YYYY-MM-DD·星期X」+ 刊号线「第 X 期」=books.length 纯前端编号 + 报纸经典双细线 3px+1px 用 v.text) + 头版头条大卡(第一本书: 朱砂眉标/衬线大标题 h2/朱砂左线导语/相框式封面+图注, cardHover token 消费) + 下方 md:columns-2 lg:columns-3 真分栏(columnRule 1px 主题 border 栏间分隔线, 板块 break-inside-avoid 整块不跨栏, 按分类全量分板块不截断); 板块标题自绘「细线上下夹住+加宽字距+『』括角」并注释镜像 bits headingDeco='bracket'(SecTitle 固定字号与报头双线版式冲突, 按任务书"不易则自绘"条款)
+- HomeMasonry.tsx(134 行, [R23-II-b-5~7]): 顶部窄幅撞色 hero 直接消费 vars.heroBg(drift 三色气泡) + 右侧三色圆点装饰; CSS columns 瀑布流(columns-2 md:columns-3 lg:columns-4 gap-4, 卡 break-inside-avoid); 便签三色=珊瑚取 v.primary/松绿取 v.accent/drift 与 token 同值, 柠黄 #fcc419 为主题无对应色的第三撞色, 按任务书豁免用固定值并注释【仅 drift 主题配本色】; 取色按书 id 31 进制滚动 hash 确定性(刷新不跳色), 底色透明度 10%~14% 三档取 hash 另一段; 卡内封面小图(左)+书名+作者+简介截断(右), radius=v.radius(14px), hover 消费 cardHover(默认 grow)
+- HomeDashboard.tsx(196 行, [R23-II-b-8~10]): KPI 条 4 卡(藏书量=books.length/字数体量=本页 wordCount 求和/今日更新=updatedAt 为今日计数/站点公告=site.description 占位, 口径全部标注于 hint 禁造假), 等宽数字 tabular-nums + primary/accent 交替高亮 + 卡顶 2px 信号色条; 下方 lg:grid-cols-2 双面板 — 左「热门榜」wordCount 降序前 8 排名徽章 01/02/03(top3 荧光薄荷实底+辉光, 其余描边)右「最新入库」前 8 时间徽章(fmtDate(updatedAt)||'最新')+StatusBadge; 荧光网格纹理不重铺(PublicSite patternBg 全站层已铺, 文件头注释声明); 行 hover 用 transition-opacity 避免硬编码色值
+- HomeTimeline.tsx(186 行, [R23-II-b-12~14]): 卷轴式 hero(consume heroBg + patternBg 纹理层 + 左右卷轴轴杆铜棕→松绿竖杆 + ✦ 菱形花饰标题自绘镜像 headingDeco='ornament' + 卷轴收口渐变线中央菱形) + SecTitle「编年书卷」(chronicle ornament 装饰自动套用); 垂直中轴 1px v.border(移动端 left-4 单侧/md 置中) + 交错书卡(md+ 偶数卷 md:col-start-1 justify-self-end/奇数卷 col-start-2 justify-self-start, 移动端 pl-10 单侧) + 铜棕轴点(primary 圆点+外扩 4px 淡晕) + 中文卷号徽章「卷一…卷十二」(CN_NUM 表, 前 12 本) + 超量折叠徽章「余 N 部待编入长卷」(虚线胶囊+沙漏图标); 书卡=封面+衬线书名+作者/分类/字数+简介, cardHover 默认 lift
+- HomeView.tsx 接线(254 行, [R23-II-b-15~16]): 4 个 next/dynamic 懒加载(HomeNewspaper/HomeMasonry/HomeDashboard/HomeTimeline, 与既有 7 个 dynamic 并排, HomeShelf 保持静态 import) + 4 个条件渲染分支(与既有 8 分支并排, props 同 { books, loading }) + 防御性兜底名单补入 4 新布局 id(loading 期骨架由各布局自渲染不再落 BookGridSkeleton) + SHARED_HERO_LAYOUTS 保持空表(四新布局均自建顶部板块, 注释补记)
+- 全程: 颜色/圆角/字体/阴影一律取 usePublic().theme.vars(heroBg/heroText/heroMuted/cardHover/patternBg/titleFont 均带 || ?? fallback); 未新增依赖/未写测试/未跑 lint-tsc(遵主控串行约定)/未动 themes.ts/SiteHeader/PublicSite/未重启 dev server/未碰数据库
+
+Stage Summary:
+- 4 个新布局组件落地 src/components/public/layouts/{HomeNewspaper,HomeMasonry,HomeDashboard,HomeTimeline}.tsx(249/134/196/186 行, 注释编号 [R23-II-b-1~14]), HomeView 12 布局分发接线完成([R23-II-b-15~16]); 与 inkstone/drift/mission/chronicle 四精选主题一一对应
+- 关键决策: ①板块/花饰标题按任务书"不易则自绘"条款自绘(镜像 bracket/ornament 形态并注释原因 — SecTitle 固定字号/间距与报头双线、hero 衬线大字冲突), SecTitle 在 timeline 正常分区处仍复用 ②masonry 第三便签色 #fcc419 用固定值+仅 drift 豁免注释, 前两色直接消费 primary/accent ③dashboard KPI 全部书单真实推导(wordCount 求和替代缺失的章节量, 口径写在卡面 hint), 网格纹理交由 PublicSite patternBg 不重铺 ④newspaper 分栏用 CSS columns+column-rule(1px 主题 border)实现真报纸栏间线
+- 待主控: 统一跑 lint/tsc + 真实主题下目检四布局(移动端 375px 已按 columns-2/pl-10 单侧/2 列 KPI 适配)
+---
+Task ID: R23-II(主控)+R23-II-a+R23-II-b
+Agent: main-orchestrator(+frontend-styling-expert×2 并行)
+Task: 章节正文 &nbsp; 残留根治 + 精仿 5 站主题(101kks/pilishuwu/aijjxs/biquge/23qb) + 全新 12 套主题(风格/配色/布局完全不同)
+
+Work Log:
+- [R23-3-0] &nbsp; 复发排查: 公开读路径离线复算 217/217 章节转换后 0 残留(R23-主-2 修复有效, 浏览器终验 nbsp:false); 实测落盘 29/217 文件含字面 &nbsp;(句中形态, 源站正文携带, 如"不要转区&nbsp;！")
+- [R23-3-1] admin 章节编辑器 GET 补 decodeEntitiesOnce —— 此前直返原文, 管理员看到字面实体垃圾(真正曝光点)
+- [R23-3-2] admin PUT 回写链补 decodeEntitiesOnce —— cleanContentHtml(HTML 模式)经 cheerio 序列化把 \u00a0 还原成 &nbsp; 字面量, replace 剥标签链不解实体, 保存回路会把污染写回文件
+- [R23-3-3] 存量落盘文件离线清理 32 个(233 扫描), 复核 0 残留; 全程未触 DB, 未涉运行中任务书籍(当时 3 任务在跑: 庇护所进化论/80ge/官场从秘书开始)
+- [R23-II-主-1] 真站实测取色: 直连抓 101kks/23qb 首页+CSS; pilishuwu 403 → fetch-relay native 403 → cloak-browser(3016) 232KB 到手; biquge 用 www.biquge.tw(laoniu1 模板, 项目内置规则同源域名); 四站 CSS 色频统计+签名规则提取
+- [R23-II-主-2] themes.ts 扩展: layout 联合 +newspaper/masonry/dashboard/timeline, headerStyle 联合 +kks/qb/biquge-x(矩阵 512 组合不受影响); preset 9→23 套(535 总套数)
+- [R23-II-2] biquge preset 升级精仿 laoniu1(粉红 #F47983 导航条/#f0f2f7 底/#f85c7d 强调, 真站 CSS 实测); [R23-II-3] pili preset 色板校准(#fafafa/#dcd8d4/#faead0 + #ff9a6a→#f65400 hero 渐变); aijjxs 复验无回归
+- [R23-II-4] 新增 kks101 精仿 101看書(#1f6cb2 蓝白+#fff2df 公告条); [R23-II-5] 新增 qb23 精仿铅笔小说(#ff2a14 朱红+浅底黑体粗字导航+橙绿强调)
+- [R23-II-6] 全新 12 套(12 套↔12 布局一一对应): inkstone 玄墨报馆/drift 珊瑚便签/mission 控制中心/chronicle 长河编年/lilac 香芋牧野/matcha 抹茶庭园/noirgold 黑金殿堂/typewriter 打字机手札/soda 苏打汽水/sunset 落日大道/woodland 苔藓影院/graphite 石墨瑞士
+- [R23-II-a] Agent A(SiteHeader.tsx +537 行): kks(白报头+米黄公告条+蓝导航)/qb(白报头+浅底 700 粗字分类条红高亮, 非红底白字)/biquge-x(白报头 3rem+粉条 2.2rem 白字均分) 三分支; aijjxs 提取为 AijjxsHeader 子组件; 主 switch 改 IMITATION_HEADERS 映射; ThemesSection 无标签表零改动
+- [R23-II-b] Agent B(4 新布局组件+HomeView): HomeNewspaper(报头刊号日期线+头条大卡+md:columns 分栏+栏间细线)/HomeMasonry(CSS columns 瀑布+三色便签卡 id-hash 确定性取色)/HomeDashboard(KPI 4 卡 books 真实推导+热门榜/最新入库双面板)/HomeTimeline(卷轴 hero+垂直中轴+卷一~卷十二交错书卡); HomeView +4 dynamic import+4 分支+兜底名单
+- E2E(agent-browser): kks101/qb23/biquge/pili/aijjxs 头部结构逐一对真站规格核验; 4 新布局滚动截图核验(报馆刊头/便签墙三色/控制台 KPI 面板/时间轴卷号全部实拍确认); 阅读页 nbsp:false; admin GET 0 实体; 移动端 390px chronicle(时间轴单侧)+biquge(粉条)通过; page errors 0; 浏览器关闭+Chrome 清杀
+- 质量门: bunx tsc --noEmit 0 错 + bun run lint 0/0(串行); 运维插曲: 期间 next-server 再次被 OOM 击杀(dmesg anon-rss 2.5GB, admin 浏览触发编译尖峰), subshell 模式恢复+watchdog 拉起, 采集任务全程未中断; 终验 3000+8 mini-service 全 UP, available 1543MB
+
+Stage Summary:
+- 主题总量 521→535 套(23 preset+512 组合); 精仿 5 站全部以真站 CSS 实测取色落地(101kks/pilishuwu/aijjxs/biquge/23qb); 12 套全新主题实现 12 布局全差异化(报馆/瀑布/控制台/时间轴为全新版式组件)
+- &nbsp; 全链路闭环: 公开读(R23-主-2)+admin 编辑器读(R23-3-1)+admin 保存回路(R23-3-2)+存量文件(R23-3-3)+下载链(已有)五出口全部干净, 实证 217/217
+- 采集任务运行期间全程零 DB 接触/零主动重启; OOM 复发一次按先例恢复

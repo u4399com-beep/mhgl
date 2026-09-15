@@ -1,6 +1,7 @@
 // ============================================================
-// 首页视图 — 随机下拉词 + 6 分类图文卡 + 排序切换 + 按 theme.layout 分发 8 种布局（全主题去分页, 一次拉 48 本）
+// 首页视图 — 随机下拉词 + 6 分类图文卡 + 排序切换 + 按 theme.layout 分发 12 种布局(全主题去分页, 一次拉 48 本)
 // R23-b: 排序按钮消费 buttonStyle token + 共享 HomeHero 小节(待命, 防与布局内自建 hero 叠加)
+// [R23-II-b] HomeView 接线: +newspaper/masonry/dashboard/timeline 四布局 dynamic import 与分支
 // ============================================================
 'use client'
 
@@ -24,6 +25,12 @@ const HomeMagazine = dynamic(() => import('./layouts/HomeMagazine').then((m) => 
 const HomeTheater = dynamic(() => import('./layouts/HomeTheater').then((m) => m.HomeTheater))
 const HomePili = dynamic(() => import('./layouts/HomePili').then((m) => m.HomePili))
 const HomeBiquge = dynamic(() => import('./layouts/HomeBiquge').then((m) => m.HomeBiquge))
+// [R23-II-b-15] 全新四布局(newspaper/masonry/dashboard/timeline, 配套 inkstone/drift/mission/chronicle 精选主题)
+// 同按需分包: 非默认布局只在数据到达后的客户端分支命中时拉 chunk, 无首屏闪烁/CLS 回归面
+const HomeNewspaper = dynamic(() => import('./layouts/HomeNewspaper').then((m) => m.HomeNewspaper))
+const HomeMasonry = dynamic(() => import('./layouts/HomeMasonry').then((m) => m.HomeMasonry))
+const HomeDashboard = dynamic(() => import('./layouts/HomeDashboard').then((m) => m.HomeDashboard))
+const HomeTimeline = dynamic(() => import('./layouts/HomeTimeline').then((m) => m.HomeTimeline))
 import type { BookItem } from './types'
 
 interface FetchState {
@@ -36,6 +43,7 @@ interface FetchState {
 // R23-b 规格下 grid/theater/magazine/shelf 四布局均在布局内部自建差异化 hero(heroBg 富横幅/书架搁板/头条大卡/影院海报),
 // list/minimal/pili/biquge 亦有各自顶部板块(窄横幅/标语区/跑马灯公告/通知条),
 // 因此 8 布局全部有自建顶部板块 —— 为避免「布局内 hero + 共享 hero」双重叠加, 本共享 hero 保持待命(空表 = 不渲染);
+// [R23-II-b] 新增四布局(newspaper/masonry/dashboard/timeline)亦均自建顶部板块(报头/撞色横幅/KPI 条/卷轴横幅), 继续待命;
 // 未来新增无自建 hero 的布局时, 将其 layout id 加入下表即可挂载。
 const SHARED_HERO_LAYOUTS: string[] = []
 
@@ -217,8 +225,14 @@ export function HomeView({ page, cat }: { page: number; cat?: string }) {
           {theme.layout === 'theater' && <HomeTheater books={books} loading={loading} />}
           {theme.layout === 'pili' && <HomePili books={books} loading={loading} />}
           {theme.layout === 'biquge' && <HomeBiquge books={books} loading={loading} />}
+          {/* [R23-II-b-15] 全新四布局分支(与既有 8 分支并排, props 同为 { books, loading }) */}
+          {theme.layout === 'newspaper' && <HomeNewspaper books={books} loading={loading} />}
+          {theme.layout === 'masonry' && <HomeMasonry books={books} loading={loading} />}
+          {theme.layout === 'dashboard' && <HomeDashboard books={books} loading={loading} />}
+          {theme.layout === 'timeline' && <HomeTimeline books={books} loading={loading} />}
           {/* feat-round-7 B3: 防御性兜底 — 未知布局/loading 期无任何布局命中时用 BookGridSkeleton */}
-          {!['shelf', 'list', 'grid', 'minimal', 'magazine', 'theater', 'pili', 'biquge'].includes(theme.layout) && loading && (
+          {/* [R23-II-b-16] 兜底名单补入四新布局 id(loading 期骨架由各布局自渲染, 不再落到通用骨架) */}
+          {!['shelf', 'list', 'grid', 'minimal', 'magazine', 'theater', 'pili', 'biquge', 'newspaper', 'masonry', 'dashboard', 'timeline'].includes(theme.layout) && loading && (
             <BookGridSkeleton count={12} />
           )}
         </>

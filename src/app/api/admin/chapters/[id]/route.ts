@@ -17,6 +17,11 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       content = (await readChapterTxt(ch.filePath)) || ''
       // 去掉首行标题(API-22: slice(1) 后保留的空行也清掉, 否则返回正文开头会出现 \n\n)
       content = content.split('\n').slice(1).join('\n').replace(/^\n+/, '')
+      // [R23-3-1] 编辑器展示侧实体解码: R22-b 清洗器落地前入库的存量落盘文件含字面
+      // "&nbsp;"(实测 29/217 文件), 公开读路径已在 chapter/route.ts decodeEntitiesOnce
+      // 自愈(R23-主-2), 但本路由此前直接返回原文 —— 管理员在编辑器里看到字面实体垃圾。
+      // 与公开读路径同口径白名单单遍解码(幂等, 已干净文件无操作), 编辑器所见即读者所得
+      content = decodeEntitiesOnce(content)
     }
     return ok({ ...ch, content })
   })
@@ -71,12 +76,18 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       if (newContent !== null) {
         // API-4: 正确的 HTML→文本转换 —— 块级闭合标签先转 \n, 否则 <p>aaa</p><p>bbb</p> 会被
         // 压成 aaabbb(段落粘连); br 单独处理; 最后剥剩余 inline 标签并规范连续空行
-        bodyText = newContent
-          .replace(/<\s*br\s*\/?>/gi, '\n')
-          .replace(/<\/(p|div|h[1-6]|li|tr)>/gi, '\n')
-          .replace(/<[^>]+>/g, '')
-          .replace(/\n{3,}/g, '\n\n')
-          .trim()
+        // [R23-3-2] 落盘前实体解码: cleanContentHtml(HTML 模式)经 cheerio 序列化会把
+        // \u00a0 还原成 "&nbsp;" 字面量(与 crawl 主链行为一致), 上方 replace 链剥标签
+        // 但不解实体 —— 修后编辑保存一次, 文件里的存量 "&nbsp;" 会被原样写回。落盘前
+        // 与公开读路径同口径单遍解码, 编辑保存成为存量污染的自愈入口(幂等)
+        bodyText = decodeEntitiesOnce(
+          newContent
+            .replace(/<\s*br\s*\/?>/gi, '\n')
+            .replace(/<\/(p|div|h[1-6]|li|tr)>/gi, '\n')
+            .replace(/<[^>]+>/g, '')
+            .replace(/\n{3,}/g, '\n\n')
+            .trim(),
+        )
       } else {
         // 仅改标题(正文未提供)时必须保留文件原有正文(跳过首行标题取余下部分):
         // 原实现落 (newContent ?? '') 会把整个章节正文清空 —— 保存一次即不可逆丢数据
