@@ -4,7 +4,8 @@
 // 设计:
 // - 每本书一份 ReadPos 记录, 记录上次阅读位置 + 累计阅读时长
 // - key: heis_readpos_<bookId>
-// - listReadPos LRU 上限 50 条 (按 ts 倒序)
+// - listReadPos 返回按 ts 倒序最新 50 条; 写入侧 pruneBeyondMax 同步驱逐 50 名以外的
+//   旧键([R31-4-2], 防 heis_readpos_* 键随阅读书籍数无界累积)
 // - 调用方负责 debounce 节流 (见 shared.tsx useReadPosMemory)
 //
 // 与 bookmarks.ts 区分: 本模块只存"上次读到哪里"单条记录;
@@ -60,8 +61,42 @@ function safeWrite(bookId: string, pos: ReadPos): void {
   if (typeof window === 'undefined') return
   try {
     window.localStorage.setItem(lsKey(bookId), JSON.stringify(pos))
+    pruneBeyondMax()
   } catch {
     /* 隐私模式等场景忽略 */
+  }
+}
+
+// [R31-4-2] 落盘后按 ts 驱逐超出上限的旧条目 —— 模块头注声明「LRU 上限 50 条」但修前
+// 只在 listReadPos 读取侧截断, heis_readpos_* 键本身每读一本新书新增一条且永不清理,
+// 长期使用后 localStorage 无界增长(每键 ~200B × 书籍数)。修后每次写入都把超出最新
+// MAX_ENTRIES 的最旧键删除(仅影响 UI 本就不可见的第 50 名以外数据, HistoryView 展示
+// 仍取最新 50 条, 用户可感知行为零变化)。开销: 每次写入一次 localStorage 全键扫描
+// (浏览器端 localStorage 为内存哈希, 典型 <500 键, 微秒级); 调用方本就 debounce
+// (滚动 300ms / 时长统计 30s), 频率可忽略
+function pruneBeyondMax(): void {
+  if (typeof window === 'undefined') return
+  try {
+    const all: Array<{ key: string; ts: number }> = []
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const k = window.localStorage.key(i)
+      if (!k || !k.startsWith(KEY_PREFIX)) continue
+      let ts = 0
+      try {
+        const v = JSON.parse(window.localStorage.getItem(k) || '') as Partial<ReadPos>
+        if (v && typeof v.ts === 'number' && Number.isFinite(v.ts)) ts = v.ts
+      } catch {
+        // 坏数据 ts=0 → 排序时自然沉底优先驱逐
+      }
+      all.push({ key: k, ts })
+    }
+    if (all.length <= MAX_ENTRIES) return
+    all.sort((a, b) => b.ts - a.ts)
+    for (const e of all.slice(MAX_ENTRIES)) {
+      try { window.localStorage.removeItem(e.key) } catch { /* ignore */ }
+    }
+  } catch {
+    /* 驱逐失败不影响主流程 */
   }
 }
 

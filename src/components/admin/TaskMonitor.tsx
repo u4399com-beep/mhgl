@@ -59,6 +59,10 @@ interface Tuning {
 // feat-round-10 A2: 速率图回看窗口(分钟)
 const RATE_WINDOW_MIN = 10
 
+// [R31-6-1] P1-3: 详情轮询间隔 2s(新鲜度目标不变); 增量日志请求在同一 interval 内隔 tick 错相(等效 4s),
+// 消除每 tick 详情+日志双请求突发(修前稳态 60 req/min 恰好贴死 admin 令牌桶)
+const TASK_POLL_MS = 2000
+
 export function TaskMonitor({ taskId, onBack }: TaskMonitorProps) {
   const [task, setTask] = useState<TaskRow | null>(null)
   const [live, setLive] = useState(false)
@@ -169,8 +173,15 @@ export function TaskMonitor({ taskId, onBack }: TaskMonitorProps) {
   }, [pullLogs])
 
   // 轮询: 任务状态 + 增量日志 (连续 5 次失败视为任务已删除/连接中断, 自动返回)
+  // [R31-6-1] P1-3 修复: 修前每 tick 串发 GET [id] + GET logs 双请求 × 2s = 稳态 60 req/min,
+  // 恰好贴死 admin 令牌桶 60/min(后台随机 429 根因, R31-1 实锤)。修后单 interval 合批错相:
+  //   - 任务详情每 tick 必拉(2s 级新鲜度目标不变);
+  //   - 增量日志隔 tick 拉取(等效 4s, after=lastId 增量协议不丢日志, 仅延后半拍);
+  //   → 稳态 45 req/min(详情 30 + 日志 15) ≈ 新桶 120 的 37.5%, 且单 tick 至多 1 次轮询请求(不再翻倍)。
   useEffect(() => {
+    let tickCount = 0
     const tick = async () => {
+      tickCount += 1
       const seq = ++taskSeqRef.current
       try {
         const data = await api.get<TaskRow & { live?: boolean }>(`/api/admin/tasks/${taskId}`)
@@ -186,9 +197,9 @@ export function TaskMonitor({ taskId, onBack }: TaskMonitorProps) {
         }
         return
       }
-      pullLogs()
+      if (tickCount % 2 === 0) pullLogs()
     }
-    const t = setInterval(tick, 2000)
+    const t = setInterval(tick, TASK_POLL_MS)
     return () => clearInterval(t)
   }, [taskId, pullLogs])
 

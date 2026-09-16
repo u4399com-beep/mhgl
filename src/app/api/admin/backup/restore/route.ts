@@ -35,8 +35,11 @@ function sanitizeFriendLinkUrl(raw: string): string | null {
   return httpUrl(candidate, 2000)
 }
 
-/** 任务状态白名单(与 runner 状态机/normalizeTaskData 的 TASK_STATUSES 同口径) */
-const TASK_STATUS_WHITELIST = ['pending', 'running', 'paused', 'stopped', 'done', 'error'] as const
+/** 任务状态白名单(与 runner 状态机/normalizeTaskData 的 TASK_STATUSES 同口径)
+ *  [R31-5-0] 补 'interrupted'(R31-3 移交项①): 备份文件可能含中断任务, 白名单外会被误归一为
+ *  pending 丢语义。interrupted 本身是非运行态(无幽灵运行风险, ghost sweeper 只扫 running),
+ *  原样保留即可; running→paused 的防幽灵归一维持不变 */
+const TASK_STATUS_WHITELIST = ['pending', 'running', 'paused', 'stopped', 'done', 'error', 'interrupted'] as const
 
 /**
  * R9-d-8: 备份导入的任务 status 归一化 —— 旧实现 String(t.status).slice(0,20) 原样落库:

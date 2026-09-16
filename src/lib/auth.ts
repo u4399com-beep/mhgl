@@ -15,6 +15,21 @@
 // ============================================================
 import { createHmac, timingSafeEqual, randomBytes } from 'node:crypto'
 
+// [R31-6-4] P1-5 生产加固总开关: NODE_ENV==='production' 时一切默认值回退一律 fail-closed。
+// dev(含本项目当前 dev 长跑模式)行为保持现状逐字节不变 —— 默认密码 audit-fix-2025 与
+// preview-hint 通道必须继续可用(硬性验收条件); 生产环境未显式配置则登录/签发一律失败。
+const IS_PROD = process.env.NODE_ENV === 'production'
+if (IS_PROD) {
+  // [R31-6-5] 启动期配置缺失告警(每进程一次): 生产下缺 ADMIN_PASSWORD → 登录将全部 401;
+  // 缺 SESSION_SECRET → 会话签发/校验将全部失败(fail-closed)。运维须在 .env / 环境变量显式配置后重启。
+  if (!process.env.ADMIN_PASSWORD?.trim()) {
+    console.error('[auth] ADMIN_PASSWORD 未配置: 生产环境已禁用默认密码回退(fail-closed), 后台登录将一律失败')
+  }
+  if (!process.env.SESSION_SECRET?.trim()) {
+    console.error('[auth] SESSION_SECRET 未配置: 生产环境已禁用固定密钥回退(fail-closed), 会话签发/校验将失败')
+  }
+}
+
 export const SESSION_COOKIE_NAME = 'heis_admin'
 // [R19-c-4] 会话有效期常量仅本模块消费(createSession/注释), 取消导出(原导出无任何外部引用)
 const SESSION_MAX_AGE_MS = 12 * 60 * 60 * 1000 // 12h
@@ -73,6 +88,15 @@ function resolvePassword(): string {
   }
   // .env 被重置/丢失时的编译期固定默认密码 —— 避免随机密码导致用户无法登录。
   // 生产环境务必在 .env 中设置 ADMIN_PASSWORD 覆盖此默认值。
+  // [R31-6-4] P1-5: 生产禁止默认密码回退 —— 返回进程内随机哨兵值, 任何输入都不可能匹配
+  // (verifyPassword 恒 false → 登录一律 401, fail-closed), 不再使用编译期公开常量;
+  // 首次触发打 error 日志告警。dev 保持下方默认密码回退逐字节不变。
+  if (IS_PROD) {
+    const sentinel = `__unset_admin_pw_${randomBytes(16).toString('hex')}__`
+    G.__heisAdminPw = sentinel
+    console.error('[auth] ADMIN_PASSWORD 未配置: 生产环境登录已 fail-closed(请在 .env 配置 ADMIN_PASSWORD 后重启)')
+    return sentinel
+  }
   const DEFAULT_PASSWORD = 'audit-fix-2025'
   G.__heisAdminPw = DEFAULT_PASSWORD
   console.warn('[auth] ADMIN_PASSWORD 未设置, 使用编译期默认密码(生产环境请在 .env 中覆盖)')
@@ -103,6 +127,11 @@ function resolveSecret(): string {
   }
   // SESSION_SECRET 未设: 用编译期固定常量, 保证 .env 丢失时会话仍可验证。
   // 生产环境务必在 .env 中设置独立的 SESSION_SECRET。
+  // [R31-6-5] P1-5: 生产禁止密钥回退 —— 抛错使会话签发失败(createSession → 登录失败)且
+  // verifySession 捕获后一律拒绝(401), 不再退回编译期公开常量。dev 保持固定常量回退不变。
+  if (IS_PROD) {
+    throw new Error('[auth] SESSION_SECRET 未配置: 生产环境会话签发/校验已 fail-closed(请在 .env 配置 SESSION_SECRET 后重启)')
+  }
   const DEFAULT_SECRET = 'heis-session-secret-fixed-2025'
   G.__heisAdminSecret = DEFAULT_SECRET
   return DEFAULT_SECRET
@@ -155,7 +184,14 @@ export function verifySession(cookieValue: string | null | undefined): boolean {
   if (parts.length !== 2) return false
   const [payload, hmac] = parts
   if (!payload || !hmac) return false
-  const expected = createHmac('sha256', resolveSecret()).update(payload).digest('base64url')
+  // [R31-6-5] 生产未配置 SESSION_SECRET 时 resolveSecret 抛错 → fail-closed 拒绝会话(返回 false,
+  // 不向 proxy 中间件上抛 500); dev 下 resolveSecret 恒不抛, 该护栏不影响既有行为
+  let expected: string
+  try {
+    expected = createHmac('sha256', resolveSecret()).update(payload).digest('base64url')
+  } catch {
+    return false
+  }
   if (!safeEqualStr(expected, hmac)) return false
   let parsed: { exp?: unknown; nonce?: unknown }
   try {

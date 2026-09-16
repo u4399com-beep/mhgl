@@ -54,7 +54,7 @@ function clientIp(req: NextRequest): string {
 }
 
 /**
- * 令牌桶消费: 满载 capacity, 每秒补充 refillPerSec。返回 true=放行, false=限流。
+ * 令牌桶消费: 满载 capacity, 每秒补充 refillPerSec。返回 { ok, retryAfterSec }。
  * 桶键 = `${routeClass}:${ip}`, 不同路由类独立计数, 避免互相挤占。
  * Map 上限 MAX_BUCKETS, 溢出时按插入序淘汰最旧项 (避免攻击者通过伪造 IP 撑爆内存)
  *
@@ -63,7 +63,12 @@ function clientIp(req: NextRequest): string {
  *  兜底使用, 生产 nodejs runtime 下攻击者无法通过伪造 XFF 增加桶数量, 此风险已实质性消除。
  *  保留 FIFO 淘汰作为防御纵深(应对未来 NAT 后多客户端共享出口 IP 的合法突发场景)。
  */
-function rateLimit(routeClass: string, ip: string, capacity: number, refillPerSec: number): boolean {
+function rateLimit(
+  routeClass: string,
+  ip: string,
+  capacity: number,
+  refillPerSec: number,
+): { ok: boolean; retryAfterSec: number } {
   const now = Date.now()
   const key = `${routeClass}:${ip}`
   let b = buckets.get(key)
@@ -74,15 +79,31 @@ function rateLimit(routeClass: string, ip: string, capacity: number, refillPerSe
     }
     b = { tokens: capacity - 1, last: now }
     buckets.set(key, b)
-    return true
+    return { ok: true, retryAfterSec: 0 }
   }
   const dt = (now - b.last) / 1000
   b.tokens = Math.min(capacity, b.tokens + dt * refillPerSec)
   b.last = now
-  if (b.tokens < 1) return false
+  if (b.tokens < 1) {
+    // [R31-6-3] 精确 Retry-After: 距下一枚令牌积满还需 (1 - tokens)/refill 秒, 至少 1s
+    return { ok: false, retryAfterSec: Math.max(1, Math.ceil((1 - b.tokens) / refillPerSec)) }
+  }
   b.tokens -= 1
-  return true
+  return { ok: true, retryAfterSec: 0 }
 }
+
+// [R31-6-7] 测试出口: 供冒烟脚本直调真实令牌桶(Next 仅消费 proxy/config 导出, 此导出不被框架读取)
+export const __rateLimitForTest = rateLimit
+
+// [R31-6-2] P1-3: admin 桶容量 60→120 req/min, env ADMIN_RATE_LIMIT_PER_MIN 可配(缺省 120, 上限 6000)。
+// 根因: TaskMonitor 2s 轮询(详情+日志双请求)稳态恰为 60 req/min = 100% 贴死旧桶, 任何额外管理
+// 请求(另一标签页/手动刷新/控制按钮)即 429。修后默认 120, 补充速率与容量同比例(refill = 容量/60 每秒),
+// 持续吞吐 = 容量/min; 配合 TaskMonitor 合批错相(稳态 45 req/min ≈ 37.5% 水位)消除后台随机 429。
+const ADMIN_RATE_LIMIT_PER_MIN = (() => {
+  const n = Number.parseInt(process.env.ADMIN_RATE_LIMIT_PER_MIN ?? '', 10)
+  if (Number.isFinite(n) && n >= 1) return Math.min(n, 6000)
+  return 120
+})()
 
 // ---- 安全响应头 ----
 const SECURITY_HEADERS: Record<string, string> = {
@@ -123,10 +144,11 @@ function isHtmlResponse(req: NextRequest, pathname: string): boolean {
   return accept.includes('text/html')
 }
 
-function tooManyRequests(message: string): NextResponse {
+function tooManyRequests(message: string, retryAfterSec: number): NextResponse {
+  // [R31-6-3] Retry-After 由桶状态精确计算(此前恒写死 60, 与 2/s 补充速率不符)
   return NextResponse.json(
     { ok: false, error: message, code: 'RATE_LIMITED' },
-    { status: 429, headers: { 'Retry-After': '60' } },
+    { status: 429, headers: { 'Retry-After': String(retryAfterSec) } },
   )
 }
 
@@ -150,10 +172,22 @@ export function proxy(req: NextRequest) {
   const reqLogger = withReqId(reqId)
   reqLogger.debug('incoming request', { method: req.method, path: pathname, ip })
 
-  // 1) /api/admin/* —— 鉴权 + 60 req/min
+  // 0) [R31-6-6] P1-5: preview-hint 通道生产关闭(网关层直接 404, fail-closed 双保险)。
+  // 生产构建下 previewHintPassword() 本就恒 null(路由返回空对象), 此处更进一步: 请求不进下游。
+  // dev(NODE_ENV!=='production') 行为逐字节不变 —— 本项目 dev 长跑模式依赖该通道展示后台密码。
+  if (isProd && pathname.startsWith('/api/auth/preview-hint')) {
+    return applyHeaders(
+      NextResponse.json({ ok: false, error: 'Not Found', code: 'NOT_FOUND' }, { status: 404 }),
+      false,
+      reqId,
+    )
+  }
+
+  // 1) /api/admin/* —— 鉴权 + ADMIN_RATE_LIMIT_PER_MIN req/min([R31-6-2] 缺省 120)
   if (pathname.startsWith('/api/admin/')) {
-    if (!rateLimit('admin', ip, 60, 1)) {
-      return applyHeaders(tooManyRequests('请求过于频繁, 请稍后再试'), false, reqId)
+    const adm = rateLimit('admin', ip, ADMIN_RATE_LIMIT_PER_MIN, ADMIN_RATE_LIMIT_PER_MIN / 60)
+    if (!adm.ok) {
+      return applyHeaders(tooManyRequests('请求过于频繁, 请稍后再试', adm.retryAfterSec), false, reqId)
     }
     const cookies = parseCookies(req.headers.get('cookie'))
     if (!verifySession(cookies[SESSION_COOKIE_NAME])) {
@@ -161,13 +195,15 @@ export function proxy(req: NextRequest) {
     }
   } else if (pathname.startsWith('/api/public/')) {
     // 2) /api/public/* —— 120 req/min, 不需鉴权
-    if (!rateLimit('public', ip, 120, 2)) {
-      return applyHeaders(tooManyRequests('请求过于频繁, 请稍后再试'), false, reqId)
+    const pub = rateLimit('public', ip, 120, 2)
+    if (!pub.ok) {
+      return applyHeaders(tooManyRequests('请求过于频繁, 请稍后再试', pub.retryAfterSec), false, reqId)
     }
   } else if (pathname.startsWith('/api/auth/')) {
     // 3) /api/auth/* —— 60 req/min (login 路由自带更严格的 5次/60s 滑窗)
-    if (!rateLimit('auth', ip, 60, 1)) {
-      return applyHeaders(tooManyRequests('请求过于频繁, 请稍后再试'), false, reqId)
+    const auth = rateLimit('auth', ip, 60, 1)
+    if (!auth.ok) {
+      return applyHeaders(tooManyRequests('请求过于频繁, 请稍后再试', auth.retryAfterSec), false, reqId)
     }
   }
 

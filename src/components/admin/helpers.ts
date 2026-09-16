@@ -55,7 +55,10 @@ export const api = {
 }
 
 // ---------------- 通用行类型 ----------------
-export type TaskStatus = 'pending' | 'running' | 'paused' | 'stopped' | 'done' | 'error'
+// [R31-5-0] 补 'interrupted'(R31-3 移交项①): recovery.ts 把服务重启后的孤儿 running 任务
+//  标为 'interrupted', 此前 UI 侧联合类型缺该值, 徽章靠 `|| TASK_STATUS_META.pending` 回退
+//  成"等待中"误导操作员。状态为自由 String, 六值白名单自此扩为七值
+export type TaskStatus = 'pending' | 'running' | 'paused' | 'stopped' | 'done' | 'error' | 'interrupted'
 export type BookStatus = 'ongoing' | 'completed' | 'unknown'
 export type RuleSection = 'list' | 'book' | 'toc' | 'content'
 
@@ -541,6 +544,9 @@ export const TASK_STATUS_META: Record<TaskStatus, StatusMeta> = {
   stopped: { label: '已停止', className: 'bg-zinc-600/40 text-zinc-400 border-zinc-600' },
   done: { label: '已完成', className: 'bg-teal-500/15 text-teal-400 border-teal-500/40' },
   error: { label: '出错', className: 'bg-red-500/15 text-red-400 border-red-500/40' },
+  // [R31-5-0] 橙牌"已中断": 服务重启(OOM 等)导致采集循环死亡, 进度已存档可点击继续续采;
+  //  语义区别于 paused(操作员主动暂停)与 error(源站/引擎故障), 用橙色系区分于 amber 暂停
+  interrupted: { label: '已中断', className: 'bg-orange-500/15 text-orange-400 border-orange-500/40' },
 }
 
 export const BOOK_STATUS_META: Record<string, StatusMeta> = {

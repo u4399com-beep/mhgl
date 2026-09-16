@@ -1,7 +1,11 @@
 // 任务创建/更新入参规范化 (POST/PUT 共用)
 import { clampInt, str, httpUrl, isPlainObject } from '../../_lib/http'
 
-export const TASK_STATUSES = ['pending', 'running', 'paused', 'stopped', 'done', 'error'] as const
+// [R31-5-0] 补 'interrupted'(R31-3 移交项①): recovery.ts 服务重启后把孤儿 running 标为
+//  'interrupted', 列表路由 GET ?status= 过滤白名单按本数组执法, 缺值会导致中断任务筛不出来。
+//  注: normalizeTaskData 不校验/不接受 status 字段(状态只由 runner 控制链与恢复机制写入),
+//  validateTaskPair 亦不涉及, 扩值对创建/更新入参校验零影响
+export const TASK_STATUSES = ['pending', 'running', 'paused', 'stopped', 'done', 'error', 'interrupted'] as const
 
 export interface NormalizedTask {
   name: string

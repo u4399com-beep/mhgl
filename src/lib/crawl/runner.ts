@@ -622,6 +622,22 @@ export class TaskRunner {
   async log(taskId: string, level: 'info' | 'success' | 'warn' | 'error', message: string) {
     try {
       await db.taskLog.create({ data: { taskId, level, message: message.slice(0, 1500) } })
+      // [R31-8-1] 修剪检查节流(写放大修复): 原实现每条日志都 count() —— 长任务按批进度打点
+      // (≈1131 批/书)时计数查询与业务写入 1:1 放大。3000 条是软水位而非硬不变量, 现按 task
+      // 30s 节流: 窗口内只 create 不 count/修剪(单条超限最多多留一个窗口量, 语义不变);
+      // 先置时间戳防并发重复检查。日志创建路径零变化; restore/stats 等外部写入不依赖本节流。
+      // 进程级 Map 挂 globalThis 防 dev HMR 多实例, FIFO 512 防 long-run 泄漏(numberMapFifoSet 同款)
+      const g18 = globalThis as unknown as { __novelLogTrimLast_v1?: Map<string, number> }
+      if (!g18.__novelLogTrimLast_v1) g18.__novelLogTrimLast_v1 = new Map()
+      const trimLast = g18.__novelLogTrimLast_v1
+      const nowMs = Date.now()
+      if (nowMs - (trimLast.get(taskId) ?? 0) < 30_000) return
+      while (trimLast.size >= 512) {
+        const oldest = trimLast.keys().next().value
+        if (oldest === undefined) break
+        trimLast.delete(oldest)
+      }
+      trimLast.set(taskId, nowMs)
       // 限制日志量: 保留最近3000条
       const count = await db.taskLog.count({ where: { taskId } })
       if (count > 3000) {
@@ -1046,8 +1062,16 @@ export class TaskRunner {
             const skipHint = alreadyDiscovered > 0 ? ` 跳过已发现 ${alreadyDiscovered} 本` : ''
             await this.log(taskId, 'success', `列表页 P${p} 发现 ${pageUrls.length} 本书籍 (新增 ${newlyDiscovered} 本${skipHint}, 累计待采${urls.length})`)
           } catch (e: any) {
-            stats.errors++
-            await this.log(taskId, 'error', `列表页 P${p} 抓取失败: ${e?.message}`)
+            // [R31-3-1] GlobalSemTimeout 豁免(R30-3b 遗留①): fetchPage 入口全局并发信号量 30s
+            //  等待超时是引擎侧拥塞而非源站故障 —— 与书籍页 catch 的 HostGateTimeout 既有豁免
+            //  同口径不计 errors, 防多任务并行信号量打满时把健康任务的错误计数/熔断链喂脏。
+            //  页面保持未抓取态, 重跑任务时发现循环自然重抓(可增量恢复)
+            if (e?.name === 'GlobalSemTimeout') {
+              await this.log(taskId, 'warn', `列表页 P${p} 引擎并发护栏等待超时(全局信号量), 页面保持未抓取; 稍后重跑可恢复`)
+            } else {
+              stats.errors++
+              await this.log(taskId, 'error', `列表页 P${p} 抓取失败: ${e?.message}`)
+            }
           }
           await sleepGap(cfg.interval(), rt, myEpoch)
         }
@@ -1059,6 +1083,21 @@ export class TaskRunner {
           sliced = urls.slice(s, e)
         }
         bookQueue = Array.from(new Set(sliced))
+        // [R31-5-3] P1-4(审计 OOM 报告): bookQueue 是独立新数组(Array.from), 构建完成后 urls
+        //  与 sliced 同批 URL 双份驻留(50万URL × ~80B ≈ 40MB/份)至 executeTask 结束。全函数
+        //  剩余读点均在本行之前(发现循环内 :1043/:1047 计数与切片 :1063-1067), 此后无读者;
+        //  progress.discovered 计数发现期已落值不受影响 —— 就地清空释放一份冗余
+        urls.length = 0
+        // [R31-5-1] P1-1 残余剪除: bookStart/bookEnd 切片后未入队的书其列表字段永远无消费点
+        //  (消费点只在下方书循环内 listFields.get(bookUrl)), 修前会滞留到 executeTask 结束
+        //  (极端: 发现 50万 + bookEnd=100 → ~50万条 × ~300B ≈ 150MB 全程驻留)。一次性
+        //  O(n) 剪除只留 bookQueue 成员; single 模式不进本分支(listFields 恒空)
+        if (listFields.size > 0) {
+          const queued = new Set(bookQueue)
+          for (const k of listFields.keys()) {
+            if (!queued.has(k)) listFields.delete(k)
+          }
+        }
         await this.log(taskId, 'success', `范围发现完成: 共 ${bookQueue.length} 本书待采集`)
       }
 
@@ -1087,6 +1126,10 @@ export class TaskRunner {
           progress.currentBook = bookUrl
           progress.phaseNote = `跳过已完结 (${bi + 1}/${bookQueue.length})`
           await this.log(taskId, 'info', `跳过已完结: ${bookUrl}`)
+          // [R31-5-1] P1-1: 本分支不走 crawlOneBook, 列表字段永远无消费点 —— 不删则该书的
+          //  {name,author,intro,category} 条目滞留到 executeTask 结束(逐书累积)。此书本轮
+          //  已跳过, bookQueue 同轮去重不会再次入队, 删除无后续读者
+          listFields.delete(bookUrl)
           await this.saveProgress(taskId, progress, stats)
           continue
         }
@@ -1096,13 +1139,21 @@ export class TaskRunner {
         if (!cfg) break
         const rule = cfg.rule
 
+        // [R31-5-1] P1-1(审计 OOM 报告) 生命周期论证: 列表字段条目的全部消费点在 crawlOneBook
+        //  内(形参 bookFields → 书名/简介/作者/分类兑底, crawlOneBook 头部 :1407-1419), 值在调用前已捕获到局部
+        //  变量(对象引用), 此刻从 Map 删除条目不影响本次调用(引用链由实参维持); bookQueue
+        //  同轮去重(Array.from(new Set))保证同 URL 不会二次入队, 删除后无任何后续读者。
+        //  修前条目滞留至 executeTask 结束: 50万书 × ~300B(intro 未截断) ≈ 150MB/任务
+        const bookFields = listFields.get(bookUrl)
+        listFields.delete(bookUrl)
+
         try {
           progress.currentBook = bookUrl
           progress.phaseNote = `采集书籍 (${bi + 1}/${bookQueue.length})`
           await this.saveProgress(taskId, progress, stats)
 
           const bookResult = await this.crawlOneBook(
-            taskId, bookUrl, rule, cfg.fetchOverride, cfg.task, rt, myEpoch, progress, stats, cfg.threads, cfg.interval, listFields.get(bookUrl)
+            taskId, bookUrl, rule, cfg.fetchOverride, cfg.task, rt, myEpoch, progress, stats, cfg.threads, cfg.interval, bookFields
           )
           // Bug 26: 删除 'paused-return' 死分支 —— grep crawlOneBook 全路径返回值仅
           // 'stopped'/'blocked'/'empty-toc'/'ok', 从不返回 'paused-return'(暂停由外层循环
@@ -1140,10 +1191,12 @@ export class TaskRunner {
             // 批量刷"书籍采集失败:抓取已中止(signal)"错误日志+errors 虚高; 中止语义由
             // 任务状态机接管, 章节保持 fetched=false 语义不变, 下次增量照常优先重采
             await this.saveProgress(taskId, progress, stats)
-          } else if (e?.name === 'HostGateTimeout') {
+          } else if (e?.name === 'HostGateTimeout' || e?.name === 'GlobalSemTimeout') {
             // bb-d: 同站闸门槽满等待超时(hostGate 限流保护, 非源站故障) — 与中止同口径
             // 不计 errors, 书籍保持未完成态, 稍后增量重试可恢复
-            await this.log(taskId, 'warn', `书籍采集等待同站并发闸门超时(host:${hostGateKeyOf(bookUrl) || '未知'}, 该站在飞已达上限): ${bookUrl}; 书籍保持未完成, 稍后增量重试可恢复`)
+            // [R31-3-2] GlobalSemTimeout 同款豁免(R30-3b 遗留①): 全局信号量 30s 等待超时同为
+            //  引擎侧拥塞, 与章节 catch(:2122 附近)既有双豁免对齐, 修前落 else 计 errors 喂脏熔断链
+            await this.log(taskId, 'warn', `书籍采集等待引擎并发护栏超时(${e?.name === 'GlobalSemTimeout' ? '全局信号量' : `host:${hostGateKeyOf(bookUrl) || '未知'}, 该站在飞已达上限`}): ${bookUrl}; 书籍保持未完成, 稍后增量重试可恢复`)
             await this.saveProgress(taskId, progress, stats)
           } else {
             stats.errors++
@@ -1217,7 +1270,27 @@ export class TaskRunner {
     } finally {
       const r = this.runtimes.get(taskId)
       // 仅当仍是本轮运行时才清 running: 停止后立刻重启的场景下, 旧循环收尾不能抹掉新一轮的 running 标志
-      if (r && r.epoch === myEpoch) r.running = false
+      if (r && r.epoch === myEpoch) {
+        r.running = false
+        // [R31-5-2] P1-2(审计 OOM 报告): 本轮循环已退出(epoch 未漂移 → 换代让位路径不走此处,
+        //  不会踩新一轮的集合), 任务达终态(done/error/stopped)或已自然收尾 —— 四个续采大集合
+        //  的全部读者(saveProgress/reconcileResumeSetsWithDb/shuntBookStatus)都只在循环生命期内
+        //  运行, 此刻起无读者; 后续 control('start') 走 executeTask 从 DB progress 重建集合
+        //  (full 清空/增量 reload), 与 R3-10 驱逐后 resume 同语义(进度以最近检查点为准)。
+        //  修前条目滞留至 200 条 LRU 驱逐: 每条 runtime 持 3 Set + 1 Map, 50万书任务实测可达
+        //  数百 MB 不释放(理论 200×4×50万×60B ≈ 2.4GB)。保留小标量(epoch/running/paused/
+        //  stopped/circuitTrippedAt/lastActiveAt)供 isRunning/熔断冷却/僵尸暂停驱逐查询。
+        //  dirty 标志一并落 false: 清空后的集合绝不能被后续 saveProgress 序列化覆盖 DB progress
+        //  (终态后本无 saveProgress 调用点, 此处为防御性收口)
+        r.discoveredBookUrls.clear()
+        r.completedBookUrls.clear()
+        r.ongoingBookUrls.clear()
+        r.bookLastChapters.clear()
+        r.dirtyDiscovered = false
+        r.dirtyCompleted = false
+        r.dirtyOngoing = false
+        r.dirtyLastChapters = false
+      }
     }
   }
 
@@ -1743,7 +1816,15 @@ export class TaskRunner {
       }
     }
     const existUrlMap = new Map(existChapters.filter((c) => c.url).map((c) => [c.url, c]))
-    const existTitleMap = new Map(existChapters.map((c) => [c.title, c]))
+    // [R31-5-4] P1-6(审计报告): 键从纯 title 改为 volume+'\u0000'+title(分卷内去重) ——
+    //  修前源站目录存在跨卷同名章(各卷都有的"序章"/插图页/"(修)"变体)时纯 title 键
+    //  后行覆盖前行, 无 URL 章节按 title 匹配增量判定拿错 old: 误入 moves(阶段A/D 挪动
+    //  无辜章)或误判已存在跳过采集。'\u0000' 不出现在正常标题/卷名中, (volume,title) 与
+    //  键一一对应; 同卷同名章仍按 Map 后行覆盖前行去重(与修前同语义, 只影响同键重复)。
+    //  已知取舍: kk-a 之前入库的旧章 volume 为空串, 与当前目录带卷名的同名章不再匹配 →
+    //  按新章采集(多采不丢数据, 比误挪/误跳过安全); volume/title 均非空 String(schema
+    //  title String / volume String @default("")), ?? '' 仅防御外部直改库
+    const existTitleMap = new Map(existChapters.map((c) => [`${c.volume ?? ''}\u0000${c.title ?? ''}`, c]))
 
     // 修复(高危): 章节表有 @@unique([bookId, idx]) —— 源站中途插入新章时, 新章最终 idx 会与
     // 尚未移位的旧章冲突, 原 create 直接抛错导致整本书采集失败。改为三阶段重排:
@@ -1761,7 +1842,9 @@ export class TaskRunner {
       const url = item.url
       // [R25-5a] 码点截断替代 UTF-16 slice(emoji 代理对斩半风险): 语义同旧 trim+120 cap
       const volume = sliceCodePoints((item.volume || '').trim(), 120) // kk-a: 分卷名随章落库
-      const old = url ? existUrlMap.get(url) : existTitleMap.get(title)
+      // [R31-5-4] P1-6: 与上方 existTitleMap 构建键同构(volume+'\u0000'+title); volume 已在
+      //  上方 sliceCodePoints((item.volume||'').trim(),120) 归一为串, 与 kk-a 落库值同源
+      const old = url ? existUrlMap.get(url) : existTitleMap.get(`${volume}\u0000${title}`)
       if (isFull || !old) {
         // 全量: 全部重建 / 增量: 只采不存在的
         const q = { title, url, volume, idx: i + 1 }

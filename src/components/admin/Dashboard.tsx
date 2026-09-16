@@ -68,6 +68,7 @@ const CHART_COLORS = {
   sky: '#0ea5e9',
   emerald: '#10b981',
   amber: '#f59e0b',
+  orange: '#f97316', // [R31-5-0] interrupted 专用(区别于 amber=paused)
   red: '#ef4444',
   blue: '#3b82f6',
   zinc: '#71717a',
@@ -93,6 +94,7 @@ const TASK_STATUS_CHART_COLOR: Record<string, string> = {
   done: CHART_COLORS.blue,
   error: CHART_COLORS.red,
   pending: CHART_COLORS.zincLight,
+  interrupted: CHART_COLORS.orange, // [R31-5-0] 服务重启中断, 橙色区分于 amber=paused
 }
 
 // recharts Tooltip 内容样式 (深色面板)
@@ -417,8 +419,10 @@ export function Dashboard({ onNavigate }: DashboardProps) {
     .map((c) => ({ name: c.name, words: c.words, wordsLabel: fmtWords(c.words) }))
   const wordsTotal = wordsByCategory.reduce((s, d) => s + d.words, 0)
 
-  // 任务状态分布 (固定 6 状态顺序: pending/running/paused/stopped/done/error)
-  const TASK_STATUS_ORDER: TaskStatus[] = ['pending', 'running', 'paused', 'stopped', 'done', 'error']
+  // 任务状态分布 (固定 7 状态顺序: pending/running/paused/stopped/done/error/interrupted)
+  // [R31-5-0] 补 interrupted: stats.taskStatusBreakdown 是 groupBy 全状态, 修前分布图
+  //  把中断任务的计数静默丢弃(taskTotal 少计); 归入非 running 组(仅展示, 不参与活跃计数)
+  const TASK_STATUS_ORDER: TaskStatus[] = ['pending', 'running', 'paused', 'stopped', 'done', 'error', 'interrupted']
   const taskStatusData = TASK_STATUS_ORDER.map((st) => {
     const found = stats?.taskStatusBreakdown?.find((s) => s.status === st)
     const meta = TASK_STATUS_META[st]

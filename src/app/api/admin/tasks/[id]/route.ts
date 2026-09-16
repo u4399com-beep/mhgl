@@ -2,7 +2,7 @@
 import { db } from '@/lib/db'
 import { ok, fail, readBody } from '@/lib/api'
 import { TaskRunner } from '@/lib/crawl/runner'
-import { withGuard, str } from '../../../_lib/http'
+import { withGuard, str, slimTaskProgressJson } from '../../../_lib/http'
 import { normalizeTaskData, validateTaskPair } from '../_shared'
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -10,7 +10,16 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     const { id } = await params
     const task = await db.task.findUnique({ where: { id }, include: { rule: true } })
     if (!task) return fail('任务不存在', 404)
-    return ok({ ...task, live: TaskRunner.instance.isRunning(id) })
+    // [R31-4-1] 详情路由进度瘦身 —— 本 GET 是 TaskMonitor 唯一数据源, 以 2s 间隔轮询;
+    // 修前 progress 原样返回, 大范围任务的 4 个续采 URL 集合(单集合 cap 50000)可达
+    // ~12MB/响应, 2s 轮询即每分钟最高数百 MB 的 JSON 序列化/传输/前端解析(GC 压力,
+    // OOM 关联)。与列表路由 R9-d-6 同口径: 超阈值(64KB)截断 URL 集合到 200 条并附带
+    // progressTruncated 标记(additive), 信封与字段形态不变; 监控面板仅消费标量进度字段
+    // (phase/booksDone/contentTotal 等), URL 集合零消费; 运行时续采读写走 runner 直连
+    // DB, 与本瘦身完全隔离
+    const slim = slimTaskProgressJson(task.progress)
+    if (!slim.truncated) return ok({ ...task, live: TaskRunner.instance.isRunning(id) })
+    return ok({ ...task, progress: slim.progress, progressTruncated: true, live: TaskRunner.instance.isRunning(id) })
   })
 }
 

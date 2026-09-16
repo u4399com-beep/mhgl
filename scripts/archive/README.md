@@ -53,6 +53,15 @@ e2e-bb-a2（yybsw）/ e2e-bb-b（dawei|dafeng 参数化）/ e2e-cc-a2（book4 br
 | 取证样本 | qq-a2-{toc-sample,wap-book,wap-ch1p2,wap-root,wap-toc,www-book,www-list}.html | qq-a2 轮站点 HTML 快照（侦察证据） |
 | 书源参考 | reference-shuyuan-{7724,7698-qimao}.json | 「阅读(legado)」书源 JSON 参考（seed-rule-fanqie/qimao 头注释已同步改指本目录） |
 
+## R31-7 轮归档（2 个，2026-09）
+
+| 文件 | 归档依据 |
+| --- | --- |
+| verify-r21-rules.ts（759 行） | R21-a 一次性内置规则全量复测 harness（25 规则×四段），结论已沉淀进 worklog 与后续断言矩阵；无任何代码/package.json 引用 |
+| verify-r22-rules.ts（1143 行） | R22-a 同族一次性复测 harness（27 规则×四段+清洗专项），R31-1 审查 P2-3 点名归档；无任何代码/package.json 引用 |
+
+两文件均以 `../src/lib/crawl/*` 相对路径 import（归档后不复跑）；如需复跑按惯例 `git mv` 回 `scripts/` 原位。
+
 ## 此前批次（历史记录保留）
 
 ### rr-b 轮归档（58 个，mm~qq 轮残留探针 + ll-b 例外复审）

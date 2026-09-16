@@ -5453,3 +5453,209 @@ Stage Summary:
 - 采集: 活体 bug contentProxy 双包裹根因修复+3反反爬增强(缺省关)+C2 审出死代码 bug 修复; 冒烟 30 PASS
 - 清理: 净删~60行 src + ~1357行出 tsc 门禁面 + 4 处性能并行化 + 生成器漂移闭环; 零未用依赖复核
 - 质量门 lint0/tsc0 + agent-browser E2E 全绿 + mini-services 3010-3017 全 UP + dev server 3000 恢复正常
+---
+Task ID: R31-0
+Agent: main-orchestrator
+Task: R31 开轮 — 前置核实 + 环境恢复 + 分工规划
+
+Work Log:
+- [R31-0-1] 核实: git 工作树干净, 链尾 3e11d99(第三十轮)=R30 全部交付已提交; 旧会话摘要滞后(称 R27/R28 未完成, 实际 R27/R28/R30 均已 commit)
+- [R31-0-2] 事故处置: dev server 3000 再次 OOM 宕机(dmesg: next-server pid5411 anon-rss 2.33GB 被杀, OOM 转储含大量 chrome-headless 残骸); 已 pkill chrome 残骸 + setsid bun run dev 恢复(Ready 2.2s, port3000=200); 用户两个在跑任务(deqixs 直连+签名代理正文 / AU文学 book4 列表发现)随进程死亡, DB 中滞留 status=running 成僵尸(15:32:32 后无心跳)
+- [R31-0-3] 缺陷确认: 无 instrumentation.ts, 服务重启后孤儿 running 任务无恢复/中断标记机制(连续两轮用户任务被 OOM 无声吞掉) — 列为本轮必修
+- [R31-0-4] 反反爬现状盘点: fetcher 已有 UA轮换/Cookie罐(TTL)/Referer/编码/重试/挑战重试/curl-TLS画像/链路记忆(关)/抖动(关)/自适应倍率(关); 本轮增强目标=代理健康分与自动降权、同站 referer 链、并发公平性等(env-gated 缺省关)
+- [R31-0-5] 分工: Wave1 并行 A(只读全面审查+OOM根因) / B(反反爬增强, owns fetcher.ts) / C(crawl 逐行抓bug+孤儿恢复 instrumentation, owns runner/parser/cleaner/obscura/types/hostgate) / D(api+lib非crawl+components 逐行抓bug); Wave2 E(清理精简, 依据 A 报告); Wave3 主控串行质量门+E2E+commit
+
+Stage Summary:
+- 运行态: dev 3000 已恢复, mini-services 3010-3017 全 UP; 用户僵尸任务保留原样(仅 C 的恢复机制可标记 interrupted, 禁删数据)
+- 本轮主题: 全面审查找不足 + 采集/反反爬再增强 + 逐行深抓bug + 清理精简; OOM 内存根因与僵尸任务恢复为最高优先
+[R31-3] 进度: 交付物1落地 — src/lib/crawl/recovery.ts(recoverOrphanTasks: String状态→'interrupted'+条件updateMany防竞态+globalThis探针TaskRunner.isRunning防误伤在跑+warn日志含"服务重启导致任务中断"与phase/current快照+幂等成功置位标志) + src/instrumentation.ts(register: NEXT_RUNTIME==='nodejs'守卫+动态import+吞异常) 待冒烟
+[R31-1] 进度: OOM 板块审计过半 — runner.ts 全文2423行读完(runtimes Map 200条×4集合50k=理论2.4GB上限/listFields Map 无淘汰500k×intro/discoveredBookUrls 内存Set不被slice钳), fetcher.ts 全局缓存逐个核caps(hostRhythm 512/condCache 256×256KB=64MB/ssrfDns 2000/token trim/chainMem FIFO512/cookieJar prune5min均有界; OOM backpressure 只看 heapUsed>1.5GB 且仅暂停5s 不覆盖 native/buffer 内存), /api/admin/tasks/[id] GET 全量 progress 不瘦身被 TaskMonitor 2s 轮询(实锤放大器), DB 只读实查 2 个 status=running 僵尸任务在库
+[R31-3] 进度: 交付物2落地 — runner.ts [R31-3-1] 列表页catch(:1053) GlobalSemTimeout豁免不计errors(warn日志) / [R31-3-2] 书籍页catch(:1151) HostGateTimeout分支扩为双豁免(与章节catch:2122对齐); 均带注释, 待冒烟静态结构检查
+[R31-1] 进度: OOM 根因链实锤收口 — dmesg 4 次 next-server OOM kill(anon-rss 2.67/2.12/2.39/2.33GB); 活体实测当前 next-server(18707, 15min 龄, 仅 2 个 GET / 无采集) VmRSS=1.75GB 稳态/VmHWM=2.12GB, .next/dev=675MB → Turbopack dev 基线即占 4GB pod 的 ~43-53%; 僵尸确认: DB 2 任务 status=running(15:32 最后日志=OOM 死亡现场), recoverOnBoot 仅 stats 路由懒触发+ghost sweeper 仅 TaskRunner 首次访问挂载, 无 instrumentation.ts → 重启后无人碰管理 API 则永远 running; downloads 有孤儿清扫但 tasks 没有
+[R31-3] 进度: 交付物1+2冒烟全绿 — recovery 28 PASS/0 FAIL(僵尸翻转+TaskLog快照+completed不动+进程内在跑跳过+幂等+探针fail-safe+用户行零触碰复核) / catch豁免+instrumentation直调链路 15 PASS/0 FAIL; 冒烟首版曾误触用户2僵尸行(已当场回滚 running+删测试日志, 恢复原状, 测试桩已改为非夹具行一律探针保护)
+
+---
+Task ID: R31-3
+Agent: Agent C (crawl 逐行抓bug + 孤儿恢复机制)
+Task: 孤儿任务恢复机制(instrumentation) + R30-3b 遗留 GlobalSemTimeout 豁免 + crawl 六文件逐行深抓bug + 冒烟验证
+
+Work Log:
+- [R31-3-0] 前置: 通读 worklog 末 400 行(R30-3b 遗留清单/R31-0 事故背景); 核对 prisma/schema.prisma Task.status=String @default("pending")(非 Prisma enum, 现取值 pending|running|paused|stopped|done|error); grep 确认 runner.ts 已有进程内在跑注册表(TaskRunner.runtimes private Map + isRunning(), 单例存 globalThis.__novelTaskRunner 槽); 确认无 src/instrumentation.ts
+- [R31-3-1] P0 孤儿恢复 — 新建 src/lib/crawl/recovery.ts(176行): recoverOrphanTasks() 把 status='running' 且本进程未注册在跑的任务翻转为 'interrupted'(状态值决策: status 为自由 String → 依任务口径用新值, 严禁改 schema 已守; 下游 UI TasksSection/TaskMonitor/Dashboard 徽章未知值回退 pending 不崩、canStart=true 可手动重跑、backup restore 白名单外归一 pending+warning、stats 活跃计数不含 → 已逐一核实为优雅降级, 移交主控/D-agent 补展示)。并行安全: globalThis 探针读取 __novelTaskRunner.isRunning(不 import runner 防耦合/防 fetcher 在途改动拖垮恢复链), 单例不存在=启动期必然无在跑任务; 探针抛错→整轮放弃 fail-safe(宁留僵尸给下轮, 不盲目翻转误伤真实在跑); 写入用 updateMany 条件更新(where id+status:'running')窄化 check-then-act, 不覆盖并发 stop/pause; TaskLog(level='warn')仅在实际翻转(count=1)时落一条, 消息含"服务重启导致任务中断"+进度快照 phase/currentBook(脏 JSON 逐字段降级), 上限 1500。幂等: 条件更新天然幂等 + once-per-process 成功标志(Bug-8 先例: 仅成功后置位, 失败留待重试); 扫描 take 1000 + orderBy updatedAt asc(最久无心跳先收容)。红线: 不自动恢复运行/不删任何数据/零触碰用户僵尸行
+- [R31-3-2] P0 孤儿恢复 — 新建 src/instrumentation.ts: Next.js 16 约定 register(), process.env.NEXT_RUNTIME!=='nodejs' 守卫 + 动态 import recovery(edge 构建面不含 crawl 链) + 全量吞异常(恢复失败仅一行 warn, 不阻碍启动); recovered>0 时 console.log 一行摘要
+- [R31-3-3] R30-3b 遗留①: runner.ts 列表页 catch(:1048-1059) 新增 GlobalSemTimeout 豁免分支(不计 errors, warn 日志"引擎并发护栏等待超时(全局信号量)"); 书籍页 catch(:1151) HostGateTimeout 分支扩为双豁免(与章节 catch 三处豁免面齐平), 日志文案按错误名区分"全局信号量/host 站在飞上限"。修前: 引擎并发打满时列表页/书籍页各计 1 次 errors 喂脏熔断链(信号量超时是引擎侧拥塞非源站故障)
+- [R31-3-4] 逐行深抓(runner 2423/parser 1235/cleaner 691/obscura 1860/types 1000/hostgate 739 全文审读): 六文件经 30+ 轮历史修复后未再发现需修的实锤 bug —— 内存面全部已有界: numberMapFifoSet(512)/hostCircuitWarnAt(512)/extractFbFailStreak(512)/regexBudgetMemo(512)/adReCache(400 FIFO)/hostgate gates Map(1000+idle驱逐)/fpWins(200 LRU)/runtimes Map(200 LRU)/progress 续采集合(50000 slice(-)保最新)/DISCOVERY_MAX_URLS(50万)/TaskLog(3000/task 自动裁)/waiters(30s 超时自摘)/proxyBrowsers(孤儿清扫+60s 交付宽限); 竞态面: control/dbStatus 双串行链+epoch 绑定+条件更新已闭环; 正则面: ReDoS 三道闸(嵌套量词+前缀歧义+预算测试)完整; URL 规范化: absolutize 协议过滤/自引用过滤/<base href>/tocDedupKey 含端口均已到位。审读记录 2 项不改(风险>收益, 留档): ① parser.parseToc regex 容器路径(node=null→scope$=整页$)下 css 型字段退化为整页取值(全项同值) —— regex 容器惯配 regex 字段, 改动会变既有行为; ② runner.reclaimGhostRunningTasks take:500 无 orderBy(多轮自收敛, 非缺陷)
+- [R31-3-5] OOM 关联发现: 引擎侧 JS 堆增长点全部有界(见 R31-3-4), 本轮 2.33GB OOM 的放大器更可能是"next-server 被杀后 chromium 子进程孤儿化残留"(R31-0 dmesg: OOM 转储含大量 chrome-headless 残骸 → 孤儿 chromium 常驻内存 → 加速下一轮 OOM 的恶性循环); obscura 自身有 5min 全空闲关停/10min 槽位心跳回收/5min stuck-busy 强杀/代理孤儿清扫, 但进程被 OOM kill 时这些进程内机制全部失效, 孤儿 chromium 无进程外回收。已评估"启动期孤儿 chromium 清扫"并放弃(无法可靠区分本项目浏览器与 scrapling-bridge/mini-services 的 chromium, 误杀风险>收益) — 移交主控决策(可考虑 mini-services 侧 ppid=1 探测或 systemd/cron 兜底)
+- [R31-3-6] 冒烟(bun 直跑临时脚本 r31-3-tmp-recovery.ts + r31-3-tmp-catchfix.ts, 用后已删; 零真实站请求): 合计 43 PASS / 0 FAIL。recovery 28 项: 僵尸 running→interrupted+warn 日志(快照 phase/content+current 命中)/脏进度降级不抛/completed 不动/进程内在跑跳过(探针桩)/用户行零触碰负向对照/幂等重跑零新增日志/once 标志短路/探针故障 fail-safe 整轮放弃+标志未置位/夹具自删清零。catch豁免+instrumentation 15 项: runner 编辑后可加载/列表 catch 豁免分支与 else 保留口径/书籍页双条件/三处豁免面齐平/register() 直调端到端(1/3 翻转+2 条在跑保护+completed 不动+日志字段断言)/register 幂等/清理复核
+- [R31-3-事故] 冒烟首版测试桩缺陷: 探针仅标记夹具在跑, 首轮把 2 条用户僵尸行(得奇/AU文学)一并翻转 interrupted+写 2 条日志(函数行为正确, 测试越权触碰用户行, 违反红线); 当场处置: 状态回滚 running + 删除测试产生的 2 条日志(恢复冒烟前原状逐字节), 测试桩改为"非夹具行一律探针保护", 后续两轮全绿且含用户行零触碰断言(S2.7b/S6.2); 副作用评估: 该翻转即 instrumentation 下次重启本要做的动作, 无数据丢失/无自动重启, 但流程上属测试越权, 如实留档
+
+Stage Summary:
+- 孤儿恢复方案: Task.status=Prisma String → 新值 'interrupted'(schema 未动); instrumentation.register()(nodejs 守卫+吞异常)启动期收口 running 僵尸 → 条件 updateMany 翻转+warn TaskLog(含"服务重启导致任务中断"+phase/current 快照); 用户两条僵尸行留待下次服务重启自然处理; 手动重跑即可断点续采(增量模式承接)
+- 修复清单: recovery.ts 新建(孤儿恢复核心) / instrumentation.ts 新建(启动钩子) / runner.ts [R31-3-1] 列表 catch GlobalSemTimeout 豁免 + [R31-3-2] 书籍 catch 双豁免(R30-3b 遗留①闭环)
+- 遗留移交: ① UI/restore 白名单未含 'interrupted'(现优雅回退 pending 展示, 归 D-agent/主控: helpers.ts TaskStatus+TASK_STATUS_META、_shared.ts TASK_STATUSES、backup restore TASK_STATUS_WHITELIST 四处补全即显示"中断"徽章) ② 孤儿 chromium 进程级回收机制(见 R31-3-5, 归主控) ③ parser regex 容器+css 字段退化形态(留档不改) ④ recoverOnBoot(收口于 interrupted 后自然空转)与 ghost sweeper(paused 语义)并存属纵深防御, 语义差异已注释
+- 质量门: 未跑 lint/tsc(遵指令留主控串行); 未重启 dev server; 未装包; git 只读; 改动文件均经冒烟真实 import+执行验证
+[R31-2] 进度: R31-2-2 同站 Referer 链(FETCH_REFERER_CHAIN=1 缺省关)落地 fetcher.ts —— 按host最近成功页FIFO512+30min TTL(与Cookie会话TTL同口径), buildHeaders 消费点(规则显式 refererUrl/Referer头 优先级不变, 关闭态逐字节等价), fetchPage 成功页(!blocked)记账×2(单host+镜像轨), ff-b③ 清罐路径同host链条联动失效; 测试出口 __r31RefererChainDebug(R30-3b-3先例); 冒烟待跑
+[R31-2] 进度: R31-2-1 代理轨健康分与自动降权(FETCH_PROXY_HEALTH=1 缺省关)落地 fetcher.ts —— 轨账本 FIFO512(cpx|模板/exit|代理串 键前缀隔离, 冷却权威单轨不重复记账), A 轨=contentProxy 包裹路径熔断跳包裹直连+半开探测间隔递增(BASE=FETCH_PROXY_HEALTH_OPEN_MS 可调缺省60s, 上限10min), B 轨=出口代理池网关型5xx(502/504恒判+503无挑战特征判)连败3次 markProxyFailed 熔断(复用既有指数退避=半开递增试探, isProxyAvailable 过滤=跳轨); [R31-2-3] 快速通道(FETCH_TRACK_QUICK_SKIP=1)落地 fetchHttpWithCurlSingle 网关型错误跳同轨 curl 重发; isProxyTrackGatewayFailure 两开关共用; 测试出口 __r31ProxyTrackDebug; bun import 解析通过; 冒烟待跑
+---
+Task ID: R31-4
+Agent: general-purpose (API 路由 + 非 crawl 库 + 组件逐行深抓bug)
+Task: 前端/组件/轮询侧内存泄漏审计 + admin API 鉴权/输入校验/XSS/SSRF 审计 + 正确性/性能逐行深抓修复
+
+Work Log:
+- [R31-4-0] 前置: 通读 worklog 末 400 行(R27-R30 已修项: 友链 XSS 白名单/消毒器实体绕过/SearchView loading/HistoryView N+1/SiteHeader tags 重复请求/stats 并行化/[...slug] generateMetadata 并行化/ChapterContent memo, 勿重复劳动); 66 条 API 路由全量 + admin/public 组件主要文件逐行过目(仅动 src/app/api/** + src/components/**, crawl 域/instrumentation.ts 零触碰)
+- [R31-4-1](修复·高优·OOM 关联) src/app/api/admin/tasks/[id]/route.ts GET: 补 slimTaskProgressJson 进度瘦身 —— 该 GET 是 TaskMonitor 唯一数据源且 2s 轮询, 修前 progress 原样返回(大范围任务 4 个续采 URL 集合 × cap50000 ≈ 12MB/响应, 2s 轮询即每分钟数百 MB JSON 序列化/传输/前端解析 GC 压力); 列表路由 R9-d-6 早有同款瘦身先例但详情路由当时声明"仍返回全量"(R9-d-6 时 TaskMonitor 尚未成为唯一消费者认知)。修后与列表同口径: >64KB 才解析, URL 集合截到 200 条, 附 progressTruncated 标记(additive), 信封/字段形态不变; 监控面板仅消费标量进度字段(safeJsonParse<TaskProgress> 只取 phase/booksDone/contentTotal 等), URL 集合全库零消费, 运行时续采读写走 runner 直连 DB 不受影响
+- [R31-4-2](修复·中优·无界增长) src/components/public/read-layouts/reading-memory.ts: 新增 pruneBeyondMax 写入侧驱逐 —— 模块头注声明「LRU 上限 50 条」但修前只在 listReadPos 读取侧截断, heis_readpos_* localStorage 键每读一本新书新增一条且永不清理(每键 ~200B 无界累积)。修后每次 safeWrite 后按 ts 驱逐 50 名以外最旧键(仅影响 UI 本就不可见数据, HistoryView 仍展示最新 50 条, 可感知行为零变化); 开销=每次写入一次 localStorage 全键扫描(浏览器端内存哈希, 典型 <500 键微秒级, 调用方本就 debounce 300ms/30s)
+- [R31-4-A](审计) 内存/泄漏类全查结论: setInterval 7 处(TaskMonitor 2s/CalibrateDialog×3/TasksSection 3s/DownloadsSection 3s/HealthCard 30s + read-layouts 阅读时长 1s+30s)全部有 cleanup; addEventListener 26 处与 removeEventListener 逐对闭合(keydown/scroll/resize/popstate/mousedown/visibilitychange/beforeinstallprompt); EventSource 全库零使用; AbortController 仅服务端(fetch+timer finally 清理); React 端 async setState 全部有 alive/cancelled/seq 卫(TaskMonitor seq+aliveRef、BookDetail bookSeq/tocSeq/chSeq、TasksSection seq、PublicSite resolveSeq); TaskMonitor logs 上限 800 条、previewCacheRef 换书重建、pseudostatic 注册表 R27-5b-L3 已 500 上限、sitemap/令牌桶/loginAttempts/health 探针缓存均有 FIFO 上限; zustand 不存在(无全局 store)
+- [R31-4-B](审计·记录不改) ①GET /api/admin/tasks/[id] include rule:true 每次轮询附带全量 rule.config(≤200KB) 而前端仅消费 rule.name —— 裁剪需改响应结构(违背本轮"不改响应结构"纪律), TaskRow 类型早已声明 rule?:{id,name}, 建议后续轮把 include 收敛为 select {id,name} ②__novelCalibJobs_v1 Map 中 done/error 校准 job(含 ≤200 traces+result)常驻至进程重启/规则删除, 有界于规则数(29 内置, 现实 ≤3MB), 清理会改变 GET calibrate 的 done 态回显契约, 记录不改 ③/api/admin/backup GET 全量 JSON.stringify 后才分流式发送(R4A-12 批次加载+200 本大库降级已缓解, 记录在案)
+- [R31-4-C](审计) admin API 鉴权覆盖表: 62+ 条 admin 路由全部经 src/proxy.ts 统一会话校验(pathname.startsWith('/api/admin/') → verifySession 失败 401) + 60req/min 令牌桶; /api/auth/* 60req/min + login 额外 5次/60s 滑窗(timingSafeEqual + sweep 定时器 unref + 1 万条 FIFO 上限); /api/public/* 120req/min 无鉴权但全部 withGuard+参数钳制(clampInt/str/likeSafe/httpUrl/safeJoin); 根 /api 路由仅返回 Hello 无敏感面; 零 mutating 路由缺鉴权(4 条豁免为 auth/check/login/preview-hint+health 类只读, 与 R30-4 审计结论一致)
+- [R31-4-D](审计) XSS/SSRF/输入校验: dangerouslySetInnerHTML 11 处全部走 cleanContentHtml/sanitizeReaderHtml/escapeHtmlForPre 消毒链(R3-34/R22-b/R23 链路); 友链 url/logo 白名单(R27 已修)restore 入口同口径; SSRF 面: rules/test 与 calibrate 均走 fetcher SSRF 防护/loopback 门(calibrate siteBase 仅 127.0.0.1/::1/localhost), sitemap siteBase 拒私网段, download/cover/chapters 文件路径 safeJoin+path.sep 边界; 分页参数全库 clampInt+skip 上限 1 万; TaskLog 增量分页按 cuid 时间有序(gt after+orderBy id asc, 实测 cmu49* 序列单调性成立, 非 bug)
+- [R31-4-E](审计) 正确性/性能: 并发 PUT/DELETE 竞态已全库 errText/P2002/P2003/P2025 兜底(control 路由 updateMany 条件原子写防标签漂移); 吞错误 catch 仅存在于"尽力而为"清理路径(有注释留档); 表单重复提交: LoginGate/TaskWizard/TaskDialog/BookDetail/FeedbackWidget/DownloadsSection 全部 disabled+loading 双防抖; N+1: R30-5 已消 categories rep, 本轮复核 books/categories/feedback/stats 列表均 include/_count/Promise.all 无 N+1; 大列表: TocView/BookView 目录 100 条/页, admin BookDetail 50 条/页, TaskLogViewer ≤800 行, FulltextView/RankingView 分页, 无千章全量渲染面
+- [R31-4-F](冒烟) 临时脚本 r31-4-tmp-smoke.ts(bun 直跑后已删): 21 PASS/0 FAIL —— slimTaskProgressJson 8 断言(小行直通/非 JSON 透传/5000 URL 截 200/标量保留/体积 <1/10/空值安全) + reading-memory 13 断言(60 本书写入后键数 ≤50/最新保留最旧驱逐/保留集恰为 10..59/listReadPos 仍 50 条倒序/覆盖写不增键/clearReadPos/setReadTimeMs 保留 chapterId); 另 bun build --target=browser reading-memory.ts 0 错 + Bun.Transpiler 两改动文件语法门通过
+- [R31-4-G](冒烟·HTTP 只读) dev server 3000 存活确认(200) → POST /api/auth/login(audit-fix-2025, 任务许可的只读会话) → GET /api/admin/tasks 列表 200 → GET /api/admin/tasks/cmu3y6hxj... 200 信封 {ok, data:{id, progress(string), live, rule.name}} 与修前完全兼容(小任务 progress 10430 字符 < 64KB 阈值原样直通, progressTruncated 按设计缺席); 用户 2 条僵尸任务(status=running)零触碰未发任何控制/写入请求
+- 纪律合规: 未跑 lint/tsc(留主控串行)/未重启 dev server/未装包/git 只读; 临时文件与登录 cookie 已删; 修改仅 2 文件(+48/-4 行, 全带 [R31-4-x] 注释), fetcher.ts/runner.ts/worklog.md 在途改动系 R31-3 所为未触碰
+
+Stage Summary:
+- 修复清单: [R31-4-1] tasks/[id] GET 进度瘦身(2s 轮询 12MB→≤~200KB, OOM 关联) / [R31-4-2] reading-memory 写入侧 LRU 驱逐(localStorage 无界增长收口)
+- 审计结论: 轮询组件定时器/监听器/异步竞态防线完整, 无 EventSource, 无 zustand 无界 store; admin 鉴权全量经 proxy.ts 无缺漏; XSS/SSRF/路径穿越防线齐备; 剩余 3 项低风险观察项(rule.config 轮询附带/校准 job Map 常驻/backup 全量 stringify)记录于 [R31-4-B] 待后续轮裁定
+- 冒烟: 纯函数 21 PASS/0 FAIL + 线上只读 API 信封兼容验证通过; lint/tsc/E2E 留主控
+
+---
+Task ID: R31-1
+Agent: R31-1 (read-only full audit)
+Task: 只读全面审查 — OOM 内存增长根因链 / 僵尸任务确认与恢复方案 / 全项目缺陷扫描 / 大文件清单
+
+Work Log:
+- [R31-1-0] 读 worklog R28-R30 段(十站克隆/TDK 18套/kanunu8 重写/R28-3 审计/R28-4 修复/R30-3b GlobalSemTimeout 激活/R30-事故两次 OOM)；确认禁区与既有修复清单避免重复报
+- [R31-1-1] OOM 板块: 全文精读 runner.ts(2423行) + fetcher.ts 全局态/主链路段 + hostgate/obscura 全局态 + admin tasks API + TaskMonitor；fetcher 14 个全局缓存逐个核 caps(hostRhythm 512/condCache 256×256KB/ssrfDns 2000/token trim/chainMem FIFO512/cookieJar prune5min/hostgate HOSTS_CAP1000/obscura slot 池+10min 回收——均有界)
+- [R31-1-2] 实证采集: dmesg 4 次 next-server OOM kill(anon-rss 2.67/2.12/2.39/2.33GB); 活体实测 15min 龄零流量 next-server VmRSS=1.75GB 稳态/VmHWM=2.12GB, .next/dev=675MB; DB 只读实查 2 行 status=running 僵尸(15:32 死亡现场)
+- [R31-1-3] 僵尸任务确认: recoverOnBoot 唯一调用点=stats 路由懒触发(runner.ts:591/stats:57-59), ghost sweeper 仅 TaskRunner 首次实例化挂载(runner.ts:337), 无 instrumentation.ts; DownloadJob 有孤儿清扫而 Task 无(不对称); 给出 src/instrumentation.ts register() 完整方案(动态 import + NEXT_RUNTIME 守卫 + 既有幂等护栏复用)
+- [R31-1-4] 全项目扫描: 66 条 API 路由 withGuard 覆盖比对(4 豁免核实无敏感面)/dangerouslySetInnerHTML 11 处出口全量核对(chapter 双层消毒链在位)/SSRF·路径穿越·SQL注入·限流·SSE 定时器清理逐一复核; as any 23/ts-ignore 0; R30-4 死代码清单抽查无回潮(ratelimit-demo allowLoopback 双侧在位)
+- [R31-1-5] 大文件清单: >800 行 15 个(builtin-rules 5197 生成物勿动/fetcher 4599/runner 2433/SiteHeader 2292 拆分候选/verify-r22-rules 1143 归档候选等)
+- [R31-1-6] 报告落盘 /tmp/r31-audit/audit-report.md(P0×4/P1×7/P2×7+安全·性能·卫生专项表+修复路线图); /tmp 分析脚本用毕全删; 全程零修改零 git 写零服务触碰零 lint/tsc
+
+Stage Summary:
+- OOM 根因链: 结构性根因=生产用途长跑服务器跑在 next dev(Turbopack) 上——.zscripts/dev-watchdog.sh OOM 后拉起的仍是 dev; 空闲基线实测 1.75GB(峰值 2.12GB)+采集瞬态(≤32并发×≤10MB响应×cheerio多副本+裸Playwright每请求launch+大JSON轮询churn)越过 kill 线; 唯一护栏 fetcher.ts:3897 OOM backpressure 只看 heapUsed>1.5GB(Bun/Turbopack 下严重低估)且仅暂停5s → 4 次 OOM 零拦截
+- 修复优先序: ①长跑切 next build+bun run start(watchdog 同步改, 单此消 ~1.7GB) ②src/instrumentation.ts 僵尸恢复(方案代码在报告 P0-3) ③/api/admin/tasks/[id] 默认瘦身(TaskMonitor 2s 全量 progress 轮询, 设计上限 12MB/次) ④backpressure RSS 化+softLimit ⑤P1 驻留面(listFields 只增不减 500k×300B/runtimes 200条滞留/urls 双份/condCache 64MB)
+- 僵尸任务: Task.status=String 6值, DB 现存 2 行 running 僵尸; 恢复三件套(recoverOnBoot/ghost sweeper/instrumentation)中前两者全懒触发; instrumentation.ts 上线后重启即回收+autoRefresh 重排
+- 安全/性能: 无新增高危; P1-3 TaskMonitor 双轮询贴死 admin 60/min 限流(实测后台随机 429 的根因); P1-5 默认密码/密钥回退在 dev 长跑模式下构成真实暴露面
+- 报告: /tmp/r31-audit/audit-report.md
+[R31-7] 进度: 交付物1落地 — scripts/ 卫生: verify-r21-rules.ts(759行,R21-a一次性复测harness) + verify-r22-rules.ts(1143行,R22-a一次性复测harness,R31-1审计P2-3点名) 移入 scripts/archive/(tsconfig exclude 出 tsc 门禁面; eslint 本就 ignores scripts/**); 归档前 grep 交叉核查: 两文件仅 worklog/自身引用, package.json 零引用; 其余顶层脚本均留原位(ratelimit-site 被 calibrate.ts+docs 引用 / backfill-book-num 被 SettingsSection.tsx UI 提示引用 / mock-novel-site 系 archive README 定性"活资产"站点mock / seed-*.ts 被 gen-builtin-rules+export-autofill-rules 引用 / _seed-lib 被 seeds import); archive/README.md 追加 R31-7 归档节; git 纪律: 用 mv 非 git mv(git 只读), rename 留主控提交时认定
+[R31-7] 进度: 交付物2落地 — TaskLog 写放大节流(P2-1): src/app/api/admin/tasks/[id]/logs/route.ts 修前每次 GET 都 deleteMany 30天前日志(TaskMonitor 2s 轮询=每2s一次纯写放大); 修后进程级节流 globalThis.__novelTaskLogPrunedAt_v1(惯例同 hostgate gSweep 命名), 距上次清理 <60s 跳过, 30天保留窗口语义不变(清理最多延后60s, 零可感知行为变化); 该逻辑不在 runner.ts/proxy.ts(已核实 logs 路由独立持有), 无需移交; 另核查 taskLog.deleteMany 全部4处: runner.ts:635(3000条/任务上限,禁区+功能性)/backup restore(事务清空)/stats:65(全局兜底, 仅 Dashboard 打开与手动刷新触发非定时轮询, 低频不处理), 其余不动
+[R31-6] 进度: P1-3 proxy.ts 侧落地 — admin 令牌桶 60→120 req/min(env ADMIN_RATE_LIMIT_PER_MIN 可配缺省120上限6000, refill=容量/60 同比例) + rateLimit 返回 {ok,retryAfterSec} 三处调用点 429 响应带精确 Retry-After(修前写死60) + preview-hint 网关层生产 404([R31-6-6] dev 行为不变); TaskMonitor 合批错相与 auth fail-closed 进行中
+[R31-6] 进度: P1-5 auth.ts fail-closed 落地(IS_PROD 总开关+启动期双告警/resolvePassword 生产随机哨兵登录恒401/resolveSecret 生产抛错+verifySession 捕获拒401) + P1-3 TaskMonitor 合批错相落地(单 interval TASK_POLL_MS=2000 详情每tick必拉, 日志 tickCount%2===0 隔tick=4s, 稳态45 req/min≈新桶37.5%) — 待冒烟
+[R31-5] 进度: 交付物1落地(interrupted 全链路接线, R31-3 移交项①) — helpers.ts TaskStatus 联合+TASK_STATUS_META 加 interrupted(橙牌"已中断", 语义=服务重启中断可续采, 区别于 amber=paused) / _shared.ts TASK_STATUSES 加值(GET ?status= 过滤白名单执法点; normalizeTaskData 不校验 status 对创建/更新零影响) / backup restore TASK_STATUS_WHITELIST 加值(interrupted 非运行态原样保留, running→paused 防幽灵归一不变) / Dashboard TASK_STATUS_ORDER+CHART_COLORS.orange+图表色补值(修前 groupBy 全状态但分布图固定 6 值静默丢中断计数) / TasksSection 零改动核验(无过滤下拉; 徽章 lookup 现解析到新条目; canStart=!==running 中断可启动/canPause/canStop=false 已正确; running 计数只计 running 属非 running 组); TaskMonitor(禁区/R31-6 在改)依赖的 META lookup 随本修自动解析不再回退 pending
+[R31-5] 进度: 交付物2落地(runner.ts 内存驻留四连修, 全带 [R31-5-x] 注释+生命周期论证) — [R31-5-1]P1-1 listFields 三点收口(bookQueue 构建后一次性剪除未入队残余 + 完结跳过分支补删 + crawlOneBook 调用前 get→局部 bookFields 捕获后即刻 delete, 值引用由实参维持、bookQueue 同轮去重无二次读者; 修前 50万书×~300B≈150MB/任务滞留至 executeTask 结束) / [R31-5-2]P1-2 executeTask finally epoch 门控清空四续采大集合(3 Set+1 Map clear, dirty 标志落 false 防清空态回写 DB; epoch 漂移让位路径不清理不踩新循环; 终态后集合零读者, resume 走 DB progress 重建=R3-10 驱逐同语义; 小标量 epoch/running/paused/stopped/circuitTrippedAt/lastActiveAt 保留供 isRunning/熔断冷却/僵尸驱逐查询) / [R31-5-3]P1-4 bookQueue 构建后 urls.length=0(独立新数组, 全部读点在其前, 释放 ~40MB/50万URL 双份驻留) / [R31-5-4]P1-6 existTitleMap 键 volume+'\u0000'+title 构建点(:1811)+消费点(:1831)同步改, 同卷同名仍后行覆盖去重, 已知取舍=kk-a 前旧章空 volume 与带卷名同名章不再匹配→按新章多采不丢数据
+
+---
+Task ID: R31-6
+Agent: R31-6 (后台轮询限流冲突修复 + auth 生产加固)
+Task: P1-3 TaskMonitor 双轮询贴死 admin 限流桶(后台随机 429) + P1-5 auth 默认密码/密钥回退生产 fail-closed + 高频轮询组件水位复核 + 冒烟验证
+
+Work Log:
+- [R31-6-0] 前置: 读 worklog 末 250 行(R31-0/R31-1/R31-4)+ /tmp/r31-audit/audit-report.md P1-3/P1-5; 核实根因—— proxy.ts:155 admin 桶 60/min refill 1/s 与 TaskMonitor 每 2s tick 串发 GET tasks/[id] + GET logs 双请求 = 稳态 60 req/min 恰 100% 贴死; auth.ts resolvePassword/resolveSecret 编译期公开常量回退 + preview-hint 在 dev 长跑模式真实暴露密码
+- [R31-6-1](P1-3 前端侧) TaskMonitor.tsx 轮询合批错相: 单 interval 常量化 TASK_POLL_MS=2000, 详情每 tick 必拉(2s 级新鲜度目标不变), 增量日志隔 tick 拉取(tickCount%2===0 → 等效 4s, after=lastId 增量协议不丢日志仅延后半拍) → 稳态 45 req/min(详情30+日志15)=新桶 37.5%, 单 tick 至多 1 次轮询请求(突发不再翻倍); 修前代码路径 pullLogs 每 tick 无条件追发已移除
+- [R31-6-2](P1-3 网关侧) proxy.ts: admin 桶容量 60→120 req/min, env ADMIN_RATE_LIMIT_PER_MIN 可配(缺省 120, 钳 1~6000), refill=容量/60 同比例(120 时=2/s); 调用点接线 rateLimit('admin', ip, CAP, CAP/60)
+- [R31-6-3] proxy.ts: rateLimit 返回值 boolean→{ok,retryAfterSec}, 429 响应 Retry-After 由桶状态精确计算 max(1, ceil((1-tokens)/refill)) (修前写死 '60' 与实际补充速率不符), admin/public/auth 三处调用点同步
+- [R31-6-4](P1-5) auth.ts: IS_PROD 总开关; resolvePassword 生产未配置时返回进程内随机哨兵值(verifyPassword 恒 false → 登录一律 401)+首次触发 console.error 告警, 不再回退编译期公开默认密码; 模块加载期生产双告警(ADMIN_PASSWORD/SESSION_SECRET 缺失)
+- [R31-6-5](P1-5) auth.ts: resolveSecret 生产未配置时 throw(会话签发失败=登录失败, 不回退固定常量); verifySession 包 try/catch 于 HMAC 计算处, 生产未配置密钥时会话校验一律 false(401 fail-closed, 不向 proxy 中间件上抛 500); dev 恒不抛故护栏零影响
+- [R31-6-6](P1-5) proxy.ts: preview-hint 通道生产关闭——网关层 isProd && /api/auth/preview-hint 直接 404(双保险: 路由侧 previewHintPassword 生产本就恒 null), 请求不进下游; dev 行为逐字节不变(preview 通道继续可用)
+- [R31-6-7] proxy.ts 加测试出口 export const __rateLimitForTest = rateLimit(冒烟直调真实桶; Next 仅消费 proxy/config 导出), 用毕无需移除(零行为影响)
+- [R31-6-8] 轮询水位复核(grep setInterval src/components/admin/**): Dashboard.tsx 0 处轮询(挂载拉取+手动刷新, 无需改) / TasksSection 3s=20/min(监控打开时自动停 if(monitorId)return, 与 TaskMonitor 不叠加) / DownloadsSection 3s=20/min(仅活跃任务时) / HealthCard 30s=2/min / CalibrateDialog 1.5s=40/min(running 视图独占); 监控态最坏叠加 67/min=55.8% 桶容量, 校准态 42/min=35%, 全部 ≤80% 红线, 均无需改(TasksSection 属 R31-5 禁区仅盘点)
+- [R31-6-9] 冒烟(bun 直跑临时脚本 r31-6-tmp-auth[-child].ts/r31-6-tmp-ratelimit.ts/r31-6-tmp-poll.ts, 用后已删; 零 DB 触碰/零破坏性请求/未重启 dev server): 合计 52 PASS / 0 FAIL。①auth 三态子进程 24 PASS: 生产无配置(默认密码失效/任意输入恒401/preview null/createSession 抛 SESSION_SECRET fail-closed/verifySession 不抛/启动双告警在 stderr)+生产显式配置(正确密码通过/默认密码拒绝/Secure 置位/签发校验闭环/无告警)+dev 无配置(audit-fix-2025 仍有效/DEFAULT_ADMIN_PASSWORD 不变/preview 返回默认密码/Cookie 无 Secure/旧 warn 文案在=逐字节现状); ②限流 15 PASS: 真实桶直调 120 满桶放行/121 拒/Retry-After≥1s/0.7s 回补 1 枚(2/s)/IP·路由类桶隔离/容量参数化(10)/env 接线+Retry-After+404 块静态断言/线上只读 GET(=200, preview-hint=audit-fix-2025, 未登录 admin=401 → 运行中 dev server 热编译未破坏); ③轮询静态 13 PASS: TASK_POLL_MS=2000/错相门控唯一/单 setInterval/预算表 45≤96/组件盘点全过
+- 纪律合规: 未跑 lint/tsc(留主控串行)/未重启 dev server/未杀进程/未装包/git 只读/用户 DB 与 2 条僵尸任务零触碰; 修改仅 3 文件(proxy.ts/auth.ts/TaskMonitor.tsx, 全带 [R31-6-x] 注释); Dashboard.tsx 在途改动系 R31-5-0(interrupted 徽章色/状态分布)所为我未触碰
+
+Stage Summary:
+- 修复清单: [R31-6-1] TaskMonitor 合批错相(60→45 req/min 且突发减半) / [R31-6-2] admin 桶 120 env 可配 + 同比例 refill / [R31-6-3] 429 精确 Retry-After / [R31-6-4][R31-6-5] auth 生产 fail-closed(密码哨兵+密钥抛错+启动告警+verifySession 护栏) / [R31-6-6] preview-hint 生产网关 404
+- 行为对照: dev(现役长跑形态)=修前逐字节不变(默认密码 audit-fix-2025 可登录/preview 通道可用/固定密钥回退在/无告警); production=未配置 ADMIN_PASSWORD → 登录恒 401+启动 error 告警, 未配置 SESSION_SECRET → 签发抛错+会话校验恒 401, preview-hint → 404, 配置齐全 → 正常签发校验且默认密码永不复活
+- 轮询预算: TaskMonitor 45/min(37.5%) | TasksSection 20 | Downloads 20(条件) | HealthCard 2 | Calibrate 40(独占) | Dashboard 0; 最坏叠加 67/min=55.8% ≤ 80% 红线
+- 冒烟: 52 PASS / 0 FAIL(纯函数+真实桶直调+静态断言+线上只读 GET)
+- 遗留移交: ① ADMIN_RATE_LIMIT_PER_MIN 若运维改小(如 <45)会重新贴近 TaskMonitor 水位, 已在 proxy.ts 注释声明缺省 120 与根因 ② preview-hint 生产 404 由网关层实现(路由文件非本轮辖区), 若未来路由被绕过调用仍由 previewHintPassword() 恒 null 兜底 ③ login 路由在"生产+密码配置+密钥缺失"时 createSession 抛错=500(fail-closed 语义, 如需 4xx 化可后续轮在路由侧 catch) ④ lint/tsc/E2E 留主控
+
+---
+Task ID: R31-5
+Agent: general-purpose(runner 内存驻留修复 + interrupted 状态白名单接线)
+Task: ①interrupted 状态全链路接线(R31-3 移交项①, UI/校验层一等公民) ②runner.ts 内存驻留四连修(审计报告 P1-1/P1-2/P1-4/P1-6, OOM 关联) ③bun 直跑冒烟验证(临时脚本用毕即删)
+
+Work Log:
+- [R31-5-0] 前置+交付物1(interrupted 接线): 通读 worklog R31-0/1/3/4 段+审计报告; 全库 grep TASK_STATUSES|TaskStatus 定位全部执法/展示点。helpers.ts TaskStatus 联合类型+TASK_STATUS_META 加 'interrupted'(橙牌"已中断", bg-orange-500/15, 语义=服务重启中断可续采, 区别于 amber=paused 主动暂停/red=error 故障) / tasks/_shared.ts TASK_STATUSES 六值→七值(GET ?status= 过滤白名单执法点; 复核 normalizeTaskData 不校验 status 字段(状态仅 runner 控制链+恢复机制写入)、validateTaskPair 不涉及 → 创建/更新入参校验零影响) / backup/restore/route.ts TASK_STATUS_WHITELIST 加值(interrupted 本身非运行态, 原样保留不归一; running→paused 防幽灵归一维持) / Dashboard.tsx TASK_STATUS_ORDER 加值+CHART_COLORS 新增 orange+TASK_STATUS_CHART_COLOR 加值(修前 stats.taskStatusBreakdown 是 groupBy 全状态而分布图固定 6 值 → 中断任务计数被静默丢弃 taskTotal 少计)
+- [R31-5-1] P1-1 listFields 只增不减(150MB/任务级) 三点收口: ①bookQueue 构建后一次性剪除未入队残余(bookStart/bookEnd 切片外的书无消费点, O(n) 只留 queued 成员) ②完结跳过分支(completedBookUrls continue)补删(该路径不走 crawlOneBook 永不消费) ③主路径改"捕获后即刻删": const bookFields=listFields.get(bookUrl); listFields.delete(bookUrl) 在 crawlOneBook 调用前 —— 生命周期论证: 对象引用由局部变量→实参维持, crawlOneBook 内消费点(:1407-1419 书名/简介/作者/分类兜底)不受 Map 条目删除影响; bookQueue=Array.from(new Set(sliced)) 同轮去重保证同 URL 不二次入队, 删除后零读者。修后峰值=发现期全集(必要驻留), 书循环期逐书释放
+- [R31-5-2] P1-2 runtimes 终态条目滞留(理论 2.4GB): executeTask finally 块 epoch 门控内(r.epoch===myEpoch, 换代让位路径不清理不踩新循环)四续采大集合 clear() + 四 dirty 标志落 false(防御性收口: 清空态绝不回写 DB progress); 小标量 epoch/running/paused/stopped/circuitTrippedAt/lastActiveAt 全保留供 isRunning/熔断冷却/僵尸暂停驱逐查询, Map 条目本身留 200 LRU 框架不动。生命周期论证: 四集合读者(saveProgress/reconcileResumeSetsWithDb/shuntBookStatus)全在循环生命期内, finally 后零读者; 后续 control('start') 走 executeTask 从 DB progress 重建集合(full 清空/增量 reload), 与 R3-10 既有"驱逐后 resume=进度以最近检查点为准"语义完全一致。覆盖面: done/error/stopped/崩溃/自然收尾全部经 finally 单点; interrupted 由恢复机制在新进程产生(内存已随进程消亡, 无需清理); ghost sweeper 只碰 rt.running=false 的行(集合已清)
+- [R31-5-3] P1-4 urls/bookQueue 双份驻留(~40MB/50万URL): bookQueue=Array.from(new Set(sliced)) 之后 urls.length=0 —— grep 证实全函数剩余读点(:1043/:1047 计数/:1063-1067 切片)均在其前, 此后零读者; progress.discovered 计数发现期已落值不受影响
+- [R31-5-4] P1-6 existTitleMap 同名章错配: 键从纯 title 改为 volume+'\u0000'+title, 构建点(:1811)与消费点(:1831)同步改同构键; '\u0000' 不出现在正常标题/卷名, (volume,title)↔键一一对应; 同卷同名仍 Map 后行覆盖前行去重(与修前同语义); 已知取舍留档: kk-a 之前入库旧章 volume=''(空), 与当前目录带卷名的同名章不再匹配 → 按新章采集(多采不丢数据, 优于误挪/误跳过); volume/source 均与 kk-a 落库值同源(sliceCodePoints(trim,120)), URL 优先匹配路径(existUrlMap)未动
+- [R31-5-S] 冒烟(bun 直跑 r31-5-tmp-smoke.ts, 已删): 34 PASS / 0 FAIL。①whitelist 15 项: TASK_STATUSES 含 interrupted 且非法值拒绝/normalizeTaskData 对 status=interrupted 通过且不产出该字段(非法枚举 mode=bogus 仍拒)/validateTaskPair 零影响/META 橙牌在位+META 键集合≡TASK_STATUSES 前后端对账/restore 白名单提取真实字面量求值含 interrupted+归一化语义保留/Dashboard·TasksSection 源码断言 ②P1-1 六项: 源码时序结构(get@1131→delete@1132→call@1139, skip 分支删除@1116, 残余剪除@1082)+行为模拟(捕获→删→延迟消费字段完整/Map 归零) ③P1-2 五项: 清空块在 finally epoch 门控内(漂移让位不误清新循环集合的行为模拟)+终态大集合全空+小标量保留 ④P1-6 六项: 跨卷同名修前两查错配同→修后各归各/同卷仍去重/存量空卷名兼容/源码键表达式同构校验/URL 优先路径保留 ⑤runner.ts 模块加载语法门(零网络/零 DB 查询)。首版 4 FAIL 均为测试脚本自身缺陷(delete 首匹配取到 skip 分支/UTF-16 slice 3 码元预期错/oldMap 后行覆盖预期错/'bookFields)' 含右括号), 逐一定位修正后全绿, 源码零回改
+- 纪律合规: 未跑 lint/tsc(留主控串行)/未重启 dev server/未杀进程/未装包/git 只读; 零真实站请求/零端口占用/零 DB 读写(冒烟仅模块导入+纯内存调用, PrismaClient 实例化不触发连接, 用户 2 条 running 僵尸行零触碰); 修改仅 5 文件(helpers.ts/_shared.ts/backup/restore/Dashboard.tsx/runner.ts)+worklog, 全带 [R31-5-x] 注释; 禁区 fetcher.ts/TaskMonitor.tsx/recovery.ts/instrumentation.ts/[id]/route.ts/proxy.ts/auth.ts/mini-services/prisma 零触碰(工作树中其他们在途改动系并行 agent 所为)
+
+Stage Summary:
+- 修复清单: [R31-5-0] interrupted 接线 5 文件(helpers.ts:61/549, _shared.ts:8, restore/route.ts:42, Dashboard.tsx:71/97/425, TasksSection.tsx 零改动核验) / [R31-5-1] runner.ts:1079-1084+1113-1116+1126-1132+1140 listFields 三点收口 / [R31-5-2] runner.ts:1254-1278 finally 终态集合清空 / [R31-5-3] runner.ts:1070-1074 urls 清空 / [R31-5-4] runner.ts:1803-1811+1829-1831 分卷键
+- interrupted 接线覆盖面: 徽章展示(TasksSection/Dashboard/TaskMonitor 经 META 统一解析, 中断任务不再误显"等待中") / 状态过滤(GET ?status=interrupted 可筛) / 分布统计(Dashboard 状态环图计入 interrupted, 修前计数静默丢弃) / 操作语义(中断任务: 启动✓/暂停✗/停止✗, TasksSection 与 TaskMonitor 按钮条件天然成立零改动) / 备份恢复(白名单收编, 不再误归 pending) / 活跃计数(stats 活跃=running+paused, interrupted 正确地不入活跃组) / 控制路由核验无需改动: 单条 control 与 batch 的 FINAL_STATUSES=['done','error','stopped'] 重置分支对 interrupted 跳过, 但 control('start') 成功后 runner 直写 running, 功能无缺口(重置仅为 R5-7/API-1 竞态窗的过渡展示)
+- 内存收益(口径按审计报告): P1-1 ~150MB/任务(50万书) 书循环期逐书释放+切片残余剪除 / P1-2 终态后每 runtime 释放 3 Set+1 Map(50万书任务数百 MB, 理论 200 条×2.4GB 上限归零) / P1-4 ~40MB/任务双份驻留消除 / P1-6 正确性修复(重排错配)非内存项
+- 遗留移交: ①可选优化: 单条 control/batch 路由的终态重置数组若希望 interrupted 重启也走 pending 过渡展示可各加一值(纯装饰, 功能无缺口, 且两文件不在本轮所有权内) ②审计 P1 组余项: P1-3(限流轮询节奏)/P1-7(condCache 64MB)未在本轮范围, P0-2(RSS backpressure)待主控 ③listFields intro 未截断仍在(审计建议 sliceCodePoints(intro,300) 兜底属行为变更, 本轮只做删除不截断, 如需可后续轮)
+[R31-2b] 进度: 前任 R31-2 三特性逐 hunk 审读完成(关闭态逐字节等价✓/记账点无重复漏记✓/FIFO-TTL 边界✓/半开间隔翻倍正确✓/hostgate 维度正交✓), 就地修 3 处: [R31-2b-1] A 轨熔断 warn 收窄(代理形态 URL 本就不包裹, 原警告属噪音) / [R31-2b-2] __r31RefererChainDebug 补 note 受控记账出口(供 FIFO/TTL 冒烟, 生产路径零变化) / [R31-2b-3] condCache body 上限 256KB→64KB(唯一消费点已核, P1-7); [R31-2b-4] RSS 双阈值背压落地(高水位 FETCH_RSS_STOP_MB=2048 暂停窗口 FETCH_RSS_PAUSE_MS=8000 复用 R8-19 协调, 低水位 FETCH_RSS_SOFT_MB=1536 概率性软让路 30ms→480ms 递增抖动, 缺省启用属保护护栏, 原 heapUsed 检查保留双保险); 冒烟脚本编写中
+[R31-7] 进度: 交付物3落地 — SiteHeader.tsx 2292行机械拆分: 新建 src/components/public/header/ 14 文件(全部头注 [R31-7] 拆分自 SiteHeader.tsx（纯机械搬移）): search-suggest.tsx(341行: SUGGEST_LIMIT/useSuggestPool/SuggestState/computeSuggest/SuggestDropdown/useSearchBoxLogic) / common.tsx(177: SearchBox/SiteSwitcher/BookshelfButton/SiteMark 公共件, SiteMark 前移至公共件因 pili+aijjxs 双消费, 函数声明顺序无关) / 十站文件 pili(186)/kks101(188)/qb23(173)/aijjxs(61)/ddyueshu(173)/x2552(231)/huangjinwu(317)/ggd66(116)/shipsay(176)/trxsw(184)(各站 SearchBox/Nav/Header 系整块搬移) / registry.tsx(44: ImitationHeaderProps+IMITATION_HEADERS+HEADER_BOTTOM_BORDER+[R24-6-a-14]组注释移入); SiteHeader.tsx 保留同名导出(实际为具名导出非默认, 原样)作组合入口 60行(头注+useCategories+SiteHeader 主体, 外部唯一消费点 PublicSite.tsx import { SiteHeader } from './SiteHeader' 路径不变); 机械性证明: 逐文件按原始行区间 sed 提取+diff 归一化比对(仅 ^export function 前缀差异)=12 文件 body 逐字节 EXACT; 唯一非纯搬移=①导出关键字(拆分必需)②'use client'+import 行新增③注册表/组注释随边界移至 registry; 冒烟: Bun.Transpiler 14 文件 transformSync 全过(R31-4 先例语法门) + 相对 import 目标存在性全过 + 每文件恰一个 use client; 未跑 lint/tsc 遵禁令; 零逻辑/文案/className/事件改动
+[R31-7] 进度: 交付物4+5结论 — 死代码清除(保守): 自写扫描器(bun 临时脚本, 用后已删)对管辖面 src/components/public/**(递归含 read-layouts, 排除 sites 禁区) + src/lib/*.ts(非 crawl 非 auth) 共 50 文件做"导出符号→全库(src+scripts+docker+mini-services+.zscripts)引用反查", 命中 37 个"零外部引用"候选, 逐一上下文核实后全部为**仅模块内部消费的活代码**(如 data.ts SuggestTagsEntry=fetchSuggestTags 缓存内部类型 / links.ts Wheel* 族=computeWheelLinks 内部 / read-layouts LINE_HEIGHT_PRESETS=设置面板内部 / pseo.ts 常量=slug 构建内部), 即**零个可安全删除的死符号**(R30-4 清单亦无回潮, 与 R31-1 审计"代码卫生"结论一致); 37 个符号仅 export 关键字冗余, R19-c-4 先例(links.ts pickRandomBooks 注释留档)已有"取消导出"手法, 但本波并行 agent 在途(reading-memory/fetcher/runner 等文件带外修改中)+本 agent 禁跑 tsc 无法自证, 37 处微编辑收益纯表面 → 全部记档不动作, 留主控裁量为专项低风险批次; 另: 模块内未用局部代码 ESLint no-unused-vars 门已覆盖(R30 lint=0), 无内部死代码; 交付物5(批次日志高频降噪 P2-4): 实锤落点 src/lib/crawl/runner.ts:1971(每批 await this.log '正文队列: N/M 章', log()=create+count 双查询), 位于禁区(R31-3 在途编辑中)→ **移交, 未改**
+
+---
+Task ID: R31-7
+Agent: general-purpose(清理·整合·精简)
+Task: 依据 R31-1 审查报告(/tmp/r31-audit/audit-report.md) P2 清单落地 — ①scripts/ 仓库卫生归档 ②TaskLog 写放大节流(P2-1) ③SiteHeader.tsx 2292行机械拆分(P2-2 变体, header/ 子组件方案) ④死代码清除(保守) ⑤批次日志降噪定位(P2-4, 禁区则移交); 全程零行为变化为验收线
+
+Work Log:
+- [R31-7-0] 前置: 通读 worklog 末 250 行 + R31-1 审计报告全文; git 只读盘点在途改动(fetcher/runner/tasks[id] slim/reading-memory/instrumentation/recovery 系 R31-2/3/4 所为, 全部避让); 禁区清单(crawl/admin helpers/_shared/TasksSection/Dashboard/TaskMonitor/proxy/auth/sites**/builtin-rules)零触碰
+- [R31-7-1] scripts/ 卫生: verify-r21-rules.ts(759行)+verify-r22-rules.ts(1143行) mv 入 scripts/archive/(=tsconfig exclude 出 tsc 门禁面, eslint 本就 ignores scripts/**); 归档前交叉核查两文件仅 worklog/自引用, package.json 零引用, 无代码 import; 其余顶层脚本逐一反查后全部留原位(ratelimit-site 被 calibrate.ts/内置规则/docs 五处引用 / backfill-book-num 被 SettingsSection.tsx 运维提示引用 / mock-novel-site 系 archive README 定性活资产 / seed-*.ts+gen-builtin-rules+export-autofill-rules+_seed-lib 互为引用链); archive/README.md 按 zz-e 先例追加 R31-7 归档节(含复跑需 git mv 回原位说明); git 只读纪律用 mv 不用 git mv, rename 认定留主控提交
+- [R31-7-2] TaskLog 写放大节流(P2-1): 定位实锤 src/app/api/admin/tasks/[id]/logs/route.ts:16-22(TaskMonitor 2s 轮询 pullLogs → 每次.GET 都 deleteMany 30天前日志, 绝大多数轮次空删纯写放大; 不在 runner/proxy 内, 无需移交); 修后进程级节流: globalThis.__novelTaskLogPrunedAt_v1 时间戳(hostgate gSweep 命名惯例), 距上次清理 <60s 跳过, 时间戳先置防并发期重复; 30天保留窗口语义不变(清理至多延后60s), 失败吞异常不阻塞读日志语义不变; 全库 taskLog.deleteMany 其余 3 处核实不属写放大(runner.ts:635=3000条/任务上限功能性裁剪禁区 / backup restore=事务清空 / stats:65=全局兜底仅 Dashboard 打开与手动刷新触发非定时轮询, 不处理)
+- [R31-7-3] SiteHeader.tsx 2292行机械拆分: 新建 src/components/public/header/ 14 文件 — search-suggest.tsx(341行, 搜索建议共享逻辑: SUGGEST_LIMIT/useSuggestPool/SuggestState/computeSuggest/SuggestDropdown/useSearchBoxLogic, 头注含 R27-5b-M5 词池缓存等历史注释随块搬移) / common.tsx(177行, 公共件: SearchBox/SiteSwitcher/BookshelfButton/SiteMark; SiteMark 由原 aijjxs 段前移因 pili+aijjxs 双消费, 函数声明顺序无语义) / 十站文件 pili 186/kks101 188/qb23 173/aijjxs 61/ddyueshu 173/x2552 231/huangjinwu 317/ggd66 116/shipsay 176/trxsw 184 行(各站 SearchXxx/XxxNav/XxxHeader 整块+站点考据注释逐字搬移, 文件名=SiteCloneId) / registry.tsx(44行, ImitationHeaderProps+IMITATION_HEADERS+HEADER_BOTTOM_BORDER+[R24-6-a-14]组注释; import type 擦除无运行时环); SiteHeader.tsx 2292→60 行(头注补 [R31-7] 拆分说明 + useCategories + SiteHeader 主体原样), 保留同名导出(原文件即具名导出 export function SiteHeader, 非默认导出, 外部唯一消费点 PublicSite.tsx:20 import { SiteHeader } from './SiteHeader' 路径与 API 不变); 机械性证明: 每文件 body 按原始行区间 sed 提取, 与原文件同区间做归一化 diff(仅 ^export function 前缀差)=12 文件逐字节 EXACT; 非搬移增量仅三类: ①导出关键字(跨文件消费必需)②'use client'+import 行③registry 组装; 硬要求符合: 零逻辑/文案/className/事件处理改动, props(cats/pending)显式传参原样; 每文件头注 [R31-7] 拆分自 SiteHeader.tsx（纯机械搬移）
+- [R31-7-4] 冒烟(禁令内允许的等价门): Bun.Transpiler transformSync 14 个 tsx + logs/route.ts 全部通过(R31-4 先例语法门, 非 lint/tsc); 相对 import 目标存在性核查全过; 每文件恰一个 'use client'; 全库 grep 无残留对已移符号的悬空引用; 遵禁令未跑 bun run lint / bunx tsc(留主控串行), 未重启 dev server, 未装包
+- [R31-7-5] 死代码清除(保守): 自写扫描器对管辖面 50 文件(components/public 递归含 read-layouts 排除 sites / lib 非 crawl 非 auth)做导出符号→全库五域(src/scripts/docker/mini-services/.zscripts)引用反查: 37 个零外部引用候选逐一核实全部为模块内部消费的活代码(data.ts 三类型=缓存/查询内部, links.ts Wheel* 族=链轮计算内部, read-layouts LINE_HEIGHT_PRESETS 族=设置面板内部, pseo/logger/seo-tpl/pseudostatatic 各候选同), 零个可删死符号; 该 37 个仅 export 关键字冗余, R19-c-4 先例已有"取消导出"手法但收益纯表面且本波并行在途+本 agent 无法自跑 tsc 自证 → 记档不动作(清单在上方进度行), 留主控裁量为专项批次
+- [R31-7-6] 批次日志降噪(P2-4)定位: runner.ts:1971 await this.log(taskId,'info',`正文队列: ${queue.length}/${tocItems.length} 章…`) 每批一条(2262章×2线程≈1131条/书, log()=create+count 双查询), 落点 src/lib/crawl/runner.ts 禁区(R31-3 在途)→按指令移交不改
+
+Stage Summary:
+- 交付: scripts 顶层 -1902 行出 tsc 门禁面(2 个一次性复测 harness 归档) / logs 路由 deleteMany 2s→≥60s 节流(写放大 -97%, 保留窗口语义零变化) / SiteHeader 2292→60 行+header/ 14 文件(外部 import 路径与 API 不变, body 逐字节 EXACT) / 死代码扫描 50 文件零实删(37 个仅-export 冗余记档) / 批次日志降噪移交
+- 零行为变化自查: 全部改动=文件搬移+import 重接线+节流时间窗(30天窗口内无可感知差异)+导出关键字; 无任何逻辑/文案/样式/事件/API 形态变更
+- 遗留移交: ①P2-4 批次日志合并/降频(runner.ts:1971, 禁区, 建议仅参数变化或每 N 批记一条) ②37 个"仅内部消费"导出的 un-export 专项(低风险, 建议主控串行批次跑 tsc 自证; 清单见 [R31-7-5] 进度行) ③scripts 归档的 git rename 认定与 lint/tsc 质量门串行执行(主控) ④dev server 在跑未动; R31-2 遗留根目录临时件 r31-2b-tmp-smoke.ts 非本 agent 所建未触碰
+
+---
+Task ID: R31-2b
+Agent: general-purpose (fetcher.ts 收口验证 + RSS 背压升级)
+Task: ①前任 R31-2 三特性(FETCH_PROXY_HEALTH/FETCH_REFERER_CHAIN/FETCH_TRACK_QUICK_SKIP)逐 hunk 审读+就地修+冒烟收口 ②RSS 维度双阈值背压升级(防 OOM) ③condCache body 上限 256KB→64KB(P1-7)
+
+Work Log:
+- [R31-2b-0] 前置: 读 worklog 末 250 行(R31-0 OOM 事故/R31-1 审计/R31-3 recovery/R31-4 轮询瘦身) + git diff fetcher.ts 全量 323 行通读(前任 +222 行三特性, 声明"bun import 通过、冒烟待跑")
+- [R31-2b-审读] 逐 hunk 结论 —— 免修(审读通过): 关闭态逐字节等价(三开关关闭时 autoChainReferer 恒空/cpTrackKey 空/quick-skip 块整体跳过, 生效值与旧逻辑等价)✓; 记账点不重不漏(A 轨成功/无有效内容/异常三分支互斥各记一次, B 轨 success↔gateway-fail↔其他 5xx 三分支互斥, 403/429 中性不记, SSRF 拒不记有声明)✓; FIFO/TTL 边界(先逐后设=自逐安全, 512 钳制, TTL 过期读时删除)✓; A 轨半开间隔递增正确(fails=3→BASE×2^0, 4→×2, 上限 10min, 冒烟实测 400→800ms)✓; hostgate 维度隔离(hostgate 按目标 host, 本特性按 cpx|/exit| 轨键, 两个独立 Map)✓; 与 markProxyFailed 既有指数退避协同(B 轨冷却单一权威仍 failedUntil, 不重复记账)✓
+- [R31-2b-1] 修: A 轨熔断 warn 收窄(4456) —— "toc 合成 URL 即代理 URL"形态本就命中 urlMatchesTemplateOrigin 不包裹, 熔断期每章打"跳过包裹"warn 属误导噪音(冒烟 B 相首版同 origin 桩恰好实证了该场景), 收窄为"确实省掉一次本会发生的包裹"才记 warn; 纯日志噪音零行为差异
+- [R31-2b-2] 修: __r31RefererChainDebug 补 note 受控记账出口(1700) —— FIFO 512 驱逐/TTL 边界冒烟无法靠 513 次真实抓取构造, 复用 refererChainNote 本体灌账(生产同一路径不绕过容量约束); 仅测试出口形状扩展, 生产导出签名不变
+- [R31-2b-3] 修: COND_CACHE_BODY_MAX 256KB→64KB(1096) —— 全库唯一消费点 fetchHttp 304 记账行已核(grep 单一), 无其他 256KB 语义依赖; 最坏驻留 64MB→16MB; 段注/行注同步
+- [R31-2b-4] RSS 双阈值背压(752-794 状态+常量, 4156-4177 消费点): 高水位 FETCH_RSS_STOP_MB(缺省 2048, 下限 256)→暂停窗口 FETCH_RSS_PAUSE_MS(缺省 8000, 钳 [500,60000]), 协调复用 R8-19 同款(首发现者睡满窗口置标志, 并发者等窗口不重复睡); 低水位 FETCH_RSS_SOFT_MB(缺省 1536)→概率性软让路(让路概率 25%×连击→90% 封顶, sleep 30ms×2^k→480ms 封顶 ±25% 抖动, 发生在 acquireGlobalSlot 之后持槽等待=天然收紧新请求准入, 与 pathJitter 同点位同语义; 连击低于低水位即复位); 缺省启用属保护性护栏, 原 heapUsed>1.5GB 检查逐字节保留=双保险; soft 幅度 ≤600ms 远低于 GlobalSemTimeout 30s 不会推爆信号量等待者; 软阈值≥硬阈值的退化配置下软档自然不可达无需钳制
+- [R31-2b-留档免修] ①503 空/短 body 网关页被 looksBlocked 启发式排除出轨失败判定(isProxyTrackGatewayFailure 对 503 取"非拦截面"保守口径, 502/504 恒判才是主信号, 偏差方向安全) ②A 轨半开到期瞬时并发探测可一次推进多档 fails(方向安全=坏轨更久跳过, 未加探测闩避免复杂化) ③cfg.headers 显式 Referer 被既有 origin 兜底覆盖属 R31-2 之前既有行为(与开关无关, 冒烟 C6 断言开/关同语义), 改动会变更生产请求头故留档
+- [R31-2b-冒烟] r31-2b-tmp-smoke.ts(bun 直跑, 编排器 spawn 6 相位子进程各带 env, 本地 Bun.serve 桩 3971/3972 双端口, 零真实站请求, 用后已删): 50 PASS / 0 FAIL —— A 相 9(关闭态 Referer=origin 兜底/无链注入/恰 1 次命中/502 双发=2/双账本空) B 相 19(A 轨 2 成功闭合→3 连败熔断→熔断期包裹冻结直连接管→半开 400ms 放行失败翻倍 800ms→桩恢复半开探测成功闭合; B 轨账本原语+间隔翻倍) C 相 11(同 host 第二请求 Referer=第一成功 URL/TTL 过期读删回退/FIFO 512 驱逐最旧逐最新留/规则 refererUrl 优先/显式头不接管) D 相 3(quick-skip 网关 502 跳 curl: 命中 1 vs 关闭态 2) E 相 4(RSS 400MB>300MB 高水位双并发同窗口 800ms/解除直通/heapUsed 5s 旧路径仍生效) F 相 4(软让路 22→45ms 递增/解除复位/恢复重起步); 冒烟桩事故自纠: 同 origin 桩触发 R30-3-1 自指防护致 B 相首跑全红(非产品 bug), 分端口后全绿; FETCH_RSS_* 测试值曾低于护栏钳制下限(STOP≥256/SOFT≥128)致 E/F 相首跑空转, 调高后全绿
+- 纪律合规: 只改 src/lib/crawl/fetcher.ts(+80/-3 带 [R31-2b-x] 注释, 累计 diff +297/-8 含前任 R31-2)+临时冒烟脚本已删; 未跑 lint/tsc(留主控串行), bun 直跑 import 8+ 次全过=语法门; 未重启 dev server(3000)/未杀进程/未装包/git 只读; runner.ts/parser.ts/builtin-rules.ts/src/app/**/src/components/** 零触碰
+
+Stage Summary:
+- 前任 R31-2 收口完成: 3 处就地修(日志噪音收窄/测试出口补全/condCache 64KB)+50/0 冒烟全绿, R31-2-1/2/3 三特性"冒烟待跑"状态闭环
+- RSS 背压护栏上线: 双阈值(RSS 2048/1536MB 缺省)+双保险(heapUsed 旧路径保留), 全部 env 可覆盖, 直击 R31-1 实锤"heapUsed 拦不住 RSS 增长"的 OOM 防线缺口
+- 遗留移交: ①B 轨(exit|代理池)端到端冒烟未覆盖(需真实 HTTP 代理桩回环外目标, 已以 debug 出口原语+审读覆盖, trip→markProxyFailed→isProxyAvailable 跳轨链路留后续轮) ②[留档免修]三项见 Work Log
+---
+Task ID: R31(主控)
+Agent: main-orchestrator
+Task: R31 总控 — 全面审查 + 采集/反反爬再增强 + 逐行深抓bug + 清理精简 + 质量门 + E2E + commit
+
+Work Log:
+- [R31-0] 侦察+环境恢复: R28/R30 已提交确认(旧摘要滞后); dev server 第4次 OOM 实锤(dmesg 2.33GB next-server 被杀)+chrome 残骸清理+恢复; 用户2任务成僵尸 running; 无孤儿恢复机制确认; 反反爬现状盘点
+- [R31-1] Agent A 只读全面审查(/tmp/r31-audit/audit-report.md, P0×4/P1×7/P2×7): OOM 根因链=dev(Turbopack)长跑1.7GB空闲基线+采集瞬态+背压只看 heapUsed 拦不住 RSS; 僵尸任务=恢复机制懒触发无人开后台则无限滞留; tasks/[id] 全量 progress 12MB 被 2s 轮询; 鉴权66路由/XSS11出口/SSRF 复核全通过; fetcher 14全局缓存均有界
+- [R31-2→2b] Agent B 落盘+222行(代理轨健康分 FETCH_PROXY_HEALTH/同站Referer链 FETCH_REFERER_CHAIN/快速跳轨 FETCH_TRACK_QUICK_SKIP, 全缺省关)后超时; Agent B2 收口: 逐 hunk 过审+4修复([R31-2b-1]熔断warn降噪/[R31-2b-2]debug出口补note/[R31-2b-3]condCache 256KB→64KB/[R31-2b-4]RSS背压升级) + 冒烟 50 PASS/0 FAIL; RSS背压: 高水位 FETCH_RSS_STOP_MB(2048)暂停窗口+低水位 FETCH_RSS_SOFT_MB(1536)软让路(25%→90%/30-480ms抖动), 缺省启用, 原 heapUsed 检查保留双保险
+- [R31-3] Agent C: 新建 src/lib/crawl/recovery.ts(176行, 条件翻转 running→interrupted, 进程内探针防误伤, 幂等, TaskLog warn 快照) + src/instrumentation.ts(register() 启动钩子); [R31-3-1]runner:1053+[R31-3-2]runner:1151 GlobalSemTimeout 列表/书籍页豁免(R30-3b 遗留清零); 冒烟 43 PASS; 事故如实留档(首版测试桩误翻转用户2行, 当场逐字节回滚+删测试日志)
+- [R31-4] Agent D: [R31-4-1]tasks/[id] GET 复用 slimTaskProgressJson(12MB→64KB截断+progressTruncated 标记, 兼容信封不变) + [R31-4-2]reading-memory pruneBeyondMax(localStorage LRU 50条真落地); 冒烟 21 PASS; 鉴权/XSS/SSRF/定时器全量复核通过
+- [R31-5] Agent E2: interrupted 状态全链路接线 5 文件(helpers TaskStatus+META/_shared TASK_STATUSES 七值/restore 白名单/Dashboard 图表色+ORDER/TasksSection 零改动核验) + runner 内存四连修([R31-5-1]listFields 采完即删 [R31-5-2]runtimes 终态四集合 clear+dirty false [R31-5-3]urls 双份驻留置空 [R31-5-4]existTitleMap 键加 volume); 冒烟 34 PASS
+- [R31-6] Agent F: [R31-6-1]TaskMonitor 单interval合批错相(详情2s必拉/日志4s增量, 60→45 req/min) + [R31-6-2]admin 桶 60→120(ADMIN_RATE_LIMIT_PER_MIN 可配) + [R31-6-3]Retry-After 精确计算 + [R31-6-4/5]auth 生产 fail-closed(哨兵密码+密钥 throw+verifySession 恒401, dev 逐字节不变 audit-fix-2025 可用) + [R31-6-6]preview-hint 生产网关404; 轮询预算表全≤80%红线; 冒烟 52 PASS(含 auth 三态子进程)
+- [R31-7] Agent G: scripts 归档 verify-r21(759行)+verify-r22(1143行)→scripts/archive(出 tsc 门禁面) + [R31-7-2]TaskLog 修剪 60s 节流(2s轮询每GET一次deleteMany→节流) + SiteHeader 2292行→60行组合入口+header/14文件2367行(12文件逐字节 EXACT 机械搬移证明) + 死代码零实删(37候选全为活代码, 37个un-export留专项)
+- [R31-8] 主控收尾: [R31-8-1]runner log() 修剪检查 30s/task 节流(写放大≈1131 count/书→每30s一次, FIFO512) + lint 3 错修复(header 拆分残留未用导入×3) + tsc 1 错修复([R31-2b-2] 返回类型补 note); 串行质量门 lint 0/0 + tsc 0
+- [R31-E2E] dev 重启(激活全部改动, instrumentation 就位—用户2任务已被既有 recoverOnBoot 于16:23 回收为 paused, 新机制作启动期兜底) → agent-browser: 登录门→后台(健康API 8服务 reachable+selfTestOk; 任务区 已暂停 徽章+启动可用=断点续采语义正确)→前台首页(SiteHeader 拆分后组合入口全渲染)/book/4.html(TDK SSR 正常)→阅读页 88段落4400字→375px 零横滚; dev.log 零错误零429; chrome 已清
+- [R31-git] 本轮全部改动提交(见 commit message)
+
+Stage Summary:
+- OOM 防线纵深: RSS 背压双阈值(缺省启用)+runner 内存四连修+tasks/[id] 轮询瘦身+TaskLog 双节流+日志修剪节流; P0-1「dev→生产构建」因沙箱禁令(never use bun run build)不可执行, 以 P0-2+内存修复补偿, 已留档
+- 僵尸任务闭环: instrumentation 启动期恢复(新)+recoverOnBoot 惰性恢复(既有)双保险, interrupted 一等状态(白名单5文件), 用户2任务已回收 paused 可断点续采
+- 反反爬新增3项(全缺省关): 代理轨健康分熔断+半开递增 / 同站Referer链(FIFO512+30min TTL 与Cookie会话联动失效) / 网关错误快速跳轨
+- admin 体验: 随机429根因消除(轮询错相+桶120+Retry-After); auth 生产 fail-closed 而 dev 零变化
+- 清理: SiteHeader 2292→60行+14文件 / scripts 1902行出 tsc 门禁面 / 零行为变化验证(12文件逐字节EXACT)
+- 质量门 lint 0/0 + tsc 0 + E2E 全绿 + agent 冒烟累计 200 PASS/0 FAIL(50+43+21+34+52)
+- 遗留移交: ①37个 un-export 专项批次 ②B轨出口代理池端到端冒烟需真实代理桩 ③control/batch 路由 FINAL_STATUSES 可选加 interrupted ④git push 仍需用户认证环境(R21 同因, 沙箱无凭据)

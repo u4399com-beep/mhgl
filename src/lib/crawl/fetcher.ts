@@ -749,6 +749,50 @@ const globalForOom = globalThis as unknown as { __novelOomBackpressure_v1?: OomB
 const oomBackpressure: OomBackpressure = globalForOom.__novelOomBackpressure_v1 ?? { active: false, until: 0 }
 globalForOom.__novelOomBackpressure_v1 = oomBackpressure
 
+// [R31-2b-4] RSS 维度双阈值背压(保护性护栏, 缺省启用; R8-19 heapUsed 检查原样保留=双保险):
+// 动机 —— heapUsed 拦不住 heap 外内存(Turbopack dev 基线/Prisma 引擎/native buffer 都不计入
+// heapUsed), R31-1 实录 4 次 next-server OOM kill(anon-rss 2.12~2.67GB)时 heapUsed 远未到
+// 1.5GB 阈值, 既有背压全程未触发。两档:
+//  高水位 FETCH_RSS_STOP_MB(缺省 2048, 下限 256): 暂停新请求窗口 FETCH_RSS_PAUSE_MS
+//   (缺省 8000, 钳 [500,60000]), 协调机制复用 R8-19 同款(第一发现者睡满窗口并置标志,
+//   并发请求等窗口结束不重复睡);
+//  低水位 FETCH_RSS_SOFT_MB(缺省 1536): 对新发起请求概率性让路 —— 让路概率随持续压力
+//   递增(25%→90% 封顶), 让路 sleep 幅度随压力翻倍(30ms→480ms 封顶)±25% 抖动, 收紧引擎
+//   有效并发(让路发生在 acquireGlobalSlot 之后, 持槽等待天然减少新请求准入, 与 pathJitter
+//   同点位同语义)。软阈值高于硬阈值的退化配置下软档自然不可达(hard 优先), 无需额外钳制。
+interface MemoryBackpressureWindow { active: boolean; until: number }
+const globalForRssBp = globalThis as unknown as {
+  __novelRssBackpressure_v1?: MemoryBackpressureWindow
+  __novelRssSoftStreak_v1?: { streak: number }
+}
+const rssBackpressure: MemoryBackpressureWindow = globalForRssBp.__novelRssBackpressure_v1 ?? { active: false, until: 0 }
+globalForRssBp.__novelRssBackpressure_v1 = rssBackpressure
+const rssSoftStreak = globalForRssBp.__novelRssSoftStreak_v1 ?? { streak: 0 }
+globalForRssBp.__novelRssSoftStreak_v1 = rssSoftStreak
+
+const RSS_STOP_MB = Math.max(256, Number(process.env.FETCH_RSS_STOP_MB) || 2048)
+const RSS_SOFT_MB = Math.max(128, Number(process.env.FETCH_RSS_SOFT_MB) || 1536)
+const RSS_PAUSE_MS = Math.min(60_000, Math.max(500, Number(process.env.FETCH_RSS_PAUSE_MS) || 8_000))
+const RSS_STOP_BYTES = RSS_STOP_MB * 1024 * 1024
+const RSS_SOFT_BYTES = RSS_SOFT_MB * 1024 * 1024
+
+/** RSS 低水位软让路(仅 fetchPage 调用): rss≤低水位重置连击并直通; 超低水位按连击概率性
+ *  sleep(持有全局信号量槽位 → 有效并发收紧)。幅度有界 ≤600ms, 远低于 GlobalSemTimeout 30s,
+ *  不会把并发等待者推入信号量超时 */
+async function maybeRssSoftThrottle(rssBytes: number): Promise<void> {
+  if (rssBytes <= RSS_SOFT_BYTES) {
+    rssSoftStreak.streak = 0
+    return
+  }
+  rssSoftStreak.streak++
+  // 概率性让路: 压力初期少数请求让路(25%), 持续压力下趋近全量(90% 封顶, 保留探测流量)
+  const yieldProb = Math.min(0.9, 0.25 * rssSoftStreak.streak)
+  if (Math.random() >= yieldProb) return
+  const base = Math.min(480, 30 * Math.pow(2, Math.min(rssSoftStreak.streak - 1, 4)))
+  const delay = Math.round(base * (0.75 + Math.random() * 0.5))
+  if (delay > 0) await new Promise((r) => setTimeout(r, delay))
+}
+
 async function acquireGlobalSlot(limit: number): Promise<void> {
   if (globalSem.inFlight < limit) {
     globalSem.inFlight++
@@ -1039,15 +1083,18 @@ function detectTrapSignals(html: string): { trapGapMs: number; noindex: boolean;
  * 仅 native/relay 传输(fetchHttp)启用; curl 链不注入条件头。304 命中返回缓存 html
  * —— 不算失败、不进重试/退避链。增量续采(目录页周期性复查)/镜像重试等重复抓取场景
  * 显著省带宽且对站点更友好(真实浏览器二次导航同样发条件头, 指纹无害)。
- * 缓存有界: 256 条 × body ≤256KB × TTL 10min; UA+Cookie 变体隔离(登录态/挑战 cookie
+ * 缓存有界: 256 条 × body ≤64KB × TTL 10min; UA+Cookie 变体隔离(登录态/挑战 cookie
  * 内容差异不串缓存); token 预取/challenge 求解/contentProxy 路径显式禁用(要求每次新响应)。
+ * [R31-2b-3] body 上限 256KB→64KB(R31-1 审计 P1-7: 最坏 256×256KB=64MB 驻留; 304 命中
+ * 收益随体积递减, >64KB 的页面本就该整页重抓 —— 驻留上限收紧到 256×64KB=16MB)。
  * 注: FetchConfig 接口在 types.ts(本轮只读分区), 以交叉类型 FetchCfgOpt 读取可选开关。
  */
 type FetchCfgOpt = FetchConfig & { conditionalGet?: boolean; /** [R28-4-E2] 403/429 换档重试注入的显式档位(传输态, 不进规则 JSON/sanitize) */ impersonateTierOverride?: string }
 interface CondCacheEntry { html: string; etag: string; lastModified: string; at: number }
 const COND_CACHE_MAX = 256
 const COND_CACHE_TTL_MS = 10 * 60 * 1000
-const COND_CACHE_BODY_MAX = 256 * 1024
+// [R31-2b-3] 256KB→64KB: 全库唯一消费点 fetchHttp 304 记账行(仅此一处, 无其他语义依赖 256KB)
+const COND_CACHE_BODY_MAX = 64 * 1024
 const globalForCond = globalThis as unknown as { __novelCondCache_v1?: Map<string, CondCacheEntry> }
 const condCache: Map<string, CondCacheEntry> = globalForCond.__novelCondCache_v1 ?? new Map()
 globalForCond.__novelCondCache_v1 = condCache
@@ -1596,6 +1643,68 @@ function mergedCookiePairs(sources: Array<string | undefined>): Map<string, stri
   return merged
 }
 
+// ---------- [R31-2-2] 同站 Referer 链(FETCH_REFERER_CHAIN=1, 缺省关, 关闭态行为零变化) ----------
+/**
+ * 场景: 既有 Referer 逻辑只有两档 —— 规则 refererChain 运行时注入(refererUrl)或站点 origin
+ * 兜底; 后者对同站深链请求(章节页/书籍页)恒发"站点 origin", 与真人浏览路径(目录页→书籍页→
+ * 章节页, Referer 逐级回溯)不符, 固定 origin 的裸 Referer 本身是可聚类的爬虫指纹。
+ * 开启后按 host 记住最近一次成功页 URL(进程级 globalThis 防 HMR, FIFO 512 上限 + 30min TTL
+ * —— TTL 与 Cookie 会话 COOKIE_SESSION_TTL_MS 同口径: 会话态失效则 Referer 链条同步失效),
+ * 后续同 host 请求以它为 Referer(fingerprintHeadersFor 的 Sec-Fetch-Site 随之同源化, 更像
+ * 站内跳转); 无记录/TTL 过期回退既有 origin 兜底。记账点仅在 fetchPage 最终成功页(!blocked)
+ * —— token 预取/挑战求解/封面等辅链不记账。显式失效联动: ff-b③"陈旧会话被拒清罐"处同 host
+ * 链条一并丢弃(fetchPageOnce 内, 与 Cookie 会话绑定口径一致)。优先级不变: 规则显式
+ * refererUrl(refererChain) > cfg.headers 显式 Referer > 自动链 > origin 兜底。
+ */
+const REFERER_CHAIN_ENABLED = process.env.FETCH_REFERER_CHAIN === '1'
+/** FIFO 容量上限(同 hostRhythm/chainMemory/proxySticky 口径) */
+const REFERER_CHAIN_CAP = 512
+/** 条目 TTL: 与 Cookie 会话 TTL(COOKIE_SESSION_TTL_MS=30min)对齐 —— 会话失效口径一致 */
+const REFERER_CHAIN_TTL_MS = 30 * 60 * 1000
+interface RefererChainEntry { url: string; at: number }
+const globalForRefererChain = globalThis as unknown as { __novelRefererChain_v1?: Map<string, RefererChainEntry> }
+const refererChain: Map<string, RefererChainEntry> = globalForRefererChain.__novelRefererChain_v1 ?? new Map()
+globalForRefererChain.__novelRefererChain_v1 = refererChain
+
+function refererChainGet(host: string): string {
+  if (!host) return ''
+  const e = refererChain.get(host)
+  if (!e) return ''
+  if (Date.now() - e.at >= REFERER_CHAIN_TTL_MS) { refererChain.delete(host); return '' }
+  return e.url
+}
+
+/** 成功页记账(fetchPage 专用): 覆盖该 host 最近成功 URL; FIFO 有界防泄漏 */
+function refererChainNote(url: string): void {
+  const host = hostKeyOf(url)
+  if (!host) return
+  while (refererChain.size >= REFERER_CHAIN_CAP) {
+    const oldest = refererChain.keys().next().value
+    if (oldest === undefined) break
+    refererChain.delete(oldest)
+  }
+  refererChain.set(host, { url, at: Date.now() })
+}
+
+/** 会话失效联动(ff-b③ 清罐路径调用): 同 host 链条一并失效 */
+function refererChainDrop(host: string): void {
+  if (host) refererChain.delete(host)
+}
+
+/** @internal R31-2/R31-2b 冒烟/诊断专用测试出口(同 R30-3b-3 "导出供验证脚本单测"库内先例):
+ *  只读快照+受控记账+清空, 不改变任何既有导出签名与行为 */
+export function __r31RefererChainDebug(): { size(): number; get(host: string): string; note(url: string): void; reset(): void } {
+  return {
+    size: () => refererChain.size,
+    get: (host: string) => refererChainGet(host),
+    // [R31-2b-2] 补充受控记账出口: FIFO 512 驱逐/TTL 边界的冒烟无法靠 513 次真实抓取构造,
+    // 复用 refererChainNote 本体(生产同一路径)灌账; 不新增状态不绕过容量约束
+    note: (url: string) => refererChainNote(url),
+    reset: () => refererChain.clear(),
+  }
+}
+
+
 /** 头组构造(HTTP 内容链专用; ff-b 增强①: opts.fingerprint=true 时注入完整浏览器指纹头组)
  *  - 指纹纪律: 仅 fetchHttp(逐跳)/fetchViaCurl 传入 fingerprint —— 裸 Playwright 链
  *    (renderWithBrowser)与 fetchBinary 刻意不传: 真浏览器自发自洽的原生 sec-ch-ua/Sec-Fetch-*,
@@ -1622,13 +1731,22 @@ function buildHeaders(url: string, cfg: FetchConfig, ua: string, opts?: { finger
     // 常驻发送本身是爬虫指纹且禁用中间缓存白耗带宽; cfg.headers 显式配置仍可覆盖回来
   }
   const chainReferer = cfg.refererChain && cfg.refererUrl ? cfg.refererUrl : ''
+  // [R31-2-2] 同站 Referer 链消费(FETCH_REFERER_CHAIN=1, 缺省关): 无规则注入链 Referer 且
+  // 规则未显式配置 Referer 头/cfg.referer!==false 时, 以同 host 最近一次成功页为 Referer;
+  // 开关关闭时 autoChainReferer 恒空串, 生效值与旧逻辑逐字节等价
+  let autoChainReferer = ''
+  if (REFERER_CHAIN_ENABLED && !chainReferer && cfg.referer !== false) {
+    const hasExplicitReferer = Object.keys(cfg.headers || {}).some((k) => k.toLowerCase() === 'referer')
+    if (!hasExplicitReferer) autoChainReferer = refererChainGet(hostKeyOf(url))
+  }
+  const effReferer = chainReferer || autoChainReferer
   if (opts?.fingerprint) {
     // 指纹头组按【实际选中 UA】+【生效 Referer】推导(Sec-Fetch-Site 语义依赖后者);
     // 先于 cfg.headers 合并 —— 规则显式配置的头永远最优先
-    Object.assign(headers, fingerprintHeadersFor(ua, chainReferer || origin, url))
+    Object.assign(headers, fingerprintHeadersFor(ua, effReferer || origin, url))
   }
   Object.assign(headers, cfg.headers)
-  if (chainReferer) headers.Referer = chainReferer
+  if (effReferer) headers.Referer = effReferer
   else if (cfg.referer !== false && origin) headers.Referer = origin
   // Cookie 合并去重: 同名键以罐中值(服务端最新 Set-Cookie)为准, 避免拼出 "a=1; a=9" 重复 Cookie 头
   // [R22-e-6]: 解析收敛到 mergedCookiePairs(控制字符剥除, native 链 Headers 不再被脏值炸抛)
@@ -2157,6 +2275,95 @@ function isProxyNetworkError(e: any): boolean {
   return true
 }
 
+// ---------- [R31-2-1] 代理轨健康分与自动降权(FETCH_PROXY_HEALTH=1, 缺省关, 关闭态行为零变化) ----------
+/**
+ * 场景: 引擎链的"代理轨"有两类, 持续坏轨时既有逻辑每请求都要先空跑一跳再降级(dev.log 实锤:
+ * deqixs 代理轨持续 502 时每章先吃一跳代理 502 再"降级直连原 URL"; 签名出口代理网关 502 形态
+ * 同理且按既有口径"带 status=源站响应=代理健康"永不冷却):
+ *  A 轨 = contentProxyUrl 转换代理轨(fetchPageOnce 包裹路径) —— 轨坏时每章白打一跳必败请求;
+ *  B 轨 = 出口代理池轨(fetchHttpWithCurlFallback 逐代理循环) —— 网关型 5xx(502/504, 及无挑战
+ *         特征的 503)按既有口径算"代理健康"不冷却, 坏上游代理被每请求重试。
+ * 开启后按轨记账, 连续失败 ≥ PROXY_TRACK_FAILS_TO_TRIP 次熔断跳轨:
+ *  A 轨: 直接跳过包裹落既有"降级直连原 URL"路径(省必败一跳); 半开间隔到期自动放行一次探测,
+ *        失败间隔翻倍(BASE×2^k 递增, 上限 10min)、成功即闭合(账本自管间隔; BASE 可经
+ *        FETCH_PROXY_HEALTH_OPEN_MS 调, 缺省 60s, 冒烟验证用小值);
+ *  B 轨: 复用 markProxyFailed 指数退避冷却(30s→300s) —— isProxyAvailable 过滤=跳轨, 冷却
+ *        到期重探=半开, markProxySucceeded 清零=恢复, 与既有网络层失败冷却同一账本口径。
+ * 与既有机制协同/不重复记账声明: ①键前缀隔离(cpx|<contentProxyUrl 模板> / exit|<代理串>),
+ * 轨账本只存"网关型连败计数+半开间隔", 冷却的单一权威仍是 proxyState.failedUntil(B 轨) /
+ * 自身 openUntil(A 轨), 互不重叠; ②hostgate 按目标 host 熔断, 本特性按代理轨熔断, 维度正交;
+ * ③403/429 源站级拒绝不算轨失败(既有 break 分支语义不变); ④PROXY_HEALTH_SCORING 的健康分
+ * 窗口记账行(recordProxyOutcome)零触碰, 两信号正交(传输层健康 vs 上游链路健康); ⑤"toc 合成
+ * URL 即代理 URL"形态(deqixs/bqg713/qidian/xjp, 目标=代理本身)无可跳之轨, A 轨熔断不适用
+ * (该形态收益由 [R31-2-3] 快速通道承接); ⑥A 轨跳过后直连成功不闭合熔断(直连健康不代表代理轨
+ * 恢复, 恢复只认半开探测)。
+ */
+const PROXY_TRACK_HEALTH_ENABLED = process.env.FETCH_PROXY_HEALTH === '1'
+/** 连续失败 N 次熔断跳轨 */
+const PROXY_TRACK_FAILS_TO_TRIP = 3
+/** A 轨熔断半开探测基础间隔(FETCH_PROXY_HEALTH_OPEN_MS 可调, 下限 250ms) */
+const PROXY_TRACK_OPEN_BASE_MS = Math.max(250, Number(process.env.FETCH_PROXY_HEALTH_OPEN_MS) || 60_000)
+/** A 轨熔断半开间隔上限(10min) */
+const PROXY_TRACK_OPEN_MAX_MS = 600_000
+const PROXY_TRACK_STATE_CAP = 512
+interface ProxyTrackState { fails: number; openUntil: number }
+const globalForProxyTrack = globalThis as unknown as { __novelProxyTrackHealth_v1?: Map<string, ProxyTrackState> }
+const proxyTrackHealth: Map<string, ProxyTrackState> = globalForProxyTrack.__novelProxyTrackHealth_v1 ?? new Map()
+globalForProxyTrack.__novelProxyTrackHealth_v1 = proxyTrackHealth
+
+/** 轨当前是否熔断(应跳过): openUntil 未到=true; 到期=半开放行一次(由后续 note 定闭合/再开) */
+function proxyTrackOpen(track: string): boolean {
+  const s = proxyTrackHealth.get(track)
+  if (!s) return false
+  return Date.now() < s.openUntil
+}
+
+/** 轨结果记账: ok=true 闭合(删账); ok=false 连败自增, 达阈值按连败深度指数拉开半开间隔 */
+function proxyTrackNote(track: string, ok: boolean): void {
+  if (!track) return
+  if (ok) { proxyTrackHealth.delete(track); return }
+  const s = proxyTrackHealth.get(track) || { fails: 0, openUntil: 0 }
+  s.fails++
+  if (s.fails >= PROXY_TRACK_FAILS_TO_TRIP) {
+    s.openUntil = Date.now() + Math.min(
+      PROXY_TRACK_OPEN_MAX_MS,
+      PROXY_TRACK_OPEN_BASE_MS * Math.pow(2, s.fails - PROXY_TRACK_FAILS_TO_TRIP),
+    )
+  }
+  // FIFO 有界(同 proxyState/hostRhythm 口径; 记账中的轨若恰为最旧, 先删后设=顺序刷新, 语义不变)
+  while (proxyTrackHealth.size >= PROXY_TRACK_STATE_CAP) {
+    const oldest = proxyTrackHealth.keys().next().value
+    if (oldest === undefined) break
+    proxyTrackHealth.delete(oldest)
+  }
+  proxyTrackHealth.set(track, s)
+}
+
+/** [R31-2-1/3] 网关型状态错误判定(纯函数, 两开关共用): 502/504 恒判(目标站基本不产这两态,
+ *  属代理/网关层产物); 503 仅在响应体无拦截/挑战特征时判(WAF 维护壳是站点侧 503, 不算轨
+ *  失败); 其余状态(4xx/500/3xx)与无 status 的网络层错误(另有 isProxyNetworkError 口径)不算 */
+function isProxyTrackGatewayFailure(e: any): boolean {
+  const st = e?.status
+  if (st === 502 || st === 504) return true
+  if (st === 503) return !looksBlocked(String(e?.bodyHtml || ''), { status: 503 })
+  return false
+}
+
+/** @internal R31-2 冒烟/诊断专用测试出口(同 R30-3b-3 先例): 只读快照+手动记账+清空 */
+export function __r31ProxyTrackDebug(): {
+  tracks(): Array<{ track: string; fails: number; openUntil: number; open: boolean }>
+  note(track: string, ok: boolean): void
+  open(track: string): boolean
+  reset(): void
+} {
+  return {
+    tracks: () => Array.from(proxyTrackHealth.entries()).map(([track, s]) => ({ track, fails: s.fails, openUntil: s.openUntil, open: proxyTrackOpen(track) })),
+    note: (track: string, ok: boolean) => proxyTrackNote(track, ok),
+    open: (track: string) => proxyTrackOpen(track),
+    reset: () => proxyTrackHealth.clear(),
+  }
+}
+
 /**
  * 代理选路(三链路单一收敛点, 返回本次请求使用的代理, ''=直连):
  * - 未配置 / 目标回环 → 直连
@@ -2520,7 +2727,7 @@ async function fetchHttp(url: string, cfg: FetchConfig, ua: string, proxy = '', 
         // 实际产出响应体、延迟真正归属的目标
         reportHostLatency(hopUrl, Date.now() - hopT0)
       }
-      // [R9-a-13] B1: 记录响应校验器供下次条件请求(仅未拦正文 + 256KB 内; 挑战壳/超大响应不入缓存)
+      // [R9-a-13] B1: 记录响应校验器供下次条件请求(仅未拦正文 + 64KB 内[R31-2b-3, 原 256KB]; 挑战壳/超大响应不入缓存)
       if (condKey) {
         const etag = res.headers.get('etag') || ''
         const lastModified = res.headers.get('last-modified') || ''
@@ -3399,6 +3606,9 @@ async function fetchViaScraplingBridge(url: string, cfg: FetchConfig, mode: Scra
   return null
 }
 
+// [R31-2-3] 网关型错误快速通道开关(FETCH_TRACK_QUICK_SKIP=1, 缺省关, 语义见 fetchHttpWithCurlSingle 内注)
+const QUICK_SKIP_ENABLED = process.env.FETCH_TRACK_QUICK_SKIP === '1'
+
 /** 单代理(或直连)单次尝试: bun fetch 失败(网络错误/4xx/5xx)时自动落 curl 子进程。
  *  超时(AbortError)不落 curl: 同超时下 curl 也救不了, 白等。
  *  挑战壳(200+JS跳转)不在此处理, 由上层 Cookie 重试/浏览器升级链负责。
@@ -3459,6 +3669,13 @@ async function fetchHttpWithCurlSingle(url: string, cfg: FetchConfig, ua: string
         // DNS 重试仍失败, 落 curl 兜底(下方逻辑)
       }
     }
+    // [R31-2-3] 网关型错误快速通道(FETCH_TRACK_QUICK_SKIP=1, 缺省关): native 已拿到目标侧/
+    // 网关侧明确响应(502/504, 或无挑战特征的 503 —— 判定见 isProxyTrackGatewayFailure)时,
+    // 同轨 curl 重发几乎必得同响应(对方已给出 HTTP 响应, TLS 指纹已无关), 跳过该轨的 curl
+    // 后续重试直接上抛交上层(下一代理/降级直连接管)。错误语义与既有"curl 兜底也失败 →
+    // if(e?.status) throw e"终态一致(同一错误对象), 仅省必败一跳; 关闭时本块不执行, 行为不变。
+    // node+proxy 的 relay 轨已有同款短路(!RelayTransportError 直接 throw), 不重复
+    if (QUICK_SKIP_ENABLED && isProxyTrackGatewayFailure(e)) throw e
     if (!curlTriedFirst) {
       try {
         const r = await fetchViaCurl(url, cfg, ua, proxy)
@@ -3601,6 +3818,8 @@ export async function fetchHttpWithCurlFallback(url: string, cfg: FetchConfig, u
       const result = await fetchHttpWithCurlSingle(url, cfg, ua, proxy)
       // R4-3: 代理请求成功 → 清零连续失败计数, 让指数退避在代理恢复后立即解除
       markProxySucceeded(proxy)
+      // [R31-2-1]: 代理轨闭合(网关型连败账清零; 开关关闭时本行跳过, 零行为变化)
+      if (PROXY_TRACK_HEALTH_ENABLED) proxyTrackNote(`exit|${proxy}`, true)
       // [R9-e-2]: 记录成功样本(传输层通, 延迟为本次尝试墙钟)
       recordProxyOutcome(proxy, true, Date.now() - attemptT0)
       // [R28-4-E6]: sticky-host 成功反馈(粘滞条目连败清零)
@@ -3631,6 +3850,22 @@ export async function fetchHttpWithCurlFallback(url: string, cfg: FetchConfig, u
         proxyStickyNote(url, proxy, false)
         console.warn(`[fetcher] 代理网络层失败+指数退避冷却(${redactProxy(proxy)}): ${String(e?.message || e).slice(0, 140)}`)
       } else {
+        // [R31-2-1] 网关型 5xx 轨失败记账(FETCH_PROXY_HEALTH=1, 缺省关): 既有口径把带 status
+        // 的 5xx 一律视"代理健康", 坏上游代理(持续 502)被每请求空跑; 开启后网关型错误连败
+        // 计账, 达阈值 markProxyFailed 熔断(指数退避冷却=半开递增试探, isProxyAvailable 跳轨,
+        // 成功清零=恢复), 冷却权威仍是 proxyState.failedUntil 单一账本, 不重复记账
+        if (PROXY_TRACK_HEALTH_ENABLED) {
+          const trackKey = `exit|${proxy}`
+          if (isProxyTrackGatewayFailure(e)) {
+            proxyTrackNote(trackKey, false)
+            if (proxyTrackOpen(trackKey)) {
+              markProxyFailed(proxy)
+              console.warn(`[fetcher] 代理轨熔断(网关型 5xx 连续 ${PROXY_TRACK_FAILS_TO_TRIP} 次), 冷却期跳过该轨: ${redactProxy(proxy)}`)
+            }
+          } else {
+            proxyTrackNote(trackKey, true)
+          }
+        }
         // [R9-e-2]: 源站 4xx/5xx = 传输层通(代理健康, 与"不冷却"同口径)记成功样本
         recordProxyOutcome(proxy, true, Date.now() - attemptT0)
         // [R28-4-E6]: 代理本身健康(源站响应), sticky 连败清零
@@ -3918,13 +4153,42 @@ export async function fetchPage(url: string, cfgOverride?: Partial<FetchConfig>)
         }
       } catch { /* memoryUsage 失败容忍 */ }
 
+      // [R31-2b-4] RSS 维度背压(缺省启用, 保护性护栏; 上方 heapUsed 检查原样保留=双保险):
+      // 高水位 → R8-19 同款暂停窗口; 低水位 → 概率性软让路(见 maybeRssSoftThrottle 段注)。
+      // 与 heapUsed 检查同为每请求一次同步 memoryUsage, 开销可忽略
+      try {
+        const rss = process.memoryUsage().rss
+        if (rss > RSS_STOP_BYTES) {
+          if (!rssBackpressure.active) {
+            // 第一发现者: 置标志 + 睡满窗口(给 GC/native 侧回收让出调度窗口)
+            rssBackpressure.active = true
+            rssBackpressure.until = Date.now() + RSS_PAUSE_MS
+            console.warn(`[fetcher] 内存压力(RSS=${Math.round(rss / 1024 / 1024)}MB > 高水位${RSS_STOP_MB}MB), 暂停 ${RSS_PAUSE_MS}ms(并发请求将等待本窗口结束)`)
+            await new Promise((r) => setTimeout(r, RSS_PAUSE_MS))
+            rssBackpressure.active = false
+          } else {
+            // 后续并发请求: 等待当前窗口结束(不重复睡, 同 R8-19 口径)
+            const remain = rssBackpressure.until - Date.now()
+            if (remain > 0) await new Promise((r) => setTimeout(r, remain))
+          }
+        } else {
+          await maybeRssSoftThrottle(rss)
+        }
+      } catch { /* memoryUsage 失败容忍 */ }
+
       // 2-fetcher Part A: SSRF 守卫 —— 默认禁止抓取内部/元数据/私网地址; loopback 仅对
       // 操作员配置的 tokenUrl(127.0.0.1:301x)/fetch-relay/scrapling bridge 内部调用放行
       const allowLoopback = loopbackBypassAllowed(url, cfg)
       const ssrf = await assertSafeTarget(url, { allowLoopback })
       if (!ssrf.ok) throw new Error(`SSRF blocked: ${ssrf.reason}`)
       const group = mirrorGroupFor(url, cfg)
-      if (group.length <= 1) return await fetchPageOnce(url, cfg)
+      // [R31-2-2] 同站 Referer 链记账(FETCH_REFERER_CHAIN=1, 缺省关): 最终成功且未被拦的页面
+      // 记为该 host 的最近成功 URL(供 buildHeaders 作同站 Referer); 开关关闭零开销零行为变化
+      if (group.length <= 1) {
+        const r = await fetchPageOnce(url, cfg)
+        if (REFERER_CHAIN_ENABLED && !r.blocked) refererChainNote(url)
+        return r
+      }
       let lastErr: unknown = null
       for (let i = 0; i < group.length; i++) {
         const hostUrl = rewriteMirrorHost(url, group[i])
@@ -3940,7 +4204,10 @@ export async function fetchPage(url: string, cfgOverride?: Partial<FetchConfig>)
           continue
         }
         try {
-          return await fetchPageOnce(hostUrl, cfg)
+          const r = await fetchPageOnce(hostUrl, cfg)
+          // [R31-2-2]: 镜像轨成功页同样记账(键=实际抓取 host)
+          if (REFERER_CHAIN_ENABLED && !r.blocked) refererChainNote(hostUrl)
+          return r
         } catch (e) {
           lastErr = e
           // 不可切换错误(404/3xx/其余4xx)原样上抛: 换镜像无意义, 错误语义与单 host 契约一致
@@ -4180,7 +4447,19 @@ async function fetchPageOnce(url: string, cfg: FetchConfig): Promise<FetchResult
   // host:port 与 contentProxyUrl 模板一致(= 已经是代理形态)时跳过包裹, 直接落下方原链抓取
   // (loopbackBypassAllowed 对该形态本就豁免 SSRF; R12-c2-1 的 200+JSON 信封免判同样生效;
   // bqg713 描述的"探测自指→404→引擎降级直连"最终态不变, 只是省掉必然失败的自指一跳)
-  if (contentProxyUrl && !urlMatchesTemplateOrigin(url, contentProxyUrl)) {
+  // [R31-2-1] A 轨熔断检查(FETCH_PROXY_HEALTH=1, 缺省关): 转换代理轨连续失败达阈值时跳过
+  // 本次包裹, 直接落下方既有"原 URL 直连"路径(省必败一跳); 半开间隔到期自动放行一次探测
+  // (失败翻倍/成功闭合, 见 proxyTrackHealth 段注)。"toc 合成 URL 即代理 URL"形态(deqixs 等)
+  // 在下方 urlMatchesTemplateOrigin 分支本就不包裹, 不经此判定(无可跳之轨)
+  const cpTrackKey = PROXY_TRACK_HEALTH_ENABLED && contentProxyUrl ? `cpx|${contentProxyUrl}` : ''
+  const cpTrackSkipped = !!(cpTrackKey && proxyTrackOpen(cpTrackKey))
+  // [R31-2b-1] 收口修正(前任 R31-2 审读发现, 仅日志噪音无行为差异): "toc 合成 URL 即代理 URL"
+  // 形态(deqixs 等)本就命中 urlMatchesTemplateOrigin 不包裹, 轨熔断与否控制流相同 —— 该形态
+  // 每章打"跳过包裹"warn 属误导噪音, 收窄为"确实省掉了一次本会发生的包裹"才记 warn
+  if (cpTrackSkipped && !urlMatchesTemplateOrigin(url, contentProxyUrl)) {
+    console.warn(`[fetcher] 代理轨熔断跳过 contentProxy 包裹, 直连原 URL(半开探测到期自动恢复): ${contentProxyUrl.slice(0, 120)}`)
+  }
+  if (contentProxyUrl && !cpTrackSkipped && !urlMatchesTemplateOrigin(url, contentProxyUrl)) {
     // {url} 占位符全量替换(与 prefetchToken 同款 split/join, 防 replace 只替首个多占位符漏替换)
     const proxyUrl = contentProxyUrl.split('{url}').join(encodeURIComponent(url))
     const ssrf = await assertSafeTarget(proxyUrl, { allowLoopback: true })
@@ -4204,14 +4483,20 @@ async function fetchPageOnce(url: string, cfg: FetchConfig): Promise<FetchResult
             .map((l) => `<p>${l.replace(/[<>&]/g, (c) => c === '<' ? '&lt;' : c === '>' ? '&gt;' : '&amp;')}</p>`)
             .join('')
           if (html) {
+            // [R31-2-1]: 轨成功记账(闭合熔断; 开关关闭时 cpTrackKey 为空, no-op)
+            if (cpTrackKey) proxyTrackNote(cpTrackKey, true)
             return { html, engine: 'http', blocked: false }
           }
         }
         // ok=false || content 空 → 静默降级原 URL(fetcher 注释)
         console.warn(`[fetcher] contentProxyUrl 响应未给出有效内容, 降级直连原 URL: ${String(obj?.error || 'ok/content 字段缺失').slice(0, 120)} (proxy=${proxyUrl.slice(0, 120)})`)
+        // [R31-2-1]: 无有效内容亦记轨失败(连败累计 → 熔断)
+        if (cpTrackKey) proxyTrackNote(cpTrackKey, false)
       } catch (e) {
         // 代理抓取失败/超时/JSON 解析失败 → 静默降级原 URL 直连(零回归)
         console.warn(`[fetcher] contentProxyUrl 抓取失败, 降级直连原 URL: ${String((e as Error)?.message || e).slice(0, 120)} (proxy=${proxyUrl.slice(0, 120)})`)
+        // [R31-2-1]: 轨失败记账(连败累计 → 熔断)
+        if (cpTrackKey) proxyTrackNote(cpTrackKey, false)
       }
     } else {
       // SSRF 拒绝 → 静默降级原 URL 直连(不抛, 与 token 预取失败同口径)
@@ -4373,6 +4658,10 @@ async function fetchPageOnce(url: string, cfg: FetchConfig): Promise<FetchResult
         // 重试一次(有 cookieRetries 上限兜底不死循环); 罐为空则直接 break 升级浏览器
         if (lastStatus === 403 && cookieJar.count(domain) > 0 && cookieRetries < MAX_COOKIE_RETRIES) {
           cookieJar.clear(domain)
+          // [R31-2-2] 会话失效联动(FETCH_REFERER_CHAIN=1, 缺省关): 陈旧会话被判毒清罐时,
+          // 同 host 的 Referer 链条一并丢弃(Cookie 会话与出口 IP/UA 绑定, Referer 链同属
+          // 该会话态, 罐毒则链亦毒); 开关关闭时跳过, 行为不变
+          if (REFERER_CHAIN_ENABLED) refererChainDrop(hostKeyOf(reqUrl))
           cookieRetries++
           await new Promise((r) => setTimeout(r, 350))
           continue
