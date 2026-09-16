@@ -23,8 +23,8 @@
 import { FileDown, Play } from 'lucide-react'
 import type { SiteBookProps } from '../shared'
 import { usePublic } from '../../ctx'
-import { BookCover } from '../BookCover'
-import { ErrorState, Sk } from '../bits'
+import { BookCover } from '../../BookCover'
+import { ErrorState, Sk } from '../../bits'
 import { fmtDate, formatWords } from '../../seo'
 
 /** [R27-6-3] 真站实测色值(ggd66-style.css) */

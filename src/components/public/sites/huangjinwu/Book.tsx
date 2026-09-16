@@ -27,17 +27,15 @@ import { useState } from 'react'
 import { BookMarked, ChevronDown, ChevronUp, FileDown, Play } from 'lucide-react'
 import type { SiteBookProps } from '../shared'
 import { usePublic } from '../../ctx'
-import { BookCover } from '../BookCover'
-import { ErrorState, Sk } from '../bits'
+import { BookCover } from '../../BookCover'
+import { ErrorState, Sk } from '../../bits'
 import { fmtDate, formatWords } from '../../seo'
 
 /** [R27-6-h3] 真站实测色值(hjw-style.css :root) */
 const SECONDARY = '#2563eb'
-const LOGO = '#1d4ed8'
 const TEXT = '#1e293b'
 const TEXT_LIGHT = '#64748b'
 const BORDER = '#dbe4f0'
-const CARD = '#ffffff'
 const SHADOW = '0 1px 2px rgba(15,23,42,0.04), 0 4px 16px rgba(37,99,235,0.06)'
 
 export function HjwBook({ data, loading, error, tocPage, currentChapterId }: SiteBookProps) {

@@ -23,7 +23,7 @@ import type { SiteBookProps } from '../shared'
 import { usePublic } from '../../ctx'
 import type { ViewParams } from '../../ctx'
 import { BookCover } from '../../BookCover'
-import { ErrorState, Sk, bookNavProps } from '../../bits'
+import { ErrorState, Sk } from '../../bits'
 import { fmtDate, formatWords, statusLabel } from '../../seo'
 import type { TocChapter } from '../../types'
 
@@ -156,11 +156,11 @@ export function DdyueshuBook({ data, loading, error, tocPage, currentChapterId }
                 <a
                   className="dy-crumb"
                   style={{ cursor: 'pointer' }}
-                  onClick={() => navigate({ view: 'category', cat: book.categoryId, page: 1 })}
+                  onClick={() => navigate({ view: 'category', cat: book.categoryId || undefined, page: 1 })} // [R27-6-fix] 闭包内属性收窄丢失, 显式归一 null→undefined
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault()
-                      navigate({ view: 'category', cat: book.categoryId, page: 1 })
+                      navigate({ view: 'category', cat: book.categoryId || undefined, page: 1 }) // [R27-6-fix] 闭包内属性收窄丢失, 显式归一 null→undefined
                     }
                   }}
                   role="button"
@@ -228,11 +228,11 @@ export function DdyueshuBook({ data, loading, error, tocPage, currentChapterId }
                   <div className="flex flex-wrap" style={{ fontSize: 15, color: '#333' }}>
                     {(
                       [
-                        ['作　者', book.author],
-                        ['分　类', book.category],
-                        ['状　态', statusLabel(book.status)],
-                        ['字　数', formatWords(book.wordCount)],
-                        ['最　新', book.latestChapter],
+                        ['作 者', book.author],
+                        ['分 类', book.category],
+                        ['状 态', statusLabel(book.status)],
+                        ['字 数', formatWords(book.wordCount)],
+                        ['最 新', book.latestChapter],
                         ['更新于', fmtDate(book.updatedAt)],
                       ] as const
                     ).map(([k, v]) => (

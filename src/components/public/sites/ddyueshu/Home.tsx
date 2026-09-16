@@ -339,7 +339,8 @@ export function DdyueshuHome({ books, loading }: SiteHomeProps) {
                     </ul>
                   </div>
                 ))}
-            </div>
+              </div>
+            )) // [R27-6-fix] 补第三分支缺失的右括号: 外层 ternary `) : (` + [0,1].map( 两层闭合, 修 R24 期潜伏语法错误(死代码今日接线才暴露)
           )}
         </div>
 

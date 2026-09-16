@@ -12,16 +12,16 @@
 // (实测样本: /tmp/r27-f/huangjinwu-style.css + home/list/book/chapter 四页快照 2026-09 实抓)
 // ============================================================
 import type { SiteTemplateSet } from '../shared'
-import { HuangjinwuHome } from './Home'
-import { HuangjinwuCategory } from './Category'
-import { HuangjinwuBook } from './Book'
+import { HjwHome } from './Home' // [R27-6-fix] 对齐文件实际导出名
+import { HjwCategory } from './Category'
+import { HjwBook } from './Book'
 import { HuangjinwuToc } from './Toc'
 import { HuangjinwuRead } from './Read'
 
 export const huangjinwuTemplate: SiteTemplateSet = {
-  Home: HuangjinwuHome,
-  Category: HuangjinwuCategory,
-  Book: HuangjinwuBook,
+  Home: HjwHome,
+  Category: HjwCategory,
+  Book: HjwBook,
   Toc: HuangjinwuToc,
   Read: HuangjinwuRead,
   // [R27-6-12] 站点级克隆 CSS —— 伪类/复杂选择器/媒体查询集中于此; 逐条注明真站规则出处(style.css 原文)

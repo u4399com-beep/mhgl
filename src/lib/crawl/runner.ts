@@ -2096,6 +2096,19 @@ export class TaskRunner {
       }
     }
 
+    // ---------- 7. PSEO 落地页自动生成钩子 [R27-2-9] ----------
+    // Setting pseoAutoGenerate=='1' 时, 书籍入库(含下拉词已合并)后即生成 ≤5 页关键词落地页;
+    // 生成失败静默(不影响采集主链计数/进度), 与 autoSuggest 链同风格
+    try {
+      const { pseoAutoEnabled, generateForBook } = await import('../pseo-server')
+      if (await pseoAutoEnabled()) {
+        const made = await generateForBook(bookId, 5)
+        if (made > 0) await this.log(taskId, 'success', `PSEO 落地页: +${made} 页`)
+      }
+    } catch {
+      /* PSEO 可选增强, 任何失败不阻断采集 */
+    }
+
     progress.booksDone++
     // feat-combo-theme-incremental: 状态分流 ——
     //  - detectedStatus==='completed' → 加入 rt.completedBookUrls(下次重启整体跳过)

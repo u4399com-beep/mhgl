@@ -25,7 +25,7 @@ import { BookOpen, ListOrdered, Minus, Moon, Plus, Sun } from 'lucide-react'
 import type { SiteReadProps } from '../shared'
 import { usePublic } from '../../ctx'
 import { ChapterContent, useReaderFont, useRecordReading } from '../template-kit'
-import { ErrorState, Sk } from '../bits'
+import { ErrorState, Sk } from '../../bits'
 
 /** [R26-3-5] 真站实测色值(kks101-style.css) */
 const BLUE = '#1f6cb2'

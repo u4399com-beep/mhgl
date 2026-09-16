@@ -279,7 +279,7 @@ export function AijjxsRead({ data, loading, error }: SiteReadProps) {
           <a className="ajx-rl" style={{ color: R.link, cursor: 'pointer', fontWeight: 700 }} onClick={() => navigate({ view: 'toc', bookId: book.id, page: 1 })} role="button" tabIndex={0} aria-label="返回章节目录">
             章节目录
           </a>
-          {'　　'}
+          {'  '}
           <a
             className="ajx-rl"
             style={navBtn(!!prev)}
@@ -355,7 +355,7 @@ export function AijjxsRead({ data, loading, error }: SiteReadProps) {
             <a className="ajx-rl" style={{ color: R.link, cursor: 'pointer', fontWeight: 700 }} onClick={() => navigate({ view: 'book', bookId: book.id })} role="button" tabIndex={0} aria-label={`返回《${book.name}》详情页`}>
               返回书页
             </a>
-            {'　·　'}
+            {' · '}
             <a className="ajx-rl" style={{ color: R.link, cursor: 'pointer', fontWeight: 700 }} onClick={() => navigate({ view: 'toc', bookId: book.id, page: 1 })} role="button" tabIndex={0} aria-label="查看完整目录">
               章节目录
             </a>

@@ -180,9 +180,16 @@ export function AijjxsCategory({ data, loading, error, catName, cat, page }: Sit
   const [cats, setCats] = useState<CategoryItem[]>([])
   const [catsDone, setCatsDone] = useState(false)
 
+  // [R27-6-fix] 换分类复位改为渲染期调整(React 认可模式), effect 内不再同步 setState
+  const hotKey = `${site.id}|${cat || ''}`
+  const [prevHotKey, setPrevHotKey] = useState<string | null>(null)
+  if (prevHotKey !== hotKey) {
+    setPrevHotKey(hotKey)
+    setHotDone(false)
+  }
+
   useEffect(() => {
     let alive = true
-    setHotDone(false)
     fetchBooks({ site: site.id, cat: cat || undefined, sort: 'words', page: 1, size: 12 })
       .then((d) => {
         if (!alive) return

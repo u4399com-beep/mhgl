@@ -151,7 +151,7 @@ export function AijjxsToc({ data, loading, error, page, currentChapterId }: Site
   const cells: { key: string; node: React.ReactNode }[] = []
   if (volumes) {
     volumes.forEach((g, gi) => {
-      cells.push(volumeHeader(g.volume, g.chapters.length, `vol-${gi}`))
+      cells.push({ key: `vol-${gi}`, node: volumeHeader(g.volume, g.chapters.length, `vol-${gi}`) }) // [R27-6-fix] 包裹 {key,node} 对齐 cells 类型
       g.chapters.forEach((c) => cells.push({ key: c.id, node: chapterCell(c.id, c.title, c.idx) }))
     })
   } else {

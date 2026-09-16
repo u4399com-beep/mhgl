@@ -27,10 +27,10 @@ import { useEffect, useState } from 'react'
 import { BarChart3, Library, Search, Smartphone } from 'lucide-react'
 import type { SiteHomeProps } from '../shared'
 import { usePublic } from '../../ctx'
-import { fetchBooks, fetchSuggestTags } from '../data'
+import { fetchBooks, fetchSuggestTags } from '../../data'
 import type { BookItem } from '../../types'
-import { BookCover } from '../BookCover'
-import { Sk, bookNavProps } from '../bits'
+import { BookCover } from '../../BookCover'
+import { Sk, bookNavProps } from '../../bits'
 
 /** [R26-3-1] 真站实测色值(kks101-style.css 频次统计+逐条规则) */
 const BLUE = '#1f6cb2' // 主蓝(×32): 导航/按钮/标签字/快捷入口

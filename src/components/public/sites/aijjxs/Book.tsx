@@ -182,9 +182,17 @@ export function AijjxsBook({ data, loading, error, tocPage, currentChapterId }: 
   const [hotDone, setHotDone] = useState(false)
   const catId = book?.categoryId || undefined
 
+  // [R27-6-fix] 换书复位改为渲染期调整(React 认可模式)—— effect 内不再同步 setState
+  const likeHotKey = `${site.id}|${book?.id || ''}|${catId || ''}`
+  const [prevLikeHotKey, setPrevLikeHotKey] = useState<string | null>(null)
+  if (prevLikeHotKey !== likeHotKey) {
+    setPrevLikeHotKey(likeHotKey)
+    setLikesDone(false)
+    setHotDone(false)
+  }
+
   useEffect(() => {
     let alive = true
-    setLikesDone(false)
     if (!book?.id) return
     fetchBooks({ site: site.id, cat: catId, page: 1, size: 4 })
       .then((d) => {
@@ -206,7 +214,6 @@ export function AijjxsBook({ data, loading, error, tocPage, currentChapterId }: 
 
   useEffect(() => {
     let alive = true
-    setHotDone(false)
     if (!book?.id) return
     fetchBooks({ site: site.id, cat: catId, sort: 'words', page: 1, size: 12 })
       .then((d) => {

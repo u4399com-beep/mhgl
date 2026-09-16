@@ -21,9 +21,9 @@ import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { SiteCategoryProps } from '../shared'
 import { usePublic } from '../../ctx'
-import { fetchCategories } from '../data'
+import { fetchCategories } from '../../data'
 import type { BookItem, CategoryItem } from '../../types'
-import { BookCover } from '../BookCover'
+import { BookCover } from '../../BookCover'
 import { ErrorState, Sk, bookNavProps } from '../../bits'
 
 /** [R26-4-5] 真站实测色值(style.css) */

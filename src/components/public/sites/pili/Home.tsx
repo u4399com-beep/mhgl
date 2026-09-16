@@ -47,7 +47,6 @@ import { fmtDate, formatWords } from '../../seo'
 /** [R26-2-2] 真站实测色值常量(wmcms.global.css + wmcms.index.css) */
 const PILI_ORANGE = '#fd8929' // 主橙(×24)
 const PILI_ORANGE_LIGHT = '#ff9a6a' // 浅橙强调(标题压线/榜单头/分页 current/hover)
-const PILI_BTN_BG = '#f89157' // ui-btn-orange 底(hover #f59966 / active #f1854b)
 const PILI_BTN_BORDER = '#ec7d4d'
 const PILI_RED = '#d71704' // 红强调(×9)
 const PILI_BEIGE = '#faead0' // 米色分类条/按钮 active

@@ -15,13 +15,12 @@
 // ============================================================
 'use client'
 
-import { useState } from 'react'
 import type { SiteTocProps } from '../shared'
 import { usePublic } from '../../ctx'
 import { groupTocVolumes } from '../template-kit'
 import type { TocChapter } from '../../types'
-import { BookCover } from '../BookCover'
-import { ErrorState, Sk } from '../bits'
+import { BookCover } from '../../BookCover'
+import { ErrorState, Sk } from '../../bits'
 
 /** [R27-6-10] 真站实测色值(style.css :root) */
 const C = {

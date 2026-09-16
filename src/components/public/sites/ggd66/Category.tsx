@@ -21,9 +21,9 @@
 import type { SiteCategoryProps } from '../shared'
 import { usePublic } from '../../ctx'
 import { useEffect, useState } from 'react'
-import { fetchCategories } from '../data'
+import { fetchCategories } from '../../data'
 import type { CategoryItem } from '../../types'
-import { ErrorState, Sk, bookNavProps } from '../bits'
+import { ErrorState, Sk, bookNavProps } from '../../bits'
 import { formatWords } from '../../seo'
 
 /** [R27-6-2] 真站实测色值(ggd66-style.css) */
@@ -31,7 +31,6 @@ const TEAL = '#56ccb5'
 const GREEN_LINK = '#00886d'
 const TEXT_BODY = '#888'
 const LINE = '#ccc'
-const PAGE_BORDER = '#e6e6e6'
 
 /** [R27-6-2] .pages 分页(真站形态: << strong 当前页 数字 >>; a hover 底 #56ccb5) */
 function Pages({ page, totalPages, onGo }: { page: number; totalPages: number; onGo: (p: number) => void }) {

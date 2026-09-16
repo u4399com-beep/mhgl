@@ -5022,3 +5022,87 @@ Work Log:
   列数断点 lg:25%/sm:50%/移动 100%(真站 947/767/467 三档近似) ⑩移动端 .tuijian a 8px 全宽虚线行未复刻
   (可读性), gengxin 移动端隐藏列对齐真站 s3/s4
 (下一站 huangjinwu 进行中, 完成后续写本段)
+
+---
+## Task ID: R27-6b / Agent: general-purpose(clone-unreachable)
+日期: 2026-09-15/16 · 范围: 3 个真站不可达站(x2552/shipsay/trxsw)六文件克隆模板补全 · 边界: 仅新建 sites/{id}/ 三目录 + /tmp/r27-f2/, 未碰 registry/HomeView/旧单文件/themes(主控接线)
+
+Work Log:
+- 素材通道实证: CDX API 直连(http/https) 10s 超时零响应(沙箱出网受限) → 按预案跳过 CDX 猜 playback URL;
+  page_reader(Jina) 对 web.archive.org playback URL 全通 —— 首页×3 + 内页 4 张(shipsay 分类/书页,
+  x2552 书页=目录页 /html/1/1326/, trxsw book/1/ 为 Wayback 错误页) 7/11 成功; 坑①z-ai 429 限速
+  (并发 7 触发, sleep 间隔后重试成功) ②后台 & 作业随父 shell 退出被杀(tsc/延迟抓取两次中招 → 全改同步串行)
+- 快照资产(/tmp/r27-f2/): x2552-home.html(2023, 黑冰模板 m_head/m_menu/board/#centeri/#right 全实证,
+  分类 /list/{cat}_{page}.html×10 类+全本 fulltxt 实链, 书 /html/{x}/{id}/, 章 /html/{x}/{id}/{cid}.html)
+  / x2-book.html(2023, #a_main dt 面包屑+h1「书名最新章节」+h3 作者+table#at bgcolor #E4E4E4 4 列 td.L)
+  / shipsay-home.html(2024, 船说 V4.2 /static/shipsay/style.css) / ss-cat.html(2024, .store #after_menu
+  分类链 onselect+只看全本+封面卡列表) / ss-book2.html(2023, novel_info_main+ulcard tabs+#info+#catalog
+  ul#ul_all_chapters, 章 /{bid}/{cid}.html) / trxsw-home.html(2019-10-19, 与 R25-1 同源: novelslist×2/
+  #newscontent .l/.r/#firendlink, b.css 仍无存档)
+- [R27-6b-1~6] sites/x2552/ 六文件: Home(公告条+bdtop 排行榜 6 封面+centeri update 行+right 双榜, 复刻
+  R24 实测+快照核对) / Category(家族标准: 分类条+blocktitle 行式列表+灰钮分页) / Book(家族标准: 面包屑+
+  信息块+最新章节 12+TXT) / Toc(Wayback 实测: dt 面包屑+返回书页+h1+h3 作者+table#at 4 列网格+分页) /
+  Read(家族标准: h1 居中+白底正文+三钮+键盘) / index.ts(x2552Template+css 6 条 .clone-x2552 前缀)
+- [R27-6b-7~12] sites/shipsay/ 六文件: Home(大神 6 双列遮罩卡+热门 12+分类块×4+lastupdate 30+最新 30+
+  友链) / Category(实测: #after_menu 分类链+只看全本禁用态+封面卡列表+分页) / Book(实测: novel_info_main
+  +ulcard tab 锚点+最新章节 12+ul_all_chapters+分页) / Toc(#catalog 块独立页, 家族标准) / Read(家族标准)
+  / index.ts(shipsayTemplate+css)
+- [R27-6b-13~18] sites/trxsw/ 六文件: Home(JqH2 渐变条 6 板块+图文头条 67×82+«书名»/作者 li+.l 25 行
+  s1..s5+.r 26 行+友链) / Category(家族标准: 分类条+s1..s5 列表+分页) / Book(家族标准: 面包屑+#content
+  封面/简介+最新章节+#list dd+TXT) / Toc(#list dd 独立页) / Read(#content 14px/200%+三钮+键盘) /
+  index.ts(trxswTemplate+css)
+- 质量门: 全站 bunx tsc --noEmit 两轮(修 3 处契约错: BooksData 无 totalPages→ceil(total/size),
+  fetchFooterLinks 返回 FooterLinksData|null 取 .friend; 终轮 EXIT=0 全项目 0 错); 交互 <a> 全部转
+  <button type="button">(.x2-a 附按钮重置, 黑冰 hover 位移 1px 保留于 css); 每站 TXT 下载唯一 <a>
+  (/api/public/download?book=); 导航全 navigate() button; 骨架+ErrorState+空态齐; 375px 单列无横滚;
+  零 any; 未跑 lint/未重启 dev/零 DB/零 git
+- 降级声明(各文件头注): x2552 Category/Book/Read 与 shipsay Toc/Read 与 trxsw Category/Book/Toc/Read
+  真站无存档 → 按 CMS 家族标准补全并注明; 榜单票数→字数 / 章节列无 chapterId→纯文本或书页链 / 只看全本
+  禁用态 / 最新章节=当前目录页尾 12 条倒序 等 8 处口径均已注明
+
+Stage Summary:
+- 页型覆盖表(素材等级: Wayback 实测 | 家族标准 | 推断):
+  x2552(黑冰模板):  Home=Wayback 实测(2023 快照+R24 实测色) | Category=家族标准 | Book=家族标准 |
+                    Toc=Wayback 实测(2023 /html/1/1326/ table#at) | Read=家族标准
+  shipsay(船说V4.2): Home=Wayback 实测(2024) | Category=Wayback 实测(2024) | Book=Wayback 实测(2023) |
+                    Toc=家族标准(#catalog 块独立页) | Read=家族标准
+  trxsw(杰奇默认):   Home=Wayback 实测(2019) | Category=家族标准 | Book=家族标准 | Toc=家族标准 |
+                    Read=家族标准
+- 色板表(来源等级):
+  x2552: 文字 #666(实测) · 链接 #2f468f(实测) · hover #FF6600 位移1px(实测) · 边 #E4E4E4(实测) ·
+         块面/点线 #F2F2F2(实测) · 榜头条 2px #33CCFF+#D9EDFF(实测) · 标题条渐变 #fbfcfe→#e9eef5(推断,
+         wamcc.png 精灵图 CSS 等价) · 灰按钮渐变 #fff→#e5e5e5(推断同源) · 表格底 #E4E4E4(实测快照 bgcolor)
+  shipsay: 底 #f4f4f4(实测) · 卡 #fff(实测) · 正文 #666(实测) · 链接 #1a1a1a(实测) · hover #ed4259(实测) ·
+         标题 #555(实测) · em 蓝 #4284ed(实测) · em 橙 #f0643a(实测) · 完本遮罩 rgba(191,44,36,.75)/
+         连载遮罩 rgba(0,0,0,.4)(实测) · 线 #e3e3e3(家族标准)
+  trxsw: nav 深蓝 #1C5087→#1F5FA9(家族标准) · logo/hover 红 #C00(家族标准) · 正文 #333(家族标准) ·
+         灰 #666(家族标准) · 弱灰 #999(家族标准) · 边 #ddd(家族标准) · 点线 #ccc(家族标准) ·
+         ywtop/页脚 #f5f5f5(家族标准) · h2 渐变 #fafbfc→#e9eef5+左竖条(家族标准, b.css 无存档 R25 实证)
+- 未能覆盖的页型与原因: ①x2552 Category/Book/Read、shipsay Toc/Read、trxsw Category/Book/Toc/Read —
+  Wayback 无对应页存档(CDX 不可用+playback 试抓 404), 按家族标准补全; ②x2552 分类页黑冰原生浮动列布局、
+  shipsay 章节页正文分页(#page_box)、trxsw 排行/全本独立列表页 — 均无存档且无对应视图契约, 未复刻(注明);
+  ③精 灵 图/底纹图(wamcc.png、杰奇 h2 底纹)以 CSS 渐变等价(推断级)
+- 交付物: sites/x2552|shipsay|trxsw/ 各 6 文件(共 18 文件, 56 文件操作 0 tsc 错); 快照与日志存
+  /tmp/r27-f2/; registry 接线+旧单文件删除归主控(未动)
+---
+Task ID: R27(主控)
+Agent: main-orchestrator
+Task: R27 总控 — 反反爬工具集成收口 + PSEO 上线 + 10 站克隆收尾接线 + 逐行审查修复落地 + DB 事故处置 + 质量门 + E2E + commit
+
+Work Log:
+- [R27-1] 10 工具探讨报告落盘 docs/anticrawler-tools-eval.md(Agent A): 择优集成 curl-impersonate(传输层 TLS/JA4 伪装) + trafilatura(正文提取); 仅评估 MediaCrawler/BrowserAct/外部 Obscura; 弃 aiohttp; Dokobot 无法确证如实标注
+- [R27-1b] Agent D 落地: ①lexiforest curl-impersonate v0.9.0 二进制装至 /usr/local/bin + mini-services/scrapling-bridge/_bin 副本, fetcher.ts 画像数组 +impersonate 字段([R27-1b-1..7]), 探测链 curl_<档位> > CURL_IMPERSONATE_BIN > PATH, 无二进制自动降级桥 POST /impersonate(curl_cffi); 默认全关零回归, 规则 fetch.curlImpersonate/env CURL_IMPERSONATE_HOSTS|PROFILE 显式开启; JA4 实证 chrome116 档 t13d1516h2_8daaf6152771 与真 Chrome 一致(双轨同指纹); trxsw 靶未突破(HTTP/2 PROTOCOL_ERROR 全档, IP 级封锁指纹工具无效, 需代理池) ②trafilatura 2.2.0 装入桥 venv, POST /extract(url 桥内抓/html 直提), 真章节页实测 2110 chars/47 段/零导航噪声; fetcher 零接线留 parser/calibrate 兜底口
+- [R27-2] Agent B 全链路实现 PSEO: prisma PseoPage 模型(db:push), /p/{slug}.html 挂 [...slug] catch-all(generateMetadata+SSR 直出面包屑/H1/说明文案/相关书卡/站内导航), admin /api/admin/pseo CRUD + Dashboard PseoSection 面板, pseo-server 生成器(模板族 5 条+下拉词+keywords/BookTag 词源, keyword/slug 全库唯一, FNV-1a 确定性 slug), suggest.ts 剔除已死 sogou 端点([R27-2-1]); 主控补 runner.ts 书籍入库后自动钩子([R27-2-9], Setting pseoAutoGenerate=='1' 时 ≤5 页/书, try/catch 不阻断采集)
+- [R27-5a] Agent C 只读逐行审计未审区(admin/public 组件+seo/pseudostatic 库): 高 2/中 5/低 11, 报告 /tmp/r27-audit/audit-report.md
+- [R27-5b] Agent E 修复: H1 友链 javascript: 存储型 XSS(safe-href.ts 白名单三出口+restore 卡口), H2 五套克隆模板 registry 接线(sites/registry.tsx+TocView+renderView 补 case 'toc'), 中 5 全修(消毒器实体绕过/seo-tpl 字符类/SearchView 闪空态/HistoryView N+1→books?ids 批量/SiteHeader tags 单飞缓存), 低修 8 跳 3(理由留档); 删 5 个被替代旧单文件
+- [R27-6/R27-6b] 克隆收尾: Agent F(两次超时但产出 ggd66+huangjinwu 六文件) + Agent 6b(Wayback 快照法) 完成 x2552/shipsay/trxsw 三站六文件(素材等级: x2552 Home/Toc 实测, shipsay Home/Category/Book 实测, trxsw Home 实测, 余家族标准, 逐页型覆盖表在 worklog R27-6b 段); 主控接线: registry 十站全挂载(9 import+9 映射), HomeView 删旧单文件 fallback 表+next/dynamic, 删除 X2552Home/ShipsayHome/TrxswHome(10/10 站旧单文件清零)
+- [R27-fix] 接线后暴露的死代码雷区排雷: ①kks101/qb23/ggd66/huangjinwu 四套 27 处相对导入深度错误(../data→../../data 等, bun build --external '*' 检不出, tsc 才是真门) ②ddyueshu/Home.tsx 三元链缺右括号(R24 期潜伏语法错误) ③aijjxs/Toc cells 类型/pili 缺常量/huangjinwu 导出名与 index 不符/Read book 非空卫兵/seo-tpl interpolate 放宽 PseoTplVars ④lint 20 错全清: set-state-in-effect×4 改渲染期调整模式(React 认可), rules-of-hooks×1(useMemo 移早返回前), no-useless-escape×3, 未用变量×12, 不规则空白×4 文件 ⑤PSEO 页 footer 吸底(min-h-screen flex+mt-auto)
+- [R27-事故] DB 清空事故(2026-09-15 23:17): db/custom.db 全表 0 行(schema 完整含 PseoPage, mtime=重启时刻), 事发前含生产站+仙逆 2025 章+29 规则+PSEO 25 页; 排查: 代码无启动引导(db.ts 纯 PrismaClient/无 instrumentation), .env 为绝对路径无解析歧义, 无 WAL/journal/副本, gitignored 无版本, .initial_snapshot.json 仅文件内容快照; 根因未定谳(唯一可疑窗口=dev server 重启时刻, 但重启链路无任何 DB 写路径); 处置: ①db:push 去 --accept-data-loss(package.json) ②.zscripts/db-backup.sh(sqlite 在线备份, 7 份轮转)+db-backup-loop.sh 每日守护(pid 5961) ③立即备份+数据重建: 29 条内置规则经 /api/admin/rules/import-builtin 幂等回灌, 生产站「小说书城」(aijjxs 主题, isDefault)重建, 种子书《仙逆》+2 章直插, PSEO 经管理 API 重生成 5 页; 真实章节需重挂采集任务(规则全在, 未自动起任务避免无人值守长跑)
+- [R27-E2E] agent-browser 全绿: 登录门→预览→/?view=home 十主题逐一(clone-{id} 容器+各异板块文案实证: pili 独家推荐/kks101 繁体熱門書單/qb23/ggd66/huangjinwu/x2552 公告条/shipsay 大神小说/trxsw 杰奇更多>>), pili book/toc/read 三视图容器+标题全过, PSEO /p/仙逆txt下载-h3h1ai.html 目检(面包屑/H1/关键词芯片/说明/书卡/站内导航+截图), 375px 无横滚, PSEO 坏 slug 404 负例; chrome 清杀
+- [R27-质量门] 串行 lint 0/0 + tsc --noEmit 0 错(终版三轮复验); dev.log 无 error; 运维: 8 mini-service 全部重启拉起(发现全挂, cloak-browser 补 bun install puppeteer-extra), 9 端口全 UP; /tmp 临时脚本全清(fix-homeview.py/seed-chapters.ts/r27 产物)
+
+Stage Summary:
+- 反反爬: curl-impersonate 双轨(二进制+桥 curl_cffi)与 trafilatura /extract 落地且默认零回归; 10 工具评估报告为后续二轮(外部 CloakBrowser/invisible_playwright mini-service :3018)留方案
+- PSEO: 关键词→落地页全链路上线(SSR TDK/管理 API/面板/采集钩子), 服务端 API 实证生成与 404 负例
+- 主题: 10/10 站六文件克隆全接线(5 视图), 旧单文件 10 个全删, registry 为唯一消费入口; bun build --external '*' 不能作克隆模板交付门(不解析相对导入), 必须全项目 tsc
+- 事故改进: DB 每日自动备份+去危险 flag; 数据已按最小可用集重建, 章节正文待重挂任务恢复

@@ -90,7 +90,7 @@ export function seoText(html?: string | null): string {
 }
 
 /** {var} 插值; 未知变量剔除, 产出后清理残留空白与空段 */
-function interpolate(tpl: string, vars: SeoTplVars): string {
+function interpolate(tpl: string, vars: PseoTplVars): string { // [R27-6-fix] 放宽到 PseoTplVars 超集, PSEO 变量不再触发多余属性检查
   const statusText = vars.status === 'completed' ? '已完结' : vars.status === 'ongoing' ? '连载中' : ''
   const map: Record<string, string> = {
     bookname: vars.bookname || '',

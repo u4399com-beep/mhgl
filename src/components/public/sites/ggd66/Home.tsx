@@ -23,16 +23,15 @@
 import { useEffect, useState } from 'react'
 import type { SiteHomeProps } from '../shared'
 import { usePublic } from '../../ctx'
-import { fetchBooks } from '../data'
+import { fetchBooks } from '../../data'
 import type { BookItem } from '../../types'
-import { BookCover } from '../BookCover'
-import { Sk, bookNavProps } from '../bits'
+import { BookCover } from '../../BookCover'
+import { Sk, bookNavProps } from '../../bits'
 
 /** [R27-6-1] 真站实测色值(ggd66-style.css 逐条规则) */
 const TEAL = '#56ccb5' // .btn-info/.search button/.footer/.pages strong(×10)
 const GREEN_LINK = '#00886d' // a 常态色
 const TEXT_BODY = '#888' // body 文字
-const TEXT_DARK = '#333' // h2 标题
 const LINE = '#ccc' // h2 底边/虚线行/封面边
 const COVER_BG = '#fff' // .image img 白底衬边
 

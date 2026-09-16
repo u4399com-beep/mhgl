@@ -45,6 +45,7 @@ import { ErrorState, Sk } from '../../bits'
 import { fmtDate, formatWords, statusLabel } from '../../seo'
 
 const PILI_ORANGE = '#fd8929'
+const PILI_ORANGE_LIGHT = '#ff9a6a' // [R27-6-fix] 浅橙(tab 下划线/分页 current), 同 Category.tsx 实测值
 const PILI_BTN_BG = '#f89157' // ui-btn-orange
 const PILI_BTN_BORDER = '#ec7d4d'
 const PILI_RED = '#cd1604' // works-ft-new 最新章红

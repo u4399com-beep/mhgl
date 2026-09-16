@@ -44,7 +44,6 @@ import { BookCover } from '../../BookCover'
 import { ErrorState, Sk } from '../../bits'
 import { statusLabel } from '../../seo'
 
-const PILI_ORANGE = '#fd8929' // 主橙
 const PILI_ORANGE_LIGHT = '#ff9a6a' // 浅橙(排序 active/分页 current/hover)
 const PILI_TEXT = '#333333'
 const PILI_MUTED = '#999999'
@@ -61,8 +60,8 @@ function PiliPager({
   go: (p: number) => void
   compact?: boolean
 }) {
-  if (totalPages <= 1) return null
   // 页码窗口: 当前页 ±2, 首尾恒显(与真站「第一页/上一页/数字/下一页/最后页」等价的紧凑形态)
+  // [R27-6-fix] useMemo 移到早返回之前, 修条件调用 hook 违规(rules-of-hooks)
   const win = useMemo(() => {
     const arr: (number | '…')[] = []
     const lo = Math.max(1, page - 2)
@@ -74,6 +73,8 @@ function PiliPager({
     if (hi < totalPages) arr.push(totalPages)
     return arr
   }, [page, totalPages])
+
+  if (totalPages <= 1) return null // [R27-6-fix] 早返回后移到 hook 之后
 
   const btn = compact
     ? // ret-head-page 规格: line-height 16px + padding 2px 5px, current/hover 白字 #ff9a6a 底

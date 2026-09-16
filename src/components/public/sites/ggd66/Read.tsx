@@ -21,10 +21,10 @@
 import { useEffect, useState } from 'react'
 import type { SiteReadProps } from '../shared'
 import { usePublic } from '../../ctx'
-import { fetchBooks } from '../data'
+import { fetchBooks } from '../../data'
 import type { BookItem } from '../../types'
 import { ChapterContent, useRecordReading } from '../template-kit'
-import { ErrorState, Sk, bookNavProps } from '../bits'
+import { ErrorState, Sk, bookNavProps } from '../../bits'
 
 /** [R27-6-5] 真站实测色值(ggd66-style.css) */
 const GREEN_LINK = '#00886d'

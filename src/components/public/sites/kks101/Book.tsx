@@ -31,10 +31,10 @@ import { useEffect, useState } from 'react'
 import { FileDown, ListOrdered } from 'lucide-react'
 import type { SiteBookProps } from '../shared'
 import { usePublic } from '../../ctx'
-import { fetchBooks } from '../data'
+import { fetchBooks } from '../../data'
 import type { BookItem } from '../../types'
-import { BookCover } from '../BookCover'
-import { ErrorState, Sk } from '../bits'
+import { BookCover } from '../../BookCover'
+import { ErrorState, Sk } from '../../bits'
 import { fmtDate, formatWords } from '../../seo'
 
 /** [R26-3-3] 真站实测色值(kks101-style.css) */

@@ -18,12 +18,12 @@
 // ============================================================
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import type { SiteTocProps } from '../shared'
 import { usePublic } from '../../ctx'
 import { groupTocVolumes } from '../template-kit'
-import { BookCover } from '../BookCover'
-import { ErrorState, Sk } from '../bits'
+import { BookCover } from '../../BookCover'
+import { ErrorState, Sk } from '../../bits'
 
 /** [R26-3-4] 真站实测色值(kks101-style.css) */
 const BLUE = '#1f6cb2'
@@ -67,11 +67,13 @@ export function Kks101Toc({ data, loading, error, page, currentChapterId }: Site
   const { navigate } = usePublic()
   // .sorting 正序/倒序(真站 jQuery 互斥切换, 本地态实现)
   const [desc, setDesc] = useState(false)
-
-  useEffect(() => {
-    // 翻页/换书回正序(与真站 LoadMore 展开后的默认顺序一致)
+  // [R27-6-fix] 翻页/换书回正序改为渲染期调整(React 认可模式), 替代 effect 内同步 setState
+  const pageKey = `${page}|${data?.book.id || ''}`
+  const [prevPageKey, setPrevPageKey] = useState<string | null>(null)
+  if (prevPageKey !== pageKey) {
+    setPrevPageKey(pageKey)
     setDesc(false)
-  }, [page, data?.book.id])
+  }
 
   if (error) {
     return (

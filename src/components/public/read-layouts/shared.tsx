@@ -164,7 +164,7 @@ function decodeCharRefsOnce(s: string): string {
  */
 function isSafeUrlValue(raw: string): boolean {
   const probe = decodeCharRefsOnce(raw).replace(/[\t\n\r]/g, '')
-  const m = /^([a-zA-Z][a-zA-Z0-9+.\-]*):/.exec(probe)
+  const m = /^([a-zA-Z][a-zA-Z0-9+.-]*):/.exec(probe) // [R27-6-fix] 去 char class 内多余转义
   if (!m) return true // 无 scheme → 相对地址/锚点
   return /^https?$/i.test(m[1])
 }
@@ -179,7 +179,7 @@ function sanitizeTagAttrs(tag: string): string {
       .replace(/\s+(?:href|src)\s*=\s*(?:"[^"]*"|'[^']*'|`[^`]*`|[^\s>]+)/gi, (m) => {
         const eq = m.indexOf('=')
         const val = m.slice(eq + 1).trim()
-        const quoted = /^[\"'`]([\s\S]*)[\"'`]$/.exec(val)
+        const quoted = /^["'`]([\s\S]*)["'`]$/.exec(val) // [R27-6-fix] 去 regex 内多余 \" 转义
         // 有引号形态取引号内原值; 无引号形态取整段(浏览器对无引号值同样做实体解码)
         const raw = quoted ? quoted[1] : val
         return isSafeUrlValue(raw) ? m : ''

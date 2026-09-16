@@ -193,7 +193,9 @@ function PseoLanding({
     (row.description || '').trim() ||
     `${row.keyword} — ${siteName || '本站'}聚合相关小说资源，提供全文免费在线阅读。`
   return (
-    <div className="mx-auto w-full max-w-5xl px-4 py-8 sm:px-6">
+    // [R27-6-fix] min-h-screen flex 列布局: 内容不足一屏时 footer 吸底(sticky footer 规范), 超出时自然下推
+    <div className="mx-auto flex min-h-screen w-full max-w-5xl flex-col px-4 py-8 sm:px-6">
+      <div className="min-w-0 flex-1">
       {/* 面包屑 */}
       <nav aria-label="面包屑" className="mb-6 text-xs text-zinc-500">
         <a href={pseoJoinSite('/', siteId)} className="transition-colors hover:text-zinc-800">首页</a>
@@ -238,7 +240,6 @@ function PseoLanding({
                   aria-label={`查看《${b.name}》详情`}
                 >
                   {pseoCoverUrl(b.cover) ? (
-                    // eslint-disable-next-line @next/next/no-img-element -- SSR 静态落地页直出 img, 不引入 next/image 运行时依赖
                     <img src={pseoCoverUrl(b.cover)} alt={`《${b.name}》封面`} className="h-full w-full object-cover" loading={i === 0 ? 'eager' : 'lazy'} />
                   ) : (
                     <span className="flex h-full w-full items-center justify-center px-1 text-center text-[10px] leading-tight text-zinc-400">{b.name}</span>
@@ -269,9 +270,10 @@ function PseoLanding({
           </div>
         )}
       </section>
+      </div>
 
       {/* 站内内链(全站入口; 文字链形态利于爬虫顺藤) */}
-      <footer className="mt-10 border-t border-zinc-200 pt-5 text-xs text-zinc-500">
+      <footer className="mt-auto border-t border-zinc-200 pt-5 text-xs text-zinc-500">
         <p className="mb-2 font-medium text-zinc-600">站内导航</p>
         <div className="flex flex-wrap gap-x-4 gap-y-1.5">
           <a href={pseoJoinSite('/', siteId)} className="transition-colors hover:text-violet-700">网站首页</a>

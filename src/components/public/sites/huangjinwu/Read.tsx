@@ -22,10 +22,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { SiteReadProps } from '../shared'
 import { usePublic } from '../../ctx'
-import { fetchBooks } from '../data'
+import { fetchBooks } from '../../data'
 import type { BookItem } from '../../types'
 import { ChapterContent, useReaderFont, useRecordReading } from '../template-kit'
-import { ErrorState, Sk, bookNavProps } from '../bits'
+import { ErrorState, Sk, bookNavProps } from '../../bits'
 
 /** [R27-6-11] 真站实测色值(style.css :root) */
 const C = {
@@ -59,15 +59,16 @@ export function HuangjinwuRead({ data, loading, error }: SiteReadProps) {
   // [R27-6-11] 阅读位置/时长记忆
   useRecordReading(data?.book?.id, data?.chapter?.id, data?.chapter?.title)
 
-  const book = data?.book
-  const relKey = book?.id ? `${book.id}:read` : ''
+  const bookMaybe = data?.book // [R27-6-fix] 早返回前仅作可选探测, 主渲染用卫兵后重取非空 book
+  const relKey = bookMaybe?.id ? `${bookMaybe.id}:read` : ''
   useEffect(() => {
-    if (!book?.id) return
+    const bookId = bookMaybe?.id
+    if (!bookId) return
     let alive = true
-    const key = `${book.id}:read`
+    const key = `${bookId}:read`
     fetchBooks({ site: site.id, page: 1, size: 12 })
       .then((d) => {
-        if (alive) setRel({ key, items: (d.books || []).filter((b) => b.id !== book.id).slice(0, 6) })
+        if (alive) setRel({ key, items: (d.books || []).filter((b) => b.id !== bookId).slice(0, 6) })
       })
       .catch(() => {
         if (alive) setRel({ key, items: [] })
@@ -75,7 +76,7 @@ export function HuangjinwuRead({ data, loading, error }: SiteReadProps) {
     return () => {
       alive = false
     }
-  }, [site.id, book?.id])
+  }, [site.id, bookMaybe?.id])
 
   const relItems = useMemo(() => (rel && rel.key === relKey ? rel.items : null), [rel, relKey])
 
@@ -102,7 +103,16 @@ export function HuangjinwuRead({ data, loading, error }: SiteReadProps) {
     )
   }
 
+  if (!data.book) {
+    return (
+      <div className="mx-auto w-full max-w-[900px] px-4 py-10" style={{ fontFamily: FONT }}>
+        <ErrorState message="章节书档暂缺" /> {/* [R27-6-fix] book 非空卫兵 */}
+      </div>
+    )
+  }
+
   const { chapter, prev, next } = data
+  const book = data.book // [R27-6-fix] 卫兵后重取, 非空类型
 
   return (
     // 真站 .reader-container .container(max-width 900px)

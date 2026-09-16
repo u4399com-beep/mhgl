@@ -19,9 +19,9 @@
 import { useEffect, useState } from 'react'
 import type { SiteCategoryProps } from '../shared'
 import { usePublic } from '../../ctx'
-import { fetchCategories } from '../data'
+import { fetchCategories } from '../../data'
 import type { CategoryItem } from '../../types'
-import { ErrorState, Sk, bookNavProps } from '../bits'
+import { ErrorState, Sk, bookNavProps } from '../../bits'
 import { formatWords } from '../../seo'
 
 /** [R27-6-h2] 真站实测色值(hjw-style.css :root) */

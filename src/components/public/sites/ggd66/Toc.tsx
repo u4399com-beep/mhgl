@@ -13,7 +13,7 @@
 
 import type { SiteTocProps } from '../shared'
 import { usePublic } from '../../ctx'
-import { ErrorState, Sk } from '../bits'
+import { ErrorState, Sk } from '../../bits'
 
 /** [R27-6-4] 真站实测色值(ggd66-style.css) */
 const TEAL = '#56ccb5'

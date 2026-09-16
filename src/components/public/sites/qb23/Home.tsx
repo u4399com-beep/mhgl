@@ -25,9 +25,9 @@ import { useEffect, useState } from 'react'
 import { Flame } from 'lucide-react'
 import type { SiteHomeProps } from '../shared'
 import { usePublic } from '../../ctx'
-import { fetchBooks } from '../data'
+import { fetchBooks } from '../../data'
 import type { BookItem } from '../../types'
-import { BookCover } from '../BookCover'
+import { BookCover } from '../../BookCover'
 import { Sk, bookNavProps } from '../../bits'
 
 /** [R26-4-1] 真站 /mxstatic/css/style.css 实测色值(仅 qb23 克隆组件消费, 硬编码) */

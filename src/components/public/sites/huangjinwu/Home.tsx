@@ -24,22 +24,19 @@ import { useEffect, useMemo, useState } from 'react'
 import { Clock, Flame, ListOrdered } from 'lucide-react'
 import type { SiteHomeProps } from '../shared'
 import { usePublic } from '../../ctx'
-import { fetchBooks } from '../data'
+import { fetchBooks } from '../../data'
 import type { BookItem } from '../../types'
-import { Sk, bookNavProps } from '../bits'
+import { Sk, bookNavProps } from '../../bits'
 import { formatWords } from '../../seo'
 
 /** [R27-6-h1] 真站实测色值(hjw-style.css :root) */
 const SECONDARY = '#2563eb' // --secondary-color(×N: 竖条/主钮/分类 badge/hover 标题)
-const LOGO = '#1d4ed8' // --logo-color/btn hover
 const TEXT = '#1e293b' // --text-color
 const TEXT_LIGHT = '#64748b' // --text-light
 const BORDER = '#dbe4f0' // --border-color
-const CARD = '#ffffff' // --card-bg
 const HOVER_BG = '#e8f1ff' // --hover-color(status badge 底)
 const BG_TINT = '#f0f4fb' // --bg-color(ranking 榜头底)
 const SHADOW = '0 1px 2px rgba(15,23,42,0.04), 0 4px 16px rgba(37,99,235,0.06)' // --shadow
-const SHADOW_HOVER = '0 8px 24px rgba(37,99,235,0.14), 0 2px 8px rgba(15,23,42,0.06)' // --shadow-hover
 
 function statusText(s?: string | null): string {
   if (s === 'completed') return '全本'

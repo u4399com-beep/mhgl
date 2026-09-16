@@ -26,10 +26,10 @@
 import { useEffect, useState } from 'react'
 import type { SiteCategoryProps } from '../shared'
 import { usePublic } from '../../ctx'
-import { fetchCategories } from '../data'
+import { fetchCategories } from '../../data'
 import type { CategoryItem } from '../../types'
-import { BookCover } from '../BookCover'
-import { ErrorState, Sk, bookNavProps } from '../bits'
+import { BookCover } from '../../BookCover'
+import { ErrorState, Sk, bookNavProps } from '../../bits'
 import { fmtDate, formatWords } from '../../seo'
 
 /** [R26-3-2] 真站实测色值(kks101-style.css) */
