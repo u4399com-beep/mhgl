@@ -334,16 +334,19 @@ export async function generateMetadata({
     //   任何一环异常降级为空对象(404 由页面分支 notFound() 负责), 永不 throw 阻塞渲染。
     const pseoRaw = matchPseoPath(pathname)
     if (pseoRaw !== null) {
-      const row = await db.pseoPage.findFirst({
-        where: { slug: { in: pseoSlugCandidates(pseoRaw) }, status: 'active' },
-        select: { title: true, description: true, keywords: true, keyword: true },
-      })
+      // [R30-5-3] 三者入参互不依赖 → 并行(原 findFirst→resolveMetaSite→requestOrigin 串行链; PSEO 页为 SEO 爬虫热点路径, TTD 直接受益)
+      const [row, site, origin] = await Promise.all([
+        db.pseoPage.findFirst({
+          where: { slug: { in: pseoSlugCandidates(pseoRaw) }, status: 'active' },
+          select: { title: true, description: true, keywords: true, keyword: true },
+        }),
+        resolveMetaSite(first('site')),
+        requestOrigin(),
+      ])
       if (!row) return {}
-      const site = await resolveMetaSite(first('site'))
       const siteName = plainText(site?.name || '')
       const heading = row.title || row.keyword
       const title = siteName ? `${heading} - ${siteName}` : heading
-      const origin = await requestOrigin()
       return buildMetadata({
         title: title || '专题页',
         description: row.description || title,
@@ -357,25 +360,27 @@ export async function generateMetadata({
 
     const resolved = await resolvePrettyPath(pathname)
     if (!resolved) return {}
-    const site = await resolveMetaSite(first('site'))
+    // [R30-5-3] site/origin 解析与后继分支的数据查询互不依赖, 并行拿齐(原三段串行)
+    const [site, origin] = await Promise.all([resolveMetaSite(first('site')), requestOrigin()])
     if (!site) return {}
 
     // canonical 恒带 site 查询参数(与前台各视图 canonical/sitemap loc 同口径);
     // prettyPath 即当前路径本身, 目录翻页 ?page= 与预览 ?theme= 不进 canonical
     const canonicalPath = `${pathname}?site=${encodeURIComponent(site.id)}`
-    const origin = await requestOrigin()
 
     if (resolved.view === 'read' && resolved.chapterId) {
-      const chapter = await db.chapter.findUnique({
-        where: { id: resolved.chapterId },
-        select: {
-          title: true, content: true, idx: true,
-          book: { select: { name: true, author: true, category: { select: { name: true } }, status: true, keywords: true } },
-        },
-      })
+      // [R30-5-3] 章节查询与 SEO 模板读取互不依赖 → 并行
+      const [chapter, tpl] = await Promise.all([
+        db.chapter.findUnique({
+          where: { id: resolved.chapterId },
+          select: {
+            title: true, content: true, idx: true,
+            book: { select: { name: true, author: true, category: { select: { name: true } }, status: true, keywords: true } },
+          },
+        }),
+        getSeoTemplates(),
+      ])
       if (!chapter) return {}
-      // [R24-4] 章节页自动 TDK —— 模板引擎单出处(默认模板/管理端覆盖均走 Setting.seoTemplates)
-      const tpl = await getSeoTemplates()
       const tdk = composeChapterTdk(
         {
           bookname: plainText(chapter.book?.name || ''),
@@ -401,17 +406,20 @@ export async function generateMetadata({
       })
     }
 
-    const book = await db.book.findUnique({
-      where: { id: resolved.bookId },
-      select: {
-        name: true, author: true, intro: true, status: true, keywords: true,
-        category: { select: { name: true } },
-        _count: { select: { chapters: true } },
-      },
-    })
+    // [R30-5-3] 书籍查询与 SEO 模板读取互不依赖 → 并行
+    const [book, tpl] = await Promise.all([
+      db.book.findUnique({
+        where: { id: resolved.bookId },
+        select: {
+          name: true, author: true, intro: true, status: true, keywords: true,
+          category: { select: { name: true } },
+          _count: { select: { chapters: true } },
+        },
+      }),
+      getSeoTemplates(),
+    ])
     if (!book) return {}
     // [R24-4] 书籍页 / 章节目录页自动 TDK: 目录翻页(?page>1)用目录模板区分, 避免同书多 URL 标题撞车
-    const tpl = await getSeoTemplates()
     const baseVars = {
       bookname: plainText(book.name),
       author: plainText(book.author),

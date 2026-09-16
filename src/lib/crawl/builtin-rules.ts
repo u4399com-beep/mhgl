@@ -2698,10 +2698,11 @@ export const BUILTIN_RULES: BuiltinRule[] = [
       }
     },
   },
+  // [R30-2-2] kanunu8 条目按 2025-09-16 全站活体考据重写(列表正则白名单/书籍页三代兼容/清洗加强), 与 scripts/seed-rule-kanunu8.ts 同步手改本条目; 勿以生成器整文件覆盖(会回退 ratelimit-demo [R28-4-L8] 漂移修复)
   {
     key: "kanunu8",
     name: "努努书坊(www.kanunu8.com)·中文综合书坊采集",
-    description: "kanunu8.com 直连无防护 GBK 老站。列表=分类表格行 table a[target=_blank](29-{page}.html 分页, /zt/ 专题链接置空剔除) / 书籍页 h1+作者regex+简介(新版 .intro 与旧版 td.p10-24:contains 双兼容) / 目录 regex 兼容三代书籍页内嵌章节链(相对 NNNNN.html) / 正文三容器兼容(#neirong, td[width=820], #Article .text)。正文\"下一页\"是下一章 → content 翻页关闭。源站自带敏感词替换(Rx房)无法清洗。",
+    description: "kanunu8.com 努努书坊, 直连无防护 GBK 站(引擎自动 gb18030 解码)。13 频道, 主用华文小说 29-{page}.html(约3460本, 页脚标10页实测有效至28页), 8-/6-/11-、/wuxia/ 裸数字、/tuili/list- 等换模板即用。列表=正则白名单 /(bookN|tuili|101)/ target=_blank 只收书籍页链, 剔除 /zt/ 专题与 /files|/wuxia/ 单文件文章页(不可采); 「作者：书名」前缀剥离+author 兜底。书籍页三代兼容: 一代 .catalog(h1+.info+.intro) / 二代 book_2015 表格(td.p10-24:contains(内容简介)) / 三代单文件列表已剔; 无封面/分类/状态留空。目录=内嵌相对链 \\d{4,8}.html, 文档序即阅读序。正文三容器 #neirong/td[width=820]/#Article .text; 长章不拆页 → 翻页关闭。残留: 敏感词(Rx房)烙于正文; &nbsp; 由 cleaner 处置; 分卷名不采。",
     enabled: true,
     source: "scripts/seed-rule-kanunu8.ts",
     config: {
@@ -2709,21 +2710,31 @@ export const BUILTIN_RULES: BuiltinRule[] = [
         "enabled": true,
         "urlTemplate": "https://www.kanunu8.com/files/chinese/29-{page}.html",
         "itemSelector": {
-          "type": "css",
-          "expression": "table a[target='_blank']"
+          "type": "regex",
+          "expression": "<a\\s+href=[\"']/(?:book\\d*|tuili|101)/[^\"']*[\"']\\s+target=[\"']_blank[\"']\\s*>[^<]{1,100}</a>",
+          "attr": "0",
+          "flags": "gi"
         },
         "fields": {
           "name": {
-            "type": "css",
-            "expression": "a",
-            "attr": "text"
+            "type": "regex",
+            "expression": ">([^<]{1,100})</a>",
+            "attr": "1",
+            "flags": "gi",
+            "replaceFrom": "^[^<>：:]{1,25}[：:]\\s*",
+            "replaceTo": ""
+          },
+          "author": {
+            "type": "regex",
+            "expression": ">\\s*([^<>：:]{1,25})[：:]",
+            "attr": "1",
+            "flags": "gi"
           },
           "bookUrl": {
-            "type": "css",
-            "expression": "a",
-            "attr": "href",
-            "replaceFrom": "^/zt/.*$",
-            "replaceTo": ""
+            "type": "regex",
+            "expression": "href=[\"']([^\"']+)[\"']",
+            "attr": "1",
+            "flags": "gi"
           }
         },
         "pagination": {
@@ -2748,7 +2759,9 @@ export const BUILTIN_RULES: BuiltinRule[] = [
           "intro": {
             "type": "css",
             "expression": ".intro, td.p10-24:contains(\"内容简介\")",
-            "attr": "html"
+            "attr": "html",
+            "replaceFrom": "^(?:<(?:strong|b)>\\s*)?内容简介[:：]?\\s*(?:</(?:strong|b)>)?\\s*(?:<br\\s*/?>\\s*)?",
+            "replaceTo": ""
           }
         }
       },
@@ -2756,20 +2769,20 @@ export const BUILTIN_RULES: BuiltinRule[] = [
         "enabled": true,
         "itemSelector": {
           "type": "regex",
-          "expression": "<a href=\"\\d{4,8}\\.html\">[^<]{1,120}</a>",
+          "expression": "<a\\s+href=[\"']\\d{4,8}\\.html[\"']\\s*[^>]*>[^<]{1,120}</a>",
           "attr": "0",
           "flags": "gi"
         },
         "fields": {
           "title": {
             "type": "regex",
-            "expression": "<a href=\"\\d+\\.html\">([^<]+)</a>",
+            "expression": "<a\\s+href=[\"']\\d{4,8}\\.html[\"'][^>]*>([^<]{1,120})</a>",
             "attr": "1",
             "flags": "gi"
           },
           "url": {
             "type": "regex",
-            "expression": "href=\"(\\d+\\.html)\"",
+            "expression": "href=[\"'](\\d{4,8}\\.html)[\"']",
             "attr": "1",
             "flags": "gi"
           }
@@ -2824,7 +2837,8 @@ export const BUILTIN_RULES: BuiltinRule[] = [
           "本站作品收集整理自网络[^<>]*",
           "请记住本站[^<>]*",
           "(www\\.)?[a-z0-9-]+\\.(com|net|cc|org|info|top|xyz|vip|site)(\\/\\S*)?",
-          "本章未完.*?点击下一页继续阅读"
+          "本章未完.*?点击下一页继续阅读",
+          "上一页\\s*回目录\\s*下一页"
         ],
         "whitelist": [
           "p",

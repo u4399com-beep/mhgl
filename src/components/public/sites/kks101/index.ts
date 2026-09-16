@@ -140,4 +140,3 @@ export const kks101Template: SiteTemplateSet = {
 `,
 }
 
-export default kks101Template

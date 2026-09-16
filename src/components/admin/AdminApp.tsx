@@ -19,6 +19,7 @@ import {
   LayoutDashboard,
   Link2,
   ListChecks,
+  LogOut,
   MessageSquare,
   Palette,
   Settings,
@@ -213,6 +214,22 @@ export default function AdminApp({ onPreviewSite }: { onPreviewSite?: (themeId?:
               </button>
             )
           })}
+          {/* [R30-5-5] 登出入口(R30-4 审计 A-3: /api/auth/logout 路由原有但零 UI 消费, 后台无登出入口属 UX 缺口) */}
+          <button
+            type="button"
+            onClick={async () => {
+              try {
+                await fetch('/api/auth/logout', { method: 'POST' })
+              } catch {
+                /* 网络失败也照常回登录页(会话由 cookie 决定) */
+              }
+              window.location.reload()
+            }}
+            className="mt-2 flex items-center gap-2.5 rounded-md px-3 py-2 text-sm text-zinc-500 transition-colors hover:bg-zinc-900 hover:text-zinc-300"
+          >
+            <LogOut className="h-4 w-4" />
+            退出登录
+          </button>
           <div className="mt-auto px-3 pt-4 text-[10px] leading-relaxed text-zinc-700">
             采集核心已就绪
             <br />

@@ -892,6 +892,26 @@ export function parseBook(html: string, baseUrl: string, pageRule: PageRule): Pa
 }
 
 // ---------------- 目录解析(含翻页 + 乱序重排 + 去重) ----------------
+/** [R30-3-4] 目录去重键规范化: 源站目录页混排绝对/相对链接时, 同一章节可能以
+ *  末尾斜杠(/books/1/1.html 与 /books/1/1.html/)、fragment(#anchor)或大小写 host
+ *  (WWW. 与 www.)多形态出现 —— 修前按字面串去重失败, 同章重复入目录(重复抓取+重复入库)。
+ *  规范化只作用于去重键, 目录条目保留首次出现的原始 href(不重写入库 URL):
+ *  host 小写(含端口, 见 [R30-3b-2])、剥 fragment、剥非根路径尾斜杠, search 保留(query 差异=
+ *  不同页); title 兜底路径原样(title 无 URL 语义)。与 runner 末章比较的 normalizeUrlForCompare
+ *  同向但用途不同: 那边剥 scheme 比对变更, 这里剥变体去重。
+ *  export 供验证脚本单测(与 fetcher.parseRetryAfterHeaderMs / runner.jitteredInterval 同款先例) */
+export function tocDedupKey(href: string, title: string): string {
+  const raw = href || title
+  if (!href) return raw
+  try {
+    const u = new URL(href)
+    const path = u.pathname.length > 1 ? u.pathname.replace(/\/+$/, '') : u.pathname
+    // [R30-3b-2] 键含端口(u.host=hostname[:port], URL 规范化已剥默认端口): 修前键只取 hostname,
+    // 同 host 不同 port(:8080 镜像轨与主轨混排)会被误去重丢章 —— 旧字面串键本就区分端口,
+    // 规范化不得引入新的合并维度
+    return `${u.host.toLowerCase()}${path}${u.search}`
+  } catch { return raw }
+}
 export async function parseToc(
   firstUrl: string,
   html: string,
@@ -946,7 +966,7 @@ export async function parseToc(
         href = absolutize(href, base)
         // 目录条目必须持有效章节链接(const模板占位符未命中会合成空URL, 过滤不入目录)
         if (!href) return
-        const dedupKey = href || title
+        const dedupKey = tocDedupKey(href, title)
         if (seen.has(dedupKey)) return
         seen.add(dedupKey)
         // kk-a: 分卷名(规则 toc.fields.volume 提取, 如番茄 volume_name)
@@ -1033,7 +1053,7 @@ export async function parseToc(
       // "title 与 href 双空"才跳过, 导致目录混入 url 为空的垃圾章节(导航锚点常态);
       // 目录条目必须持有效章节链接, 无 href 一律不入目录(title 由 title||href 兜底)
       if (!href) continue
-      const dedupKey = href || title
+      const dedupKey = tocDedupKey(href, title)
       if (seen.has(dedupKey)) continue
       seen.add(dedupKey)
       // [R25-2-6] volume 唯一清洗点(与 JSON 目录路径同口径, 见彼处注释)

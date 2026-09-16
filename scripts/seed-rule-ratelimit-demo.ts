@@ -81,6 +81,11 @@ export const ruleConfig = {
   },
   fetch: {
     engine: 'http',
+    // [R30-5-6] 回写 R28-4-L8 修复(修前只改了生成物 builtin-rules.ts 未回写种子, 种子↔生成物漂移,
+    // 重跑生成器会静默回退该修复 —— R30-4 审计 B-1): 四段源站是本机 127.0.0.1:3040 模拟站,
+    // 无此声明时经规则测试面板/采集任务的 fetchPage 链路会被 SSRF 守卫必拒(仅 calibrate 可用);
+    // sanitize 白名单显式接受该字段(types.ts allowLoopback), 仅放宽 loopback, 私网/元数据仍硬拒
+    allowLoopback: true,
     // 校准探测与生产引擎 uaMode=rotate 同款浏览器指纹轮换(strict 档 UA 指纹检测也过得去)
     uaMode: 'rotate',
     autoCookie: true,

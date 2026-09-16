@@ -21,6 +21,10 @@
 //   - 子进程隔离: 单个种子异常/exit() 不影响其余种子(失败清单在结尾打印);
 //   - 本脚本只读 scripts/, 只写 src/lib/crawl/builtin-rules.ts 与 /tmp 临时目录;
 //   - 修改某条规则后: 先跑对应 seed-rule-*.ts 验证, 再重跑本脚本同步注册表。
+//   - [R30-5-6] ⚠ 重跑须知: 生成物 builtin-rules.ts 中存在历史手工补丁(R28-4-L8 的 allowLoopback
+//     修复注释等) —— 本脚本 JSON.stringify 输出不保留注释, 重跑会丢弃生成物内注释但语义不受损
+//     (种子源已回写全部功能性修复, 种子是语义唯一权威)。重跑前先跑种子↔生成物语义对账, 重跑后
+//     diff 只应出现「注释丢失/键序归一」类差异, 任何字段值差异都说明种子漂移未回写, 须先补种子。
 // ============================================================
 import { readdir, mkdir, writeFile, readFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'

@@ -4,7 +4,7 @@
 // ============================================================
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { contentToHtml } from '../read-layouts/shared'
 import { getReadTimeMs, saveReadPos, setReadTimeMs } from '../read-layouts/reading-memory'
@@ -92,7 +92,11 @@ export function useRecordReading(bookId?: string, chapterId?: string, title?: st
  * 容器样式由模板按真站规格传入(通常: 固定栏宽 + 行高 + 段距)。
  */
 export function ChapterContent({ content, style, className }: { content: string; style?: CSSProperties; className?: string }) {
-  return <div className={className} style={style} dangerouslySetInnerHTML={{ __html: contentToHtml(content) }} />
+  // [R30-5-4] 消毒管道缓存: contentToHtml(段落规整+客户端 XSS 消毒)对数十 KB 章节开销显著,
+  // 而 useReaderFont 字号增减会触发本组件重渲染 —— 不 memo 则每次调字号都重跑整章正则管道。
+  // content 引用稳定时(章节未切换)直接复用消毒产物。
+  const html = useMemo(() => contentToHtml(content), [content])
+  return <div className={className} style={style} dangerouslySetInnerHTML={{ __html: html }} />
 }
 
 /**

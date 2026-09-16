@@ -765,7 +765,12 @@ async function acquireGlobalSlot(limit: number): Promise<void> {
       // 超时: 从 waiters 移除自身(防 release 后误唤醒已 reject 的 promise)
       const idx = globalSem.waiters.indexOf(wakeup)
       if (idx >= 0) globalSem.waiters.splice(idx, 1)
-      reject(new Error('GlobalSemTimeout: 全局并发信号量等待 30s 未获取槽位'))
+      // [R30-3b-1] 补设错误名: R30-3-3 在 runner.gateFetch/章节 catch 按 e.name==='GlobalSemTimeout'
+      // 豁免(引擎侧拥塞不计源站失败), 但修前抛错未设 name(缺省 'Error'), 豁免判定永不命中(死代码)。
+      // 与 hostgate.ts HostGateTimeout 同款先例(hostgate.ts:534 e.name='HostGateTimeout')
+      const semErr = new Error('GlobalSemTimeout: 全局并发信号量等待 30s 未获取槽位')
+      semErr.name = 'GlobalSemTimeout'
+      reject(semErr)
     }, 30_000)
     if (typeof timer.unref === 'function') timer.unref()
     const wakeup = () => {
@@ -1856,30 +1861,26 @@ function loopbackBypassAllowed(url: string, cfg: FetchConfig): boolean {
   // (qimao 127.0.0.1:3013 签名代理作列表/目录源等), 与 tokenUrl/contentProxyUrl 隐式豁免同口径;
   // 仅放宽 loopback, 私网/元数据仍由 assertSafeIp 硬拒
   if (cfg.allowLoopback === true) return true
-  let uHost = ''
-  let uPort = ''
-  try {
-    const u = new URL(url)
-    uHost = u.hostname.toLowerCase().replace(/^\[|\]$/g, '')
-    uPort = u.port || ''
-  } catch { return false }
-  const matches = (rawUrl: string): boolean => {
-    try {
-      // tokenUrl 可能含 {url} 占位符, 替换为合法 URL 后解析
-      // R3-3: 原 replace('{url}', ...) 仅替首个占位符, 多占位符模板第二个起漏替换 →
-      // URL 解析失败 → matches 返回 false → tokenUrl 配置的回环目标永远拿不到 loopback 豁免。
-      // split/join 全量替换保证所有占位符都被替, 与 prefetchToken 内同款修复口径一致
-      const u = new URL(rawUrl.split('{url}').join(encodeURIComponent('https://example.com/')))
-      return u.hostname.toLowerCase().replace(/^\[|\]$/g, '') === uHost && (u.port || '') === uPort
-    } catch { return false }
-  }
-  if ((cfg.tokenUrl || '').trim() && matches(cfg.tokenUrl!)) return true
+  if ((cfg.tokenUrl || '').trim() && urlMatchesTemplateOrigin(url, cfg.tokenUrl!)) return true
   // feat-contentproxy-resume: contentProxyUrl 与 tokenUrl 同口径 —— 操作员配置的回环转换代理
   // (xjp-proxy 127.0.0.1:3015 等), 抓取该代理 URL 走 loopback 豁免(不走出口代理, 不被 SSRF 拒)
-  if ((cfg.contentProxyUrl || '').trim() && matches(cfg.contentProxyUrl!)) return true
-  if (matches(RELAY_URL)) return true
-  if (matches(SCRAPLING_BRIDGE_URL)) return true
+  if ((cfg.contentProxyUrl || '').trim() && urlMatchesTemplateOrigin(url, cfg.contentProxyUrl!)) return true
+  if (urlMatchesTemplateOrigin(url, RELAY_URL)) return true
+  if (urlMatchesTemplateOrigin(url, SCRAPLING_BRIDGE_URL)) return true
   return false
+}
+
+/** [R30-3-1] 模板 origin 匹配(共用 helper): 目标 URL 的 hostname(小写, 剥 IPv6 方括号)与
+ *  非默认端口是否与模板一致 —— 模板可含 {url}/{token} 占位符, 占位符段以可解析 URL 展开
+ *  (展开值不参与匹配, 只求 parse 成功); 之前 loopbackBypassAllowed 内联 matches 与
+ *  contentProxy 自指判定各写一份, 现收敛单出处防两处漂移 */
+function urlMatchesTemplateOrigin(url: string, rawTemplate: string): boolean {
+  try {
+    const u = new URL(url)
+    const t = new URL(rawTemplate.split('{url}').join(encodeURIComponent('https://example.com/')))
+    return t.hostname.toLowerCase().replace(/^\[|\]$/g, '') === u.hostname.toLowerCase().replace(/^\[|\]$/g, '')
+      && (t.port || '') === (u.port || '')
+  } catch { return false }
 }
 
 // ---------- 出口代理池 (dd-a: proxy rotation, 反反爬核心) ----------
@@ -3419,8 +3420,27 @@ async function fetchHttpWithCurlSingle(url: string, cfg: FetchConfig, ua: string
     }
     return fetchViaCurl(url, cfg, ua, proxy)
   }
+  // [R30-3-E-A] 链路记忆 curl 先行(FETCH_CHAIN_MEMORY=1): 该 host 上次成功走 curl 时跳过
+  // "native 必败一跳"直取 curl; 失败(记忆失效/瞬态)落回常规 native 序且本轮不重复 curl。
+  // 关闭(缺省)时本块整体跳过, 行为逐字节不变
+  const chainHost = FETCH_CHAIN_MEMORY_ENABLED ? hostKeyOf(url) : ''
+  let curlTriedFirst = false
+  if (chainHost && chainMemGet(chainHost) === 'curl') {
+    curlTriedFirst = true
+    try {
+      const r = await fetchViaCurl(url, cfg, ua, proxy)
+      chainMemNote(chainHost, 'curl')
+      return r
+    } catch (e: any) {
+      if (e?.name === 'AbortError' || e?.code === 'ABORT_ERR') throw e
+      console.warn('[fetcher] 链路记忆 curl 先行未成, 落回常规序:', String(e?.message || e).slice(0, 140))
+    }
+  }
   try {
-    return await fetchHttp(url, cfg, ua, proxy)
+    const r = await fetchHttp(url, cfg, ua, proxy)
+    // [R30-3-E-A] native 成功记账(仅开关开启时 chainHost 非空)
+    if (chainHost) chainMemNote(chainHost, 'native')
+    return r
   } catch (e: any) {
     if (e?.name === 'AbortError' || e?.code === 'ABORT_ERR') throw e
     // 2-fetcher C4: DNS 瞬时失败(ENOTFOUND/EAI_AGAIN) 2s 后重试 fetchHttp 一次, 不落 curl;
@@ -3432,22 +3452,32 @@ async function fetchHttpWithCurlSingle(url: string, cfg: FetchConfig, ua: string
     ) {
       await new Promise((r) => setTimeout(r, 2000))
       try {
-        return await fetchHttp(url, cfg, ua, proxy)
+        const r = await fetchHttp(url, cfg, ua, proxy)
+        if (chainHost) chainMemNote(chainHost, 'native')
+        return r
       } catch {
         // DNS 重试仍失败, 落 curl 兜底(下方逻辑)
       }
     }
-    try {
-      return await fetchViaCurl(url, cfg, ua, proxy)
-    } catch (curlErr: any) {
-      console.warn('[fetcher] curl 传输未成:', String(curlErr?.message || curlErr).slice(0, 140))
-      // 原错误是 HTTP 状态错误(带 status)时仍抛原错误保留 bodyHtml 语义;
-      // 原错误是纯网络层失败(无 status, 如 TLS 指纹被 WAF 拒连)时改抛 curl 的错误 ——
-      // 它带 status/bodyHtml, 上层 fetchPage 的 fallbackStatus/Cookie 挑战重试判定依赖这些字段,
-      // 原先一律重抛原错误会让"curl 拿到 403+Set-Cookie"的挑战信号丢失, Cookie 重试链路失效
-      if (e?.status) throw e
-      throw curlErr || e
+    if (!curlTriedFirst) {
+      try {
+        const r = await fetchViaCurl(url, cfg, ua, proxy)
+        // [R30-3-E-A] curl 兜底成功记账(下次该 host 直取 curl)
+        if (chainHost) chainMemNote(chainHost, 'curl')
+        return r
+      } catch (curlErr: any) {
+        console.warn('[fetcher] curl 传输未成:', String(curlErr?.message || curlErr).slice(0, 140))
+        // 原错误是 HTTP 状态错误(带 status)时仍抛原错误保留 bodyHtml 语义;
+        // 原错误是纯网络层失败(无 status, 如 TLS 指纹被 WAF 拒连)时改抛 curl 的错误 ——
+        // 它带 status/bodyHtml, 上层 fetchPage 的 fallbackStatus/Cookie 挑战重试判定依赖这些字段,
+        // 原先一律重抛原错误会让"curl 拿到 403+Set-Cookie"的挑战信号丢失, Cookie 重试链路失效
+        if (e?.status) throw e
+        throw curlErr || e
+      }
     }
+    // [R30-3-E-A] curl 已在本轮先行失败(链路记忆失效), 不重复 curl —— 按原错误语义上抛
+    // (status 错误保留 bodyHtml; 网络层错误如实上抛交上层重试/降级链)
+    throw e
   }
 }
 
@@ -3456,6 +3486,60 @@ async function fetchHttpWithCurlSingle(url: string, cfg: FetchConfig, ua: string
  *  故以直通入口验证 relay 传输与 fetchHttp 逐跳语义的组合(循环回环端到端) */
 export async function fetchHttpForTest(url: string, cfg: FetchConfig, ua: string, proxy: string, transport: 'native' | 'relay'): Promise<string> {
   return fetchHttp(url, cfg, ua, proxy, transport)
+}
+
+// ---------- [R30-3-E-A] 每主机链路成功记忆(FETCH_CHAIN_MEMORY=1 缺省关) ----------
+/**
+ * 场景: 同一 host 的传输链选择(native fetch → 失败落 curl 子进程)是【每次请求重头试】的
+ * 无记忆流程 —— 对"native 必被 JA3/HTTP2 指纹拒、curl 恒通"的站(WAF 按 TLS 指纹封锁,
+ * uukanshu.cc 实录), 每章都要先吃一次必然失败的 native(TLS ClientHello 泄漏给 WAF 计数,
+ * 也不必要地多耗一次连接建立), 而"native 恒通"的站反向成本为零(记忆无收益但也无副作用)。
+ * 开启后按 host 记忆最近一次成功的传输链, 下次优先直取该链, 失败自动降回常规序并覆盖记忆。
+ * 状态: 进程级(globalThis 防 HMR), FIFO 512 上限 + 10min TTL(链路健康会漂移, 长记忆反成
+ * 毒药; TTL 过期即视为无记忆走常规序)。仅覆盖 bun 直抓/代理路径(node+proxy 的 relay→curl
+ * 路径刻意不记 —— 中继桥可用性探测本身带 60s 缓存, 链路选择语义不同)。
+ */
+const FETCH_CHAIN_MEMORY_ENABLED = process.env.FETCH_CHAIN_MEMORY === '1'
+const CHAIN_MEM_TTL_MS = 10 * 60_000
+const CHAIN_MEM_CAP = 512
+type ChainKind = 'native' | 'curl'
+interface ChainMemEntry { chain: ChainKind; at: number }
+const globalForChainMem = globalThis as unknown as { __novelChainMemory_v1?: Map<string, ChainMemEntry> }
+const chainMemory: Map<string, ChainMemEntry> = globalForChainMem.__novelChainMemory_v1 ?? new Map()
+globalForChainMem.__novelChainMemory_v1 = chainMemory
+
+function chainMemGet(host: string): ChainKind | '' {
+  if (!host) return ''
+  const e = chainMemory.get(host)
+  if (!e) return ''
+  if (Date.now() - e.at >= CHAIN_MEM_TTL_MS) { chainMemory.delete(host); return '' }
+  return e.chain
+}
+function chainMemNote(host: string, chain: ChainKind): void {
+  if (!host) return
+  // FIFO 有界(同 hostRhythm/proxySticky 先例): 超限删最旧
+  while (chainMemory.size >= CHAIN_MEM_CAP) {
+    const oldest = chainMemory.keys().next().value
+    if (oldest === undefined) break
+    chainMemory.delete(oldest)
+  }
+  chainMemory.set(host, { chain, at: Date.now() })
+}
+
+/**
+ * [R30-3-E-D] host 行为分自适应间隔倍率(FETCH_ADAPTIVE_GAP=1 缺省关, runner nextInterval 消费):
+ * hostRhythm 显示该 host 近期处于对抗态(惩罚窗在效)且 403/429 连败 ≥2 时返回 2(间隔拉长一档),
+ * 其余返回 1(零变化)。与 hostgate 降额(limit-1)/hostRhythm 惩罚窗(≤3s 执行等待)互补:
+ * 前者是"引擎侧罚站", 本倍率是"任务侧节奏整体放缓一档", 双开时叠加生效。
+ * 纯读取函数(fetcher 内部账本, 无内部依赖, 供 runner 导入无循环风险)
+ */
+export function hostAdaptiveGapMultiplier(url: string): number {
+  if (process.env.FETCH_ADAPTIVE_GAP !== '1') return 1
+  const st = hostRhythm.get(hostKeyOf(url))
+  if (!st) return 1
+  const now = Date.now()
+  if (st.resistUntil > now && (st.forbiddenStreak >= 2 || st.rateLimitStreak >= 2)) return 2
+  return 1
 }
 
 /**
@@ -4085,7 +4169,18 @@ async function fetchPageOnce(url: string, cfg: FetchConfig): Promise<FetchResult
   // SSRF 守卫: contentProxyUrl 是操作员配置的回环转换代理, allowLoopback:true 放行(与 tokenUrl 同口径);
   // 仍拒绝云元数据/私网(防恶意规则把 contentProxyUrl 指 10.0.0.1)。代理失败/响应非法 → 静默降级原 URL 直连
   const contentProxyUrl = (cfg.contentProxyUrl || '').trim()
-  if (contentProxyUrl) {
+  // [R30-3-1] 自指防护(修 contentProxyUrl 双重包裹, dev.log 实锤: proxy=3014/content?u=http%3A%2F
+  // %2F127.0.0.1%3A3014%2Fcontent%3Fu%3Dhttps%3A%2F%2Fwww.deqixs.cc%2Fbooks%2F7665):
+  // 根因 = 规则 toc url 字段以 replaceTo 前缀直指转换代理(deqixs "http://127.0.0.1:3014/content?u="、
+  // bqg713 /unlock、qidian:3017、xjp:3015 同款, "toc 合成 URL 即代理 URL"契约), 该合成 URL 作为
+  // 章节目标进入 fetchPageOnce 后, contentProxyUrl 组合点把它再当普通目标 URL 包一层 ——
+  // u= 参数里嵌的是「代理自身 URL」, 代理收到自指请求(去抓它自己)必败(502/404), 随后靠
+  // 「降级直连原 URL」回落到合成 URL 本身才走通。修前每次此类章节先白打一发自指请求(请求数×2、
+  // 代理日志/引擎 warn 噪音×2, 自指请求还可能被代理当真实目标外发一圈)。现判定: 目标 URL 的
+  // host:port 与 contentProxyUrl 模板一致(= 已经是代理形态)时跳过包裹, 直接落下方原链抓取
+  // (loopbackBypassAllowed 对该形态本就豁免 SSRF; R12-c2-1 的 200+JSON 信封免判同样生效;
+  // bqg713 描述的"探测自指→404→引擎降级直连"最终态不变, 只是省掉必然失败的自指一跳)
+  if (contentProxyUrl && !urlMatchesTemplateOrigin(url, contentProxyUrl)) {
     // {url} 占位符全量替换(与 prefetchToken 同款 split/join, 防 replace 只替首个多占位符漏替换)
     const proxyUrl = contentProxyUrl.split('{url}').join(encodeURIComponent(url))
     const ssrf = await assertSafeTarget(proxyUrl, { allowLoopback: true })

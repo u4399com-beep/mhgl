@@ -62,6 +62,11 @@ function clamp(s: string, max: number): string {
   return pts.length <= max ? s : pts.slice(0, max).join('')
 }
 
+/** [R30-1-1] 码点计数(UTF-16 代理对安全, 与 clamp 同口径) —— 后台模板实时预览标注 T/D/K 实际长度用 */
+export function seoCodePoints(s: string): number {
+  return Array.from(s).length
+}
+
 /** [R25-5b] 字面转义残留清洗: 存量简介里 JSON 转义未还原的 \r\n\t\f 与 \uXXXX 双字序列
  *  (真换行/真空白/真字符不受影响 —— 只剥反斜杠+字母的字面形态), 防渗入 meta description */
 function stripLiteralEscapes(s: string): string {

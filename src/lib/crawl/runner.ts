@@ -8,7 +8,7 @@
 // ============================================================
 import { db } from '@/lib/db'
 import { type RuleConfig, type TocItem, type FetchConfig, parseRuleConfig, sanitizeFetchConfig } from './types'
-import { fetchPage, fetchBinary, checkBrowser, type FetchResult, effectiveHostGateLimit, registerGracefulShutdown, loadCookieJarFromDisk } from './fetcher'
+import { fetchPage, fetchBinary, checkBrowser, type FetchResult, effectiveHostGateLimit, registerGracefulShutdown, loadCookieJarFromDisk, hostAdaptiveGapMultiplier } from './fetcher'
 import { acquireHostGate, releaseHostGate, reportHostSuccess, reportHostFailure, reportHostRateLimited, hostGateSnapshot, hostGateKeyOf } from './hostgate'
 import { parseList, parseBook, parseToc, parseContent, parseJsonBody, absolutize } from './parser'
 import { cleanContentHtml, cleanIntro, cleanChapterTitle, cleanTextField } from './cleaner'
@@ -145,6 +145,21 @@ const FETCH_EXTRACT_HOST_FAIL_LIMIT = 3
 const globalForExtractFb = globalThis as unknown as { __novelExtractFbFail_v1?: Map<string, number> }
 const extractFbFailStreak: Map<string, number> = globalForExtractFb.__novelExtractFbFail_v1 ?? new Map()
 globalForExtractFb.__novelExtractFbFail_v1 = extractFbFailStreak
+// [R30-3-2] 进程级 number-Map FIFO 上限(同 fetcher hostRhythm/proxySticky 先例):
+// extractFbFailStreak 按 host 逐条累积, 站群长任务(数千 host)下无淘汰会无界增长 ——
+// 512 与 fetcher HOST_RHYTHM_CAP 对齐; 计数值 ≤3(达限即停用该 host 兜底), 驱逐最旧条目
+// 仅丢"兜底停用"记忆, 下次再败 3 次重新停用, 行为语义不变
+const EXTRACT_FB_HOST_CAP = 512
+// export 供验证脚本单测 FIFO 有界性(与 fetcher.parseRetryAfterHeaderMs / 本文件 jitteredInterval
+// 同款"导出供验证脚本直接单测"先例; 纯函数无状态, 零行为影响)
+export function numberMapFifoSet(m: Map<string, number>, key: string, value: number, cap: number): void {
+  while (m.size >= cap) {
+    const oldest = m.keys().next().value
+    if (oldest === undefined) break
+    m.delete(oldest)
+  }
+  m.set(key, value)
+}
 
 /** [R28-4-E3] 桥 /extract 兜底提取: 成功返回 wrap 好的 <p> HTML(调用方还需重过 cleanContentHtml),
  *  失败/停用返回 null(静默) */
@@ -166,7 +181,7 @@ async function trafilaturaExtractFallback(pageUrl: string, html: string, bridgeU
     if (!payload?.ok || typeof payload.text !== 'string' || !payload.text.trim()) {
       throw new Error(String(payload?.error || 'ok/text 字段缺失').slice(0, 120))
     }
-    if (host) extractFbFailStreak.set(host, 0)
+    if (host) numberMapFifoSet(extractFbFailStreak, host, 0, EXTRACT_FB_HOST_CAP) // [R30-3-2] 有界写入
     // \n 段落 wrap <p>(与 contentProxy 路径 fetcher.ts 同款转义)
     return payload.text
       .split('\n')
@@ -175,14 +190,16 @@ async function trafilaturaExtractFallback(pageUrl: string, html: string, bridgeU
       .map((l) => `<p>${l.replace(/[<>&]/g, (c) => c === '<' ? '&lt;' : c === '>' ? '&gt;' : '&amp;')}</p>`)
       .join('')
   } catch {
-    if (host) extractFbFailStreak.set(host, (extractFbFailStreak.get(host) || 0) + 1)
+    if (host) numberMapFifoSet(extractFbFailStreak, host, (extractFbFailStreak.get(host) || 0) + 1, EXTRACT_FB_HOST_CAP) // [R30-3-2] 有界写入
     return null
   }
 }
 
 /** [R28-4-E1] host 级熔断观测日志节流: 同 host 1min 至多 1 条(防千章任务被熔断快速失败
- *  逐章刷 warn 日志刷屏) */
+ *  逐章刷 warn 日志刷屏)。[R30-3-2] 写入走 numberMapFifoSet 有界化(512, 同上) ——
+ *  修前按 host 逐条累积永不淘汰, 站群场景无界增长 */
 const hostCircuitWarnAt = new Map<string, number>()
+const HOST_CIRCUIT_WARN_CAP = 512
 
 /** E4: 熔断后冷却窗口 —— 60s 内拒绝 control('start') 重启, 防止操作员反复硬敲故障源 */
 const CIRCUIT_COOLDOWN_MS = 60_000
@@ -1252,7 +1269,14 @@ export class TaskRunner {
       // [R28-4-E1] host 级熔断(403 连败长静默)快速失败: 引擎侧闸门行为而非源站故障,
       // 不喂连败降额链/不计 429 冷却(与下方 HostGateTimeout 豁免同口径); 章节错误分类由
       // 调用方按 HostCircuitOpen 分支只记节流后的观测日志
-      if (e?.isFetchTimeout || (e?.name !== 'AbortError' && e?.code !== 'ABORT_ERR' && e?.name !== 'HostCircuitOpen')) {
+      // [R30-3-3] GlobalSemTimeout 同款豁免: fetchPage 入口全局并发信号量 30s 等待超时
+      // (fetcher acquireGlobalSlot)也是引擎侧拥塞而非源站失败 —— 修前落 reportHostFailure
+      // 喂连败降额链, 多任务并行信号量打满时把健康站点的 limit 一路降到 1(错误分类漂移)
+      if (
+        e?.isFetchTimeout ||
+        (e?.name !== 'AbortError' && e?.code !== 'ABORT_ERR' &&
+         e?.name !== 'HostCircuitOpen' && e?.name !== 'GlobalSemTimeout')
+      ) {
         // zz-b: HTTP 429 以抛错形态抵达(fetchHttp/curl/auto 升级链均保留 err.status)——
         // 同样走限流冷却而非降额链, 防止限流站点被误降并发后照旧硬敲。
         // ab-b: 透传 fetcher 抛错对象抢救出的 Retry-After 毫秒值(无值/非法 → undefined → 30s 兜底)
@@ -1985,7 +2009,10 @@ export class TaskRunner {
               refererUrl: contentRefererUrl,
               refererChain: true,
             }
-            const jitteredMinGap = jitteredInterval(interval, fetchCfg.jitterMs)
+            // [R30-3-E-D] host 行为分自适应(FETCH_ADAPTIVE_GAP=1 缺省关): 该 host 近期 403/429
+            // 连败≥2(对抗态)时间隔整体拉长一档(×2), 其余 ×1; 与 hostgate 降额/惩罚窗互补,
+            // 双开叠加生效。关闭时倍率恒 1, 与旧值逐字节一致
+            const jitteredMinGap = Math.round(jitteredInterval(interval, fetchCfg.jitterMs) * hostAdaptiveGapMultiplier(q.url))
             const pageRes = await this.gateFetch(taskId, q.url, contentFetchCfgWithReferer, { minGapMs: jitteredMinGap })
             // 疑似被拦不入库: 保持 fetched=false, 下次增量自动重试; 合法JSON体是API数据非挑战页, 放行
             if (pageRes.blocked && parseJsonBody(pageRes.html) === undefined) throw new Error('章节页疑似被拦截(验证码/JS挑战)')
@@ -2088,14 +2115,16 @@ export class TaskRunner {
                 const hkey = hostGateKeyOf(q.url)
                 const last = hostCircuitWarnAt.get(hkey) || 0
                 if (Date.now() - last > 60_000) {
-                  hostCircuitWarnAt.set(hkey, Date.now())
+                  numberMapFifoSet(hostCircuitWarnAt, hkey, Date.now(), HOST_CIRCUIT_WARN_CAP) // [R30-3-2] 有界写入
                   await this.log(taskId, 'warn', `章节批量跳过: host 级熔断中(${hkey || '未知'}, 源站 403 连败长静默), 章节保持未采集; 熔断解除后增量重试可恢复`)
                 }
               }
-            } else if (e?.name === 'HostGateTimeout') {
-              // bb-d: 同站并发闸门槽满等待超时 — hostGate 限流保护(引擎侧)而非源站故障,
-              // 不计 errors/不计源站连续失败; 章节保持 fetched=false, 稍后增量重试可恢复
-              await this.log(taskId, 'warn', `章节 ${q.title.slice(0, 60)} 同站并发闸门等待超时(host:${hostGateKeyOf(q.url) || '未知'}, 该站并发已达上限), 章节保持未采集; 稍后增量重试可恢复`)
+            } else if (e?.name === 'HostGateTimeout' || e?.name === 'GlobalSemTimeout') {
+              // bb-d: 同站并发闸门槽满等待超时 / [R30-3-3] 全局并发信号量等待超时 —— 两者均为
+              // 引擎侧并发护栏(源站无关), 不计 errors/不计源站连续失败; 章节保持 fetched=false,
+              // 稍后增量重试可恢复。修前 GlobalSemTimeout 落 else 分支计失败+喂熔断链,
+              // 多任务并行信号量打满时可把健康任务误熔断(错误分类漂移)
+              await this.log(taskId, 'warn', `章节 ${q.title.slice(0, 60)} 引擎并发护栏等待超时(${e?.name === 'GlobalSemTimeout' ? '全局信号量' : `host:${hostGateKeyOf(q.url) || '未知'}`}), 章节保持未采集; 稍后增量重试可恢复`)
             } else {
               stats.errors++
               consecutiveErrs++
@@ -2339,11 +2368,18 @@ async function sleepGap(ms: number, rt: TaskRuntime, myEpoch: number): Promise<v
  * 两者叠加后作为 hostGate 的 minGapMs(闸门实际执行等待), 让请求节奏不规则,
  * 击败简单 rate-pattern 检测。即使任务配置固定 interval(intervalMin==intervalMax),
  * 实际出门间隔仍会变化。jitterMs 缺省 undefined 时仅 ±20% 抖动(零回归, 老 task 行为微变)。
+ * [R30-3-E-B] FETCH_GAP_JITTER=1(缺省关): 基础抖动从 ±20% 拓宽到 ±30%
+ * (base * (0.7 + random*0.6) ∈ [70%, 130%]) —— 固定宽度抖动窗仍是可聚类的节奏形态,
+ * ±30% 更接近人类不均匀点击节奏; 期望值不变(仍为 base), 仅形态更散。关闭时与旧版逐字节一致。
+ * export 供验证脚本单测分布边界(与 parseRetryAfterHeaderMs "导出供验证脚本直接单测"同款先例)
  */
-function jitteredInterval(base: number, jitterMs?: number): number {
-  const pct80to120 = base * (0.8 + Math.random() * 0.4)
+const FETCH_GAP_JITTER_ENABLED = process.env.FETCH_GAP_JITTER === '1'
+export function jitteredInterval(base: number, jitterMs?: number): number {
+  const pct = FETCH_GAP_JITTER_ENABLED
+    ? base * (0.7 + Math.random() * 0.6)
+    : base * (0.8 + Math.random() * 0.4)
   const extra = typeof jitterMs === 'number' && jitterMs > 0 ? Math.random() * jitterMs : 0
-  return Math.max(0, Math.round(pct80to120 + extra))
+  return Math.max(0, Math.round(pct + extra))
 }
 function safeJson<T>(s: string | null | undefined): Partial<T> {
   try { return s ? JSON.parse(s) : {} } catch { return {} }

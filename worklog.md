@@ -5346,3 +5346,110 @@ Stage Summary:
 - 采集: R28-3 审计高0/中3/低9 全修 + 反反爬增强 5 项落地(全部缺省关零回归), 桥 venv 重建 selfTestOk
 - 清理: 净删 ≈297 行, 死代码/孤儿导出清零, lint 0/0 + tsc 0 锁定
 - 待办移交: 12 项历史修改核验/R21 git push(本轮一并执行)/bqg713 JS 解锁(评估结论: 现行 /unlock 链即验证解, 规则引擎无 JS 执行位属安全特性)
+
+---
+Task ID: R30-1
+Agent: Agent A (TDK preset matrix)
+Task: 自动 TDK SEO 预设矩阵 —— ≥18 套预设 + 随机组合刷新按钮(用户指令: 「自动TDK SEO，做至少18套预设矩阵，点击刷新按钮可以随机组合生成。」)
+
+Work Log:
+- [R30-1-0] 前置勘察: worklog R24-4/R25-5b/R27-2-2 三段(seo-tpl 引擎/出口加固/PSEO 扩展) + src/lib/seo-tpl.ts 全文(SeoTplSet/DEFAULT_SEO_TEMPLATES/sanitizeSeoTpl「含 { 才采纳」/interpolate 变量 map/compose* 三出口码点截断) + src/components/admin/SeoTplSection.tsx 旧版(249 行) + src/app/api/admin/seo-templates/route.ts(GET/PUT Setting.seoTemplates) + src/lib/seo-tpl-server.ts(60s 缓存) 全链通读后动手
+- [R30-1-1] src/lib/seo-tpl.ts:65-68 仅增量: 导出 seoCodePoints(码点计数, 代理对安全, 与 clamp 同口径), 供后台预览标注 T/D/K 实际长度; 既有 API 零破坏
+- [R30-1-2] src/lib/seo-presets.ts(新, 454 行): SEO_TPL_PRESETS:27 起 18 套完整预设(SeoPreset = SeoTplSet + id/name/style), 风格族 18 种互异 = 悬念型/疑问型/数字型/权威型/长尾词型/情感型/工具型/急迫感型/信任型/场景型/榜单型/完结型/追更型/简洁型/推荐型/沉浸型/口碑型/亮点型 —— 标题句式(问句/章节段位「第1-N章」/长尾堆叠「免费阅读_无弹窗_全本TXT下载」/前缀钩子「刚更新：/热门榜之选：/名场面预警：」/极简三段式)/卖点角度(大结局悬念·追读问答·数据背书·经典必读·无弹窗安全·意难平共鸣·书架进度工具·抢先追更·通勤碎片场景·榜单高分·完结大全·最新章节·书单精选·剧情氛围·读者口碑·三大看点)/关键词策略(品牌词/长尾词/疑问词「好看吗·怎么样」/数字词「共几章·字数」/榜单词「排行榜·高分」/完结词「完结大全·大结局」/追更词「什么时候更新」)逐套不同; 参考真实书站长尾形态(免费阅读/无弹窗/全本/最新章节/TXT下载/在线阅读/完整版/经典/必读/高分/排行榜/完结大全/连载中); 只用已文档化 10 变量; title 按渲染后 ≤40 码点设计(description ≤160/keywords ≤200, 与 compose* 截断线同口径); 每条模板必含 '{' → sanitizeSeoTpl「含 { 才采纳」对随机产物天然成立
+- [R30-1-3] seo-presets.ts:340-439 随机组合引擎: FIELD_PLAN 8 字段(book T/D/K + toc T/D + chapter T/D/K)键路径+取值器(TS 严格类型安全跨页型访问) + assembleSet/buildSources + stableJson(按 8 字段定序序列化, 免键序干扰) + randomSeoTplSet(prev?: SeoTplSet): RandomSeoTplResult(:422) —— 8 字段各自独立 18 选 1(可跨预设混搭, 组合空间 18^8≈110 亿), 整体结果与 prev 不同(不同则重抽, MAX_RANDOM_ATTEMPTS=64 有界防死循环; 兜底再强制换 book.title 为与 prev 差异的预设保「必不同」), 返回 sources = {book/toc/chapter 页型概览串(该页来源预设名去重) + fields 8 条 {key,presetId,presetName,field} 徽章溯源}; 纯函数无副作用, 允许 Math.random
+- [R30-1-4] seo-presets.ts:442-454 sampleSeoVars: Required<SeoTplVars> 全变量 mock(凡人修仙传/忘语/仙侠/青枫书屋/第一千零二十三章 雷劫降临/2446 章/连载中/简介+正文摘要+站关键词), 实时预览与冒烟共用
+- [R30-1-5..13] src/components/admin/SeoTplSection.tsx 改造(249→547 行): ①头注+imports(:10-36) ②SourceMap 类型(:42) ③Field 增 source prop 展示「title ← 悬念型·隐藏结局」amber 徽章(:65-99) ④lastSources 状态(:142), load/reset 后清徽章(:170,:249) ⑤clearSource 手动编辑即清该字段徽章(:183-186) + 8 处 onChange 接线(:400-:497) ⑥randomFill(:192-219): 以「当前编辑值(空字段回落生效模板)」为比对基线调 randomSeoTplSet → 8 字段填入编辑器 + 徽章表落地, 「随机组合」按钮(Shuffle 图标/amber 系/与恢复自动·保存并列 :336-346) ⑦effectiveTpl+preview useMemo(:258-287): sampleSeoVars × composeBookTdk/composeTocTdk/composeChapterTdk 对当前编辑模板实时渲染, 空 K 隐藏行 ⑧PreviewRow/PreviewGroup 码点数标注 N/上限(超限红防御分支 :101-139) ⑨预览区三页型分组卡(:506-542) + 随机来源页型概览行(:379-383, 含 18^8 组合空间说明); 保存(PUT seo-templates)与「恢复自动」逻辑原样保留, zinc 暗色系/shadcn 组件不变, 移动端 grid-cols-1 收缩
+- 冒烟验证(/tmp/r30-seo-smoke.ts, bun 直跑后已删): 2670 PASS / 0 FAIL —— ①18 套逐套: 8 字段非空+必含 {+变量白名单⊆10 个文档化变量+裸渲染(不整体截断)title≤40/desc≤160/kw≤200+compose* 出口同线且无 {var} 残留+title 非空 ②statusText 空态(未知连载状态): 全套 title 仍非空+无「,,」脏标点 ③randomSeoTplSet 50 连抽: 每抽与上一组合不同+fields=8 键序完整+来源 presetId/presetName 可追溯且产物字段=来源预设模板+页型概览串非空+sanitizeSeoTpl 零损通过; prev=DEFAULT_SEO_TEMPLATES 必不同 ④sampleSeoVars 全变量非空; 另 bun build --target=browser 3 改动文件 0 错语法门(未跑 lint/tsc, 未启停 3000 端口 dev server)
+
+Stage Summary:
+- 交付: src/lib/seo-presets.ts(新) = 18 套风格差异化 TDK 预设矩阵 + randomSeoTplSet 随机组合引擎(8 字段独立抽取/与 prev 必不同/来源可追溯) + sampleSeoVars; src/components/admin/SeoTplSection.tsx = 随机组合按钮 + 8 字段来源徽章 + 三页型实时预览(码点标注); src/lib/seo-tpl.ts 仅增量 +seoCodePoints; 零新依赖/零 DB/未动其他文件
+- 关键决策: ①每条预设模板必含 '{' 使 sanitizeSeoTpl 安全语义天然成立(随机产物可直接 PUT) ②随机比对基线取「当前编辑值(空字段回落生效模板)」保证连点必出「换一批」 ③statusText 空态句式全部按引擎标点折叠/修剪规则设计并冒烟验证 ④组合去重用 8 字段定序 stableJson ⑤预览复用 compose* 真链路(与前台渲染单口径)
+- 质量门: 冒烟 2670 PASS/0 FAIL(脚本已删); bun build 语法门 0 错; 未跑 lint/tsc(任务禁令)/未启停 dev server
+- 未尽事项: 预设不含 PSEO 变量({keyword}/{bookCount})句式(PSEO 模板族按 R27-2-2 设计独立于 Setting.seoTemplates 覆盖体系); 预览样本为固定 mock 书籍不支持自定义(可后续扩展); lint/tsc 终检留主控统一执行
+
+---
+Task ID: R30-4
+Agent: Agent D (read-only audit)
+
+Work Log:
+- 前置: 通读 worklog 全文(重点 R28-5 清理段/R28 主控段/R21 12 项清单段:4251); 全量盘点 src(174 文件 77,478 行)/scripts(34 顶层+297 归档)/mini-services(8 服务+_shared)/配置文件; 全程只读零改动、零 lint/tsc/dev server/git
+- 死代码: lib 全部导出符号逐一 grep 消费链(伪静态/pseo/seo-tpl/links/auth/banned-words/backup/api); ui 25 件/admin 34 件/public 26 件组件逐个 import 验证(全部存活); crawl 域导出 24 个零外部引用者逐一二次核验(仅 storage.saveDownloadTxt 全死, 余为文件内消费的冗余 export); API 路由 66 条与前端 URL 提取对账(仅 /api/auth/logout 零消费); sites/registry 十站 index 具名导入链核验(发现 aijjxs/kks101 index 残留 2 处 default 导出)
+- 重复实现: escapeRegExp/sliceCodePoints(R28-5 已整合, 复核无回潮); 防抖 4 处为异形上下文(判定不整合); HTML→文本 2 处同构(downloader vs admin chapters route, risky); 段落包裹转义 2 处(chapter route vs read-layouts shared); 日期格式化 4 处漂移(fmtDateTime vs 3 处裸 toLocale); fetch 包装 3 实现+6 裸 fetch; formatWords vs fmtWords 语义不同裁定不合并
+- 依赖: package.json 33 个 dependencies 逐包 grep import(零未用; prisma CLI 留 dependencies 有据=entrypoint db push); 复核 R28-5-9 结论无漂移
+- 超大文件: src 12 个 + scripts 2 个 >800 行列出(只列不动), 标注 A/B/C 所有权与拆分建议
+- TODO/FIXME: src 全仓 0 个真 TODO/FIXME(seo-tpl 2 处为 \uXXXX 注释误匹配); 「遗留」类注释 20+ 处抽查全部仍有效
+- 一致性: 62/66 路由 withGuard(4 豁免合理); tsconfig noImplicitAny:false 记录为观察项; cn() 82 vs 模板串 156(克隆保真豁免); index.ts default 导出风格 2 处漂移
+- 交接核验: R21「12 项历史修改」逐项核验(原始清单 worklog.md:4251 可考): 9 项原样在库/②主题矩阵⑧aijjxs 复刻被 R28 有意取代且功能位延续/⑨HomeBiquge 组件实体已删(场景由 ddyueshu 克隆承接); git push 归主控; bqg713 裁定维持
+- 性能: N+1 仅 2 处(categories rep 死载荷每请求最多 ~120 findFirst 最严重/keywords upsert 可接受); stats 路由 ~16 串行 await、[...slug] generateMetadata 4 串行可 Promise.all; template-kit ChapterContent 无 memo 十站阅读页热路径; 循环内 new RegExp 零命中
+- 专项发现: [B 域]gen-builtin-rules.ts 生成器与生成物漂移——R28-4-L8 allowLoopback 修复只在 builtin-rules.ts:3860、种子源无, 重跑生成器将静默回退(本轮最高优先复核项); R28-5 存疑清单 #1(categories rep)本轮完成落地核验; R28-5-12 fetcher TS2367 目视分支正常、留 C 收口后 tsc 确认
+- 产出: 审计报告 → /tmp/r30-audit/audit-report.md(A/B/C 三组分域+safe/risky 判定+grep 证据链)
+
+Stage Summary:
+- 发现总数: 27 条 dead 6/dup 5/deps 1/split 14/todo 0/consistency 7/perf 4/hygiene 4 + 12 项交接核验 + 1 项生成器漂移风险
+- 分类统计: safe 可直接落地 13 条(A 组主控域, 净删 src ~20~25 行+hygiene ~1,760 行出主干); risky 8 条(待主控裁定, ~44 行); A/B/C 复核 10 条
+- 报告路径: /tmp/r30-audit/audit-report.md
+- 最值得落地 TOP5: ①[B]allowLoopback 修复回写 seed-rule-ratelimit-demo.ts 防生成器回退(防回归最高优先) ②/api/public/categories rep 死载荷瘦身+消除 N+1(~18 行+每请求 -120 查询) ③stats 路由串行 await Promise.all 化(Dashboard 轮询路径) ④template-kit ChapterContent useMemo(十站阅读页热路径) ⑤hygiene 三件套(7 个一次性脚本归档 1,187 行/tests 旧变体 170 行/examples 模板残留 333 行)
+---
+Task ID: R30-2b
+Agent: Agent B2 (kanunu8 apply+test)
+Task: R30-2 续 — kanunu8 新规则离线验证 + 应用落盘(builtin-rules/seed/DB) + 真站实测 + 收尾
+
+Work Log:
+- [R30-2-1] 离线验证(全 PASS): `bun run r30-tmp-validate.ts` 全绿 —— list(29-2 页 200 条/c29_11 深档 95 条, 全为 /(bookN|tuili|101)/ 书籍链, 0 /zt/ 泄漏, 「作者：书名」前缀剥离生效); book 四本三代(一颗苹果/美华, 丰乳肥臀/莫言, 听雪楼/沧月, 3001太空漫游/阿瑟·克拉克) name+author 精确命中, intro 181~352 字符无「内容简介」标签残留, cleanIntro 过链; toc 4 本(meihua94 99/8255 71/11009 87/lanxiangyuan 326)绝对化完整无重复; content 四容器 5 样本清洗后 3753~18486 字符无导航噪音/script; 样本 0 U+FFFD。`r30-tmp-regexgate.ts` GATE-PASS(collectRegexIssues 保存期闸)
+- [R30-2-2] 应用落点: src/lib/crawl/builtin-rules.ts 仅替换 key:"kanunu8" 条目(description 497 码点重写: 13 频道/29-{page} 深档实测/列表正则白名单剔除逻辑/书籍页三代布局/无封面分类状态声明/敏感词残留; config 全段换新), 其余 28 条目逐字节未动(head-2700 行与 moli 起尾段 cmp 全等 + 条目数 29 不变 + ratelimit-demo allowLoopback 修复完好在位); 条目上方加注释声明勿以生成器整文件覆盖(防回退 R28-4-L8 漂移修复)。新块由 r30-tmp-entry-gen.ts 以生成器同款序列化(JSON.stringify(cfg,null,2))产出, 与 seed 信封漂移校验 PASS(见 R30-2-3)
+- [R30-2-3] scripts/seed-rule-kanunu8.ts 重写: config 与新规则逐字段一致(白名单 itemSelector/name 剥前缀+author 兜底/intro 双候选 replaceFrom 剥「内容简介：」标签/toc 引号+夹层属性容错/clean 增「上一页 回目录 下一页」行级兜底), description 与 registry 同文(497 码点 ≤ 管理 API str(,500) 截断线); 探针升级(主探针换一代 meihua94, 附加探针覆盖二代 8255/过渡 11009/长目录 lanxiangyuan 326 项/长章 chandlizhi); 调用约定不变(RuleSeed/testSection/seedRuleIdempotent)。漂移校验: 模拟 gen-builtin-rules 求值提取(stub 不出网)采集信封 → config/description/name/enabled 与 registry 条目四项全等 DRIFT-CHECK PASS
+- [R30-2-4] 真站实测: **3000 端口 dev server 实测宕机**(dev.log 末次写入 14:04, 无监听进程无 next-server, curl 000×多轮; 遵禁令未重启) → 管理 API(login/PUT/POST test)不可用, 改用与 /api/admin/rules/test 逐字节同源引擎栈直测(fetchPage+parseList/parseBook/parseToc/parseContent+cleanContentHtml, 规则取同一 r30-tmp-rule), 真实 kanunu8 URL 13 探针 47 断言 **LIVE ALL PASS, 总耗时 4.7s**: ①list 29-1.html=197 条与 /wuxia/1.html=197 条, 100% 书籍链, /zt/ 与单文件文章 0 泄漏, 书名非空 ②book 三代: meihua94=一颗苹果/美华, 8255=丰乳肥臀/莫言, 11009=听雪楼(全集)/沧月, intro 181~352 字无残留无乱码 ③toc 99/71/87/326 章全唯一, 相对链补全为绝对 https 链, 推荐块/专题 0 误收 ④content 四容器: 4107/3522/3981/17055 纯文本字符, 无导航噪音/script/center, GBK 解码 0 U+FFFD(页均 250~570ms)
+- [R30-2-5] DB 同步: API 不可用 → 以 PUT /api/admin/rules/[id] 路由逐字等价写路径执行(collectRegexIssues 预检 + str(description,500) 截断口径 + configToString 200KB 上限 + db.rule.update), 仅更新 name 精确匹配的单行 id=cmu45prcr0185q8rzbp0g5zuj; 前置断言该规则 0 Task 引用(用户 2 个在跑任务属 deqixs/AU文学, 零触碰); 回读 config/description 全等 PASS, 规则总数 5 不变, 未建任何采集任务未采任何书
+- [R30-2-6] 收尾: 项目根 7 个本轮临时文件全删(r30-tmp-{rule,validate,regexgate,entry-gen,drift,live,dbsync}.ts, 任务点名 3 个+本轮工具 4 个); /home/z 下备份/cookie 头文件清除; /tmp/r30-kanunu/ 考据样本保留(Agent B 证据链, 未动); 未跑 lint/tsc、未启停任何服务、零 git
+
+Stage Summary:
+- 规则要点: ①列表由 CSS table a[target=_blank]+/zt/ 置空改为正则白名单 `<a\s+href=["']/(?:book\d*|tuili|101)/[^"']*["']\s+target=["']_blank["']\s*>` —— 正向只收书籍页链, 一并剔除 /zt/ 专题、/files|/wuxia/ 单文件文章页(三代布局不可采, 深档 p23+ 文章主导区旧方案无能为力)与 /files/critic/ 杂项 ②list 新增 name 剥「作者：」前缀+author 捕获兜底 ③book intro 双候选(.intro, td.p10-24:contains(内容简介))+replaceFrom 剥标签, 无封面/分类/状态字段如实不设 ④toc 正则 \d{4,8}.html 加引号/夹层属性容错 ⑤content 维持三容器+clean 增 1 条导航文本兜底(共 7 条 adPatterns); fetch/clean 骨架与旧版一致
+- 取舍: description 压至 497 码点对齐管理 API 500 截断线; builtin-rules.ts 手改条目而非重跑生成器(R30-4 审计已证 ratelimit-demo 存在生成器漂移, 整文件重跑会回退修复); DB 走 PUT 等价写路径保留原 rule id
+- 实测结论: 离线(本地 GBK 转码样本)+在线(真站实抓)双轮全绿; 三代书籍页布局、两类频道列表模板、四容器正文形态全部覆盖; 已知残留(源站敏感词 Rx房/&nbsp; 缩进/分卷名不提取)如实声明于 description
+- 未尽事项/移交: ①本轮 dev server 3000 宕机发生在任务窗口内(非本 agent 所为), 管理 API 侧实测(login/PUT/POST test)未能执行, 已以同源引擎栈+等价写路径替代并逐字对齐路由实现; 待主控确认服务恢复后可在后台规则编辑器对 kanunu8 做一次可视化复验 ②R30-4 审计项「gen-builtin-rules 生成器与生成物漂移」依旧开放(ratelimit-demo seed 源缺 allowLoopback), 本轮未越界代修
+
+---
+Task ID: R30-3b
+Agent: Agent C2 (crawl verify closeout)
+
+Work Log:
+- 前置: 通读 git diff src/lib/crawl/ 全量(接手时 fetcher 158/parser 20/runner 62 行) + worklog 末段; 逐 hunk 审读前任 C 的 R30-3-1/-2/-3/-4/E-A/E-B/E-D 七项落地, 未重做任何 C 已完成项
+- [R30-3b-1] fetcher.ts:768 acquireGlobalSlot 拒错补设 e.name='GlobalSemTimeout'(审读实锤 bug): R30-3-3 在 runner.gateFetch:1276/章节 catch:2120 按 e?.name==='GlobalSemTimeout' 豁免, 但修前抛 new Error('GlobalSemTimeout: ...') 未设 name(缺省 'Error') → 两处豁免判定永不命中, R30-3-3 整体死代码; 与 hostgate.ts:534 HostGateTimeout 同款先例, 消息串不变(日志/错误文案零变化)
+- [R30-3b-2] parser.ts tocDedupKey 去重键补端口(u.host 小写, URL 规范化已剥默认端口): 修前键只取 hostname, 同 host 跨 port(:8080 镜像轨与主轨混排)会被误去重丢章 —— 旧字面串键本就区分端口, 规范化不得引入新合并维度; 默认端口 :80/:443 形态仍归一(URL 构造器语义)
+- [R30-3b-3] 测试出口导出 ×2(纯函数零行为影响, 同"导出供验证脚本单测"在库先例 parseRetryAfterHeaderMs/jitteredInterval): parser.ts tocDedupKey + runner.ts numberMapFifoSet
+- 其余 hunk 审读全 OK(未改): ①loopbackBypassAllowed 内联 matches→urlMatchesTemplateOrigin 收敛逐语义等价({url} 占位符 split/join 全量展开/host+port 等值/IPv6 方括号剥除/解析失败 false) ②urlMatchesTemplateOrigin 单出处 helper 正确 ③contentProxy 自指防护判定面正确(host:port 同源即跳过包裹, 豁免链闭环: loopbackBypassAllowed 对合成 URL 本就放行 + R12-c2-1 200+JSON 信封免判 + 包裹路径 assertSafeTarget(allowLoopback:true) 原样) ④链路记忆 curl 先行块位置正确(node+proxy relay 轨早退在前, "relay 不记账"注释属实)/AbortError 豁免链保留/不重复 curl 语义+错误语义取舍有注释留档 ⑤numberMapFifoSet 接线全(extractFbFailStreak 成功置 0+失败自增两点/hostCircuitWarnAt 一点; runner 其余 number-Map 均函数局部无泄漏) ⑥hostAdaptiveGapMultiplier 字段名/开关读取时机/hostRhythm 只读均正确 ⑦jitteredInterval ±30% 关闭逐字节等价 ⑧自适应倍率消费点 Math.round(jitter×multiplier) 关闭时恒等旧值 ⑨parseToc 两处 dedupKey 调用点均先 absolutize ✓
+- 冒烟验证(临时脚本 r30-3b-tmp-smoke.ts, bun 直跑后已删; 本地 Bun.serve 3991/3992/3993, 避开 mini-services 3010-3017): 30 PASS / 0 FAIL
+  - S1 自指防护: Case-A dev.log 双包裹形态(contentProxyUrl=.../content?u={url} + 目标=代理自身 /content?u=deqixs 合成 URL) → selfHits=0/请求数 1(修前 2)/JSON 信封原样返回(R12-c2-1 免判生效); Case-B 非代理 origin 普通章节 → 包裹照常(wrapHits=1/源站零直连/产物 wrap <p>, 防误伤); Case-C 同 origin 非 /content → 按 origin 判定放行直取不包裹
+  - S2 链路记忆(FETCH_CHAIN_MEMORY=1): 桩 native fetch 对目标 host 恒抛 → 首轮 native 1 败→curl 兜底成功+记账 {chain:'curl'}(globalThis.__novelChainMemory_v1); 次轮 nativeCalls delta=0(直取 curl, 不再吃必败 native)+记忆保持; 真实 curl 子进程回环请求打通
+  - S3 FIFO 有界: numberMapFifoSet 灌 600 键 size 钳 512/FIFO 序驱逐(k0-k87 出, k88-k599 存)/cap=3 重写语义(size 钳制+值更新)
+  - S4 目录去重规范化: 单测 8 项(大小写 host/尾斜杠/fragment 剥除/search 保留/跨端口区分[R30-3b-2]/默认端口归一/非法 URL 回退/空 href 回退 title) + parseToc 集成(混排 5 链接→3 章, 保留首次原始 href, 无翻页零网络)
+  - S5 静态结构检查: fetcher 拒错点 name 已设 + runner 两处 name 等值判定存在(30s 真超时动态触发不纳入冒烟——等待窗硬编码 30s 不值得)
+- 质量门: 未跑 tsc/lint(按指令留主控串行); 3 改动文件经冒烟真实 import+执行(语法/解析/运行时全通过); 未碰 3000 端口/mini-services/builtin-rules.ts(其间见其 +46 行在途改动, 系另一 agent 所为, 未触碰)/用户数据/DB/git
+
+Stage Summary:
+- 修复清单: [R30-3b-1] GlobalSemTimeout 补错误名(R30-3-3 死代码激活, fetcher 1 处) / [R30-3b-2] tocDedupKey 键补端口防跨 port 误去重丢章(parser 1 处) / [R30-3b-3] tocDedupKey+numberMapFifoSet 测试出口导出(parser/runner 各 1 处); 净增 ~11 行, 全带注释标记
+- 验证矩阵: 自指防护 8 项 PASS / 链路记忆 5 项 PASS / FIFO 3 项 PASS / 目录去重 11 项 PASS / 静态结构 2 项 PASS = 30/30; 前任 C 七项交付全部过审(6 项免修, 1 项[R30-3-3]由[R30-3b-1]激活)
+- 遗留: ①列表页( runner:1051 catch)/书籍页(:1141)路径未对 GlobalSemTimeout 做不计 errors 豁免(与 HostGateTimeout 在该两路径的既有处理一致, C 的任务口径为"不计章节错误", 未越界扩改; 引擎拥塞打满时列表/书籍页会各计 1 次 errors 且书保持未完成态可增量恢复) ②链路记忆 curl 先行失败→native 亦败时按原 native 错误上抛(修前该形态 curl 的 status/bodyHtml 错误可能更利于挑战重试链; 仅 FETCH_CHAIN_MEMORY=1 时可达, C 注释已留档取舍) ③[R30-3-3] 动态端到端(真等满 30s)未纳入冒烟, 以静态结构检查+调用链目检替代 ④R30-3-1 的 builtin-rules.ts 侧(deqixs 等 toc replaceTo 规则本体)零触碰, 归另一 agent
+---
+Task ID: R30(主控)
+Agent: main-orchestrator
+Task: R30 总控 — TDK 18套预设矩阵 + kanunu8 整站规则重写 + 采集逐行深抓bug + 全项目清理精简 + 质量门 + E2E + commit/push
+
+Work Log:
+- [R30-0] 侦察: R28 已提交(ba9b7c4)工作树干净; R29 整轮未启动确认; git 远程已被异源线强推(origin/main 落后88/ahead41); kanunu8.com 直连可达(200/0.5s); TDK 现状=seo-tpl 三页型引擎+SeoTplSection(无预设矩阵); dev.log 抓到 contentProxyUrl 双包裹活体 bug(proxy=3014/content?u=http%3A%2F%2F127.0.0.1%3A3014%2Fcontent%3Fu%3D...)
+- [R30-1] Agent A: seo-presets.ts 新建(454行) — 18套风格族预设(悬念/疑问/数字/权威/长尾/情感/工具/急迫/信任/场景/榜单/完结/追更/简洁/推荐/沉浸/口碑/亮点), randomSeoTplSet 8字段独立抽取(18^8 组合空间, 与 prev 必不同, 有界64次重抽) + sources 可追溯; SeoTplSection 249→547行(随机组合按钮+来源徽章+实时预览码点标注); 冒烟 2670 PASS/0 FAIL
+- [R30-2] Agent B 超时但考据+草稿落盘(/tmp/r30-kanunu 100+样本 + recon.md + r30-tmp-rule.ts 草稿); Agent B2 补跑收口: 离线(真实 parser/cleaner 对本地样本)+在线(13探针47断言)双轮全绿; 规则应用 builtin-rules.ts(仅 kanunu8 条目) + seed-rule-kanunu8.ts 重写 + DB 同步(cmu45prcr 单行更新, 前置断言0 Task 引用); 规则亮点: 正则白名单只收书籍页链(一次性剔 /zt/ 专题+单文件文章页), 三代书籍页兼容(.catalog/.info/.intro 双候选/td.p10-24:contains), 正文三容器+翻页关闭
+- [R30-3] Agent C 超时但改动全部落盘(fetcher158/parser20/runner62 行); Agent C2 补跑收口: 逐 hunk 过审 6 免修 + 1 实锤 bug 修复([R30-3b-1] GlobalSemTimeout 未设 e.name → R30-3-3 豁免链整体死代码) + 2 加固([R30-3b-2] tocDedupKey 补端口防跨 port 误去重丢章/[R30-3b-3] 导出供单测); 冒烟 30 PASS/0 FAIL(自指防护8项: dev.log 实锤形态复现自指请求 0/请求数 1(修前2)/负向对照防误伤; 链路记忆5项; FIFO3项; 去重11项); 反反爬增强3项全缺省关: E-A 链路成功记忆(FETCH_CHAIN_MEMORY=1, FIFO512+10minTTL), E-B 间隔抖动±30%(FETCH_GAP_JITTER=1), E-D host 行为分自适应倍率(FETCH_ADAPTIVE_GAP=1); C 本体修复: [R30-3-1] contentProxy 自指防护(根因=规则 toc url replaceTo 前缀直指转换代理, 合成 URL 进 fetchPageOnce 又被包一层)+urlMatchesTemplateOrigin 收敛, [R30-3-2] numberMapFifoSet 有界化512, [R30-3-3] 信号量超时豁免, [R30-3-4] 目录去重键规范化
+- [R30-4] Agent D 只读审计: /tmp/r30-audit/audit-report.md(214行); 零未用依赖(33包复核); 12项历史修改核验闭环(9在库/2被R28有意取代/1组件删除场景由ddyueshu承接); >800行文件14个只列不动
+- [R30-5] 主控落地 D 清单 safe 项: A-1/A-2 删 aijjxs+kks101 index 残留 default 导出; A-4 categories rep 死载荷移除(-18行+消除~120查询N+1); A-5 stats 路由 16+串行await→2批Promise.all+countPerDay7d 内部7计数并行(失败告警语义不变); A-6 [...slug] generateMetadata 三分支并行化(PSEO: row+site+origin; read: chapter+tpl; book: book+tpl); A-7 ChapterContent contentToHtml useMemo(字号调节不再重跑整章消毒管道); A-3 登出入口补齐(AdminApp 侧栏退出登录按钮, /api/auth/logout 路由激活); A-11/A-12 仓库卫生(7个一次性脚本+3个legacy tests shell → scripts/archive/, ~1357行出 tsc 门禁面); B-1 ratelimit-demo allowLoopback 回写种子+[R30-5-6] 语义对账(seed↔builtin deepEq=true, 29种子↔29key 完美对应)+gen 脚本头部重跑警示; B-2 storage.ts 死函数 saveDownloadTxt 删除; B-3 unexport/B-4/B-5 整合裁定本轮不做(cosmetic/语义有差异, 风险>收益, 留档)
+- [R30-事故] dev server 3000 于 B2 任务窗口内 OOM 宕机(dmesg: next-server 2.38GB 被杀), B2 遵禁令未重启; 主控 setsid bun run dev 恢复(Ready 2.7s), 用户在跑的采集测试任务已随进程死亡无可保全
+- [R30-质量门] 串行 lint 0/0 + tsc --noEmit 0 错
+- [R30-E2E] agent-browser 全绿: 登录门→后台(Dashboard+健康卡8服务全可达); SEO模板区: 随机组合×2(工具型→悬念型组合确实变化)+来源徽章+实时预览(样本变量凡人修仙传/码点数 28/40·111/160·74/200)+保存toast+恢复自动激活; 保存后 SSR TDK 实证 /book/4.html title=「封界大结局隐藏真相全文阅读 - 大疆无爱」(A-6 并行化路径同时验证); kanunu8 规则后台可视化复验(B2交接项): 编辑器+开始测试 → HTTP直连587ms/75.3KB/提取197条列表项/name+author+bookUrl 全对(GBK 干净); 前台: 首页+阅读页 375px 零横滚, 阅读页 88 段落 4390 字渲染, A+ 字号切换 17→18px 88段落无损(memo 路径实证); 退出登录按钮 → 回登录门; dev.log E2E 全程零错误
+- [R30-git] push 处置: 本地提交 c2cddf1 完成; 远程 origin/main 被异源线强推(b4127d5, 含 R13-R16 异源提交), 本地28轮工作为用户当前权威线, 拟「先推备份分支保留异源历史(b4127d5→backup/other-line)再 force-with-lease 推 main」但 **push 失败: 沙箱无任何 GitHub 凭据**(无 credential.helper/.git-credentials/netrc/gh CLI/SSH key, HTTPS 只读匿名可用、写需认证) → push 仍遗留(与 R21 同因), 需用户在认证环境执行: git push origin main:backup/other-line-b4127d5 && git push --force-with-lease origin main(或提供 token)
+
+Stage Summary:
+- TDK: 18套预设矩阵+随机组合刷新全链路上线(编辑器→保存→SSR 即时生效)
+- kanunu8: 整站规则重写双轮验证全绿入库(13频道考据/三代布局/正则白名单/GBK)
+- 采集: 活体 bug contentProxy 双包裹根因修复+3反反爬增强(缺省关)+C2 审出死代码 bug 修复; 冒烟 30 PASS
+- 清理: 净删~60行 src + ~1357行出 tsc 门禁面 + 4 处性能并行化 + 生成器漂移闭环; 零未用依赖复核
+- 质量门 lint0/tsc0 + agent-browser E2E 全绿 + mini-services 3010-3017 全 UP + dev server 3000 恢复正常

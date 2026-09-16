@@ -37,13 +37,17 @@ async function countPerDay7d(
   const m = (model === 'chapter' ? db.chapter : db.book) as unknown as Countable
   const now = new Date()
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-  for (let i = 6; i >= 0; i--) {
-    const dayStart = new Date(today)
-    dayStart.setDate(dayStart.getDate() - i)
-    const dayEnd = new Date(dayStart)
-    dayEnd.setDate(dayEnd.getDate() + 1)
-    buckets[6 - i].count = await m.count({ where: { createdAt: { gte: dayStart, lt: dayEnd } } })
-  }
+  // [R30-5-2] 7 个独立日桶 count 并行化(原逐日串行 await, 同批次往返一次拿齐; 输出逐桶一致)
+  await Promise.all(
+    buckets.map(async (_, idx) => {
+      const i = 6 - idx
+      const dayStart = new Date(today)
+      dayStart.setDate(dayStart.getDate() - i)
+      const dayEnd = new Date(dayStart)
+      dayEnd.setDate(dayEnd.getDate() + 1)
+      buckets[idx].count = await m.count({ where: { createdAt: { gte: dayStart, lt: dayEnd } } })
+    }),
+  )
   return buckets
 }
 
@@ -73,8 +77,33 @@ export async function GET() {
       db.bookTag.count(),
       db.downloadJob.count(),
     ])
-    const wordAgg = await db.chapter.aggregate({ _sum: { wordCount: true } })
-    const recentTasksRaw = await db.task.findMany({ orderBy: { updatedAt: 'desc' }, take: 6, include: { rule: { select: { name: true } } } })
+    // [R30-5-2] 原本逐条串行 await 的 8 个独立查询合并为一批 Promise.all —— 各项失败语义不变:
+    // 基础四查询失败仍随 withGuard 抛 500; 可视化四项 .catch 记 warn 后返回 null(下方回落空数组)。
+    // Dashboard 轮询热路径, 16+ 次串行往返 → 2 批。
+    const [wordAgg, recentTasksRaw, recentBooks, categories, catAgg, statusRows, chapters7d, books7d, taskStatusRows] =
+      await Promise.all([
+        db.chapter.aggregate({ _sum: { wordCount: true } }),
+        db.task.findMany({ orderBy: { updatedAt: 'desc' }, take: 6, include: { rule: { select: { name: true } } } }),
+        db.book.findMany({
+          orderBy: { updatedAt: 'desc' },
+          take: 6,
+          select: { id: true, name: true, author: true, cover: true, status: true, updatedAt: true, _count: { select: { chapters: true } } },
+        }),
+        // API-12: 加 take: 500 上限, 防止分类膨胀时把全表拉回(分类一般 <60, 500 足够余量)
+        db.category.findMany({
+          select: { id: true, name: true, _count: { select: { books: true } } },
+          orderBy: { sortOrder: 'asc' },
+          take: 500,
+        }),
+        // feat-b 可视化扩展(原各自独立 try/catch → .catch(e => { logger.warn; null }) 同语义)
+        db.book
+          .groupBy({ by: ['categoryId'], _sum: { wordCount: true }, where: { categoryId: { not: null } } })
+          .catch((e) => (logger.warn('stats wordsByCategory failed', { err: (e as Error)?.message }), null)),
+        db.book.groupBy({ by: ['status'], _count: true }).catch((e) => (logger.warn('stats booksByStatus failed', { err: (e as Error)?.message }), null)),
+        countPerDay7d('chapter').catch((e) => (logger.warn('stats chaptersLast7d failed', { err: (e as Error)?.message }), null)),
+        countPerDay7d('book').catch((e) => (logger.warn('stats booksLast7d failed', { err: (e as Error)?.message }), null)),
+        db.task.groupBy({ by: ['status'], _count: true }).catch((e) => (logger.warn('stats taskStatusBreakdown failed', { err: (e as Error)?.message }), null)),
+      ])
     // R9-d-6/7: 仪表盘 recentTasks 同款进度瘦身(单任务 progress 可达 ~12MB, 6 行原样返回
     // 会被 Dashboard 轮询周期性拖回数十 MB; 前端仅消费标量进度字段)
     const recentTasks = recentTasksRaw.map((t) => {
@@ -82,71 +111,26 @@ export async function GET() {
       if (!slim.truncated) return t
       return { ...t, progress: slim.progress, progressTruncated: true }
     })
-    const recentBooks = await db.book.findMany({
-      orderBy: { updatedAt: 'desc' },
-      take: 6,
-      select: { id: true, name: true, author: true, cover: true, status: true, updatedAt: true, _count: { select: { chapters: true } } },
-    })
-    // API-12: 加 take: 500 上限, 防止分类膨胀时把全表拉回(分类一般 <60, 500 足够余量)
-    const categories = await db.category.findMany({
-      select: { id: true, name: true, _count: { select: { books: true } } },
-      orderBy: { sortOrder: 'asc' },
-      take: 500,
-    })
 
-    // ============= feat-b: 可视化扩展字段 (每个独立 try/catch, 失败 → 空数组, 不阻塞主流程) =============
+    // ============= feat-b: 可视化扩展字段(查询已在上方批次并行, 此处仅做内存映射; 失败 → 空数组) =============
     // 1) 分类字数排行 — book.groupBy(categoryId, _sum wordCount) + categories 名称合并
-    let wordsByCategory: Array<{ name: string; words: number }> = []
-    try {
-      const catAgg = await db.book.groupBy({
-        by: ['categoryId'],
-        _sum: { wordCount: true },
-        where: { categoryId: { not: null } },
-      })
-      const wmap = new Map<string, number>()
-      for (const row of catAgg) {
-        if (row.categoryId) wmap.set(row.categoryId, row._sum.wordCount || 0)
-      }
-      wordsByCategory = categories
-        .map((c) => ({ name: c.name, words: wmap.get(c.id) || 0 }))
-        .sort((a, b) => b.words - a.words)
-    } catch (e) {
-      logger.warn('stats wordsByCategory failed', { err: (e as Error)?.message })
+    const wmap = new Map<string, number>()
+    for (const row of catAgg || []) {
+      if (row.categoryId) wmap.set(row.categoryId, row._sum.wordCount || 0)
     }
+    const wordsByCategory = categories
+      .map((c) => ({ name: c.name, words: wmap.get(c.id) || 0 }))
+      .sort((a, b) => b.words - a.words)
 
-    // 2) 书籍状态分布 — book.groupBy(status)
-    let booksByStatus: Array<{ status: string; count: number }> = []
-    try {
-      const rows = await db.book.groupBy({ by: ['status'], _count: true })
-      booksByStatus = rows.map((r) => ({ status: r.status, count: r._count }))
-    } catch (e) {
-      logger.warn('stats booksByStatus failed', { err: (e as Error)?.message })
-    }
+    // 2) 书籍状态分布
+    const booksByStatus = (statusRows || []).map((r) => ({ status: r.status, count: r._count }))
 
-    // 3) 近 7 天章节入库曲线 — R9-d-7: 逐日 count 替代全行 findMany+分桶(内存 O(1))
-    let chaptersLast7d: Array<{ day: string; count: number }> = empty7d()
-    try {
-      chaptersLast7d = await countPerDay7d('chapter')
-    } catch (e) {
-      logger.warn('stats chaptersLast7d failed', { err: (e as Error)?.message })
-    }
+    // 3)/4) 近 7 天章节/书籍入库曲线 — R9-d-7: 逐日 count 替代全行 findMany+分桶(内存 O(1))
+    const chaptersLast7d = chapters7d || empty7d()
+    const booksLast7d = books7d || empty7d()
 
-    // 4) 近 7 天书籍入库曲线 — R9-d-7: 同上
-    let booksLast7d: Array<{ day: string; count: number }> = empty7d()
-    try {
-      booksLast7d = await countPerDay7d('book')
-    } catch (e) {
-      logger.warn('stats booksLast7d failed', { err: (e as Error)?.message })
-    }
-
-    // 5) 任务状态分布 — task.groupBy(status)
-    let taskStatusBreakdown: Array<{ status: string; count: number }> = []
-    try {
-      const rows = await db.task.groupBy({ by: ['status'], _count: true })
-      taskStatusBreakdown = rows.map((r) => ({ status: r.status, count: r._count }))
-    } catch (e) {
-      logger.warn('stats taskStatusBreakdown failed', { err: (e as Error)?.message })
-    }
+    // 5) 任务状态分布
+    const taskStatusBreakdown = (taskStatusRows || []).map((r) => ({ status: r.status, count: r._count }))
 
     return ok({
       books, chapters, rules, tasks, runningTasks, sites, tags, downloads,
