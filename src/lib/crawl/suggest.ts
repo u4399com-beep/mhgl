@@ -3,7 +3,7 @@
 // 百度 / 必应 / 360 / DuckDuckGo 下拉建议 (sogou 已于 [R27-2-1] 剔除, 端点 404)
 // 作为书籍辅助标签/关联词, 独立访问页面均指向主书籍信息页
 // ============================================================
-import { fetchBinary } from './fetcher'
+import { fetchPage } from './fetcher'
 
 interface SuggestEngine {
   name: string
@@ -71,16 +71,20 @@ export async function fetchSuggestKeywords(keyword: string, perEngineLimit = 12)
   const results: SuggestResult[] = await Promise.all(
     ENGINES.map(async (eng) => {
       try {
-        const res = await fetchBinary(eng.url(keyword), {
+        // [R28-4-L5] 改走 fetchPage(http 引擎)替代 fetchBinary: ①修前下拉端点收到
+        // `Accept: image/avif,...` 图片形态 Accept(fetchBinary 专用)——AJAX 端点不可能被
+        // <img> 引用, 语义指纹异常; fetchPage 指纹链按浏览器家族发导航形态 Accept。
+        // ②修前响应体硬编码 utf-8 解码, 将来接入 GBK 端点(如 baidu-m su)会乱码;
+        // fetchPage 复用 decodeBuffer 的 charset 三级探测(Content-Type 头/meta 嗅探/FFFD 兜底)。
+        // 当前 4 引擎均 UTF-8, 行为等价; SSRF 守卫/超时/重试语义由 fetchPage 统一承担
+        const res = await fetchPage(eng.url(keyword), {
           engine: 'http',
           timeout: 8000,
           retries: 0,
           referer: false,
           uaMode: 'rotate',
         })
-        if (!res) return { engine: eng.name, words: [], ok: false }
-        const body = res.buf.toString('utf-8')
-        const words = eng.parse(body)
+        const words = eng.parse(res.html)
           .map((w) => String(w).trim())
           .filter((w) => w && w.length <= 50 && !/^https?:/.test(w))
         return { engine: eng.name, words: words.slice(0, perEngineLimit), ok: words.length > 0 }

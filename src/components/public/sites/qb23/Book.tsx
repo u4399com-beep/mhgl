@@ -1,8 +1,8 @@
 // ============================================================
-// [R26-4] qb23 铅笔小说(www.23qb.net) 书籍详情页克隆 —— 5 页型之 Book
-// 真站快照: /tmp/r26/qb23-book.html(/book/100/ 大官人 直抓)
+// [R28-2c] qb23 铅笔小说(www.23qb.net) 书籍详情页克隆 —— 基础五视图之 Book
+// 真站快照(R28 实测): /tmp/r28-2c/qb23/qb23-book.html(/book/5094/ 直抓)
 // 真站 DOM: main#main > .content
-//   ├ .box.view-heading(白卡 radius 18px + 大投影; 渐变玻璃底)
+//   ├ .box.view-heading(白卡 radius 18px + 大投影; 渐变玻璃底 linear-gradient(to bottom, rgba(255,255,255,0) 0%, #fff 80%))
 //   │   ├ .novel-cover(桌面 float right 宽 200px radius 10px; ≤559px 居中 46vw 白描边投影)
 //   │   └ .novel-info
 //   │       ├ .novel-info-header > h1.page-title(38px/700, color rgba(7,7,10,.92), text-shadow 1px 1px 0 #a9a9a9)
@@ -14,14 +14,17 @@
 //   │           克隆映射: 开始阅读=btn-collect 红渐变 / 查看完整目录=.btn-aux 绿渐变(90deg #7ec53d→#34a853) /
 //   │           TXT下载=.btn-aux-o 绿描边(唯一允许 <a>)
 //   ├ .box > .module > .module-heading.newchapter(h2.module-title 26px/600 + time.itemtitle 更新时间)
-//   │   └ .module-row-info×N(最新章节; padding 10px 15px / radius 10px / min-768 三列 33% inline-block /
+//   │   └ .module-row-info×10(最新章节; padding 10px 15px / radius 10px / min-768 三列 33% /
 //   │       底 #f7f8f9; .icon-video-file 18px #34a853; 行文字 14px rgba(0,0,0,.83))
 //   │   └ a.catalog-more「完整目录」(2.75rem 行高居中, #34a853)
-//   ├ (克隆增补, 任务要求) .box 章节列表预览: 目录页同款 module-row 三列 + 分卷 h2.module-title.type +
-//   │   #page 分页(navigate book page); currentChapterId 行按真站 selected chip 语言高亮(#fef0e5/#ff2a14)
-//   └ .box 相关作品(真站 module-items 网格; 克隆以同分类书单替代协同过滤, 空则整框不渲染)
-// 数据降级: ①真站「最新章节」为全站最新 10 条(含外篇), 克隆取当前 tocPage 尾部倒序(单页书完全一致,
-//   多页书第 1 页尾部≈最早章节, 已注释) ②真站章节行无当前章高亮, 增补高亮为任务要求。
+//   └ .box > .module > .module-heading h2「与{书名}相关的作品」+ .module-items 封面网格(真站相关作品框)
+//   (真站另有 书评感想/评论框 —— 契约无评论数据 → 不渲染, 见下方降级声明)
+// 数据降级/推断说明:
+//   ① 真站「最新章节」为站方倒序最新 10 条; 克隆取当前 tocPage 尾部 10 条倒序(单页书与真站完全一致;
+//      多页书第 1 页尾部≈最早章节, 数据层无全量目录字段, 声明)。
+//   ② 真站章节行无当前章高亮; ?chapter= 回跳时增补暖杏 selected chip 语言高亮(任务要求)。
+//   ③ 真站书评感想/评论框(.pinglun)无数据契约 → 整块不渲染。
+//   ④ 真站 novel-info-aux 含作者页/标签页外链(/author/x.html、taglist.php) → 全转站内 navigate。
 // ============================================================
 'use client'
 
@@ -31,13 +34,12 @@ import { BookOpen, Download, FileText, ListOrdered } from 'lucide-react'
 import type { SiteBookProps } from '../shared'
 import { usePublic } from '../../ctx'
 import { fetchBooks } from '../../data'
-import { groupTocVolumes } from '../template-kit'
 import type { BookItem, TocChapter } from '../../types'
 import { BookCover } from '../../BookCover'
 import { ErrorState, Sk, bookNavProps } from '../../bits'
 import { fmtDate, formatWords, statusLabel } from '../../seo'
 
-/** [R26-4-10] 真站实测色值(style.css) */
+/** [R28-2c-10] 真站实测色值(style.css) */
 const QB_TEXT = '#282828'
 const QB_MUT40 = 'rgba(0,0,0,0.4)'
 const QB_MUT62 = 'rgba(0,0,0,0.62)'
@@ -50,7 +52,7 @@ const QB_LINE = '#eaedf1' // .tag-link 默认底
 const QB_RED_GRAD = 'linear-gradient(to right, #fc000c 0, #f9444d 100%)' // .btn-collect
 const QB_GREEN_GRAD = 'linear-gradient(90deg, #7ec53d, #34a853)' // .btn-aux
 
-/** [R26-4-11] .tag-link 信息 chip(author 首片暖杏 / 其余 #eaedf1 / hover 对齐真站) */
+/** [R28-2c-11] .tag-link 信息 chip(author 首片暖杏 / 其余 #eaedf1 / hover 对齐真站) */
 function InfoChip({
   children,
   first,
@@ -79,7 +81,7 @@ function InfoChip({
   )
 }
 
-/** [R26-4-12] .module-row-info 章节行(绿文件 icon + 标题; 行底/斑马/高亮由 index.css 按 aria-current 统一驱动) */
+/** [R28-2c-12] .module-row-info 章节行(绿文件 icon + 标题; 行底/斑马/高亮由 index.css 按 aria-current 统一驱动) */
 function ChapterRow({ ch, current, onClick }: { ch: TocChapter; current?: boolean; onClick: () => void }) {
   return (
     <div
@@ -106,7 +108,7 @@ function ChapterRow({ ch, current, onClick }: { ch: TocChapter; current?: boolea
   )
 }
 
-/** [R26-4-13] 相关作品卡(同首页分类页卡型, 无角标) */
+/** [R28-2c-13] 相关作品卡(真站 module-items 网格卡型, 无角标) */
 function RelatedCard({ book }: { book: BookItem }) {
   const { navigate } = usePublic()
   return (
@@ -135,42 +137,10 @@ function RelatedCard({ book }: { book: BookItem }) {
   )
 }
 
-/** [R26-4-14] #page 页码钮(分类页同款, 独立声明避免跨文件依赖) */
-function QbPageBtn({
-  children,
-  onClick,
-  disabled,
-  ariaLabel,
-}: {
-  children: ReactNode
-  onClick: () => void
-  disabled?: boolean
-  ariaLabel: string
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      aria-label={ariaLabel}
-      className="mx-0.5 inline-block min-w-[40px] rounded-[50px] bg-[#f3f5f7] px-3 text-sm leading-10 transition-colors hover:bg-[#eaedf1] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-[#f3f5f7]"
-      style={{ color: QB_TXT68 }}
-    >
-      {children}
-    </button>
-  )
-}
-
-function pageWindowOf(page: number, totalPages: number): number[] {
-  const out = new Set<number>([1, totalPages])
-  for (let p = Math.max(1, page - 3); p <= Math.min(totalPages, page + 3); p++) out.add(p)
-  return [...out].sort((a, b) => a - b)
-}
-
 export function Qb23Book({ data, loading, error, tocPage, currentChapterId }: SiteBookProps) {
   const { site, navigate } = usePublic()
 
-  // [R26-4-15] 相关作品: 同分类字数前 6(真站相关作品框降级, 失败/空整框不渲染)
+  // [R28-2c-15] 相关作品: 同分类字数前 6(真站相关作品框; 失败/空整框不渲染)
   const [related, setRelated] = useState<BookItem[]>([])
   const catId = data?.book.categoryId || ''
   useEffect(() => {
@@ -225,12 +195,10 @@ export function Qb23Book({ data, loading, error, tocPage, currentChapterId }: Si
     )
   }
 
-  const { book, chapters, tocTotal, tocTotalPages, tags } = data
+  const { book, chapters, tocTotalPages, tags } = data
   const tagList = (tags || []).slice(0, 4)
   // 真站「最新章节」为倒序最新 10 条; 克隆取当前 tocPage 尾部倒序(单页书即真最新, 见文件头降级①)
   const latestRows = [...chapters].slice(-10).reverse()
-  const volumeGroups = groupTocVolumes(chapters)
-  const pageWindow = pageWindowOf(tocPage, tocTotalPages)
 
   return (
     <div className="w-full pb-14" style={{ color: QB_TEXT }}>
@@ -242,7 +210,7 @@ export function Qb23Book({ data, loading, error, tocPage, currentChapterId }: Si
         >
           <div className="flex flex-col items-center gap-6 md:flex-row-reverse md:items-start md:gap-0">
             {/* .novel-cover: 桌面右浮 200px / 移动居中 46vw 白描边(真站 ≤559 规格缩放) */}
-            <div className="w-40 shrink-0 md:ml-[25px] md:w-[200px] max-md:w-[min(46vw,176px)]">
+            <div className="w-40 shrink-0 md:ml-[25px] md:w-[200px]">
               <div
                 className="w-full pt-[140%]"
                 style={{
@@ -268,7 +236,9 @@ export function Qb23Book({ data, loading, error, tocPage, currentChapterId }: Si
                 <InfoChip first>作者：{book.author}</InfoChip>
                 {book.category && (
                   <InfoChip
-                    onClick={book.categoryId ? () => navigate({ view: 'category', cat: book.categoryId || undefined, page: 1 }) : undefined}
+                    onClick={
+                      book.categoryId ? () => navigate({ view: 'category', cat: book.categoryId || undefined, page: 1 }) : undefined
+                    }
                     title="浏览该分类"
                   >
                     {book.category}
@@ -345,7 +315,7 @@ export function Qb23Book({ data, loading, error, tocPage, currentChapterId }: Si
           </div>
         </div>
 
-        {/* ============ 最新章节(.module-heading.newchapter + module-row-info) ============ */}
+        {/* ============ 最新章节(.module-heading.newchapter + module-row-info + catalog-more) ============ */}
         <div className="mt-3 rounded-[18px] bg-white p-4 shadow-[0_7px_21px_rgba(149,157,165,0.22)] sm:p-[25px]">
           <div className="mb-4 flex flex-wrap items-baseline">
             <h2 className="text-xl font-semibold sm:text-[26px]">最新章节</h2>
@@ -382,91 +352,21 @@ export function Qb23Book({ data, loading, error, tocPage, currentChapterId }: Si
               暂无章节
             </p>
           )}
+          {/* 书内目录翻页说明: 真站书页无目录分页(目录在 /catalog 独立页), 页码导航由 Toc 视图承担 */}
+          {tocTotalPages > 1 && tocPage > 1 && (
+            <p className="pt-2 text-center text-xs" style={{ color: QB_MUT40 }}>
+              当前展示目录第 {tocPage}/{tocTotalPages} 页 ·{' '}
+              <button type="button" className="underline" style={{ color: QB_GREEN }} onClick={() => navigate({ view: 'book', bookId: book.id, page: tocPage - 1 })}>
+                上一页
+              </button>
+            </p>
+          )}
         </div>
 
-        {/* ============ 章节列表预览(真站独立目录页样式, 页内分页; 任务要求增补) ============ */}
-        {chapters.length > 0 && (
-          <div className="mt-3 rounded-[18px] bg-white p-4 shadow-[0_7px_21px_rgba(149,157,165,0.22)] sm:p-[25px]">
-            <div className="mb-1 flex flex-wrap items-baseline">
-              <h2 className="text-xl font-semibold sm:text-[26px]">章节目录</h2>
-              <time className="pl-5 text-sm" style={{ color: QB_MUT62 }}>
-                共 {tocTotal} 章
-              </time>
-            </div>
-            {volumeGroups ? (
-              volumeGroups.map((g, gi) => (
-                <div key={`${g.volume}-${gi}`}>
-                  <h3 className="mb-3 mt-6 text-lg font-semibold" style={{ color: QB_TEXT }}>
-                    {g.volume || '正文'}
-                  </h3>
-                  <div className="qb23-rows grid grid-cols-1 gap-[5px] md:grid-cols-3">
-                    {g.chapters.map((ch) => (
-                      <ChapterRow
-                        key={ch.id}
-                        ch={ch}
-                        current={currentChapterId === ch.id}
-                        onClick={() => navigate({ view: 'read', chapterId: ch.id })}
-                      />
-                    ))}
-                  </div>
-                </div>
-              ))
-            ) : (
-              <div className="qb23-rows grid grid-cols-1 gap-[5px] md:grid-cols-3">
-                {chapters.map((ch) => (
-                  <ChapterRow
-                    key={ch.id}
-                    ch={ch}
-                    current={currentChapterId === ch.id}
-                    onClick={() => navigate({ view: 'read', chapterId: ch.id })}
-                  />
-                ))}
-              </div>
-            )}
-            {/* 页内目录翻页: book 视图 ?page= 与 BookView tocPage 同步 */}
-            {tocTotalPages > 1 && (
-              <nav className="pt-6 text-center" aria-label="目录分页">
-                <span className="mr-2 text-sm" style={{ color: QB_MUT40 }}>
-                  第{tocPage}/{tocTotalPages}页
-                </span>
-                <QbPageBtn
-                  disabled={tocPage <= 1}
-                  onClick={() => navigate({ view: 'book', bookId: book.id, page: tocPage - 1 })}
-                  ariaLabel="上一页"
-                >
-                  上一页
-                </QbPageBtn>
-                {pageWindow.map((p) =>
-                  p === tocPage ? (
-                    <strong
-                      key={p}
-                      className="mx-0.5 inline-block min-w-[40px] rounded-[50px] bg-[#ff2a14] px-3 leading-10 text-sm font-bold text-white"
-                      aria-current="page"
-                    >
-                      {p}
-                    </strong>
-                  ) : (
-                    <QbPageBtn key={p} onClick={() => navigate({ view: 'book', bookId: book.id, page: p })} ariaLabel={`第 ${p} 页`}>
-                      {p}
-                    </QbPageBtn>
-                  ),
-                )}
-                <QbPageBtn
-                  disabled={tocPage >= tocTotalPages}
-                  onClick={() => navigate({ view: 'book', bookId: book.id, page: tocPage + 1 })}
-                  ariaLabel="下一页"
-                >
-                  下一页
-                </QbPageBtn>
-              </nav>
-            )}
-          </div>
-        )}
-
-        {/* ============ 相关作品(同分类书单替代真站协同过滤; 空/失败整框不渲染) ============ */}
+        {/* ============ 相关作品(真站「与{书名}相关的作品」框; 同分类书单替代协同过滤; 空/失败整框不渲染) ============ */}
         {related.length > 0 && (
           <div className="mt-3 rounded-[18px] bg-white p-4 shadow-[0_7px_21px_rgba(149,157,165,0.22)] sm:p-[25px]">
-            <h2 className="mb-4 text-xl font-semibold sm:text-[26px]">相关作品</h2>
+            <h2 className="mb-4 text-xl font-semibold sm:text-[26px]">与《{book.name}》相关的作品</h2>
             <div className="grid grid-cols-3 gap-x-2.5 gap-y-3 sm:grid-cols-6 sm:gap-x-5">
               {related.map((b) => (
                 <RelatedCard key={b.id} book={b} />

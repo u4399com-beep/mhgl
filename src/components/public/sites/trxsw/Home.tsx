@@ -1,19 +1,22 @@
 // ============================================================
-// [R27-6b-13] trxsw(同人小说网) 首页克隆 —— 杰奇 CMS 默认模板 1:1 还原
-// 素材等级: Wayback 实测 —— /tmp/r27-f2/trxsw-home.html(2019-10-19 快照, 与 R25-1 轮
-// /tmp/r25/trxsw-wb.html 同源 DOM: #wrapper > .ywtop/.head/.nav/.novelslist×2/#newscontent/
-// #firendlink) + R25-4 TrxswHome 单文件实现经验。配色为杰奇 CMS 家族标准(b.css 无存档,
-// R25 轮 archive 快照实证 404): #1C5087 深蓝/#C00 红/#333/#666/#999/#ccc 点线/#f5f5f5。
-//
-// 真站 DOM(960px 版心):
-//   .novelslist ×2 行 × 3 板块(h2 板块名[同人/玄幻/修真/都市/穿越/网游] + .top 图文头条
-//     [.image a img 67×82 + dl dt a 书名 + span 作者 + dd 简介] + ul li «书名» / 作者)
-//   #newscontent: .l 最近更新小说列表(h2 + moreRight 更多>>) 25 行
-//     (s1 [分类]86px/s2 书名150px/s3 最新章节/s4 作者90px/s5 日期 MM-DD)
-//     + .r 小说推荐 26 行(s2 书名 + s5 作者)
-//   #firendlink 友情连接(数据空整块不渲染)
-// 注: ①ywtop/head/nav 头部由 SiteHeader Trxsw 头部承担 ②s3 章节列无 chapterId → 降级纯文本
-//    ③真站板块为固定 6 类 → 按库内分类分组取前 6(同 TrxswHome 先例, 声明)
+// [R28-2g-1] trxsw(同人小说网) 首页克隆 —— 杰奇 CMS 默认模板 1:1 还原
+// 素材等级: Wayback 实测 —— /tmp/r28-2g/snap/tx-home.html(2019-10-19 快照, 与 R25-1
+// /tmp/r25/trxsw-wb.html、R27-f2 同源 DOM)。真站 DOM(#wrapper > #main, 960px 版心):
+//   .novelslist ×2 行 × 3 .content(第 3 块 class="content border" 竖线分隔):
+//     h2 板块名(同人/玄幻/修真/都市/穿越/网游, 无「更多」钮) + .top 图文头条
+//     (.image a img 67×82 杰奇标准图路径 files/article/image/{x}/{id}/{id}s.jpg
+//      + dl>dt a 书名 + span 作者 + dd 简介 + .clear) + ul li(`<a>书名</a> /作者`)
+//   #newscontent > .l: h2(div.moreLeft 标题 + div.moreRight a 更多>>) + ul li 25 行
+//     (s1 [分类]/s2 a 书名/s3 a 最新章(真链 /book/{bid}/{cid}.html)/s4 作者/s5 日期 MM-DD)
+//   #newscontent > .r: h2 小说推荐 + ul li 26 行(仅 s2 a 书名 + s5 作者)
+//   #firendlink: 「友情连接：」+ a ×14(真站为站方硬链 + 友链交换)
+// 降级/推断声明(逐条):
+//   ①库内书籍无「站方推荐位」运营数据 → 板块分组 = 按 categoryId 分组取前 6 组(组内首本
+//     优先带封面做 .top 头条), 真站固定 6 类目(同人/玄幻/修真/都市/穿越/网游)为编辑固定位(推断)
+//   ②s3 最新章列为纯文本(契约 BookItem.latestChapter 无 chapterId, 真站该列为章节深链) 
+//   ③.r 小说推荐 26 行 = 字数热榜 60 切片(真站为站方运营推荐位, 无契约, 推断)
+//   ④ywtop/head/nav 头部由 SiteHeader Trxsw 分支承担, 本组件不含
+//   ⑤封面 67×82 = 杰奇小图规格(真站 178s.jpg 形态), 契约 cover 为原大图 → BookCover 等比缩放
 // ============================================================
 'use client'
 
@@ -22,13 +25,12 @@ import type { ReactNode } from 'react'
 import type { SiteHomeProps } from '../shared'
 import { usePublic } from '../../ctx'
 import { fetchBooks, fetchFooterLinks, type FooterFriendLink } from '../../data'
-// [R27-5b-H1] 友链渲染出口 scheme 白名单
 import { safeHref } from '../../safe-href'
 import { bookNavProps, Sk } from '../../bits'
 import { BookCover } from '../../BookCover'
 import type { BookItem } from '../../types'
 
-/** [R27-6b-13] 杰奇 CMS 默认模板家族标准色板(b.css 无存档, R25 实证; R25-4 同口径) */
+/** [R28-2g-1] 杰奇 CMS 默认模板家族标准色板(b.css 无存档, R25 轮 archive 快照 404 实证) */
 const C = {
   navBlue: '#1C5087',
   logoRed: '#C00',
@@ -40,8 +42,8 @@ const C = {
   topBg: '#f5f5f5',
 } as const
 
-/** [R27-6b-13] 杰奇默认 h2: 浅色渐变底纹 + 左 4px 深蓝竖条 + 下边线(真站 h2 为底纹图 → CSS 等价) */
-function JqH2({ children, more }: { children: ReactNode; more?: () => void }) {
+/** [R28-2g-1] 杰奇默认 h2: 浅色渐变底纹 + 左 4px 深蓝竖条 + 下边线(真站 h2 为底纹图 → CSS 渐变等价) */
+function JqH2({ children, right }: { children: ReactNode; right?: ReactNode }) {
   return (
     <h2
       className="flex items-center justify-between gap-2 overflow-hidden"
@@ -60,11 +62,7 @@ function JqH2({ children, more }: { children: ReactNode; more?: () => void }) {
       }}
     >
       {children}
-      {more && (
-        <button type="button" onClick={more} className="shrink-0 text-[12px] font-normal hover:underline" style={{ color: C.gray }} aria-label="更多">
-          更多&gt;&gt;
-        </button>
-      )}
+      {right}
     </h2>
   )
 }
@@ -139,7 +137,7 @@ export function TrxswHome({ books, loading }: SiteHomeProps) {
 
   const pool: BookItem[] = hot && hot.length ? hot : books
   const sections = buildSections(pool)
-  // .l 最近更新 25 行 + .r 小说推荐 26 行
+  // .l 最近更新 25 行 + .r 小说推荐 26 行(快照实测行数)
   const latest = books.slice(0, 25)
   const recommend = (pool.length >= 26 ? pool : books).slice(0, 26)
 
@@ -165,9 +163,10 @@ export function TrxswHome({ books, loading }: SiteHomeProps) {
                 <span className="sr-only">加载中…</span>
               </section>
             ))
-          : sections.map((sec) => (
-              <section key={sec.key} className="tx-sec mb-3 min-w-0">
-                <JqH2 more={sec.catId ? () => navigate({ view: 'category', cat: sec.catId, page: 1 }) : undefined}>{sec.title}小说</JqH2>
+          : sections.map((sec, si) => (
+              <section key={sec.key} className={`tx-sec mb-3 min-w-0 ${si % 3 === 2 ? 'lg:border-l lg:pl-3' : ''}`} style={si % 3 === 2 ? { borderColor: C.border } : undefined}>
+                {/* 真站板块 h2 为纯标题(无更多钮) */}
+                <JqH2>{sec.title}</JqH2>
                 {/* .top 图文头条(67×82 封面 + dt 书名 + span 作者 + dd 简介) */}
                 {sec.top && (
                   <div className="tx-top flex gap-2 border-b pt-2" style={{ borderColor: C.border }}>
@@ -180,7 +179,7 @@ export function TrxswHome({ books, loading }: SiteHomeProps) {
                     >
                       <BookCover name={sec.top.name} cover={sec.top.cover} className="h-full w-full" style={{ borderRadius: 0 }} />
                     </button>
-                    <dl className="min-w-0 flex-1 m-0">
+                    <dl className="m-0 min-w-0 flex-1">
                       <dt className="m-0 flex items-baseline justify-between gap-2">
                         <button
                           type="button"
@@ -201,7 +200,7 @@ export function TrxswHome({ books, loading }: SiteHomeProps) {
                     </dl>
                   </div>
                 )}
-                {/* ul li «书名» / 作者(真站原文书名号格式) */}
+                {/* ul li 书名 /作者(快照实测: <a>书名</a> /作者, 无书名号) */}
                 <ul className="m-0 list-none p-0">
                   {sec.rest.map((b) => (
                     <li key={b.id} className="tx-li flex h-9 items-center justify-between gap-2 border-b border-dotted" style={{ borderColor: C.dotted }}>
@@ -212,7 +211,7 @@ export function TrxswHome({ books, loading }: SiteHomeProps) {
                         style={{ color: C.text }}
                         aria-label={`查看《${b.name}》详情`}
                       >
-                        «{b.name}»
+                        {b.name}
                       </button>
                       <span className="shrink-0 text-[12px]" style={{ color: C.gray }}>
                         /{b.author}
@@ -227,7 +226,21 @@ export function TrxswHome({ books, loading }: SiteHomeProps) {
       {/* ============ #newscontent: .l 最近更新(25 行) + .r 小说推荐(26 行) ============ */}
       <div className="tx-news flex flex-col gap-3 lg:flex-row lg:gap-[10px]">
         <section className="tx-l min-w-0 lg:w-[70%]">
-          <JqH2 more={() => navigate({ view: 'home' })}>最新更新小说列表</JqH2>
+          <JqH2
+            right={
+              <button
+                type="button"
+                onClick={() => navigate({ view: 'category', page: 1 })}
+                className="shrink-0 text-[12px] font-normal hover:underline"
+                style={{ color: C.gray }}
+                aria-label="查看全部最近更新"
+              >
+                更多&gt;&gt;
+              </button>
+            }
+          >
+            最近更新小说列表
+          </JqH2>
           <ul className="m-0 list-none p-0">
             {loading && !books.length
               ? Array.from({ length: 10 }).map((_, i) => (
@@ -250,7 +263,7 @@ export function TrxswHome({ books, loading }: SiteHomeProps) {
                       >
                         {b.name}
                       </button>
-                      {/* s3 章节列(无 chapterId → 纯文本, 同 TrxswHome 先例声明) */}
+                      {/* s3 章节列(无 chapterId → 纯文本, 声明②) */}
                       <span className="tx-s3 hidden min-w-0 flex-1 truncate text-[13px] sm:block" style={{ color: C.gray }}>
                         {b.latestChapter || '—'}
                       </span>
@@ -305,11 +318,13 @@ export function TrxswHome({ books, loading }: SiteHomeProps) {
         </aside>
       </div>
 
-      {/* ============ #firendlink 友情连接(fetchFooterLinks, 空则整块不渲染) ============ */}
+      {/* ============ #firendlink 友情连接(safeHref 白名单出口, 空则整块不渲染) ============ */}
       {links.length > 0 && (
         <div id="firendlink" className="tx-links mt-3 border-t pt-2" style={{ borderColor: C.border }}>
-          <JqH2>友情连接</JqH2>
           <p className="m-0 flex flex-wrap gap-x-3 gap-y-1 py-2">
+            <span className="text-[13px]" style={{ color: C.text }}>
+              友情连接：
+            </span>
             {links.map((l) => (
               <a key={l.id} href={safeHref(l.url)} className="text-[13px] hover:underline" style={{ color: C.gray }} rel="noopener noreferrer" target="_blank">
                 {l.name}

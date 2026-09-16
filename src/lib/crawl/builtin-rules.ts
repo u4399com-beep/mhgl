@@ -3740,7 +3740,7 @@ export const BUILTIN_RULES: BuiltinRule[] = [
   {
     key: "ratelimit-demo",
     name: "模拟源站·校准演示 (127.0.0.1:3040)",
-    description: "极限校准演示规则(zz-a 校准系统实战, ab-a): 四段指向本机模拟源站 scripts/ratelimit-site.ts(127.0.0.1:3040, standard 档 60req/60s 窗+2s 突发窗 6+429×5→临时封60s)。HTML 四段 css 型选择器: list=/list/{page}(8本) / book=#maininfo / toc=#toc dd(60章) / content=#content。用途: calibrate-all 全量校准 + 校准参数落库后真实采集任务端到端验证。⚠ 源站仅本地 3040 常驻, 生产环境无此站。",
+    description: "极限校准演示规则(zz-a 校准系统实战, ab-a): 四段指向本机模拟源站 scripts/ratelimit-site.ts(127.0.0.1:3040, standard 档 60req/60s 窗+2s 突发窗 6+429×5→临时封60s)。HTML 四段 css 型选择器: list=/list/{page}(8本) / book=#maininfo / toc=#toc dd(60章) / content=#content。用途: calibrate-all 全量校准 + 校准参数落库后真实采集任务端到端验证。⚠ 源站仅本地 3040 常驻, 生产环境无此站。[R28-4-L8] fetch 段已补 allowLoopback=true: 修前该规则经规则测试面板/采集任务走 fetchPage → assertSafeTarget 必拒(\"回环 127.0.0.0/8 未启用 allowLoopback\")四段恒 502, 仅 calibrate(原生 fetch 不经守卫)可用, 差异未声明易误判引擎故障; 补后测试面板/任务链路与 calibrate 同为可用(仅放行 loopback, 私网/元数据仍硬拒)。",
     enabled: true,
     source: "scripts/seed-rule-ratelimit-demo.ts",
     config: {
@@ -3854,6 +3854,10 @@ export const BUILTIN_RULES: BuiltinRule[] = [
         "uaMode": "rotate",
         "autoCookie": true,
         "referer": true,
+        // [R28-4-L8] 补 allowLoopback 声明: 四段源站是本机 127.0.0.1:3040 模拟站, 无此声明
+        // 经规则测试面板/采集任务的 fetchPage 链路会被 SSRF 守卫必拒(仅 calibrate 可用);
+        // sanitize 白名单显式接受该字段(types.ts allowLoopback), 仅放宽 loopback
+        "allowLoopback": true,
         "timeout": 20000,
         "retries": 2,
         "waitMs": 500,

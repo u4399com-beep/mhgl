@@ -200,10 +200,14 @@ export interface FetchConfig {
    *    Fisher-Yates 洗牌相近(实际仍按 useCount 取池中未失败条目顺序选);
    *  - 'random': 每次从可用池中随机选一条(原 pickProxyFor 行为);
    *  - 'least-used': 跟踪每条代理 useCount, 选使用次数最少的(平摊负载, 适合长任务);
+   *  - [R28-4-E6] 'sticky-host': 同目标 host 稳定粘住同一代理(首个成功后持续复用,
+   *    防 cf_clearance 等挑战 Cookie 与出口 IP 绑定被轮换互踢), 仅连续 2 次网络层失败才
+   *    换池内下一条(HTTP 4xx/5xx 是源站行为不换); 运行时粘滞状态在 fetcher.ts 进程级
+   *    Map 持久(不进规则 JSON);
    *  失败冷却: 任一代理超时/连接错误时打 failed 标记 + 30s 冷却, 轮换时跳过冷却中的代理;
    *  冷却过期后自动恢复参与轮换(无需手动重置)。运行时状态(useCount/failedUntil)
    *  在 fetcher.ts 进程级 Map 持久, 不进规则 JSON(sanitize 白名单不透传) */
-  proxyRotationStrategy?: 'round-robin' | 'random' | 'least-used'
+  proxyRotationStrategy?: 'round-robin' | 'random' | 'least-used' | 'sticky-host'
   /** 请求抖动(feat-round-8: Feature B1): 0~N ms 的随机抖动叠加在 runner 批次间隔上,
    *  让请求节奏更不规则, 防简单 rate-pattern 检测。runner 在每批 gateFetch 前 sleep
    *  jitterMs(随机 0~jitterMs); 缺省 0=关闭(零回归); 引擎层不直接消费此字段,
@@ -646,7 +650,10 @@ export function sanitizeFetchConfig(v: unknown): Partial<FetchConfig> {
   if (
     r.proxyRotationStrategy === 'round-robin' ||
     r.proxyRotationStrategy === 'random' ||
-    r.proxyRotationStrategy === 'least-used'
+    r.proxyRotationStrategy === 'least-used' ||
+    // [R28-4-E6] sticky-host: 同 host 成功代理粘滞复用(防 cf_clearance 与出口 IP 互踢),
+    // 白名单枚举同款接受; 运行时粘滞状态只在 fetcher.ts 进程内, 不透传规则 JSON
+    r.proxyRotationStrategy === 'sticky-host'
   ) out.proxyRotationStrategy = r.proxyRotationStrategy
   // feat-round-8: Feature B1 — 请求抖动 0~30000ms 钳制(超过 30s 抖动已是离谱配置,
   // 上限防止误填 60000 当分钟值跑; 钳到 30s 仍允许极端慢站手工配)

@@ -1,7 +1,8 @@
 // ============================================================
-// [R27-6-4] ggd66(格格党) 目录页克隆 —— 真站无独立目录 URL(https://www.ggd66.com/qu/33779/
-// 书页内 #list-chapterAll「全部章节目录」即完整目录, JS「查看全部章节↓」整页展开)。
-// 按任务书五页型要求, 将书页内目录块独立成页, 结构/样式逐条对齐 /tmp/r27-f/ggd66-book.html 实测:
+// [R28-2c] ggd66(格格党) 目录页克隆 —— 基础五视图之 Toc
+// 真站快照(R28 复核): /tmp/r28-2c/ggd66/ggd66-book.html —— 真站无独立目录 URL
+// (书页内 #list-chapterAll「全部章节目录」即完整目录, JS「查看全部章节↓」整页展开)。
+// 按契约五页型要求, 将书页内目录块独立成页, 结构/样式逐条对齐真站实测:
 //
 // DOM 映射(ol.breadcrumb + dl.book.chapterlist#list-chapterAll):
 //   ├ ol.breadcrumb   首页 » 分类 » 书名 » 章节列表(active #666; 底 #cdf3eb/边 #ccc/圆角 4px)
@@ -15,7 +16,7 @@ import type { SiteTocProps } from '../shared'
 import { usePublic } from '../../ctx'
 import { ErrorState, Sk } from '../../bits'
 
-/** [R27-6-4] 真站实测色值(ggd66-style.css) */
+/** [R28-2c-16] 真站实测色值(ggd66-style.css) */
 const TEAL = '#56ccb5'
 const GREEN_LINK = '#00886d'
 const TEXT_BODY = '#888'

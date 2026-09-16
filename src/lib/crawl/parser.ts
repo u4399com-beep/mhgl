@@ -543,9 +543,13 @@ function jsonArrayWalk(root: unknown, path: string): unknown {
       if (/^\d+$/.test(op)) {
         cur = Number(op) < cur.length ? cur[Number(op)] : undefined
       } else if (op.includes('=')) {
+        // [R28-4-L1] 对齐 jsonGet 的 R4-18 修复: 值内 `&` 用 `%26` 转义 + 解码还原 ——
+        // 修前 itemSelector 走的 jsonArrayAt→jsonArrayWalk 未同步移植, `[name=a&b]`
+        // 在列表/目录容器路径仍被拆成两条失配条件, 与 jsonGet 行为漂移
         const conds = op.split('&').map((c) => {
           const i = c.indexOf('=')
-          return i < 0 ? [c, ''] : [c.slice(0, i), c.slice(i + 1)]
+          if (i < 0) return [c, ''] as [string, string] // 无 `=` 的子条件视为失配(旧行为)
+          return [c.slice(0, i), c.slice(i + 1).replace(/%26/gi, '&')] as [string, string] // 转义符解码还原字面 `&`
         })
         cur = (cur as Record<string, unknown>[]).filter(
           (el) => !!el && typeof el === 'object' && conds.every(([k, v]) => String((el as Record<string, unknown>)[k]) === v)
@@ -998,7 +1002,12 @@ export async function parseToc(
         if (pageRule.itemSelector.type === 'css') {
           scopePairs = cssExtractAll($, null as any, pageRule.itemSelector).map((node: any) => ({ html: $.html(node), node }))
         } else if (pageRule.itemSelector.type === 'xpath') {
-          scopePairs = xpathExtractNodes(doc, pageRule.itemSelector.expression).map((node) => ({ html: '', node }))
+          // [R28-4-L6] 对齐 parseList 的 xpath 容器同款形态(nodeHtml 填充): 修前 scope.html
+          // 恒空串, extractField 的 regex 型字段(吃 html 参)与 json 型字段(parseJsonBody('')
+          // →undefined)在 xpath 容器下恒空 —— "xpath 容器 + regex 提取标题/卷名"组合静默丢失,
+          // 与 parseList 同组合行为不一致(cheerio.load 分支本有 scope.html || nodeHtml 兜底,
+          // 补 html 字段后逐字段语义一致)
+          scopePairs = xpathExtractNodes(doc, pageRule.itemSelector.expression).map((node) => ({ html: nodeHtml(node), node }))
         } else {
           scopePairs = regexExtractAll(current, pageRule.itemSelector).map((h) => ({ html: h, node: null }))
         }
@@ -1180,7 +1189,22 @@ function contentConfidence(q: ContentScore): number {
 function findLargestText($: cheerio.CheerioAPI): string {
   let best = ''
   let bestLen = 0
+  // [R28-4-L7] CPU 剪枝: 修前对 10MB 页面的所有 div/p/td/article 逐元素做全子树 text()
+  // 遍历(近似 O(n·depth)), 低质触发路径站点改版后每分页都触发, CPU 尖峰可感。现两道闸:
+  //  ① 每 tag 候选上限 200(document 序先到先得, 超出直接跳过);
+  //  ② 累计候选上限 600 —— 全局封顶最坏成本, 典型页远达不到(不影响正确性;
+  //     正文容器几乎总在首部/主区域, 尾部候选漏扫概率低且本函数本就是启发式备用提取器)
+  const perTagSeen = new Map<string, number>()
+  const PER_TAG_CAP = 200
+  const TOTAL_CAP = 600
+  let totalSeen = 0
   $('div,p,td,article').each((_, el) => {
+    if (totalSeen >= TOTAL_CAP) return false // cheerio: 返回 false 终止遍历
+    const tag = String((el as { tagName?: unknown }).tagName || '').toLowerCase()
+    const seen = (perTagSeen.get(tag) || 0) + 1
+    perTagSeen.set(tag, seen)
+    if (seen > PER_TAG_CAP) return
+    totalSeen++
     const t = $(el).text() || ''
     if (t.length > bestLen) {
       bestLen = t.length

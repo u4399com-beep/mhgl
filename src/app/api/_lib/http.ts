@@ -110,9 +110,9 @@ export function safeJoin(root: string, rel: string): string | null {
 // (且管理端仅消费标量进度字段, URL 集合从未被前端使用)。运行时续采数据由 runner
 // 直接读写 DB, 与本瘦身影响面完全隔离。
 /** 超过该长度(progress 字符串字节数)才触发解析瘦身, 小行零开销直通 */
-export const TASK_PROGRESS_SLIM_THRESHOLD = 64 * 1024
+const TASK_PROGRESS_SLIM_THRESHOLD = 64 * 1024 // [R28-5-4] 零外部消费 → 收回 export(供 slimTaskProgressJson 内部用)
 /** 瘦身后每个集合保留的条数(仅截断展示冗余, 标量字段原样保留) */
-export const TASK_PROGRESS_SLIM_KEEP = 200
+const TASK_PROGRESS_SLIM_KEEP = 200
 
 /**
  * 任务进度 JSON 瘦身: 解析后把 4 个续采集合字段截断到 SLIM_KEEP 条。

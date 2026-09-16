@@ -1,22 +1,25 @@
 // ============================================================
-// [R27-5b-H2] 站点克隆模板注册表 —— SiteTemplateSet 的唯一消费入口
+// [R28-1] 站点克隆模板注册表 —— SiteTemplateSet 的唯一消费入口
 //
-// R26/R27 交付的十套六文件克隆模板(aijjxs/pili/kks101/qb23/ddyueshu/ggd66/
-// huangjinwu/x2552/shipsay/trxsw, 每套 Home/Category/Book/Toc/Read/css)在此
-// 集中挂载; 各视图壳(HomeView/CategoryView/
-// BookView/TocView/ReadView)按 theme.id 查表命中后以 SiteTemplateSet 契约 props
-// 分发渲染, 未命中站点走既有通用渲染路径(零回归)。
+// R28 用户指令「删除现有所有主题模版 → 重新完整克隆」执行完毕: R26/R27 十套模板
+// 已删除并由本轮 5+3 agent + 主控以 8 页型契约(基础五视图 + Ranking/Fulltext/Search
+// 扩展三视图)重建, 在此集中挂载。
+//
+// 覆盖表(8 页型 = H首页 C分类 B书 T目录 R章节 + Ran排行 Ful全本 Sea搜索):
+//   aijjxs     H C B T R     Ful Sea  (真站无独立排行页, 声明)
+//   pili       H C B T R Ran Sea     (真站无独立全本页, 声明)
+//   kks101     H C B T R Ran Ful Sea  (8/8)
+//   qb23       H C B T R Ran Ful Sea  (8/8)
+//   ddyueshu   H C B T R Ran Ful      (真站搜索为第三方站外引擎, 声明)
+//   ggd66      H C B T R     Ful Sea  (真站无独立排行页, 声明)
+//   huangjinwu H C B T R Ran Sea      (真站无全本列表页, 声明)
+//   x2552      H C B T R Ran Ful Sea  (8/8, Wayback 实测为主)
+//   shipsay    H C B T R Ran Ful Sea  (8/8, Wayback 实测为主)
+//   trxsw      H C B T R Ran Ful Sea  (8/8, Wayback 实测为主)
 //
 // css 注入: 各套 css 字段(全部选择器以 .clone-{id} 开头)由 PublicSite 在
-// .clone-{theme.id} 作用域下统一注入(<style data-template-clone-css>), 与
-// theme.customCss 的既有注入通道(theme.customCss → data-theme-clone-css)叠加共存。
-//
-// 数据流契约(见 ./shared.ts): 数据获取/SEO/TDK 一律由通用视图壳统一完成后以 props
-// 下发 —— 模板组件是纯展示层, 内部用 usePublic() 拿 site/theme/navigate。
-//
-// 扩展位: 十站已全部六文件化(旧单文件形态已全部删除)。新增站点时在此追加
-// import + 一行映射即可自动获得五视图接线与 css 注入(视图壳已全部按
-// getTemplateSet 消费, 无需再改)。
+// .clone-{theme.id} 作用域下统一注入(<style data-template-clone-css>)。
+// 未命中站点走视图壳通用兜底, 前台永不白屏。
 // ============================================================
 import type { SiteTemplateSet } from './shared'
 import { aijjxsTemplate } from './aijjxs'
@@ -31,20 +34,20 @@ import { shipsayTemplate } from './shipsay'
 import { trxswTemplate } from './trxsw'
 
 const TEMPLATE_SETS: Record<string, SiteTemplateSet> = {
-  aijjxs: aijjxsTemplate,
-  pili: piliTemplate,
-  kks101: kks101Template,
-  qb23: qb23Template,
-  ddyueshu: ddyueshuTemplate,
-  ggd66: ggd66Template, // [R27-6-g1] R27-6 克隆第 6 站(格格党)
-  huangjinwu: huangjinwuTemplate, // [R27-6-g2] R27-6 克隆第 7 站(黄金屋)
-  x2552: x2552Template, // [R27-6b] 第 8 站(黑冰模板; Wayback 快照+家族标准)
-  shipsay: shipsayTemplate, // [R27-6b] 第 9 站(船说 V4.2; Wayback 快照+家族标准)
-  trxsw: trxswTemplate, // [R27-6b] 第 10 站(杰奇默认; Wayback 快照+家族标准)
+  aijjxs: aijjxsTemplate, // [R28-2a] 8 文件 2162 行
+  pili: piliTemplate, // [R28-2b/2b2] 七页型(Ranking 截断修复+Search 补建)
+  kks101: kks101Template, // [R28-2f] 10 文件 2119 行
+  qb23: qb23Template, // [R28-2c] 8 文件 1877 行
+  ddyueshu: ddyueshuTemplate, // [R28-2a/2a2/2h] 补完+Ranking 补建
+  ggd66: ggd66Template, // [R28-2c] 8 文件 1462 行
+  huangjinwu: huangjinwuTemplate, // [R28-2d] 8 文件 1458 行
+  x2552: x2552Template, // [R28-2d/2d-x] Wayback 快照重建+主控补完 8 文件
+  shipsay: shipsayTemplate, // [R28-2e] 8 文件 1799 行
+  trxsw: trxswTemplate, // [R28-2g] 9 文件 1736 行
 }
 
 /**
- * themeId → 模板集。未接入克隆六文件的站点返回 null, 调用方走旧渲染路径。
+ * themeId → 模板集。未接入克隆模板的站点返回 null, 调用方走通用兜底渲染。
  * theme.id 与模板目录名共用 SiteCloneId 命名空间(themes.ts), 故以 theme.id 为键。
  */
 export function getTemplateSet(themeId: string | null | undefined): SiteTemplateSet | null {

@@ -12,6 +12,7 @@ import { fetchBooks, type BooksData } from './data'
 import { usePublic } from './ctx'
 import { useSiteSEO } from './seo'
 import { EmptyState, ErrorState } from './bits'
+import { BookCard } from './BookCard'
 import type { BookItem } from './types'
 // [R27-5b-H2] 克隆模板注册表(theme.id → SiteTemplateSet)
 import { getTemplateSet } from './sites/registry'
@@ -82,10 +83,10 @@ export function HomeView({ page, cat }: { page: number; cat?: string }) {
   })
 
   const books: BookItem[] = data?.books || []
-  // [R27-6b] 克隆模板接线: registry 命中(theme.id ∈ 克隆十站)→ SiteTemplateSet.Home;
-  // 未知主题/极端边角兜底 aijjxs 克隆首页(与原防御分支同语义)
+  // [R28-1] 克隆模板接线: registry 命中(theme.id ∈ 克隆十站)→ SiteTemplateSet.Home;
+  // R28 删除全部克隆模板重建期间, 兜底从 aijjxs 模板改为通用网格(见下方最终分支)
   const tplSet = getTemplateSet(theme.id)
-  const SiteHome = tplSet?.Home || getTemplateSet('aijjxs')?.Home
+  const SiteHome = tplSet?.Home
 
   return (
     <>
@@ -104,9 +105,25 @@ export function HomeView({ page, cat }: { page: number; cat?: string }) {
       ) : SiteHome ? (
         <SiteHome books={books} loading={loading} />
       ) : (
-        // 双重防御: theme 与 registry 均未命中时不再渲染(EmptyState 已在上分支覆盖空态;
-        // 此分支仅可能出现在 theme.id 非法且被上层 getTheme 兑底成 aijjxs 前的极端边角)
-        <EmptyState text="首页布局暂不可用" hint="请在后台检查站点主题设置" />
+        // [R28-1] 通用首页兜底: R28 删模板重建窗口期/未接线主题的渲染保障(旧兜底 aijjxs 已随模板删除)
+        <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6">
+          <div className="mb-4 flex items-baseline justify-between">
+            <h1 className="text-xl font-black">最新书籍</h1>
+            <span className="text-xs opacity-60">共 {books.length} 本</span>
+          </div>
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
+            {books.map((b) => (
+              <BookCard key={b.id} book={b} />
+            ))}
+          </div>
+          {loading && !books.length && (
+            <div className="space-y-3">
+              {Array.from({ length: 12 }).map((_, i) => (
+                <div key={i} className="h-20 animate-pulse rounded bg-black/5" />
+              ))}
+            </div>
+          )}
+        </div>
       )}
     </>
   )

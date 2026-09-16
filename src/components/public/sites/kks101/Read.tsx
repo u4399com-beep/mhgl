@@ -1,180 +1,255 @@
 // ============================================================
-// [R26-3-5] kks101(101看書) 章节阅读页克隆 —— 按 https://101kks.com/txt/99/{cid}.html 真站快照逐节还原
-// (/tmp/r26/kks101-read.html + kks101-style.css 实测)
+// [R28-2f] kks101 克隆章节阅读页 —— 复刻真站 /txt/{book}/{chap}.html
+//   快照: /tmp/r28-2b/kks101/read.html(355 行) + style.css。
 //
-// 真站 DOM(.container#container > .mybox):
-//   ├ h3.mytitle.hide720 > .bread  面包屑 首頁 > 分類 > 目錄頁 > 章節名(≤720px 隐藏整行)
-//   ├ .tools > ul                  工具条: 書頁/收藏/目錄/設置/黑夜(li i 图标圆 36px/圆角 100px/底 #4c5356/白字 20px;
-//   │                              桌面只显圆钮, 移动端为底部固定条 → 模板取圆钮行, 右对齐, aria-label 全配)
-//   ├ .txtnav(padding 0 30px/line-height 2)
-//   │    ├ h1 章节标题(text-align center/20px/padding 10px)
-//   │    ├ .txtinfo.hide720        来源行(text-align center/14px/pb 15px; 真站: 更新时间 + 作者： 佚名
-//   │    │                         → 模板无章节时间字段, 以 全文字数 + 作者 替代, 注释声明)
-//   │    └ #txtcontent             正文(段 p: line-height 2/padding 10px 0/text-indent 5%/word-wrap break-word)
-//   └ .page1                       上一章 | 書籤 | 目錄 | 下一章(底 #f2f3f4/边 1px #e4e4e4/圆角 3px/flex;
-//                                  a 均分 16px/line-height 48px/右边线 rgb(191 191 191 / 24%)/hover #f8f8f8)
-// 工具条映射: 書頁→书页视图 · 目錄→toc 视图 · A-/A+→useReaderFont(真站设置弹层 .setbox 的字号项) ·
-//            夜間→真站 setbg() 黑夜模式(本地态翻色, 不动全站主题)。
-// 差异声明: ①書籤(登录态 addbookcase)不渲染 ②追更/聽書按钮列(chase-book-btn 广告位)为运营位不克隆
-//           ③正文下方 .yuedutuijian 推荐列表为外链书墙, 契约外不渲染。
+//   真站结构(container#container > .mybox, read.html L41-252):
+//     ① h3.mytitle.hide720 面包屑(首頁>分類>目錄頁> 章节名, <720px 隐藏)
+//     ② .tools 工具条(ul 右对齐, 圆形图标钮 36px #4c5356): 書頁/收藏/目錄/設置/黑夜
+//        (style.css L2226-2250; <720px 变为底部固定深条 #424e52)
+//     ③ .txtnav 正文区: h1 章名(居中 20px) + .txtinfo(时间 + 作者, 居中 14px)
+//        + #txtcontent(段落 lh2 / padding 10px 0 / text-indent 5%, L2251-2274)
+//     ④ .page1 翻页条(4 等分: 上一章/書籤/目錄/下一章, #f2f3f4 底 #e4e4e4 边框,
+//        a lh48px 分隔线, hover #f8f8f8, L2340-2366)
+//     ⑤ .yuedutuijian 阅读推荐列表(li: 书名 #222 + 右侧 連載 状态)
+//     ⑥ .setbox 设置面板(背景 5 圆点 / 字體 4 档 / 字號 input+- / 語速; L2115-2202)
+//     黑夜模式 body.black: .mybox rgb(32,40,46) 文字 rgb(153,153,153),
+//     .page1 a #474b4e hover #3a3e41(L2093-2104, L2368-2379)
+//
+//   降级/推断说明:
+//   ① .tools「收藏」(addbookcase 会员态) → 不渲染; 書頁/目錄/設置/黑夜 四钮保留真站排布
+//   ② .page1 真站 4 钮含「書籤」(addbookcase 章节書籤) → 无契约, 保留 上一章/目錄/下一章
+//      三钮等分布局; 键盘 ←/→ 翻章与真站提示语一致
+//   ③ .setbox 仅实现「字號」一档(契约共享阅读字号键 14-24, 默认 17; 真站默认 22);
+//      背景 5 圆点(色值由 JS 注入, 快照不可提取)由「黑夜」按钮承担暗色;
+//      字體 4 档(雅黑/粉圓/手寫/鋼筆为远端字体)与「語速」朗读无契约 → 不渲染
+//   ④ .txtinfo 真站显示「更新时间 + 作者」; ChapterData 无时间字段 → 仅作者;
+//      面包屑真站为「首頁>分類>目錄頁>章名」, ChapterData 无分类字段 → 以
+//      「首頁>書名>目錄頁>章名」承接(推断级)
+//   ⑤ 正文内 .chase-book-btn 追更广告钮组与 .txtad 广告位 → 不渲染
+//   ⑥ 阅读推荐列表(#tuijian ajax 加载)契约无对应 → 以最近更新榜前 15 本近似,
+//      块名沿用真站「閱讀推薦」字样(推断级)
 // ============================================================
 'use client'
 
-import { useState } from 'react'
-import { BookOpen, ListOrdered, Minus, Moon, Plus, Sun } from 'lucide-react'
+import { useCallback, useEffect, useState } from 'react'
+import type { CSSProperties } from 'react'
 import type { SiteReadProps } from '../shared'
 import { usePublic } from '../../ctx'
-import { ChapterContent, useReaderFont, useRecordReading } from '../template-kit'
+import { fetchBooks } from '../../data'
 import { ErrorState, Sk } from '../../bits'
+import { ChapterContent, useReaderFont, useRecordReading } from '../template-kit'
+import type { BookItem } from '../../types'
+import { K, KContainer, cardStyle, MyTitle, kkStatus } from './parts'
 
-/** [R26-3-5] 真站实测色值(kks101-style.css) */
-const BLUE = '#1f6cb2'
-const PAGE1_BG = '#f2f3f4' // .page1 底(与 body 同色)
-const NIGHT_BG = '#22282b' // 夜间态容器底(真站 setbg 深灰系)
-const NIGHT_TEXT = '#b8bcc0' // 夜间态文字
+/** [R28-2f-22] 真站 .tools 图标钮(36px 圆形 #4c5356, style.css L2233-2244) */
+function ToolBtn({ label, glyph, onClick }: { label: string; glyph: string; onClick?: () => void }) {
+  return (
+    <li style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+      <button
+        type="button"
+        onClick={onClick}
+        aria-label={label}
+        className="kkx-toolbtn"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 5,
+          background: 'none',
+          border: 0,
+          padding: 0,
+          cursor: 'pointer',
+          color: K.ink,
+          fontSize: 14,
+        }}
+      >
+        <span aria-hidden style={{ display: 'block', background: '#4c5356', color: '#fff', borderRadius: 100, width: 36, height: 36, textAlign: 'center', lineHeight: '36px', fontSize: 17 }}>
+          {glyph}
+        </span>
+        <span className="kkx-toolbtn-txt">{label}</span>
+      </button>
+    </li>
+  )
+}
 
 export function Kks101Read({ data, loading, error }: SiteReadProps) {
   const { navigate } = usePublic()
   const { font, inc, dec } = useReaderFont()
-  // 真站 setbg() 黑夜/白天切换(容器内局部翻色)
   const [night, setNight] = useState(false)
+  const [setOpen, setSetOpen] = useState(false)
+  const [recommends, setRecommends] = useState<BookItem[]>([])
 
-  // [R26-3-5] 阅读位置/时长记忆(hooks 顺序: 挂载即调, data 未就绪时内部自守)
-  useRecordReading(data?.book?.id, data?.chapter?.id, data?.chapter?.title)
+  const chapter = data?.chapter ?? null
+  const book = data?.book ?? null
+
+  // [R28-2f-23] 阅读位置/时长记忆(阅读页模板挂载一次)
+  useRecordReading(book?.id, chapter?.id, chapter?.title)
+
+  // [R28-2f-24] 阅读推荐数据(最近更新榜前 15, 近似, 见说明⑥)
+  useEffect(() => {
+    let alive = true
+    fetchBooks({ sort: 'latest', page: 1, size: 15 })
+      .then((d) => {
+        if (alive) setRecommends(d.books)
+      })
+      .catch(() => {
+        /* 推荐拉取失败静默 */
+      })
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  // [R28-2f-25] 键盘 ←/→ 翻章(与真站 .view_tips 提示语同款交互)
+  const goPrev = useCallback(() => {
+    if (data?.prev) navigate({ view: 'read', bookId: book?.id, chapterId: data.prev.id })
+  }, [data, book, navigate])
+  const goNext = useCallback(() => {
+    if (data?.next) navigate({ view: 'read', bookId: book?.id, chapterId: data.next.id })
+  }, [data, book, navigate])
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowLeft') goPrev()
+      else if (e.key === 'ArrowRight') goNext()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [goPrev, goNext])
 
   if (error) {
     return (
-      <div className="mx-auto w-full max-w-[1112px] px-4 py-10 sm:px-6">
-        <ErrorState message="章節載入失敗" detail={error} />
-      </div>
-    )
-  }
-
-  if (loading || !data) {
-    return (
-      <div className="mx-auto w-full max-w-[1112px] px-4 pb-10 sm:px-6" aria-label="章节加载中">
-        <div className="kks-mybox">
-          <div className="flex justify-end gap-3 pb-2" aria-hidden>
-            {Array.from({ length: 4 }).map((_, i) => (
-              <Sk key={i} className="h-9 w-9 rounded-full" />
-            ))}
-          </div>
-          <Sk className="mx-auto mb-4 h-6 w-2/3" />
-          <Sk className="mx-auto mb-6 h-3.5 w-1/3" />
-          <div className="space-y-3 px-1 sm:px-[30px]">
-            {Array.from({ length: 10 }).map((_, i) => (
-              <Sk key={i} className="h-4 w-full" style={{ opacity: 1 - i * 0.06 }} />
-            ))}
-          </div>
-          <span className="sr-only">加载中…</span>
+      <KContainer>
+        <div className="kkx-mybox" style={cardStyle}>
+          <ErrorState message="章節內容加載失敗" detail={error} />
         </div>
-      </div>
+      </KContainer>
+    )
+  }
+  if (loading || !chapter || !book) {
+    return (
+      <KContainer>
+        <div className="kkx-mybox" style={cardStyle} role="status" aria-label="章節內容加載中">
+          <Sk className="h-7 w-1/2 mx-auto" style={{ borderRadius: 3, marginBottom: 14 }} />
+          <Sk className="h-4 w-1/3 mx-auto" style={{ borderRadius: 3, marginBottom: 22 }} />
+          {Array.from({ length: 8 }).map((_, i) => (
+            <Sk key={i} className="h-4 w-full" style={{ borderRadius: 2, marginBottom: 10 }} />
+          ))}
+        </div>
+      </KContainer>
     )
   }
 
-  const { chapter, book, prev, next } = data
-  const cell = 'kks-page1-cell min-w-0 flex-1 text-[16px]'
+  const boxStyle: CSSProperties = night
+    ? { ...cardStyle, background: K.night, color: K.nightText }
+    : cardStyle
+  const txtStyle: CSSProperties = { lineHeight: 2, fontSize: font, wordWrap: 'break-word', color: night ? K.nightText : K.ink }
+  const pageBtn: CSSProperties = {
+    width: '100%',
+    fontSize: 16,
+    textAlign: 'center',
+    lineHeight: '48px',
+    background: 'none',
+    border: 0,
+    borderRight: '1px solid rgba(191,191,191,.24)',
+    cursor: 'pointer',
+    color: night ? '#fff' : K.ink,
+  }
 
   return (
-    <div className="mx-auto w-full max-w-[1112px] px-4 pb-10 sm:px-6">
-      <div className="kks-mybox transition-colors duration-300" style={night ? { background: NIGHT_BG, color: NIGHT_TEXT } : { color: '#333' }}>
-        {/* ===== 面包屑(真站 .hide720 ≤720px 隐藏) ===== */}
-        <div className="kks-mytitle hidden sm:block">
-          <div className="kks-bread text-[14px] font-normal">
-            <button type="button" onClick={() => navigate({ view: 'home' })} className="text-[14px] transition-colors hover:underline" style={{ color: BLUE }} aria-label="返回首頁">
-              首頁
-            </button>
-            <span className="mx-1 text-[#999]">&gt;</span>
-            <button
-              type="button"
-              onClick={() => navigate({ view: 'toc', bookId: book.id, page: 1 })}
-              className="text-[14px] transition-colors hover:underline"
-              style={{ color: BLUE }}
-              aria-label={`返回《${book.name}》目錄`}
-            >
-              目錄頁
-            </button>
-            <span className="mx-1 text-[#999]">&gt;</span>
-            <span className="text-[#333]">{chapter.title}</span>
-          </div>
+    <KContainer>
+      <div className={`kkx-mybox kkx-readbox${night ? ' kkx-black' : ''}`} style={boxStyle}>
+        {/* ① 面包屑(<720px 由 css 隐藏) */}
+        <MyTitle>
+          <span className="kkx-hide720">
+            <span style={{ fontSize: 14, fontWeight: 400, color: K.ink }}>
+              <button type="button" onClick={() => navigate({ view: 'home' })} className="kkx-bread-a" style={{ background: 'none', border: 0, padding: 0, cursor: 'pointer', fontSize: 14, color: K.primary }}>首頁</button>
+              {' > '}
+              <button type="button" onClick={() => navigate({ view: 'book', bookId: book.id })} className="kkx-bread-a" style={{ background: 'none', border: 0, padding: 0, cursor: 'pointer', fontSize: 14, color: K.primary }}>{book.name}</button>
+              {' > '}
+              <button type="button" onClick={() => navigate({ view: 'toc', bookId: book.id })} className="kkx-bread-a" style={{ background: 'none', border: 0, padding: 0, cursor: 'pointer', fontSize: 14, color: K.primary }}>目錄頁</button>
+              {' > '}
+              <span>{chapter.title}</span>
+            </span>
+          </span>
+        </MyTitle>
+
+        {/* ② .tools 工具条 */}
+        <div className="kkx-tools" style={{ padding: '10px 0 0', marginBottom: -8 }}>
+          <ul style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 18, listStyle: 'none', margin: 0, padding: 0, flexWrap: 'wrap' }}>
+            <ToolBtn label="書頁" glyph="📖" onClick={() => navigate({ view: 'book', bookId: book.id })} />
+            <ToolBtn label="目錄" glyph="📑" onClick={() => navigate({ view: 'toc', bookId: book.id })} />
+            <ToolBtn label="設置" glyph="⚙️" onClick={() => setSetOpen((v) => !v)} />
+            <ToolBtn label={night ? '白天' : '黑夜'} glyph={night ? '☀️' : '🌙'} onClick={() => setNight((v) => !v)} />
+          </ul>
         </div>
 
-        {/* ===== .tools 工具条(圆钮 36px #4c5356, 右对齐) ===== */}
-        <div className="mb-1 flex flex-wrap justify-end gap-2 sm:gap-3" role="toolbar" aria-label="閱讀工具">
-          <button type="button" onClick={() => navigate({ view: 'book', bookId: book.id })} className="kks-tool" aria-label="返回書頁" title="書頁">
-            <BookOpen className="h-4 w-4" aria-hidden />
-          </button>
-          <button type="button" onClick={() => navigate({ view: 'toc', bookId: book.id, page: 1 })} className="kks-tool" aria-label="返回目錄" title="目錄">
-            <ListOrdered className="h-4 w-4" aria-hidden />
-          </button>
-          {/* 真站 .setbox 设置层字号项 → A-/A+ 直调 */}
-          <button type="button" onClick={dec} disabled={font <= 14} className="kks-tool" style={{ opacity: font <= 14 ? 0.45 : undefined }} aria-label="縮小字號" title="A-">
-            <Minus className="h-4 w-4" aria-hidden />
-          </button>
-          <button type="button" onClick={inc} disabled={font >= 24} className="kks-tool" style={{ opacity: font >= 24 ? 0.45 : undefined }} aria-label="放大字號" title="A+">
-            <Plus className="h-4 w-4" aria-hidden />
-          </button>
-          <button type="button" onClick={() => setNight((s) => !s)} className="kks-tool" aria-label={night ? '切換白天模式' : '切換黑夜模式'} title={night ? '白天' : '黑夜'}>
-            {night ? <Sun className="h-4 w-4" aria-hidden /> : <Moon className="h-4 w-4" aria-hidden />}
-          </button>
-        </div>
-
-        {/* ===== .txtnav 正文区 ===== */}
-        <article className="px-0 sm:px-[30px]" style={{ lineHeight: 2, wordWrap: 'break-word' }}>
-          <h1 className="p-2.5 text-center text-[20px]" style={{ fontWeight: 700 }}>
-            {chapter.title}
-          </h1>
-          {/* .txtinfo 来源行(真站: 时间 + 作者; 模板无章节时间 → 全文字数 + 作者) */}
-          <div className="pb-[15px] text-center text-[14px]" style={{ color: night ? NIGHT_TEXT : '#757575' }}>
-            <span className="mr-4">{chapter.wordCount > 0 ? `全文字數：${chapter.wordCount}` : ''}</span>
+        {/* ③ .txtnav 正文 */}
+        <div className="kkx-txtnav" style={{ padding: '0 30px' }}>
+          <h1 style={{ textAlign: 'center', fontSize: 20, padding: 10, margin: 0, color: night ? '#fff' : K.ink, overflowWrap: 'anywhere' }}>{chapter.title}</h1>
+          <div className="kkx-txtinfo kkx-hide720" style={{ textAlign: 'center', fontSize: 14, paddingBottom: 15, color: night ? K.nightText : K.muted }}>
             <span>作者： {book.author}</span>
           </div>
-          {/* #txtcontent: 段落规格(p line-height 2/padding 10px 0/text-indent 5%)走 css 字符串 .kks-txt p */}
-          <ChapterContent content={chapter.content} className="kks-txt" style={{ fontSize: font }} />
-        </article>
+          {/* #txtcontent */}
+          <div id="kkx-txtcontent" style={txtStyle}>
+            <ChapterContent content={chapter.content} style={txtStyle} />
+          </div>
+        </div>
 
-        {/* ===== .page1 底部导航(上一章/書頁/目錄/下一章 均分 4 格) ===== */}
-        <nav aria-label="章節導航" className="kks-page1 mt-1 flex overflow-hidden rounded-[3px]" style={{ background: night ? '#2c3338' : PAGE1_BG, border: night ? '1px solid #3a4247' : '1px solid #e4e4e4' }}>
-          <button
-            type="button"
-            onClick={() => prev && navigate({ view: 'read', chapterId: prev.id })}
-            disabled={!prev}
-            className={cell}
-            style={{ opacity: prev ? undefined : 0.4, color: night ? NIGHT_TEXT : '#333' }}
-            aria-label="上一章"
-          >
-            上一章
-          </button>
-          <button
-            type="button"
-            onClick={() => navigate({ view: 'book', bookId: book.id })}
-            className={cell}
-            style={{ color: night ? NIGHT_TEXT : '#333' }}
-            aria-label="返回書頁"
-          >
-            書頁
-          </button>
-          <button
-            type="button"
-            onClick={() => navigate({ view: 'toc', bookId: book.id, page: 1 })}
-            className={cell}
-            style={{ color: night ? NIGHT_TEXT : '#333' }}
-            aria-label="返回目錄"
-          >
-            目錄
-          </button>
-          <button
-            type="button"
-            onClick={() => next && navigate({ view: 'read', chapterId: next.id })}
-            disabled={!next}
-            className={cell}
-            style={{ opacity: next ? undefined : 0.4, color: night ? NIGHT_TEXT : '#333' }}
-            aria-label="下一章"
-          >
-            下一章
-          </button>
-        </nav>
+        {/* ⑥ .setbox 设置面板(仅字号, 见说明③) */}
+        {setOpen ? (
+          <div className="kkx-setbox" style={{ position: 'fixed', left: '50%', transform: 'translateX(-50%)', bottom: 0, width: 'min(500px, 100%)', background: '#fff', zIndex: 60, borderRadius: '5px 5px 0 0', boxShadow: K.cardShadow, padding: '40px 30px 30px' }}>
+            <button
+              type="button"
+              onClick={() => setSetOpen(false)}
+              className="kkx-setclose"
+              style={{ position: 'absolute', right: 0, top: 0, padding: 15, background: 'none', border: 0, cursor: 'pointer', fontSize: 14, color: K.link }}
+            >
+              關閉
+            </button>
+            <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+              <li style={{ display: 'flex', alignItems: 'center', padding: '10px 0', gap: 10 }}>
+                <label style={{ width: 50, flexShrink: 0, color: '#888', fontSize: 14 }}>字號</label>
+                <div className="kkx-setfontsize" style={{ position: 'relative', flex: 1 }}>
+                  <input className="kkx-sizenum" type="text" value={font} readOnly aria-label="當前字號" style={{ width: '100%', textAlign: 'center', border: `1px solid ${K.line}`, lineHeight: '30px', fontSize: 15, color: K.ink }} />
+                  <button type="button" onClick={dec} aria-label="縮小字號" style={{ position: 'absolute', left: 0, top: 0, height: '100%', width: '33%', border: 0, borderRight: `1px solid ${K.line}`, background: 'none', cursor: 'pointer', fontSize: 16, color: K.ink }}>-</button>
+                  <button type="button" onClick={inc} aria-label="放大字號" style={{ position: 'absolute', right: 0, top: 0, height: '100%', width: '33%', border: 0, borderLeft: `1px solid ${K.line}`, background: 'none', cursor: 'pointer', fontSize: 16, color: K.ink }}>+</button>
+                </div>
+              </li>
+            </ul>
+          </div>
+        ) : null}
+
+        {/* ④ .page1 翻页条(三钮: 書籤降级说明②) */}
+        <div className="kkx-page1" style={{ background: K.bg, borderRadius: 3, display: 'flex', alignItems: 'center', overflow: 'hidden', border: '1px solid #e4e4e4', marginTop: 14 }}>
+          <button type="button" onClick={goPrev} disabled={!data?.prev} className="kkx-page1-a" style={{ ...pageBtn, cursor: data?.prev ? 'pointer' : 'default', opacity: data?.prev ? 1 : 0.45 }}>上一章</button>
+          <button type="button" onClick={() => navigate({ view: 'toc', bookId: book.id })} className="kkx-page1-a" style={pageBtn}>目錄</button>
+          <button type="button" onClick={goNext} disabled={!data?.next} className="kkx-page1-a" style={{ ...pageBtn, borderRight: 'none', cursor: data?.next ? 'pointer' : 'default', opacity: data?.next ? 1 : 0.45 }}>下一章</button>
+        </div>
       </div>
-    </div>
+
+      {/* ⑤ .yuedutuijian 阅读推荐(真站白底列表块) */}
+      <div className="kkx-mybox" style={{ ...cardStyle, background: '#fff' }}>
+        <MyTitle>閱讀推薦</MyTitle>
+        <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+          {recommends.map((b) => (
+            <li key={b.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 10, borderBottom: `1px solid ${K.line}`, padding: '10px 0' }}>
+              <button
+                type="button"
+                onClick={() => navigate({ view: 'book', bookId: b.id })}
+                className="kkx-yd-name"
+                style={{ background: 'none', border: 0, padding: 0, cursor: 'pointer', fontSize: 15, color: '#222', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'left' }}
+              >
+                {b.name}
+              </button>
+              <span style={{ color: K.dim, fontSize: 13, flexShrink: 0 }}>{kkStatus(b)}</span>
+            </li>
+          ))}
+          {recommends.length === 0 ? (
+            <Sk className="h-10 w-full" style={{ borderRadius: 2 }} />
+          ) : null}
+        </ul>
+      </div>
+    </KContainer>
   )
 }
+

@@ -1,7 +1,7 @@
 // ============================================================
-// [R26-4] qb23 铅笔小说(www.23qb.net) 首页克隆 —— 5 页型之 Home
-// 真站快照: /tmp/r26/probe-www.23qb.net.html(首页) + /tmp/r26/qb23-style.css(/mxstatic/css/style.css 直抓)
-// 真站 DOM: body.homepage > header#header.wrapper > main#main.wrapper > .content > .list
+// [R28-2c] qb23 铅笔小说(www.23qb.net) 首页克隆 —— 基础五视图之 Home
+// 真站快照(R28 实测): /tmp/r28-2c/qb23/qb23-home.html + qb23-style.css(/mxstatic/css/style.css 125KB)
+// 真站 DOM(2026-09 快照核对): body.homepage > header#header > main#main.wrapper > .content > .list
 //   ├ .box(白卡 padding 25px / radius 18px / shadow 0 7px 21px rgba(149,157,165,.22))
 //   │   └ .module > .module-list.module-lines-list > .module-items > .module-item×16(真站 1740 版心 8×2;
 //   │       本克隆版心 1152px, 取 15 本 = 5×3, 卡宽 ~204px 对齐真站 .module-item 200px)
@@ -17,7 +17,8 @@
 // 真站 CSS 实测色板(style.css): body #f8f9f9 / 文字 #282828 / a hover #ff2a14 / 边线 #eaedf1 /
 //   灰钮底 #f3f5f7 / 斑马行 #f7f8f9 / 暖杏 chip #fef0e5(hover #fde6dd) / 绿 #34a853 / 橙 #ff9800
 // 数据口径: 封面网格 = 字数最多 15 本(点击榜代理, fetchBooks sort:words); 榜单 = props.books(最新 48)+
-//   字数 60 合并去重后按分类分组, 组内按字数降序取前 10, 收录量前 12 组 —— 与旧 Qb23Home 口径一致。
+//   字数 60 合并去重后按分类分组, 组内按字数降序取前 10, 收录量前 12 组 —— 与 R26-4 口径一致。
+// QbGridCard 导出供 Ranking.tsx 复用(真站 /top.html 与首页同款 module-item 卡)。
 // ============================================================
 'use client'
 
@@ -30,20 +31,21 @@ import type { BookItem } from '../../types'
 import { BookCover } from '../../BookCover'
 import { Sk, bookNavProps } from '../../bits'
 
-/** [R26-4-1] 真站 /mxstatic/css/style.css 实测色值(仅 qb23 克隆组件消费, 硬编码) */
+/** [R28-2c-1] 真站 /mxstatic/css/style.css 实测色值(仅 qb23 克隆组件消费, 硬编码) */
 const QB_TEXT = '#282828'
 const QB_MUT40 = 'rgba(0,0,0,0.4)' // .module-item-text
 const QB_RED = '#ff2a14' // a:hover / 关键词 hover
 const QB_RANK_1 = '#fc4274' // .list-item .one
 const QB_RANK_2 = '#ff8155' // .two
 const QB_RANK_3 = '#fcb80a' // .three
-const QB_RANK_REST = '#b0b0b0' // 默认序号(旧版实测, style.css 未单列, 与 .order 默认色一致)
+const QB_RANK_REST = '#b0b0b0' // 默认序号(.module-item-top::after 默认块 #9e9e9e 同族近似)
 const QB_TOP_BG = ['#e50914', '#f73', '#ffa82e', '#9e9e9e'] // .module-item-top::after(top1~3/其余)
-const QB_IMPACT = '"Impact", "system-ui", "Helvetica Neue", sans-serif' // .impact/.module-item-top 字族
+const QB_IMPACT = '"Impact", "system-ui", "Helvetica Neue", sans-serif' // .module-item-top 字族
 
-/** [R26-4-2] .module-item —— 斜角序号封面卡(首页网格核心卡型, 结构对齐真站 DOM) */
-function QbGridCard({ book, rank }: { book: BookItem; rank: number }) {
+/** [R28-2c-2] .module-item —— 斜角序号封面卡(首页/今日热榜核心卡型, 结构对齐真站 DOM; rank=-1 无角标) */
+export function QbGridCard({ book, rank }: { book: BookItem; rank: number }) {
   const { navigate } = usePublic()
+  const noRank = rank < 0
   return (
     <div className="group">
       {/* .module-item-cover: padding-top 140% 撑高 + .qb23-cover 复用 index.css 的 ::before 径向暗角 */}
@@ -56,19 +58,21 @@ function QbGridCard({ book, rank }: { book: BookItem; rank: number }) {
         <div className="absolute inset-0">
           <BookCover name={book.name} cover={book.cover} showAuthor={book.author} style={{ borderRadius: 0 }} />
         </div>
-        {/* .module-item-top: 45° 斜角色块 + Impact 白字序号(左上角标) */}
-        <span aria-hidden className="absolute left-0 top-0 z-[2] block h-[42px] w-[46px] overflow-hidden rounded-[8px]">
-          <span
-            className="absolute -left-[26px] -top-[26px] z-[-1] block h-[56px] w-[56px] rotate-45 rounded-[12px]"
-            style={{ background: QB_TOP_BG[Math.min(rank, 3)] }}
-          />
-          <span
-            className="absolute left-[8px] top-[2px] text-[24px] leading-[36px] font-black text-white sm:text-[30px]"
-            style={{ fontFamily: QB_IMPACT, textShadow: '1px 1px 0 rgba(0,0,0,0.1)', textIndent: '2px' }}
-          >
-            {rank + 1}
+        {/* .module-item-top: 45° 斜角色块 + Impact 白字序号(左上角标; 真站 text-indent 9px/30px/700) */}
+        {!noRank && (
+          <span aria-hidden className="absolute left-0 top-0 z-[2] block h-[42px] w-[46px] overflow-hidden rounded-[8px]">
+            <span
+              className="absolute -left-[26px] -top-[26px] z-[-1] block h-[56px] w-[56px] rotate-45 rounded-[12px]"
+              style={{ background: QB_TOP_BG[Math.min(rank, 3)] }}
+            />
+            <span
+              className="absolute left-[8px] top-[2px] text-[24px] leading-[36px] font-black text-white sm:text-[30px]"
+              style={{ fontFamily: QB_IMPACT, textShadow: '1px 1px 0 rgba(0,0,0,0.1)', textIndent: '2px' }}
+            >
+              {rank + 1}
+            </span>
           </span>
-        </span>
+        )}
         {/* .module-item-caption: 底部渐变条 + tag 片(≤559px 由 index.css 隐藏, 对齐真站) */}
         <div className="qb23-caption absolute inset-x-0 bottom-0 z-[1] flex h-11 items-center px-3">
           <div
@@ -76,11 +80,8 @@ function QbGridCard({ book, rank }: { book: BookItem; rank: number }) {
             className="absolute inset-0"
             style={{ background: 'linear-gradient(0deg, rgba(0,0,0,0.68), transparent)' }}
           />
-          <span className="relative z-[1] max-w-[84px] truncate rounded-[5px] bg-black/50 px-[5px] text-xs leading-5 text-[#c2c6d0]">
-            {book.author}
-          </span>
           {book.category && (
-            <span className="relative z-[1] ml-[5px] max-w-[64px] truncate rounded-[5px] bg-black/50 px-[5px] text-xs leading-5 text-[#c2c6d0]">
+            <span className="relative z-[1] max-w-[84px] truncate rounded-[5px] bg-black/50 px-[5px] text-xs leading-5 text-[#c2c6d0]">
               {book.category}
             </span>
           )}
@@ -97,7 +98,7 @@ function QbGridCard({ book, rank }: { book: BookItem; rank: number }) {
           {book.name}
         </button>
       </div>
-      {/* .module-item-text */}
+      {/* .module-item-text(真站为作者名) */}
       <p className="mt-[3px] truncate text-center text-[13px] max-sm:mt-px max-sm:text-xs max-sm:text-[#aaadb5]" style={{ color: QB_MUT40 }}>
         {book.author}
       </p>
@@ -105,7 +106,7 @@ function QbGridCard({ book, rank }: { book: BookItem; rank: number }) {
   )
 }
 
-/** [R26-4-3] .list-item 分类榜单列(栏头 #ECEEF1 + 彩色序号 10 行) */
+/** [R28-2c-3] .list-item 分类榜单列(栏头 #ECEEF1 + 彩色序号 10 行) */
 function QbRankColumn({ title, items }: { title: string; items: BookItem[] }) {
   const { navigate } = usePublic()
   if (!items.length) return null
@@ -147,7 +148,7 @@ function QbRankColumn({ title, items }: { title: string; items: BookItem[] }) {
 export function Qb23Home({ books, loading }: SiteHomeProps) {
   const { site } = usePublic()
 
-  // [R26-4-4] 一维数据: 字数榜 60 本(封面网格前 15 + 榜单分组池), 与 props.books(最新 48)合并去重
+  // [R28-2c-4] 一维数据: 字数榜 60 本(封面网格前 15 + 榜单分组池), 与 props.books(最新 48)合并去重
   const [pool, setPool] = useState<BookItem[] | null>(null)
   useEffect(() => {
     let alive = true
@@ -190,7 +191,7 @@ export function Qb23Home({ books, loading }: SiteHomeProps) {
 
   return (
     <div className="w-full pb-14" style={{ color: QB_TEXT }}>
-      {/* 版心: 真站 .content max-width 1740px, 此处收窄 1152px 与站内 qb 头部版心一致(头身对齐优先) */}
+      {/* 版心: 真站 .content max-width 1740px(媒体查询收窄 1520px), 此处收窄 1152px 与站内 qb 头部版心一致(头身对齐优先) */}
       <div className="mx-auto w-full max-w-6xl px-4 pt-4 sm:px-6">
         {/* ============ .box 白卡: module-items 封面网格(18px 圆角 + 大投影) ============ */}
         <div className="rounded-[18px] bg-white p-4 shadow-[0_7px_21px_rgba(149,157,165,0.22)] sm:p-[25px]">

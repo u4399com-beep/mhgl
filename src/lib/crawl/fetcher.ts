@@ -10,7 +10,9 @@ import { type FetchConfig, DEFAULT_FETCH_CONFIG, isValidMirrorHost } from './typ
 import { obscuraFetch, checkObscuraAvailable, clickSelectorAnywhere, buildIdentityInitScript, applyUaCdpOverride, shutdownObscura } from './obscura'
 // [R9-e-4] 增强: 请求节奏画像上报 —— hostgate 无内部依赖(无循环风险); 缺省开关关闭时
 // 上报函数为 no-op, 既有行为零变化
-import { reportHostLatency, reportHostChallenge, reportHostRateLimited, PACE_PROFILE_ENABLED } from './hostgate'
+// [R28-4-E1] 增强: reportHostForbidden —— host 级长静默熔断(403 连败≥5 → 5~15min 停手),
+// 接线点在本文件 noteHostHttpFailure 的 403 记账路径
+import { reportHostLatency, reportHostChallenge, reportHostRateLimited, reportHostForbidden, PACE_PROFILE_ENABLED } from './hostgate'
 
 // ---------- UA 池 ----------
 // C.3(y-a重放): Chrome 系版本升级至当前稳定段 137~140(原池 118~131 过旧, 属明显
@@ -849,7 +851,13 @@ function classifyHttpFailure(e: unknown): HttpFailureClass {
   const status = typeof err?.status === 'number' && Number.isFinite(err.status) ? err.status : 0
   if (status >= 400 && status < 500) return 'http-4xx'
   if (status >= 500 && status < 600) return 'http-5xx'
-  if (err?.isFetchTimeout === true || err?.name === 'AbortError' || err?.code === 'ABORT_ERR') return 'timeout'
+  // [R28-4-M2] 仅"源站超时"归 'timeout': isFetchTimeout 由 fetchHttp 计时器 abort 打标(ee-d),
+  // OS 层 ETIMEDOUT 在下方 code 分支归 'timeout'。裸 AbortError/ABORT_ERR(无标记, 任务停止/
+  // 换代在途中止)归 'other' —— 修前两类合并计 'timeout', 与 runner 侧两分支口径
+  // (isFetchTimeout 严格区分"源站超时"与"停止中止", runner.ts 章节错误分类处)漂移,
+  // hostRhythm.classCounts['timeout'] 被操作员停止事件污染, "超时率"观测失真
+  if (err?.isFetchTimeout === true) return 'timeout'
+  if (err?.name === 'AbortError' || err?.code === 'ABORT_ERR') return 'other'
   const code = String(err?.code || '')
   const msg = String(err?.message || '')
   if (code === 'ETIMEDOUT') return 'timeout'
@@ -931,6 +939,12 @@ function noteHostHttpFailure(url: string, status: number, retryAfterMs?: number)
   if (status === 403) {
     st.forbiddenStreak++
     st.cooldownUntil = now + jitter15(Math.min(HOST_RHYTHM_COOLDOWN_CAP_MS, 1500 * Math.pow(2, Math.min(4, st.forbiddenStreak - 1))))
+    // [R28-4-E1] host 级长静默熔断接线: 403 连败≥5 时把该 host 推入 hostgate 5~15min 停手窗
+    // (指数+抖动, hostgate 侧 arm), 真被封站自动停手保护出口 IP; 章节保持 fetched=false
+    // 增量重试语义不变。返回 false = hostgate 无该 host 账本(未过闸路径)/未达阈值, 无操作
+    if (reportHostForbidden(url, st.forbiddenStreak)) {
+      console.warn(`[fetcher] host 级熔断已触发: 403 连续 ${st.forbiddenStreak} 次, 长静默见 hostgate 日志: ${url.slice(0, 120)}`)
+    }
   } else if (status === 429) {
     st.rateLimitStreak++
     const base = typeof retryAfterMs === 'number' && retryAfterMs > 0
@@ -1024,7 +1038,7 @@ function detectTrapSignals(html: string): { trapGapMs: number; noindex: boolean;
  * 内容差异不串缓存); token 预取/challenge 求解/contentProxy 路径显式禁用(要求每次新响应)。
  * 注: FetchConfig 接口在 types.ts(本轮只读分区), 以交叉类型 FetchCfgOpt 读取可选开关。
  */
-type FetchCfgOpt = FetchConfig & { conditionalGet?: boolean }
+type FetchCfgOpt = FetchConfig & { conditionalGet?: boolean; /** [R28-4-E2] 403/429 换档重试注入的显式档位(传输态, 不进规则 JSON/sanitize) */ impersonateTierOverride?: string }
 interface CondCacheEntry { html: string; etag: string; lastModified: string; at: number }
 const COND_CACHE_MAX = 256
 const COND_CACHE_TTL_MS = 10 * 60 * 1000
@@ -1147,13 +1161,34 @@ function stripBom(s: string): string {
   return s.charCodeAt(0) === 0xfeff ? s.slice(1) : s
 }
 
+/** [R28-4-L4] 前 64K 字符采样统计 U+FFFD 数量(有界, 10MB 串不全量扫) */
+function countReplacementChars(s: string): number {
+  const probe = s.length > 65536 ? s.slice(0, 65536) : s
+  let n = 0
+  let idx = probe.indexOf('\uFFFD')
+  while (idx >= 0) { n++; idx = probe.indexOf('\uFFFD', idx + 1) }
+  return n
+}
+
+/** [R28-4-L4] FFFD 密度异常判定: ≥8 个且占比 ≥0.2% —— 正常文本页不应出现替换符,
+ *  误报面集中在"内容刻意含 FFFD 字符"(罕见)与"截断多字节序列尾部"(单个, 远低于阈值) */
+function isFffdDense(s: string): boolean {
+  const probe = s.length > 65536 ? s.slice(0, 65536) : s
+  if (!probe.length) return false
+  const n = countReplacementChars(probe)
+  return n >= 8 && n / probe.length >= 0.002
+}
+
 function decodeBuffer(buf: ArrayBuffer, contentType?: string): string {
   let charset = ''
   const ct = contentType || ''
   // 兼容 charset="gb2312" / charset='gbk' 引号变体(原正则遇到引号即失配, 编码退化为 utf8 产生乱码)
   const m1 = ct.match(/charset\s*=\s*["']?([\w-]+)/i)
   if (m1) charset = m1[1]
-  const head = Buffer.from(buf.slice(0, 2048))
+  // [R28-4-L4] 嗅探窗 2048→8192: GBK 站 <head> 前置超长注释/统计脚本(>2KB)时 meta charset
+  // 落在窗外, 探测落空退化 utf-8 → 全页 U+FFFD 乱码入库(RESPONSE_SANITY 兜底缺省关)。
+  // latin1 解码 + 单次正则开销与窗长线性, 8KB 仍可忽略(响应体上限 10MB)
+  const head = Buffer.from(buf.slice(0, 8192))
   if (!charset) {
     const headStr = head.toString('latin1')
     const m2 = headStr.match(/<meta[^>]+charset=["']?([\w-]+)/i)
@@ -1166,7 +1201,18 @@ function decodeBuffer(buf: ArrayBuffer, contentType?: string): string {
   // 与 GB18030 4字节区在 gb2312 模式下被替换为 U+FFFD
   if (charset === 'gb2312' || charset === 'gbk') charset = 'gb18030'
   if (!charset || charset === 'utf-8' || charset === 'utf8') {
-    try { return stripBom(new TextDecoder('utf-8', { fatal: false }).decode(buf)) } catch { return stripBom(Buffer.from(buf).toString('utf8')) }
+    try {
+      const utf8 = stripBom(new TextDecoder('utf-8', { fatal: false }).decode(buf))
+      // [R28-4-L4] FFFD 密度兜底重解: 无 Content-Type charset 且嗅探窗仍落空时, 高密度
+      // U+FFFD(≥8 个且占比 ≥0.2%, 前 64K 字符采样)说明 utf-8 解码失真 —— 按中文小说站
+      // 最常见替代编码 gb18030(GBK 严格超集)重解一次, 仅当 FFFD 更少时采纳(有界单次,
+      // 防"utf-8 里合法出现少量 FFFD"的误替换; 二进制/非 GBK 站 utf-8 结果原样返回)
+      if (!charset && isFffdDense(utf8)) {
+        const alt = iconv.decode(Buffer.from(buf), 'gb18030')
+        if (countReplacementChars(alt) < countReplacementChars(utf8)) return stripBom(alt)
+      }
+      return utf8
+    } catch { return stripBom(Buffer.from(buf).toString('utf8')) }
   }
   // encodingExists 兜底: 非法/未知名编码(如 x-mac-cyrillic)退回 utf8, 不让 iconv 抛错
   if (iconv.encodingExists(charset)) {
@@ -1581,7 +1627,16 @@ function buildHeaders(url: string, cfg: FetchConfig, ua: string, opts?: { finger
   else if (cfg.referer !== false && origin) headers.Referer = origin
   // Cookie 合并去重: 同名键以罐中值(服务端最新 Set-Cookie)为准, 避免拼出 "a=1; a=9" 重复 Cookie 头
   // [R22-e-6]: 解析收敛到 mergedCookiePairs(控制字符剥除, native 链 Headers 不再被脏值炸抛)
-  const merged = mergedCookiePairs([cfg.cookies, cookieJar.get(originHost(url))])
+  // [R28-4-L3] autoCookie=false 只停收不发: 该语义是"不自动收集 Cookie", 修前仍把其它任务/
+  // 规则在同域累积的罐中 Cookie(cf_clearance 等会话态)发出去 —— 想以无 Cookie 干净身份采集的
+  // 规则实际携带他人会话(跨规则串味, 字段名与行为相悖)。现跳过 jar 合并(显式 cfg.cookies 保留);
+  // 三链(fetchHttp 逐跳/curl/fetchBinary)共用本函数, 一处修全链生效。罐【收取】侧各链本就
+  // 以 cfg.autoCookie !== false 判定, 不受影响
+  const merged = mergedCookiePairs(
+    cfg.autoCookie === false
+      ? [cfg.cookies]
+      : [cfg.cookies, cookieJar.get(originHost(url))],
+  )
   if (merged.size) headers.Cookie = Array.from(merged.entries()).map(([k, v]) => `${k}=${v}`).join('; ')
   // [R9-a-11] 指纹链按真实浏览器头序规范化(仅 HTTP 内容链; 裸 Playwright 链交真浏览器自洽)
   if (opts?.fingerprint) return orderHeadersLikeBrowser(headers, family)
@@ -2030,6 +2085,70 @@ function weightedPickByHealth(candidates: string[]): string {
   return candidates[candidates.length - 1]
 }
 
+// ---------- [R28-4-E6] sticky-host 粘滞选路(同 host 成功代理优先复用) ----------
+/**
+ * 场景: cf_clearance 等挑战 Cookie 与出口 IP 绑定(本文件 Cookie 罐段自述), random/round-robin
+ * 轮换会使"IP-A 过盾 → IP-B 带盾访问"互踢 —— 每次轮换都可能作废刚拿到的会话。sticky-host
+ * 策略: 同目标 host 稳定粘住同一代理(首个成功后持续复用), 仅当连续网络层失败达
+ * PROXY_STICKY_FAILS_TO_SWITCH(2) 次才换池内下一条(确定性顺移一格), HTTP 4xx/5xx
+ * (源站行为, 代理健康)不换。状态进程级(globalThis 防 HMR), 有界 FIFO 同 proxyState 口径。
+ * 注: key 用 URL host(含非默认端口); 换档记忆 offset 跨重启不持久(会话态, 重建成本一次请求)
+ */
+const PROXY_STICKY_FAILS_TO_SWITCH = 2
+const PROXY_STICKY_CAP = 512
+interface ProxyStickyEntry { offset: number; fails: number; proxy: string }
+const globalForProxySticky = globalThis as unknown as { __novelProxySticky_v1?: Map<string, ProxyStickyEntry> }
+const proxySticky: Map<string, ProxyStickyEntry> = globalForProxySticky.__novelProxySticky_v1 ?? new Map()
+globalForProxySticky.__novelProxySticky_v1 = proxySticky
+
+function proxyStickyKeyOf(url: string): string {
+  try { return new URL(url).host.toLowerCase() } catch { return '' }
+}
+
+/** djb2 稳定哈希(与 curlTlsProfileIndex 同款), sticky 初始下标用 */
+function stableHashOf(s: string): number {
+  let h = 5381
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0
+  return h
+}
+
+/** sticky-host 选路: 有粘滞条目且代理仍可用 → 复用; 否则按 (host 稳定 hash + 换档 offset)
+ *  取池内固定下标起顺找第一条可用代理(命中冷却代理自动顺延), 并登记粘滞条目 */
+function stickyPickFor(url: string, pool: string[], available: string[]): string {
+  const key = proxyStickyKeyOf(url)
+  const entry = key ? proxySticky.get(key) : undefined
+  if (entry && available.includes(entry.proxy)) return entry.proxy
+  const start = key ? (stableHashOf(key) + (entry?.offset || 0)) % pool.length : 0
+  const ordered = pool.slice(start).concat(pool.slice(0, start))
+  const pick = ordered.find((p) => available.includes(p)) || available[0]
+  if (key && pick) {
+    // FIFO 有界防泄漏(同 hostRhythm/proxyState 口径)
+    while (proxySticky.size >= PROXY_STICKY_CAP) {
+      const oldest = proxySticky.keys().next().value
+      if (oldest === undefined) break
+      proxySticky.delete(oldest)
+    }
+    proxySticky.set(key, { offset: entry?.offset || 0, fails: entry?.proxy === pick ? entry.fails : 0, proxy: pick })
+  }
+  return pick
+}
+
+/** sticky 反馈记账(fetchHttpWithCurlFallback 调用): 成功/源站行为(传输层通)清零连败;
+ *  网络层失败累计, 达阈值顺移 offset(下一条代理)并清零 —— 实现确定性换档 */
+function proxyStickyNote(url: string, proxy: string, ok: boolean): void {
+  const key = proxyStickyKeyOf(url)
+  if (!key) return
+  const entry = proxySticky.get(key)
+  if (!entry || entry.proxy !== proxy) return
+  if (ok) { entry.fails = 0; return }
+  entry.fails++
+  if (entry.fails >= PROXY_STICKY_FAILS_TO_SWITCH) {
+    entry.offset = (entry.offset + 1) % (1 << 30)
+    entry.fails = 0
+    console.warn(`[fetcher] sticky-host 换代理: ${key} 连续 ${PROXY_STICKY_FAILS_TO_SWITCH} 次网络层失败, 顺移池内下一条`)
+  }
+}
+
 /** 判定错误是否属代理网络层失败(应冷却): HTTP status 存在=源站响应, 不冷却;
  *  无 status=网络层(超时/连接拒绝/DNS/TLS/AbortError), 冷却 */
 function isProxyNetworkError(e: any): boolean {
@@ -2060,7 +2179,11 @@ export function pickProxyFor(url: string, cfg: FetchConfig): string {
   }
   const strategy = cfg.proxyRotationStrategy
   let pick: string
-  if (strategy === 'round-robin' || strategy === 'least-used') {
+  if (strategy === 'sticky-host') {
+    // [R28-4-E6] sticky-host: 同目标 host 稳定复用同一代理(防 cf_clearance 与出口 IP 互踢),
+    // 连续 2 次网络层失败才换下一条(语义见 proxySticky 段注)
+    pick = stickyPickFor(url, pool, available)
+  } else if (strategy === 'round-robin' || strategy === 'least-used') {
     // useCount 升序(round-robin/least-used 都选最低; ties 处理不同)
     let minCount = Infinity
     const ties: string[] = []
@@ -2509,6 +2632,21 @@ function curlProfileOf(host: string): CurlTransportProfile {
  *  (改动需双侧同步)。 */
 const IMPERSONATE_TIER_RE = /^(chrome|edge|safari|firefox)(\d{2,3}(_[0-9])?(_android|_ios)?[a-z]?)?$/
 
+/** [R28-4-E2] 403/429 换档重试的预置换档序: chrome116→edge101→safari17_0(firefox 系仅桥轨
+ *  可用, 不入默认序)。当前档不在序内(自定义档位)时取序内首个异档。收益: TLS 档位被站点
+ *  针对性封禁时自动逃生; 成本: 每次抓取至多 1 次换档重试(与 cookieRetries 共用
+ *  MAX_COOKIE_RETRIES 预算, 不双倍放大)。可扩展位: 后续如需规则字段 curlImpersonateFallbacks
+ *  显式配置换档序, 在此接入 sanitize 白名单同款正则校验即可(本轮不加新规则字段) */
+const IMPERSONATE_TIER_ROTATION: readonly string[] = ['chrome116', 'edge101', 'safari17_0']
+
+/** [R28-4-E2] 取当前档位在预置序内的后继(环形); 当前不在序内时取序内首个异档; 无可用后继返回 '' */
+function nextImpersonateTier(current: string): string {
+  const list = IMPERSONATE_TIER_ROTATION.filter((t) => t !== current && IMPERSONATE_TIER_RE.test(t))
+  if (!list.length) return ''
+  const idx = IMPERSONATE_TIER_ROTATION.indexOf(current)
+  return idx >= 0 ? IMPERSONATE_TIER_ROTATION[(idx + 1) % IMPERSONATE_TIER_ROTATION.length] : list[0]
+}
+
 /** 全局档位开关(env CURL_IMPERSONATE_PROFILE): 设置后 curl 链全部请求按该档位走
  *  impersonate 引擎(操作员级开关, 不改规则; 缺省空=关闭)。模块加载时读定, 进程重启生效。 */
 const ENV_IMPERSONATE_PROFILE = (process.env.CURL_IMPERSONATE_PROFILE || '').trim()
@@ -2529,10 +2667,15 @@ const IMPERSONATE_HOST_PINNING = (() => {
   return map
 })()
 
-/** [R27-1b-2] impersonate 档位解析: 规则 curlImpersonate 显式选档 > CURL_IMPERSONATE_HOSTS
- *  host 钉扎 > CURL_IMPERSONATE_PROFILE 全局开关 > 画像条目缺省(当前全空)。返回 ''=不启用
- *  (系统 curl 既有画像, 零回归); 非法档位一律视为未选(sanitize 白名单已拦截, 此处运行时兜底)。 */
-function resolveCurlImpersonateTier(host: string, cfg: FetchConfig, profile: CurlTransportProfile): string {
+/** [R27-1b-2] impersonate 档位解析: [R28-4-E2] 换档重试显式覆盖(tierOverride, 单次/调用方自限)
+ *  > 规则 curlImpersonate 显式选档 > CURL_IMPERSONATE_HOSTS host 钉扎 > CURL_IMPERSONATE_PROFILE
+ *  全局开关 > 画像条目缺省(当前全空)。返回 ''=不启用(系统 curl 既有画像, 零回归);
+ *  非法档位一律视为未选(sanitize 白名单已拦截, 此处运行时兜底)。 */
+function resolveCurlImpersonateTier(host: string, cfg: FetchConfig, profile: CurlTransportProfile, tierOverride?: string): string {
+  // [R28-4-E2]: 403/429 换档重试路径注入的显式档位最高优先(每次抓取至多 1 次, 由调用方
+  // 与 cookieRetries 共用预算自限); 非法值视为未选, 落回常规解析
+  const override = (tierOverride || '').trim()
+  if (override && IMPERSONATE_TIER_RE.test(override)) return override.toLowerCase()
   const ruleTier = (cfg.curlImpersonate || '').trim()
   if (ruleTier) return IMPERSONATE_TIER_RE.test(ruleTier) ? ruleTier.toLowerCase() : ''
   const pinned = IMPERSONATE_HOST_PINNING.get(host.toLowerCase())
@@ -2823,7 +2966,12 @@ async function curlOnce(url: string, headers: Record<string, string>, proxy: str
       hopHeaders = filterImpersonateHeaders(headers) // [R27-1b-4] 防同名双头/版本错配
     } else {
       // 轨 2: 桥 /impersonate(curl_cffi 等价引擎; 桥地址同 scrapling 桥)
-      return await impersonateOnceViaBridge(url, headers, proxy, remainingMs, impersonateTier, bridgeUrl || SCRAPLING_BRIDGE_URL)
+      // [R28-4-M1] 桥轨同样过 filterImpersonateHeaders —— 修前轨 2 收 buildHeaders(fingerprint:true)
+      // 产出的全量头组原样 POST 给桥, curl_cffi 语义是"显式头按名覆盖档位默认头", 于是桥轨实际 =
+      // chrome116 的 TLS ClientHello + 引擎 UA 池的 Chrome 141~142 UA/sec-ch-ua —— TLS 与 UA 版本
+      // 错配正是 WAF 指纹库的标准爬虫信号(轨 1 有过滤, 双轨行为不一致, R27-1b"桥轨同口径"未兑现)。
+      // 现与轨 1/server.py 契约("引擎已过滤", server.py do_impersonate 文档串)三侧对齐
+      return await impersonateOnceViaBridge(url, filterImpersonateHeaders(headers), proxy, remainingMs, impersonateTier, bridgeUrl || SCRAPLING_BRIDGE_URL)
     }
   } else if (/^https:/i.test(url)) {
     // [R9-a-14] C.2 + [R27-1b-1]: 按 host 钉扎的传输画像(仅 https 有 TLS 面; http 不加;
@@ -2891,7 +3039,8 @@ export async function fetchViaCurl(url: string, cfg: FetchConfig, ua: string, pr
     const hopCfg = hostKeyOf(hopUrl) === hostKeyOf(url) ? cfg : stripRuleSeedCookie(cfg)
     const headers = buildHeaders(hopUrl, hopCfg, ua, { fingerprint: true })
     // [R27-1b-7] 逐跳解析 impersonate 档位('' = 不启用 → curlOnce 旧轨, 零回归)
-    const hopTier = resolveCurlImpersonateTier(hostOf(hopUrl), hopCfg, curlProfileOf(hostOf(hopUrl)))
+    // [R28-4-E2]: 第 4 参透传换档重试覆盖档位(fetchPageOnce 错误路径经 effCfg 注入, 逐跳继承)
+    const hopTier = resolveCurlImpersonateTier(hostOf(hopUrl), hopCfg, curlProfileOf(hostOf(hopUrl)), (hopCfg as FetchCfgOpt).impersonateTierOverride)
     const r = await curlOnce(hopUrl, headers, proxy, remaining, hopTier, bridgeUrl)
     if (cfg.autoCookie !== false && r.setCookies.length) {
       // 每跳 Set-Cookie 记到该跳 URL 的 origin 名下(与 native 逐跳同语义)
@@ -3340,9 +3489,13 @@ export async function fetchHttpWithCurlFallback(url: string, cfg: FetchConfig, u
   // 排序: round-robin/least-used 按 useCount 升序; undefined/random Fisher-Yates 洗牌(原行为)
   // [R9-e-2] 增强: 开启健康度评分时 random 策略改为健康度降序(稳序排序 ties 保持池顺序,
   // 满分并列时退化为池顺序) —— 尝试顺序"最健康者优先", 全败时自然落到弱者探活
+  // [R28-4-E6] sticky-host: 粘滞代理打头(同 host 会话复用), 其余可用代理作后备顺位
   const strategy = cfg.proxyRotationStrategy
   let order: string[]
-  if (strategy === 'round-robin' || strategy === 'least-used') {
+  if (strategy === 'sticky-host') {
+    const sticky = stickyPickFor(url, pool, available)
+    order = [sticky, ...available.filter((p) => p !== sticky)]
+  } else if (strategy === 'round-robin' || strategy === 'least-used') {
     order = available.slice().sort((a, b) => getProxyState(a).useCount - getProxyState(b).useCount)
   } else if (PROXY_HEALTH_SCORING) {
     order = available.slice().sort((a, b) => proxyHealthScore(b) - proxyHealthScore(a))
@@ -3354,7 +3507,9 @@ export async function fetchHttpWithCurlFallback(url: string, cfg: FetchConfig, u
     }
   }
   let lastErr: any = null
+  let triedProxies = 0
   for (const proxy of order) {
+    triedProxies++
     markProxyUsed(proxy)
     // [R9-e-2]: 本次尝试墙钟(健康度滑动窗口的延迟样本; 含链内 curl 兜底重试, 粗粒度信号)
     const attemptT0 = Date.now()
@@ -3364,24 +3519,44 @@ export async function fetchHttpWithCurlFallback(url: string, cfg: FetchConfig, u
       markProxySucceeded(proxy)
       // [R9-e-2]: 记录成功样本(传输层通, 延迟为本次尝试墙钟)
       recordProxyOutcome(proxy, true, Date.now() - attemptT0)
+      // [R28-4-E6]: sticky-host 成功反馈(粘滞条目连败清零)
+      proxyStickyNote(url, proxy, true)
       return result
     } catch (e: any) {
       lastErr = e
+      // [R28-4-M3] 源站级拒绝(403/429)立即停止逐代理轮换: IP 轮换对"源站级拒绝"收益趋零
+      // (源站已表达的是拒绝该请求形态而非该出口; 403 惩罚记忆已由 noteHostHttpFailure 记账,
+      // 连败≥5 另有 [R28-4-E1] host 级长静默熔断接管停手)。修前拿到 403/429 仍继续试下一条
+      // 代理, 被全出口封锁的站每章白挨 10 代理+1 直连共 11 次被拒请求(既恶化源站侧 IP 信誉
+      // 画像, 又与 pickProxyFor 单选语义不一致)。取舍声明: break 后仍落函数尾部既有直连兜底
+      // (保留"静默降级不硬断"契约), 单章最坏 1 代理+1 直连=2 次(原 11 次), 残余面由 host 级
+      // 熔断封顶; 代理本身健康(源站响应)故记成功样本并 sticky 反馈 ok
+      if (e?.status === 403 || e?.status === 429) {
+        recordProxyOutcome(proxy, true, Date.now() - attemptT0)
+        proxyStickyNote(url, proxy, true)
+        console.warn(`[fetcher] 代理收到源站级拒绝(HTTP ${e.status}), 停止逐代理轮换(${redactProxy(proxy)}): ${url.slice(0, 200)}`)
+        break
+      }
       // feat-round-8: B3 — 网络层失败(无 HTTP status)标记代理冷却 30s; HTTP 状态错误不冷却
       // R4-3: 冷却改为指数退避(30s→60s→120s→240s→300s 上限)
       if (isProxyNetworkError(e)) {
         markProxyFailed(proxy)
         // [R9-e-2]: 记录失败样本(代理不健康)
         recordProxyOutcome(proxy, false, Date.now() - attemptT0)
+        // [R28-4-E6]: sticky-host 网络层失败反馈(连续 2 次顺移下一条)
+        proxyStickyNote(url, proxy, false)
         console.warn(`[fetcher] 代理网络层失败+指数退避冷却(${redactProxy(proxy)}): ${String(e?.message || e).slice(0, 140)}`)
       } else {
         // [R9-e-2]: 源站 4xx/5xx = 传输层通(代理健康, 与"不冷却"同口径)记成功样本
         recordProxyOutcome(proxy, true, Date.now() - attemptT0)
+        // [R28-4-E6]: 代理本身健康(源站响应), sticky 连败清零
+        proxyStickyNote(url, proxy, true)
         console.warn(`[fetcher] 代理请求失败(源站响应, 不冷却)(${redactProxy(proxy)}): ${String(e?.message || e).slice(0, 140)}`)
       }
     }
   }
-  console.warn(`[fetcher] 全部 ${order.length} 条代理失败(末次: ${String(lastErr?.message || lastErr).slice(0, 120)}), 降级直连重试: ${url.slice(0, 200)}`)
+  // [R28-4-M3]: 计数如实(403/429 break 时不再宣称"全部失败")
+  console.warn(`[fetcher] ${triedProxies}/${order.length} 条代理失败(末次: ${String(lastErr?.message || lastErr).slice(0, 120)}), 降级直连重试: ${url.slice(0, 200)}`)
   return fetchHttpWithCurlSingle(url, cfg, ua, '')
 }
 
@@ -3975,6 +4150,8 @@ async function fetchPageOnce(url: string, cfg: FetchConfig): Promise<FetchResult
   const baseAttempts = (cfg.retries ?? 0) + 1
   const MAX_COOKIE_RETRIES = 2
   let cookieRetries = 0
+  // [R28-4-E2] 换档重试已用标记(每次抓取至多 1 次, 与 cookieRetries 共用 MAX_COOKIE_RETRIES 预算)
+  let tierRetried = false
   // 2-fetcher Bug 3: 独立 backoff 计数器, 解耦 cookie 重试与 429/5xx 退避额度
   let backoffRetries = 0
   let attempt = 0
@@ -4066,6 +4243,27 @@ async function fetchPageOnce(url: string, cfg: FetchConfig): Promise<FetchResult
         const solved = await trySolveTokenChallenge(reqUrl, bodyHtml, effCfg, ua)
         if (solved) return { html: solved, engine: 'http', blocked: false }
       }
+      // [R28-4-E2] impersonate 档位自动轮换: 403/429 且本次已用档位(规则/env 钉扎)时按预置序
+      // 换档重试一次(TLS 档位被站点针对性封禁时的自动逃生)。与既有 cookieRetries 共用
+      // MAX_COOKIE_RETRIES 预算防双倍请求放大; 排在 fallbackStatus 分支前 —— 命中即 continue,
+      // 不再走"清罐/Cookie 重试"(换档与换 Cookie 互斥, 预算同池)。档位注入经 effCfg 传输态字段
+      // impersonateTierOverride → fetchViaCurl 逐跳 resolveCurlImpersonateTier 第 4 参生效;
+      // curl 链未启用档位(缺省全关)时本分支天然不触发, 零回归
+      if (
+        (lastStatus === 403 || lastStatus === 429) &&
+        !tierRetried &&
+        cookieRetries < MAX_COOKIE_RETRIES
+      ) {
+        const currentTier = resolveCurlImpersonateTier(hostOf(reqUrl), cfg, curlProfileOf(hostOf(reqUrl)))
+        const nextTier = currentTier ? nextImpersonateTier(currentTier) : ''
+        if (nextTier) {
+          tierRetried = true
+          cookieRetries++
+          effCfg = { ...effCfg, impersonateTierOverride: nextTier } as FetchCfgOpt
+          console.warn(`[fetcher] impersonate 换档重试: ${currentTier} → ${nextTier} (HTTP ${lastStatus}): ${reqUrl.slice(0, 120)}`)
+          continue
+        }
+      }
       // [R11-b-EN-2]: CF 挑战指纹的错误形态(403/503 盾壳)跳过下方 Cookie 重试直接升级
       const cfChallengeErr = CHALLENGE_ESCALATE_ENABLED && isCfChallengeShell(bodyHtml)
       if (fallbackStatus.includes(lastStatus)) {
@@ -4106,7 +4304,12 @@ async function fetchPageOnce(url: string, cfg: FetchConfig): Promise<FetchResult
         break
       }
       // [R19-b-2] 其余错误重试等待同款 ±15% 抖动(原固定 400ms×attempt 整数倍, 同上共振面)
-      await new Promise((r) => setTimeout(r, jitter15(400 * attempt)))
+      // [R28-4-L2] 终败不再白睡: 循环已无下一轮(attempt 耗尽)时跳过退避 sleep 直接抛错 ——
+      // 修前末次失败仍白睡 0.4~1.2s 才退出, 终败章节平均多此一延(continue 路径在上方,
+      // 此处 cookieRetries 已定型, 该判定与 while 循环条件完全一致)
+      if (attempt < baseAttempts + cookieRetries) {
+        await new Promise((r) => setTimeout(r, jitter15(400 * attempt)))
+      }
     }
   }
 

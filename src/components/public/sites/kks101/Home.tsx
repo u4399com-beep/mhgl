@@ -1,291 +1,330 @@
 // ============================================================
-// [R26-3-1] kks101(101看書) 首页克隆 —— 按 https://101kks.com/ 首页真站快照逐节还原
-// (/tmp/r26/probe-101kks.com.html + kks101-style.css 实测, 2025 抓取)
+// [R28-2f] kks101(101看書 101kks.com) 克隆首页 —— 复刻真站 https://101kks.com/
+//   快照: /tmp/r28-2b/kks101/home.html(971 行) + style.css + block_booklist.css 全量。
 //
-// 真站 DOM(.main > .container > ul.row > li.col-xinindex > .mybox):
-//   ├ .xinlogo                 站标(style.css: max-width 300px/35px/font-weight 550/margin 40px auto, 实站为图片 logo → 文字站名)
-//   ├ .error-text.searchBox    大圆角搜索框(form max-width 600px; .searchinput 高 50px/圆角 25px/边 #eef0f4/
-//   │                          阴影 0 4px 20px rgba(0,25,104,.05)/字 16px #444; 右侧透明按钮 20px 图标 #666)
-//   ├ .indexdaohang            4 枚蓝色快捷入口(li 背景 #1f6cb2/宽 20%(移动 45%)/高 50px/圆角 10px/h3 1rem #f6f6f6 500)
-//   ├ h3.mytitle 熱門書單推薦  .booklist-block > .booklist-grid > .booklist-card×12(block_booklist.css:
-//   │                          白卡 128px 高/10px 圆角/阴影 0 2px 10px rgba(0,0,0,.08); 封面区渐变
-//   │                          linear-gradient(135deg,#667eea 0%,#764ba2 100%) + 白卡扇形堆叠 + "+" 角标;
-//   │                          信息区标题 2 行 + 3 meta(icon-chart 收藏数/icon-library 本数/icon-shoujihao 用户) + 简介 2 行)
-//   └ .tag > h3.mytitle(空标题, 仅一条分隔线) + ul > a×~80
-//                              标签(style.css .tag ul a: .8rem/line-height 1.8rem/padding 0 .725rem/
-//                              边 1px #56a6c3/圆角 10px/margin .5rem/底 rgb(232,244,255)/字 #1f6cb2)
-// 注: ①公告条(.headerad #fff2df 高 40px/16px 居中)与蓝导航已由 SiteHeader KksAnnounce/KksNav 承担, 不重复渲染
-//    ②真站首页书单卡为"书单(收藏夹)"卡, 本模板无书单实体 → 以热门书(字数榜基因)喂同款卡形, 卡 meta 顺延为
-//      排名/分类/作者, 简介钳 2 行(同真站 ellipsis 2 行)
-//    ③"最新小說"行式板块取自同站 style.css .booklist li 家族样式(48×64 封面+14px 700 标题+#757575 文本行,
-//      hover #f9f9f9 + 封面 scale 1.1), 用于消化 48 本 props 余量
-// 色板出处(kks101-style.css): body #f2f3f4/#333/14px yahei · a #666 hover #06c · 主蓝 #1f6cb2 · 标签 #56a6c3
+//   真站结构(类名注释对应真站 DOM; 版心 .container max-width:1112px style.css L59-65):
+//     ① .adbanner > .headerad 域名提示条(#fff2df 40px 16px 居中, style.css L3127-3133)
+//     ② ul.row > li.col-xinindex > .mybox:
+//        .xinlogo 站名大字(35px/weight550/居中, style.css L3304-3311)
+//        .error-text.searchBox 大搜索框(输入 50px 圆角 25 + 右侧透明搜索钮, L3178-3209)
+//        .indexdaohang 四枚主蓝导航砖(#1f6cb2 20% 50px radius10, L3313-3333):
+//          我的書架/閱讀記錄/排行榜/完本小說
+//        h3.mytitle「熱門書單推薦」 + .booklist-block > .booklist-grid 8 张書單卡
+//          (block_booklist.css: 卡 128px 高/封面区 #667eea→#764ba2 渐变/L7-64)
+//        .tag 热门标签胶囊墙(border #56a6c3 radius10 浅蓝底主蓝字, style.css L3289-3300)
+//     ③ .foot — 公共壳 SiteFooter 已统一渲染 → 模板不重复
+//   真站首頁主體為「書單+標籤」落地頁, 无书籍列表板块。
+//
+//   降级/推断说明:
+//   ① .headerad 文案按快照原文照录(「請技術我們的域名：101kks.com」, 原站即如此);
+//      广告实质 → 仅保留提示条形态
+//   ②「熱門書單推薦」書單聚合数据(書單名/收錄数/創建者/三封面疊加/.cover-count)
+//      契约无数据源 → 以最新书籍单封面卡近似復刻書單卡形態, meta 三项换真实数据
+//      (字數/分類/作者), 封面叠加与「+N」角标不渲染
+//   ③ .indexdaohang「我的書架」为会员功能(bookcase.php)无公共视图 → 按钮保留真站文案
+//      置 disabled;「閱讀記錄」→ 内置 history 视图
+//   ④ 真站首頁無书籍列表 → 契约 48 本最新书以真站 /last 页「最近更新」
+//      (.recentupdate2 行式: 书名 40% / 最新章 60% / 日期 #999 右对齐, style.css L1625-1641)
+//      板块承载, 板块名沿用真站「最近更新」(推断级)
+//   ⑤ 标签墙真站为运营固定词表(/newtag/ 链接 90 个) → 以 fetchSuggestTags 词池替代,
+//      点击走站内 keyword 视图(近似)
+//   ⑥ 繁简切换 .lang(zh_tran) 与左侧滑出菜单(会员登录)契约无对应 → 由公共壳统一头部承担,
+//      模板内不复刻(降级)
 // ============================================================
 'use client'
 
 import { useEffect, useState } from 'react'
-import { BarChart3, Library, Search, Smartphone } from 'lucide-react'
 import type { SiteHomeProps } from '../shared'
 import { usePublic } from '../../ctx'
-import { fetchBooks, fetchSuggestTags } from '../../data'
-import type { BookItem } from '../../types'
+import { fetchSuggestTags } from '../../data'
 import { BookCover } from '../../BookCover'
-import { Sk, bookNavProps } from '../../bits'
+import { Sk } from '../../bits'
+import { fmtDate } from '../../seo'
+import type { BookItem } from '../../types'
+import { K, KContainer, cardStyle, MyTitle } from './parts'
 
-/** [R26-3-1] 真站实测色值(kks101-style.css 频次统计+逐条规则) */
-const BLUE = '#1f6cb2' // 主蓝(×32): 导航/按钮/标签字/快捷入口
-const BLUE_HOVER = '#17508a' // 深蓝(hover, kks 渐变尾)
-const TEXT_MAIN = '#333' // body 文字
-const TEXT_MUTED = '#757575' // booklist .text 行
-const CARD_LINE = '#eaeaea' // .booklist li 边线
-const COVER_STACK_GRADIENT = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' // 真站书单卡封面区渐变
+type Nav = ReturnType<typeof usePublic>['navigate']
 
-/** [R26-3-1] 热门书单卡(真站 .booklist-card: 封面堆叠区 + 信息区, 桌面 128px 高) */
-function BooklistCard({ book, rank }: { book: BookItem; rank: number }) {
-  const { navigate } = usePublic()
+/** [R28-2f-12] 域名提示条(真站 .headerad, style.css L3127-3133) */
+function HeaderAd() {
   return (
-    <article
-      {...bookNavProps(navigate, book.id)}
-      aria-label={`查看《${book.name}》详情`}
-      className="group flex h-[104px] cursor-pointer overflow-hidden rounded-[10px] border border-black/5 bg-white shadow-[0_2px_10px_rgba(0,0,0,0.08)] transition-all duration-300 hover:-translate-y-0.5 hover:border-black/10 hover:shadow-[0_6px_20px_rgba(0,0,0,0.12)] sm:h-[110px] md:h-[128px]"
-    >
-      {/* 封面堆叠区(.booklist-cover-section + .booklist-cover-stack) */}
-      <div className="relative flex w-[86px] shrink-0 items-center justify-center sm:w-[100px] md:w-[120px]" style={{ background: COVER_STACK_GRADIENT }}>
-        <div className="relative flex h-[90px] w-[70px] items-center justify-center sm:h-[100px] sm:w-[80px] md:h-[110px] md:w-[90px]">
-          <span aria-hidden className="absolute left-[70%] top-[10px] z-[1] h-[40px] w-[30px] rotate-[5deg] rounded-[2px] bg-white/50 sm:h-[45px] sm:w-[34px] md:left-[75%] md:top-[14px] md:h-[52px] md:w-[38px]" />
-          <span aria-hidden className="absolute left-[40%] top-[6px] z-[2] h-[46px] w-[34px] -rotate-3 rounded-[2px] bg-white/70 sm:left-[45%] sm:top-[7px] sm:h-[52px] sm:w-[39px] md:left-1/2 md:top-2 md:h-[58px] md:w-[44px]" />
-          <span className="relative z-[3] block h-[55px] w-[40px] overflow-hidden rounded-[3px] shadow-[0_2px_8px_rgba(0,0,0,0.15)] sm:h-[65px] sm:w-[45px] md:h-[70px] md:w-[50px]">
-            <BookCover name={book.name} cover={book.cover} showAuthor={book.author} style={{ borderRadius: 3 }} />
-          </span>
-          {/* .cover-count "+" 角标 */}
-          <span className="absolute bottom-[6px] right-[6px] z-[4] rounded-[10px] bg-black/70 px-1.5 py-[2px] text-[10px] font-bold text-white backdrop-blur-[4px] md:bottom-2 md:right-2">+</span>
-        </div>
-      </div>
-      {/* 信息区(.booklist-info-section): 标题 2 行/3 meta/简介 2 行 */}
-      <div className="flex min-w-0 flex-1 flex-col justify-between px-2.5 py-1.5 sm:px-3.5 sm:py-2.5 md:px-4 md:py-3">
-        <h3 className="mb-1 line-clamp-2 text-[12px] font-semibold leading-[1.3] text-[#2c3e50] sm:text-[13px] md:mb-2 md:text-sm">{book.name}</h3>
-        <div className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[9px] text-[#7f8c8d] sm:gap-x-2.5 sm:text-[11px] md:mb-2 md:gap-x-3 md:text-xs">
-          <span className="flex items-center gap-0.5" aria-label="热度排名">
-            <BarChart3 className="h-3 w-3 opacity-70" aria-hidden />
-            <span>{rank + 1}</span>
-          </span>
-          <span className="flex items-center gap-0.5" aria-label="分类">
-            <Library className="h-3 w-3 opacity-70" aria-hidden />
-            <span className="max-w-[72px] truncate">{book.category || '小說'}</span>
-          </span>
-          <span className="flex items-center gap-0.5" aria-label="作者">
-            <Smartphone className="h-3 w-3 opacity-70" aria-hidden />
-            <span className="max-w-[80px] truncate">{book.author}</span>
-          </span>
-        </div>
-        <p className="line-clamp-2 flex-1 text-[10px] leading-[1.4] text-[#7f8c8d] md:text-[11px]">{book.intro || `${book.category} · ${book.author} · 連載中人氣作品`}</p>
-      </div>
-    </article>
+    <div className="kkx-headerad" style={{ textAlign: 'center', height: 40, lineHeight: '40px', fontSize: 16, background: K.adStrip, color: K.ink }}>
+      請技術我們的域名：101kks.com
+    </div>
   )
 }
 
-/** [R26-3-1] 书单卡骨架 */
-function BooklistSkeleton() {
+/** [R28-2f-13] 首页大搜索框(真站 .error-text.searchBox, style.css L3178-3209; home.html L100-111) */
+function HomeSearch({ navigate }: { navigate: Nav }) {
+  const [q, setQ] = useState('')
+  const submit = () => {
+    const t = q.trim()
+    if (t) navigate({ view: 'search', q: t })
+  }
   return (
-    <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 sm:gap-3 lg:grid-cols-3" role="status" aria-label="书单加载中">
-      {Array.from({ length: 6 }).map((_, i) => (
-        <div key={i} className="flex h-[104px] overflow-hidden rounded-[10px] sm:h-[110px] md:h-[128px]">
-          <Sk className="h-full w-[86px] shrink-0 rounded-none sm:w-[100px] md:w-[120px]" />
-          <div className="flex-1 space-y-2 px-3 py-2.5">
-            <Sk className="h-3.5 w-4/5" />
-            <Sk className="h-2.5 w-3/5" />
-            <Sk className="h-2.5 w-full" />
-          </div>
-        </div>
-      ))}
-      <span className="sr-only">加载中…</span>
+    <form
+      className="kkx-searchbox"
+      style={{ position: 'relative', maxWidth: 600, margin: '5% auto 10px' }}
+      onSubmit={(e) => {
+        e.preventDefault()
+        submit()
+      }}
+    >
+      <input
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        aria-label="搜索小說"
+        placeholder="請輸入搜索內容！"
+        className="kkx-searchinput"
+        style={{
+          border: '1px solid #eef0f4',
+          color: '#444444',
+          padding: '0 48px 0 17px',
+          height: 50,
+          lineHeight: '50px',
+          width: '100%',
+          borderRadius: 25,
+          outline: 'none',
+          marginBottom: 30,
+          fontSize: 16,
+          background: '#ffffff',
+          boxShadow: '0 4px 20px rgba(0,25,104,.05)',
+        }}
+      />
+      <button
+        type="submit"
+        aria-label="搜索"
+        className="kkx-searchbtn"
+        style={{
+          background: 'transparent',
+          border: 'none',
+          color: '#666666',
+          padding: 0,
+          width: 48,
+          height: 48,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          position: 'absolute',
+          right: 0,
+          top: 1,
+          zIndex: 10,
+          cursor: 'pointer',
+          borderTopRightRadius: 25,
+          borderBottomRightRadius: 25,
+        }}
+      >
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden>
+          <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="2" />
+          <path d="M16.5 16.5 21 21" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        </svg>
+      </button>
+    </form>
+  )
+}
+
+/**
+ * [R28-2f-14] 書單卡(真站 .booklist-card: 左渐变封面区 120px + 右信息区,
+ * block_booklist.css L29-64/L165-215; 降级为单封面书籍卡, 见文件头说明②)
+ */
+function BooklistCard({ book, navigate }: { book: BookItem; navigate: Nav }) {
+  return (
+    <div className="kkx-blcard" style={{ background: '#fff', borderRadius: 10, boxShadow: '0 2px 10px rgba(0,0,0,0.08)', border: '1px solid rgba(0,0,0,0.06)', height: 128, overflow: 'hidden' }}>
+      <button
+        type="button"
+        onClick={() => navigate({ view: 'book', bookId: book.id })}
+        aria-label={`查看 ${book.name}`}
+        className="kkx-blcard-link"
+        style={{ display: 'flex', width: '100%', height: '100%', background: 'none', border: 0, padding: 0, cursor: 'pointer', textAlign: 'left' }}
+      >
+        <span className="kkx-blcover" style={{ flex: '0 0 120px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}>
+          <span className="kkx-blcovermain" style={{ width: 50, height: 70, background: 'rgba(255,255,255,0.9)', borderRadius: 3, display: 'flex', overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.15)' }}>
+            <BookCover name={book.name} cover={book.cover} style={{ width: '100%', height: '100%', borderRadius: 0 }} />
+          </span>
+        </span>
+        <span style={{ flex: 1, minWidth: 0, padding: '12px 16px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+          <span className="kkx-bltitle" style={{ fontSize: 14, fontWeight: 600, color: '#2c3e50', lineHeight: 1.3, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+            {book.name}
+          </span>
+          <span className="kkx-blmeta" style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '8px 0', fontSize: 12, color: '#7f8c8d', flexWrap: 'wrap' }}>
+            <span className="kkx-blmeta-item" style={{ display: 'flex', alignItems: 'center', gap: 3 }}>{fmtWords(book.wordCount)}</span>
+            <span className="kkx-blmeta-item" style={{ display: 'flex', alignItems: 'center', gap: 3 }}>{book.category}</span>
+            <span className="kkx-blmeta-item" style={{ display: 'flex', alignItems: 'center', gap: 3 }}>{book.author}</span>
+          </span>
+          <span className="kkx-bldesc" style={{ fontSize: 11, color: '#7f8c8d', lineHeight: 1.4, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+            {book.intro || '這個書單還沒有簡介...'}
+          </span>
+        </span>
+      </button>
     </div>
+  )
+}
+
+/** [R28-2f-15] 字数缩写(真站書單 meta 数字形态近似; 复用 formatWords 万位缩写) */
+function fmtWords(n?: number | null): string {
+  if (!n || n <= 0) return '0字'
+  if (n >= 10000) {
+    const w = n / 10000
+    return `${w >= 100 ? Math.round(w) : Number(w.toFixed(1))}萬`
+  }
+  return `${n}字`
+}
+
+/** [R28-2f-16] 导航砖(真站 .indexdaohang li: #1f6cb2 50px 圆角10, style.css L3313-3333) */
+function DaoTile({ label, onClick, disabled }: { label: string; onClick?: () => void; disabled?: boolean }) {
+  return (
+    <li style={{ background: K.primary, width: '20%', minWidth: 150, height: 50, display: 'inline-block', borderRadius: 10, lineHeight: '50px', margin: '0.5rem' }}>
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={disabled}
+        title={disabled ? '會員功能(書架)暫不開放' : undefined}
+        style={{ display: 'block', width: '100%', height: '100%', background: 'none', border: 0, cursor: disabled ? 'default' : 'pointer', padding: 0 }}
+      >
+        <span style={{ fontSize: 16, color: disabled ? 'rgba(246,246,246,.6)' : '#f6f6f6', fontWeight: 500 }}>{label}</span>
+      </button>
+    </li>
+  )
+}
+
+/** [R28-2f-17] 最近更新行(真站 /last .recentupdate2 li, style.css L1625-1641; last.html L98-102) */
+function LastRow({ book, navigate }: { book: BookItem; navigate: Nav }) {
+  return (
+    <li style={{ display: 'flex', borderBottom: `1px solid ${K.line}`, padding: '15px 0', flexWrap: 'wrap', fontSize: 15, alignItems: 'baseline', gap: 8 }}>
+      <button
+        type="button"
+        onClick={() => navigate({ view: 'book', bookId: book.id })}
+        className="kkx-ru-name"
+        style={{ width: 'calc(40% - 50px)', paddingRight: 10, background: 'none', border: 0, padding: 0, cursor: 'pointer', fontSize: 15, color: K.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'left' }}
+      >
+        {book.name}
+      </button>
+      <button
+        type="button"
+        onClick={() => navigate({ view: 'toc', bookId: book.id })}
+        className="kkx-ru-chap"
+        style={{ width: 'calc(60% - 100px)', paddingRight: 10, background: 'none', border: 0, padding: 0, cursor: 'pointer', fontSize: 15, color: K.link, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'left' }}
+      >
+        {book.latestChapter || '暫無章節'}
+      </button>
+      <span style={{ width: 100, color: K.dim, textAlign: 'right', flexShrink: 0 }}>{fmtDate(book.updatedAt) || '--'}</span>
+    </li>
   )
 }
 
 export function Kks101Home({ books, loading }: SiteHomeProps) {
   const { site, navigate } = usePublic()
+  const [tags, setTags] = useState<string[]>([])
 
-  // [R26-3-1] 维度一: 字数最多(真站点击榜基因)喂書單卡; 维度二: 下拉热词池喂标签云(对应真站 /newtag 标签墙)
-  const [hot, setHot] = useState<BookItem[] | null>(null)
-  const [tags, setTags] = useState<string[] | null>(null)
+  // [R28-2f-18] 热门标签墙数据(真站为固定运营词表, 以词池近似, 见降级说明⑤)
   useEffect(() => {
     let alive = true
-    fetchBooks({ site: site.id, sort: 'words', page: 1, size: 18 })
-      .then((d) => {
-        if (alive) setHot(d.books || [])
-      })
-      .catch(() => {
-        if (alive) setHot([]) // 失败静默: 回退 props.books
-      })
     fetchSuggestTags()
-      .then((d) => {
-        if (alive) setTags(d && d.tags.length ? d.tags.slice(0, 48) : [])
+      .then((e) => {
+        if (alive) setTags(e?.tags?.slice(0, 60) || [])
       })
       .catch(() => {
-        if (alive) setTags([])
+        /* 词池失败静默(辅助板块) */
       })
     return () => {
       alive = false
     }
-  }, [site.id])
+  }, [])
 
-  // [R26-3-1] 48 本 props 切板块: 前 12 优先书单卡(热榜兜底), 其余进 .booklist 行式"最新小說"
-  const hotList: BookItem[] = (hot && hot.length ? hot : books).slice(0, 12)
-  const hotIds = new Set(hotList.map((b) => b.id))
-  const latest = books.filter((b) => !hotIds.has(b.id)).slice(0, 36)
-
-  // [R26-3-1] 真站 .error-text.searchBox 搜索(繁体占位对齐真站文案)
-  const [kw, setKw] = useState('')
-  const submitSearch = (e: React.FormEvent) => {
-    e.preventDefault()
-    const t = kw.trim()
-    if (!t) return
-    navigate({ view: 'search', q: t })
-  }
-
-  // 真站 .indexdaohang 四入口: 我的書架/閱讀記錄→history, 排行榜/完本小說→全部分類(真站为 /novels/hot|full 列表页)
-  const quickLinks: { label: string; go: () => void }[] = [
-    { label: '我的書架', go: () => navigate({ view: 'history' }) },
-    { label: '閱讀記錄', go: () => navigate({ view: 'history' }) },
-    { label: '排行榜', go: () => navigate({ view: 'category', page: 1 }) },
-    { label: '完本小說', go: () => navigate({ view: 'category', page: 1 }) },
-  ]
+  const recommend = books.slice(0, 8)
+  const latest = books.slice(8, 40)
 
   return (
-    <div className="w-full pb-10" style={{ color: TEXT_MAIN }}>
-      {/* ============ .xinlogo 大字站标(真站 35px/550/居中/margin 40px auto) ============ */}
-      <h1 className="mx-auto mt-8 max-w-[300px] text-center text-[28px] leading-tight tracking-wide sm:mt-10 sm:text-[35px]" style={{ color: BLUE, fontWeight: 550 }} aria-label={site.name}>
-        {site.name}
-      </h1>
-
-      {/* ============ .error-text.searchBox 大圆角搜索框(600px/50px 高/25px 圆角) ============ */}
-      <form onSubmit={submitSearch} role="search" className="relative mx-auto mt-4 w-full max-w-[600px] px-4">
-        <input
-          value={kw}
-          onChange={(e) => setKw(e.target.value)}
-          type="text"
-          placeholder="請輸入搜索內容！"
-          aria-label="站内搜索"
-          className="h-[50px] w-full rounded-[25px] border bg-white px-[17px] text-base outline-none placeholder:text-[#ababab]"
-          style={{ borderColor: '#eef0f4', boxShadow: '0 4px 20px rgba(0,25,104,0.05)', color: '#444444', marginBottom: 30 }}
-        />
-        <button type="submit" aria-label="搜索" className="absolute right-4 top-[1px] flex h-12 w-14 items-center justify-center text-[#666666] transition-colors hover:text-[#1f6cb2]">
-          <Search className="h-5 w-5" aria-hidden />
-        </button>
-      </form>
-
-      {/* ============ .indexdaohang 四蓝色快捷入口(#1f6cb2/50px 高/10px 圆角) ============ */}
-      <nav aria-label="快捷入口" className="mb-4 mt-2 flex flex-wrap justify-center px-4">
-        {quickLinks.map((q) => (
-          <button
-            key={q.label}
-            type="button"
-            onClick={q.go}
-            className="m-2 h-[50px] w-[45%] rounded-[10px] text-base font-medium transition-colors sm:w-[20%] sm:max-w-[220px]"
-            style={{ background: BLUE, color: '#f6f6f6', fontWeight: 500 }}
-            onMouseEnter={(e) => (e.currentTarget.style.background = BLUE_HOVER)}
-            onMouseLeave={(e) => (e.currentTarget.style.background = BLUE)}
-            aria-label={q.label}
-          >
-            {q.label}
-          </button>
-        ))}
-      </nav>
-
-      <div className="mx-auto w-full max-w-[1112px] px-4 sm:px-6">
-        {/* ============ 熱門書單推薦(真站 h3.mytitle + .booklist-block/.booklist-grid) ============ */}
-        <section>
-          <h2 className="kks-mytitle">熱門書單推薦</h2>
-          {loading && hot === null ? (
-            <BooklistSkeleton />
-          ) : hotList.length ? (
-            <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 sm:gap-3 lg:grid-cols-3">
-              {hotList.map((b, i) => (
-                <BooklistCard key={b.id} book={b} rank={i} />
+    <KContainer>
+      {/* ① .adbanner > .headerad */}
+      <HeaderAd />
+      {/* ② li.col-xinindex > .mybox */}
+      <div className="kkx-mybox" style={cardStyle}>
+        {/* .xinlogo */}
+        <div className="kkx-xinlogo" style={{ maxWidth: 300, fontSize: 35, margin: '40px auto', fontWeight: 550, textAlign: 'center', color: K.ink }}>
+          {site.name || '101看書'}
+        </div>
+        {/* .error-text.searchBox */}
+        <HomeSearch navigate={navigate} />
+        {/* .indexdaohang */}
+        <ul className="kkx-daohang" style={{ textAlign: 'center', marginBottom: 20, listStyle: 'none', margin: '0 0 20px', padding: 0 }}>
+          <DaoTile label="我的書架" disabled />
+          <DaoTile label="閱讀記錄" onClick={() => navigate({ view: 'history' })} />
+          <DaoTile label="排行榜" onClick={() => navigate({ view: 'ranking' })} />
+          <DaoTile label="完本小說" onClick={() => navigate({ view: 'fulltext' })} />
+        </ul>
+        {/* h3.mytitle「熱門書單推薦」 + .booklist-block */}
+        <MyTitle>熱門書單推薦</MyTitle>
+        {loading ? (
+          <div role="status" aria-label="熱門書單加載中">
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
+              {Array.from({ length: 6 }).map((_, i) => (
+                <Sk key={i} className="h-32 w-full" style={{ borderRadius: 10 }} />
               ))}
             </div>
-          ) : (
-            <p className="py-6 text-center text-sm text-[#999]">暫無熱門書籍</p>
-          )}
-        </section>
-
-        {/* ============ 最新小說(.booklist li 行式: 48×64 封面 + 700 标题 + #757575 信息行) ============ */}
-        <section>
-          <h2 className="kks-mytitle mt-8">最新小說</h2>
-          {loading && !books.length ? (
-            <ul className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 sm:gap-x-5" aria-hidden>
-              {Array.from({ length: 12 }).map((_, i) => (
-                <li key={i} className="flex rounded-[3px] border p-2.5" style={{ borderColor: CARD_LINE }}>
-                  <Sk className="h-16 w-12 shrink-0 rounded-none" />
-                  <div className="flex-1 space-y-2 pl-2.5 pt-0.5">
-                    <Sk className="h-3.5 w-3/4" />
-                    <Sk className="h-2.5 w-1/2" />
-                  </div>
-                </li>
+          </div>
+        ) : recommend.length === 0 ? (
+          <Sk className="h-32 w-full" style={{ borderRadius: 10 }} />
+        ) : (
+          <div className="kkx-blblock">
+            <div className="kkx-blgrid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12, padding: 0, margin: 0 }}>
+              {recommend.map((b) => (
+                <BooklistCard key={b.id} book={b} navigate={navigate} />
               ))}
-            </ul>
-          ) : latest.length ? (
-            <ul className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 sm:gap-x-5">
-              {latest.map((b) => (
-                <li
-                  key={b.id}
-                  {...bookNavProps(navigate, b.id)}
-                  aria-label={`查看《${b.name}》详情`}
-                  className="kks-bookrow flex cursor-pointer overflow-hidden rounded-[3px] border p-2.5 transition-colors"
-                  style={{ borderColor: CARD_LINE, boxShadow: '0 0 8px 0 rgb(0 0 0 / 10%)' }}
+            </div>
+          </div>
+        )}
+        {/* .tag 标签墙(真站 mytitle 为空 h3 + 胶囊 ul, home.html L669-897) */}
+        <div className="kkx-tagwrap">
+          <h3 className="kkx-mytitle" style={{ margin: '10px 0', borderBottom: `1px solid ${K.cardLine}`, paddingBottom: 5, fontSize: 16 }} aria-hidden />
+          <ul className="kkx-tagul" style={{ listStyle: 'none', margin: 0, padding: 0, textAlign: 'justify' }}>
+            {tags.map((t) => (
+              <li key={t} style={{ display: 'inline-block', listStyle: 'none' }}>
+                <button
+                  type="button"
+                  onClick={() => navigate({ view: 'keyword', tag: t })}
+                  className="kkx-taga"
+                  style={{
+                    fontSize: '0.8rem',
+                    lineHeight: '1.8rem',
+                    display: 'inline-block',
+                    padding: '0 0.725rem',
+                    textAlign: 'center',
+                    border: `1px solid ${K.chipLine}`,
+                    borderRadius: 10,
+                    margin: '0.5rem',
+                    background: K.chipBg,
+                    color: K.chipText,
+                    cursor: 'pointer',
+                  }}
                 >
-                  <span className="block h-16 w-12 shrink-0 overflow-hidden" style={{ marginRight: 10 }}>
-                    <BookCover name={b.name} cover={b.cover} className="h-full w-full" style={{ borderRadius: 0 }} />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="kks-row-title block truncate text-[14px] font-bold leading-snug" style={{ color: TEXT_MAIN }}>
-                      {b.name}
-                    </span>
-                    <span className="block pt-[5px] text-[13px]" style={{ color: TEXT_MUTED }}>
-                      {b.category || '小說'} · {b.author}
-                    </span>
-                    <span className="block truncate pt-1 text-[13px]" style={{ color: TEXT_MUTED }}>
-                      {b.latestChapter ? `最新：${b.latestChapter}` : b.intro}
-                    </span>
-                  </span>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="py-6 text-center text-sm text-[#999]">暫無書籍</p>
-          )}
-        </section>
-
-        {/* ============ .tag 标签云(空 mytitle 分隔线 + .8rem 胶囊 #56a6c3 边 #e8f4ff 底) ============ */}
-        <section className="mt-8">
-          <h2 className="kks-mytitle" aria-hidden>
-            {' '}
-          </h2>
-          {tags === null ? (
-            <div className="flex flex-wrap justify-center" aria-hidden>
-              {Array.from({ length: 14 }).map((_, i) => (
-                <Sk key={i} className="m-1.5 h-7 w-16 rounded-[10px]" />
-              ))}
-            </div>
-          ) : tags.length ? (
-            <ul className="flex flex-wrap justify-center">
-              {tags.map((t) => (
-                <li key={t}>
-                  <button
-                    type="button"
-                    onClick={() => navigate({ view: 'keyword', tag: t })}
-                    aria-label={`浏览 ${t} 关键词书库`}
-                    className="kks-tagbtn m-2 inline-block"
-                  >
-                    {t}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          ) : null}
-        </section>
+                  {t}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
       </div>
-    </div>
+      {/* ④「最近更新」(真站 /last 板块复用, 推断级见说明④) */}
+      <div className="kkx-mybox" style={{ ...cardStyle, margin: '0 0 24px' }}>
+        <MyTitle>最近更新</MyTitle>
+        {loading ? (
+          <div role="status" aria-label="最近更新加載中">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <Sk key={i} className="h-10 w-full" style={{ borderRadius: 3, marginBottom: 8 }} />
+            ))}
+          </div>
+        ) : latest.length === 0 ? (
+          <Sk className="h-10 w-full" style={{ borderRadius: 3 }} />
+        ) : (
+          <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+            {latest.map((b) => (
+              <LastRow key={b.id} book={b} navigate={navigate} />
+            ))}
+          </ul>
+        )}
+      </div>
+    </KContainer>
   )
 }
+

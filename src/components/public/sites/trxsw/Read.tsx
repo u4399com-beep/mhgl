@@ -1,9 +1,11 @@
 // ============================================================
-// [R27-6b-17] trxsw(同人小说网) 章节阅读页克隆 —— 杰奇 CMS 默认模板家族标准还原(降级声明)
+// [R28-2g-2] trxsw(同人小说网) 章节阅读页克隆 —— 杰奇 CMS 默认模板家族标准还原(降级声明)
 // 素材等级: 家族标准 —— 真站章节页 /book/{id}/{cid}.html(2019 快照章节实链形态实证, 页本体
-// 无存档) → 按杰奇家族章节页结构补全: h1 章节名 + #content 正文(14px 宋体系) + 上一页/目录/
-// 下一页 + 键盘 ←/→/Enter。色值家族标准(b.css 无存档, R25 实证: #C00 红/#333/#666/#ccc 点线);
-// 阅读位置记忆走 template-kit。
+// 无存档) → 按杰奇家族章节页结构补全: h1 章节名 + #content 正文(14px 宋体系/行高 200%) +
+// 上一章/目录/下一章 三钮 + 键盘 ←/→(Enter 回目录)。色值家族标准(b.css 无存档, R25 实证:
+// #C00 红/#333/#666/#ccc 点线); 阅读位置记忆/字号调节走 template-kit。
+// 降级声明: ①A+/A- 字号钮为克隆侧增强(杰奇原版无此工具, useReaderFont 14~24 与全站阅读器
+// 偏好互通) ②「相关推荐」= 字数热榜 10 本替代(ChapterData 无分类字段, 家族惯例书链声明)
 // ============================================================
 'use client'
 
@@ -12,7 +14,7 @@ import type { SiteReadProps } from '../shared'
 import { usePublic } from '../../ctx'
 import { fetchBooks } from '../../data'
 import type { BookItem } from '../../types'
-import { ChapterContent, useRecordReading } from '../template-kit'
+import { ChapterContent, useReaderFont, useRecordReading } from '../template-kit'
 import { bookNavProps, ErrorState, Sk } from '../../bits'
 
 /** [R27-6b-17] 杰奇 CMS 家族标准色板(同 Home) */
@@ -27,6 +29,8 @@ const C = {
 
 export function TrxswRead({ data, loading, error }: SiteReadProps) {
   const { navigate } = usePublic()
+  // 字号调节(克隆侧增强, 与通用阅读器偏好互通; 声明①)
+  const { font, inc, dec } = useReaderFont()
   // 相关阅读(家族惯例书链; ChapterData 无分类字段 → 字数热榜 10 本替代, 声明)
   const [rel, setRel] = useState<BookItem[] | null>(null)
 
@@ -53,8 +57,9 @@ export function TrxswRead({ data, loading, error }: SiteReadProps) {
   useEffect(() => {
     if (!data) return
     const onKey = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement | null)?.tagName
-      if (tag === 'INPUT' || tag === 'TEXTAREA') return
+      const el = e.target as HTMLElement | null
+      const tag = el?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el?.isContentEditable) return
       if (e.key === 'ArrowLeft' && data.prev) navigate({ view: 'read', chapterId: data.prev.id })
       else if (e.key === 'ArrowRight' && data.next) navigate({ view: 'read', chapterId: data.next.id })
       else if (e.key === 'Enter') navigate({ view: 'book', bookId: data.book.id })
@@ -117,10 +122,33 @@ export function TrxswRead({ data, loading, error }: SiteReadProps) {
         <h1 className="m-0 pb-1.5 text-center text-[18px] font-bold" style={{ color: C.text }}>
           {chapter.title}
         </h1>
-        <p className="m-0 pb-2 text-center text-[12px]" style={{ color: C.light }}>
-          {chapter.wordCount > 0 ? `${chapter.wordCount} 字` : ''}
+        <p className="m-0 flex items-center justify-center gap-3 pb-2 text-[12px]" style={{ color: C.light }}>
+          <span>{chapter.wordCount > 0 ? `${chapter.wordCount} 字` : ''}</span>
+          <span className="tx-fontctl inline-flex items-center gap-1">
+            <button
+              type="button"
+              onClick={dec}
+              className="tx-fontbtn inline-flex h-[20px] w-[20px] items-center justify-center border text-[12px] leading-none"
+              style={{ borderColor: C.border, color: C.gray }}
+              aria-label="缩小字号"
+            >
+              A-
+            </button>
+            <span aria-hidden>
+              {font}px
+            </span>
+            <button
+              type="button"
+              onClick={inc}
+              className="tx-fontbtn inline-flex h-[20px] w-[20px] items-center justify-center border text-[12px] leading-none"
+              style={{ borderColor: C.border, color: C.gray }}
+              aria-label="放大字号"
+            >
+              A+
+            </button>
+          </span>
         </p>
-        <ChapterContent content={chapter.content} className="tx-content border-t pt-2.5" style={{ fontSize: 14, lineHeight: 2, color: C.text }} />
+        <ChapterContent content={chapter.content} className="tx-content border-t pt-2.5" style={{ fontSize: font, lineHeight: 2, color: C.text }} />
         <div className="pb-1 pt-2 text-right">
           <button type="button" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} className="text-[12px] hover:underline" style={{ color: C.gray }} aria-label="返回顶部">
             返回顶部

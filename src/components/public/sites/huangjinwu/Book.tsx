@@ -1,315 +1,335 @@
 // ============================================================
-// [R27-6-h3] huangjinwu(黄金屋) 书籍详情页克隆 —— 按 https://www.huangjinwu.org/novel/185 真站快照逐节还原
-// (/tmp/r27-f/hjw-book.html + hjw-style.css 实测)
+// [R28-2d-3] huangjinwu(黄金屋) 书页(/novel/{id})克隆 —— 真站直连实测 1:1
+// 素材: /tmp/r28-2d/huangjinwu/hjw-novel_262.html(2026-09-16 实抓)
 //
-// 真站 DOM(.main-content > .container):
-//   ├ nav.breadcrumb           黄金屋 / 分类 / 书名(active)
-//   ├ .detail-header           白卡(10px 圆角/浅影/p 2.4rem; 桌面 flex, 移动纵向居中):
-//   │   ├ .detail-cover        封面 180×250(边 #dbe4f0/10px 圆角/浅影; 移动 140×186.67 居中)
-//   │   └ .detail-info         h1.detail-title(32px/600; 移动 24px 居中)
-//   │   │                      .detail-meta 芯片条(bg 蓝 6% 混白/边 #dbe4f0/15px #64748b/gap 2rem;
-//   │   │                      span 竖线分隔: 作者|分类|状态|字数|人气|推荐|更新时间)
-//   │   │                      a.reading-progress「已读到 0/0」(登录态 → 不渲染, 声明)
-//   │   │                      .detail-actions: btn btn-primary 开始阅读/继续阅读 + btn-secondary 收藏/推荐
-//   │   │                      (btn: 10px 圆角/16px/500/min-width 12.8rem/p 1.2rem 2.4rem; primary 底 #2563eb 白字)
-//   ├ .detail-section 作品简介 .detail-section-title(左 4px 蓝竖条/20px/600) +
-//   │                          .detail-description(15px/1.8; max-height 7.2em 钳制+展开钮 → 本地态展开)
-//   │                          + .book-badges「小说标签：」badge.category chips(book.tags→keywords 兜底)
-//   └ .detail-section 最新章节 ul.chapter-list(auto-fill minmax 250px 网格) li.chapter-item
-//                              (白 chip/边 #dbe4f0/10px 圆角/a 15px p 12px 16px; 真站 :visited 蓝)
-// 契约映射: ①「收藏/推荐」登录态 → TXT 下載 btn-secondary 同形(唯一 <a>)+不渲染推荐 ②「人气/推荐」
-// meta 项无数据契约 → 不渲染 ③「继续阅读」按 currentChapterId 条件渲染 ④真站完整目录为独立链
-// 「完整目录」→ 模板内联「全部章节目录」section(契约 100 章/页分页, 差异声明)
+// 真站 DOM:
+//   nav.breadcrumb > ol.breadcrumb-list(黄金屋 / 分类 / 书名 active)
+//   .detail-header 白卡: .detail-cover-wrapper(img 180×250, onerror nocover) +
+//     .detail-info: h1.detail-title(32px) + .detail-meta(浅蓝底圆角条: 作者/分类/状态/字数/人气/推荐/
+//       更新时间, span 竖线分隔 + :before 8px 蓝点) + .detail-actions(btn-primary 开始阅读 /
+//       btn-secondary 收藏/推荐)
+//   .detail-section 作品简介: .detail-section-title + .detail-description(7.2em 折叠+展开钮)
+//   .detail-section 最新章节: ul.chapter-list(auto-fill 250px 网格卡)
+//   .detail-section 章节目录(共N章): 同款网格 + .pagination
+//   相关小说 section(.section-title + book-grid)
+// 降级: ①真站 detail-meta 的人气/推荐两项无数据契约 → 省略(声明)
+//      ②真站 收藏/推荐按钮为登录态(javascript:;) → 契约内以 TXT 下载(唯一允许 <a>)与
+//        章节目录钮替代
+//      ③真站「相关小说」为站方推荐位 → 同分类小说 fetchBooks 替代(空则不渲染)
 // ============================================================
 'use client'
 
-import { useState } from 'react'
-import { BookMarked, ChevronDown, ChevronUp, FileDown, Play } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
 import type { SiteBookProps } from '../shared'
 import { usePublic } from '../../ctx'
-import { BookCover } from '../../BookCover'
-import { ErrorState, Sk } from '../../bits'
-import { fmtDate, formatWords } from '../../seo'
+import { fetchBooks } from '../../data'
+import { EmptyState, ErrorState, bookNavProps } from '../../bits'
+import { formatWords, statusLabel } from '../../seo'
+import type { BookItem, TocChapter } from '../../types'
 
-/** [R27-6-h3] 真站实测色值(hjw-style.css :root) */
+/** [R28-2d-1] 真站色值(hjw-style.css :root) */
 const SECONDARY = '#2563eb'
 const TEXT = '#1e293b'
 const TEXT_LIGHT = '#64748b'
 const BORDER = '#dbe4f0'
+const META_BG = 'rgba(37,99,235,0.06)' // color-mix(in srgb,--secondary 6%,--card) 实测换算
 const SHADOW = '0 1px 2px rgba(15,23,42,0.04), 0 4px 16px rgba(37,99,235,0.06)'
 
-export function HjwBook({ data, loading, error, tocPage, currentChapterId }: SiteBookProps) {
+/** [R28-2d-3] .chapter-item 网格卡(真站 auto-fill minmax(250px,1fr)) */
+function ChapterItem({ ch, bookId, current }: { ch: TocChapter; bookId: string; current?: boolean }) {
   const { navigate } = usePublic()
-  // 作品简介 钳制/展开(真站 .detail-intro-content max-height 7.2em + introToggleBtn)
-  const [expanded, setExpanded] = useState(false)
+  const go = () => navigate({ view: 'read', bookId, chapterId: ch.id })
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={go}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          go()
+        }
+      }}
+      className={`hjw-chitem cursor-pointer overflow-hidden rounded-[10px] border transition-all duration-300 ${current ? 'hjw-chitem-active' : ''}`}
+      style={{ borderColor: current ? SECONDARY : BORDER, background: current ? '#e8f1ff' : undefined }}
+      aria-current={current}
+    >
+      <div className="block truncate px-4 py-3 text-[15px]" style={{ color: current ? SECONDARY : TEXT }} title={ch.title}>
+        {ch.title}
+      </div>
+    </div>
+  )
+}
+
+export function HjwBook({ data, loading, error, tocPage, currentChapterId }: SiteBookProps) {
+  const { site, navigate } = usePublic()
+  const [related, setRelated] = useState<BookItem[] | null>(null)
+  const [introOpen, setIntroOpen] = useState(false)
+
+  const book = data?.book || null
+  const chapters = useMemo(() => data?.chapters || [], [data])
+
+  // 相关小说: 同分类 6 本(真站站方推荐位 → 同分类替代, 声明)
+  const relCatId = book?.categoryId || undefined
+  const relCat = book?.category
+  const relBookId = book?.id
+  // [R28-fix] 相关书重置改渲染期同步(修 set-state-in-effect): 无分类时直接空数组
+  const relKey = `${relCatId || ''}|${relCat || ''}|${relBookId || ''}`
+  const [prevRelKey, setPrevRelKey] = useState(relKey)
+  if (prevRelKey !== relKey) {
+    setPrevRelKey(relKey)
+    setRelated(relCatId || relCat ? null : [])
+  }
+  useEffect(() => {
+    if (!relCatId && !relCat) return
+    let alive = true
+    fetchBooks({ site: site.id, cat: relCatId, page: 1, size: 6 })
+      .then((d) => {
+        if (alive) setRelated((d.books || []).filter((b) => b.id !== relBookId).slice(0, 6))
+      })
+      .catch(() => {
+        if (alive) setRelated([])
+      })
+    return () => {
+      alive = false
+    }
+  }, [site.id, relCatId, relCat, relBookId])
+
+  // 最新章节: 当前目录页尾部 12 条倒序(真站为站方最新 12 条; 多页书第 1 页≈最早, 声明)
+  const latest = useMemo(() => chapters.slice(-12).reverse(), [chapters])
+
+  // 简介折叠(真站 .detail-intro-content max-height 7.2em + .intro-toggle-btn)
+  const longIntro = (book?.intro || '').length > 120
 
   if (error) {
     return (
-      <div className="mx-auto w-full max-w-[1180px] px-4 py-10 sm:px-6">
-        <ErrorState message="书籍不存在或加载失败" detail={error} />
+      <div className="mx-auto w-full max-w-[1180px] px-4 py-6 sm:px-6">
+        <ErrorState message="书籍详情加载失败" detail={error} />
       </div>
     )
   }
-
-  if (loading || !data) {
+  if (loading || !book) {
     return (
-      <div className="mx-auto w-full max-w-[1180px] px-4 pb-10 sm:px-6" aria-label="书籍详情加载中">
-        <Sk className="mb-4 h-6 w-1/2" />
-        <div className="flex flex-col items-center gap-6 rounded-[10px] bg-white p-6 sm:flex-row sm:items-start" style={{ boxShadow: SHADOW }}>
-          <Sk className="h-[187px] w-[140px] shrink-0 sm:h-[250px] sm:w-[180px]" />
-          <div className="min-w-0 flex-1 space-y-3 sm:pt-2">
-            <Sk className="h-8 w-2/3" />
-            <Sk className="h-12 w-full rounded-[10px]" />
-            <Sk className="h-10 w-2/3" />
+      <div className="mx-auto w-full max-w-[1180px] px-4 py-6 sm:px-6">
+        <div className="hjw-card flex flex-col gap-6 rounded-[10px] border bg-white p-6 sm:flex-row" style={{ borderColor: BORDER, boxShadow: SHADOW }}>
+          <div className="h-[250px] w-[180px] shrink-0 animate-pulse rounded-[10px]" style={{ background: META_BG }} />
+          <div className="flex-1 space-y-4 py-2">
+            <div className="h-8 w-2/3 animate-pulse rounded" style={{ background: META_BG }} />
+            <div className="h-16 w-full animate-pulse rounded-[10px]" style={{ background: META_BG }} />
+            <div className="h-12 w-1/2 animate-pulse rounded" style={{ background: META_BG }} />
           </div>
         </div>
-        <span className="sr-only">加载中…</span>
       </div>
     )
   }
 
-  const { book, chapters, tocTotal, tocTotalPages } = data
-  const firstChapter = chapters[0]
-  // 真站最新章节=站方倒序 10 条; 模板取当前目录页尾部 10 条倒序(声明)
-  const latest10 = [...chapters].slice(-10).reverse()
-  // 标签(book.tags → keywords 兜底)
-  const tagList: string[] = (data.tags && data.tags.length ? data.tags.map((t) => t.tag) : book.keywords.split(/[,，、\s]+/).filter(Boolean)).slice(0, 8)
-  const continueChapter = currentChapterId ? chapters.find((c) => c.id === currentChapterId) : undefined
-
-  const btn = 'inline-flex min-w-[128px] items-center justify-center gap-2 rounded-[10px] px-6 py-3 text-[16px] font-medium transition-all duration-300'
+  const firstChapter = chapters[0]?.id
+  const totalPages = data ? Math.max(1, data.tocTotalPages) : 1
 
   return (
-    <div className="w-full pb-10" style={{ color: TEXT }}>
-      <div className="mx-auto w-full max-w-[1180px] px-4 sm:px-6">
-        {/* ============ nav.breadcrumb ============ */}
-        <nav aria-label="面包屑" className="mb-4 py-3 text-[15px]" style={{ color: TEXT_LIGHT }}>
-          <ol className="flex items-center gap-2 overflow-hidden whitespace-nowrap">
-            <li>
-              <button type="button" onClick={() => navigate({ view: 'home' })} className="transition-colors hover:text-[#2563eb]" style={{ color: SECONDARY }} aria-label="返回黄金屋首页">
-                黄金屋
-              </button>
-            </li>
-            <li aria-hidden>/</li>
-            <li>
-              <button
-                type="button"
-                onClick={() => navigate({ view: 'category', cat: book.categoryId || undefined, page: 1 })}
-                className="max-w-[9em] truncate transition-colors hover:text-[#2563eb]"
-                style={{ color: SECONDARY }}
-                aria-label={`前往 ${book.category} 分类`}
-              >
-                {book.category}
-              </button>
-            </li>
-            <li aria-hidden>/</li>
-            <li className="truncate font-medium" style={{ color: TEXT }}>
-              {book.name}
-            </li>
-          </ol>
-        </nav>
+    <div className="mx-auto w-full max-w-[1180px] px-4 py-6 sm:px-6">
+      {/* 面包屑 — 真站 nav.breadcrumb(黄金屋 / 分类 / 书名) */}
+      <nav className="mb-6 truncate text-[15px]" style={{ color: TEXT_LIGHT }} aria-label="面包屑导航">
+        <button type="button" className="transition-colors hover:text-[#2563eb]" style={{ color: TEXT_LIGHT }} onClick={() => navigate({ view: 'home' })}>
+          黄金屋
+        </button>
+        <span className="mx-2" aria-hidden>
+          /
+        </span>
+        <button type="button" className="transition-colors hover:text-[#2563eb]" style={{ color: TEXT_LIGHT }} onClick={() => navigate({ view: 'category', cat: book.categoryId || undefined })}>
+          {book.category || '小说'}
+        </button>
+        <span className="mx-2" aria-hidden>
+          /
+        </span>
+        <span aria-current="page">{book.name}</span>
+      </nav>
 
-        {/* ============ .detail-header 封面信息白卡 ============ */}
-        <div className="mb-6 flex flex-col items-center gap-6 rounded-[10px] bg-white p-6 sm:flex-row sm:items-start" style={{ boxShadow: SHADOW }}>
-          {/* .detail-cover 180×250(移动 140×187 居中) */}
-          <div className="shrink-0">
-            <span className="block overflow-hidden rounded-[10px] border bg-white sm:h-[250px] sm:w-[180px]" style={{ borderColor: BORDER, boxShadow: SHADOW }}>
-              <span className="block h-[187px] w-[140px] sm:h-[250px] sm:w-[180px]">
-                <BookCover name={book.name} cover={book.cover} className="h-full w-full" style={{ borderRadius: 0 }} />
-              </span>
-            </span>
-          </div>
-          <div className="min-w-0 flex-1 sm:pt-1">
-            <h1 className="mb-5 text-left text-[24px] font-semibold leading-[1.3] sm:text-[32px]" style={{ color: TEXT }}>
-              {book.name}
-            </h1>
-            {/* .detail-meta 芯片条(人气/推荐 无数据契约 → 不渲染, 声明) */}
-            <div className="mb-5 flex flex-wrap gap-x-8 gap-y-2 rounded-[10px] border px-5 py-4 text-[15px]" style={{ borderColor: BORDER, background: 'rgba(37,99,235,0.06)', color: TEXT_LIGHT }}>
-              <span className="flex items-center">
-                作者：
-                <button type="button" onClick={() => navigate({ view: 'search', q: book.author })} className="ml-1 transition-colors hover:text-[#2563eb]" style={{ color: SECONDARY }} aria-label={`搜索 ${book.author} 作品`}>
-                  {book.author}
-                </button>
-              </span>
-              <span className="flex items-center">
-                分类：
-                <button type="button" onClick={() => navigate({ view: 'category', cat: book.categoryId || undefined, page: 1 })} className="ml-1 transition-colors hover:text-[#2563eb]" style={{ color: SECONDARY }} aria-label={`浏览 ${book.category}`}>
-                  {book.category}
-                </button>
-              </span>
-              <span>{book.status === 'completed' ? '状态：全本' : '状态：连载'}</span>
-              <span>字数：{formatWords(book.wordCount)}</span>
-              <span>更新时间：{fmtDate(book.updatedAt) || '—'}</span>
-            </div>
-            {/* .detail-actions 按钮组(收藏/推荐 → TXT 下載/不渲染; 继续阅读按 currentChapterId 条件渲染) */}
-            <div className="flex flex-wrap gap-4">
-              <button
-                type="button"
-                onClick={() => firstChapter && navigate({ view: 'read', chapterId: firstChapter.id })}
-                disabled={!firstChapter}
-                className={`${btn} text-white disabled:opacity-50`}
-                style={{ background: SECONDARY, boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}
-                aria-label="开始阅读"
-              >
-                <Play className="h-4 w-4" aria-hidden />
-                开始阅读
-              </button>
-              {continueChapter && (
-                <button
-                  type="button"
-                  onClick={() => navigate({ view: 'read', chapterId: continueChapter.id })}
-                  className={`${btn} text-white`}
-                  style={{ background: SECONDARY, boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}
-                  aria-label="继续阅读"
-                >
-                  <BookMarked className="h-4 w-4" aria-hidden />
-                  继续阅读
-                </button>
-              )}
-              <a
-                href={`/api/public/download?book=${book.id}`}
-                className={`${btn} border bg-white`}
-                style={{ borderColor: BORDER, color: TEXT }}
-                aria-label={`下载《${book.name}》TXT`}
-              >
-                <FileDown className="h-4 w-4" aria-hidden />
-                TXT下载
-              </a>
-            </div>
+      {/* .detail-header 白卡 */}
+      <div className="hjw-card mb-6 flex flex-col items-center gap-6 rounded-[10px] border bg-white p-6 sm:flex-row sm:items-start" style={{ borderColor: BORDER, boxShadow: SHADOW }}>
+        {/* .detail-cover 180×250 */}
+        <div className="shrink-0">
+          <div className="hjw-cover h-[250px] w-[180px] overflow-hidden rounded-[10px] border" style={{ borderColor: BORDER, background: SECONDARY, boxShadow: SHADOW }}>
+            {book.cover ? (
+              <img src={book.cover} alt={book.name} className="h-full w-full object-cover" />
+            ) : (
+              <div className="flex h-full w-full items-center justify-center p-4 text-center text-[18px] font-semibold text-white/90">{book.name}</div>
+            )}
           </div>
         </div>
-
-        {/* ============ .detail-section 作品简介 ============ */}
-        <section className="mb-4 rounded-[10px] bg-white p-6" style={{ boxShadow: SHADOW }}>
-          <div className="mb-5 flex items-end justify-between gap-4">
-            <h2 className="border-l-4 pl-4 text-[20px] font-semibold" style={{ borderLeftColor: SECONDARY, color: '#0f172a' }}>
-              作品简介
-            </h2>
+        <div className="w-full min-w-0 flex-1">
+          {/* h1.detail-title 32px */}
+          <h1 className="mb-5 text-left text-[24px] font-semibold leading-[1.3] tracking-[-0.01em] sm:text-[32px]" style={{ color: TEXT }}>
+            {book.name}
+          </h1>
+          {/* .detail-meta 圆角条(竖线分隔 + 蓝点, ≥768 由 css 串补竖线) */}
+          <div className="hjw-meta flex flex-wrap gap-y-2 rounded-[10px] border p-4 text-[15px] sm:gap-8 sm:px-8" style={{ background: META_BG, borderColor: BORDER, color: TEXT_LIGHT }}>
+            <span className="hjw-meta-item flex items-center">
+              <i className="mr-2 inline-block h-2 w-2 shrink-0 rounded-full" style={{ background: SECONDARY }} aria-hidden />
+              作者：{book.author}
+            </span>
+            <span className="hjw-meta-item flex items-center">
+              <i className="mr-2 inline-block h-2 w-2 shrink-0 rounded-full" style={{ background: SECONDARY }} aria-hidden />
+              分类：{book.category || '小说'}
+            </span>
+            <span className="hjw-meta-item flex items-center">
+              <i className="mr-2 inline-block h-2 w-2 shrink-0 rounded-full" style={{ background: SECONDARY }} aria-hidden />
+              状态：{statusLabel(book.status)}
+            </span>
+            <span className="hjw-meta-item flex items-center">
+              <i className="mr-2 inline-block h-2 w-2 shrink-0 rounded-full" style={{ background: SECONDARY }} aria-hidden />
+              字数：{formatWords(book.wordCount)}
+            </span>
+            <span className="hjw-meta-item flex items-center">
+              <i className="mr-2 inline-block h-2 w-2 shrink-0 rounded-full" style={{ background: SECONDARY }} aria-hidden />
+              更新时间：{book.updatedAt ? book.updatedAt.slice(0, 16).replace('T', ' ') : '—'}
+            </span>
+          </div>
+          {/* .detail-actions: 开始阅读(主) / 章节目录 / TXT 下载(次) */}
+          <div className="hjw-book-actions mt-6 flex flex-wrap items-center gap-4">
             <button
               type="button"
-              onClick={() => setExpanded((s) => !s)}
-              className="inline-flex shrink-0 items-center gap-1.5 rounded-[10px] px-3 py-1.5 text-[14px] font-medium transition-all"
-              style={{ color: SECONDARY }}
-              aria-expanded={expanded}
-              aria-label={expanded ? '收起简介' : '展开简介'}
+              disabled={!firstChapter}
+              className="hjw-btn-primary hjw-btn min-w-[128px] rounded-[10px] px-6 py-3 text-[16px] font-medium"
+              onClick={() => firstChapter && navigate({ view: 'read', bookId: book.id, chapterId: firstChapter })}
             >
-              {expanded ? <ChevronUp className="h-4 w-4" aria-hidden /> : <ChevronDown className="h-4 w-4" aria-hidden />}
-              {expanded ? '收起' : '展开'}
+              开始阅读
             </button>
+            <button type="button" className="hjw-btn-secondary hjw-btn min-w-[128px] rounded-[10px] border bg-white px-6 py-3 text-[16px] font-medium" onClick={() => navigate({ view: 'toc', bookId: book.id, page: 1 })}>
+              章节目录
+            </button>
+            {/* 唯一允许 <a>: TXT 下载(真站下载位等价物) */}
+            <a className="hjw-btn-secondary hjw-btn min-w-[128px] rounded-[10px] border bg-white px-6 py-3 text-[16px] font-medium" href={`/api/public/download?book=${book.id}`}>
+              TXT 下载
+            </a>
           </div>
+        </div>
+      </div>
+
+      {/* 作品简介 — .detail-section(7.2em 折叠 + 展开钮) */}
+      <section className="mb-4" aria-label="作品简介">
+        <h2 className="hjw-sectitle mb-8 text-[20px] font-semibold" style={{ color: TEXT }}>
+          作品简介
+        </h2>
+        <div className="text-[15px] leading-[1.8]" style={{ color: TEXT_LIGHT }}>
           <div
-            className="text-[15px] leading-[1.8] transition-all"
-            style={{ color: TEXT, maxHeight: expanded ? 2000 : '7.2em', overflow: 'hidden' }}
+            className={introOpen ? '' : 'hjw-intro'}
+            style={introOpen ? undefined : { maxHeight: '7.2em', overflow: 'hidden' }}
           >
-            {book.intro || '暂无简介'}
+            {book.intro ? book.intro.split(/\n+/).filter(Boolean).map((p, i) => <p key={i} className="mb-3">{p}</p>) : <p>暂无简介</p>}
           </div>
-          {/* 小说标签 chips(book.tags→keywords 兜底) */}
-          {tagList.length > 0 && (
-            <div className="mt-4 flex flex-wrap items-center gap-2 text-[15px]" style={{ color: TEXT_LIGHT }}>
-              <b className="font-semibold">小说标签：</b>
-              {tagList.map((t) => (
-                <button
-                  key={t}
-                  type="button"
-                  onClick={() => navigate({ view: 'keyword', tag: t })}
-                  className="hjw-card-title rounded-[10px] px-3 py-1 text-[12px] font-medium text-white transition-all"
-                  style={{ background: SECONDARY }}
-                  aria-label={`浏览 ${t} 标签`}
-                >
-                  {t}
-                </button>
-              ))}
-            </div>
-          )}
-        </section>
-
-        {/* ============ .detail-section 最新章节 ============ */}
-        <section className="mb-4 rounded-[10px] bg-white p-6" style={{ boxShadow: SHADOW }}>
-          <h2 className="mb-5 border-l-4 pl-4 text-[20px] font-semibold" style={{ borderLeftColor: SECONDARY, color: '#0f172a' }}>
-            最新章节
-          </h2>
-          <ul className="mb-4 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            {latest10.map((c) => (
-              <li key={c.id} className="overflow-hidden rounded-[10px] border bg-white whitespace-nowrap transition-all duration-300" style={{ borderColor: BORDER }}>
-                <button
-                  type="button"
-                  onClick={() => navigate({ view: 'read', chapterId: c.id })}
-                  className="block max-w-full truncate px-4 py-3 text-left text-[15px] transition-colors hover:text-[#2563eb]"
-                  style={{ color: TEXT }}
-                  aria-label={`阅读 ${c.title}`}
-                >
-                  {c.title}
-                </button>
-              </li>
-            ))}
-          </ul>
-        </section>
-
-        {/* ============ 全部章节目录(真站「完整目录」独立链 → 内联 section+契约分页, 声明) ============ */}
-        <section className="mb-4 rounded-[10px] bg-white p-6" style={{ boxShadow: SHADOW }}>
-          <h2 className="mb-5 border-l-4 pl-4 text-[20px] font-semibold" style={{ borderLeftColor: SECONDARY, color: '#0f172a' }}>
-            全部章节目录
-            <span className="ml-3 text-[13px] font-normal" style={{ color: TEXT_LIGHT }}>
-              共 {tocTotal} 章
-            </span>
-          </h2>
-          <ul className="mb-4 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            {chapters.map((c) => (
-              <li key={c.id} className="overflow-hidden rounded-[10px] border bg-white whitespace-nowrap transition-all duration-300" style={{ borderColor: currentChapterId === c.id ? SECONDARY : BORDER }}>
-                <button
-                  type="button"
-                  onClick={() => navigate({ view: 'read', chapterId: c.id })}
-                  className="block max-w-full truncate px-4 py-3 text-left text-[15px] transition-colors hover:text-[#2563eb]"
-                  style={{ color: currentChapterId === c.id ? SECONDARY : TEXT, fontWeight: currentChapterId === c.id ? 600 : 400 }}
-                  aria-label={`阅读 ${c.title}`}
-                  aria-current={currentChapterId === c.id ? 'true' : undefined}
-                >
-                  {c.title}
-                </button>
-              </li>
-            ))}
-          </ul>
-          {tocTotalPages > 1 && (
-            <nav aria-label="目录分页" className="flex flex-wrap items-center justify-center gap-3 py-2">
-              <span className="min-w-[80px] text-center text-[14px]" style={{ color: TEXT }}>
-                {tocPage} / {tocTotalPages}
+          {longIntro && (
+            <button type="button" className="hjw-introbtn mt-1 inline-flex items-center gap-1.5 text-[14px] font-medium" style={{ color: SECONDARY }} onClick={() => setIntroOpen((v) => !v)}>
+              {introOpen ? '收起' : '展开'}
+              <span aria-hidden className="inline-block text-[12px] transition-transform duration-300" style={{ transform: introOpen ? 'rotate(180deg)' : undefined }}>
+                ▼
               </span>
-              {tocPage > 1 && (
-                <button
-                  type="button"
-                  onClick={() => navigate({ view: 'book', bookId: book.id, page: tocPage - 1 })}
-                  className="hjw-pagelink inline-flex h-[38px] cursor-pointer items-center justify-center rounded-[15px] border-[1.5px] bg-white px-5 text-[14px] font-medium"
-                  style={{ borderColor: BORDER, color: TEXT }}
-                  aria-label="上一页"
-                >
+            </button>
+          )}
+        </div>
+      </section>
+
+      {/* 最新章节 — .detail-section */}
+      <section className="mb-4" aria-label="最新章节">
+        <h2 className="hjw-sectitle mb-8 text-[20px] font-semibold" style={{ color: TEXT }}>
+          最新章节
+        </h2>
+        <ul className="mb-4 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          {latest.map((ch) => (
+            <li key={ch.id}>
+              <ChapterItem ch={ch} bookId={book.id} />
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      {/* 章节目录(共N章) + 分页 — .detail-section */}
+      <section className="mb-4" aria-label="章节目录">
+        <h2 className="hjw-sectitle mb-8 text-[20px] font-semibold" style={{ color: TEXT }}>
+          章节目录
+          <small className="ml-2 text-[14px] font-normal" style={{ color: TEXT_LIGHT }}>
+            共{data?.tocTotal ?? 0}章
+          </small>
+        </h2>
+        {!chapters.length ? (
+          <EmptyState text="暂无章节" hint="本书尚未收录章节" />
+        ) : (
+          <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            {chapters.map((ch) => (
+              <li key={ch.id}>
+                <ChapterItem ch={ch} bookId={book.id} current={ch.id === currentChapterId} />
+              </li>
+            ))}
+          </ul>
+        )}
+        {/* 真站 .pagination-list(page-info + 下一页/末页; page>1 补首页/上一页) */}
+        {totalPages > 1 && (
+          <div className="flex flex-wrap items-center justify-center gap-3 py-4">
+            {tocPage > 1 && (
+              <>
+                <button type="button" className="hjw-pg rounded-[10px]" onClick={() => navigate({ view: 'book', bookId: book.id, page: 1 })}>
+                  首页
+                </button>
+                <button type="button" className="hjw-pg rounded-[10px]" onClick={() => navigate({ view: 'book', bookId: book.id, page: tocPage - 1 })}>
                   上一页
                 </button>
-              )}
-              {tocPage < tocTotalPages && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => navigate({ view: 'book', bookId: book.id, page: tocPage + 1 })}
-                    className="hjw-pagelink inline-flex h-[38px] cursor-pointer items-center justify-center rounded-[15px] border-[1.5px] bg-white px-5 text-[14px] font-medium"
-                    style={{ borderColor: BORDER, color: TEXT }}
-                    aria-label="下一页"
-                  >
-                    下一页
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => navigate({ view: 'book', bookId: book.id, page: tocTotalPages })}
-                    className="hjw-pagelink inline-flex h-[38px] cursor-pointer items-center justify-center rounded-[15px] border-[1.5px] bg-white px-5 text-[14px] font-medium"
-                    style={{ borderColor: BORDER, color: TEXT }}
-                    aria-label="末页"
-                  >
-                    末页
-                  </button>
-                </>
-              )}
-            </nav>
-          )}
+              </>
+            )}
+            <span className="min-w-[80px] px-4 text-center text-[14px]" style={{ color: TEXT }}>
+              {tocPage} / {totalPages}
+            </span>
+            {tocPage < totalPages && (
+              <>
+                <button type="button" className="hjw-pg rounded-[10px]" onClick={() => navigate({ view: 'book', bookId: book.id, page: tocPage + 1 })}>
+                  下一页
+                </button>
+                <button type="button" className="hjw-pg rounded-[10px]" onClick={() => navigate({ view: 'book', bookId: book.id, page: totalPages })}>
+                  末页
+                </button>
+              </>
+            )}
+          </div>
+        )}
+      </section>
+
+      {/* 相关小说(真站站方推荐位 → 同分类替代, 声明) */}
+      {related && related.length > 0 && (
+        <section aria-label="相关小说">
+          <h2 className="hjw-sectitle mb-8 text-[20px] font-semibold" style={{ color: TEXT }}>
+            相关小说
+          </h2>
+          <RelatedGrid books={related} />
         </section>
-      </div>
+      )}
+    </div>
+  )
+}
+
+/** [R28-2d-3] 相关小说行式卡(bookNavProps 键盘可达) */
+function RelatedGrid({ books }: { books: BookItem[] }) {
+  const { navigate } = usePublic()
+  return (
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 lg:gap-6">
+      {books.map((b) => (
+        <article
+          key={b.id}
+          {...bookNavProps(navigate, b.id)}
+          className="hjw-card block cursor-pointer overflow-hidden rounded-[10px] border bg-white transition-all duration-300"
+          style={{ borderColor: 'rgba(219,228,240,0.85)', boxShadow: SHADOW, color: TEXT }}
+        >
+          <div className="p-4">
+            <div className="hjw-card-title mb-2 truncate text-[16px] font-medium" style={{ color: TEXT }}>
+              {b.name}
+            </div>
+            <div className="mb-2 truncate text-[14px]" style={{ color: TEXT_LIGHT }}>
+              作者：{b.author}
+            </div>
+            <div className="line-clamp-2 min-h-[2.55em] text-[14px] leading-[1.5]" style={{ color: TEXT_LIGHT }}>
+              {b.intro || formatWords(b.wordCount)}
+            </div>
+          </div>
+        </article>
+      ))}
     </div>
   )
 }

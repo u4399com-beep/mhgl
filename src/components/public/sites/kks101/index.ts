@@ -1,13 +1,17 @@
 // ============================================================
-// [R26-3-6] kks101(101看書) 模板集合出口 —— 10 站×5 页型克隆之三
-// 站点: 101kks.com(101看書 · 蓝白经典繁体书站 · 杰奇系新版模板)
-// 页型: Home(大站标+圆角搜索+蓝快捷入口+书单卡/行式列表+标签云)
-//       Category(小說分類筛选条+封面网格+點擊排行列表+pagelink 分页)
-//       Book(面包屑+封面信息+按钮组+标签+目录/简介 tab+本周最強榜)
-//       Toc(shuye 页头+正序/倒序+.catalog 三列章节列表+分页)
-//       Read(工具圆钮条+居中标题+来源行+2 倍行高正文+page1 四格导航)
-// CSS: 全部选择器以 .clone-kks101 作用域开头, 色值/字号/行高均出自真站 /css/style.css 实测
-// (实测样本: /tmp/r26/kks101-style.css + probe-101kks.com.html + cat3/book/toc/read 四内页快照)
+// [R28-2f] kks101(101看書 101kks.com) 8 页型克隆模板集
+//   基础五视图: Home.tsx 首页 / Category.tsx 分类页 / Book.tsx 书页 / Toc.tsx 目录页 / Read.tsx 章节页
+//   扩展三视图: Ranking.tsx 排行榜(hot.html 实证) / Fulltext.tsx 完本(full.html 实证)
+//              / Search.tsx 搜索结果(search2.html 实证; search.html 为 0 字节入口壳)
+//   共享部件: parts.tsx(色板/MyBox/MyTitle/列表行/封面卡/分类胶囊/分页/面包屑)
+//
+//   快照(2026-09-16, /tmp/r28-2b/kks101/): home 971 行 / class 793 行 / book 695 行 /
+//   toc 469 行 / read 355 行 / hot 1041 行 / last 428 行 / full 783 行 / search2 709 行
+//   + style.css 3745 行 + block_booklist.css 400 行 全量。
+//
+//   css 字段: 仅承载组件内难以表达的 :hover/伪类/媒体查询/断点复刻,
+//   全部选择器以 .clone-kks101 开头(PublicSite .clone-{id} 作用域注入, 禁全局污染);
+//   每条规则注明快照出处文件+行号。色板摘要见 K(parts.tsx)。
 // ============================================================
 import type { SiteTemplateSet } from '../shared'
 import { Kks101Home } from './Home'
@@ -15,6 +19,9 @@ import { Kks101Category } from './Category'
 import { Kks101Book } from './Book'
 import { Kks101Toc } from './Toc'
 import { Kks101Read } from './Read'
+import { Kks101Ranking } from './Ranking'
+import { Kks101Fulltext } from './Fulltext'
+import { Kks101Search } from './Search'
 
 export const kks101Template: SiteTemplateSet = {
   Home: Kks101Home,
@@ -22,56 +29,115 @@ export const kks101Template: SiteTemplateSet = {
   Book: Kks101Book,
   Toc: Kks101Toc,
   Read: Kks101Read,
-  // [R26-3-6] 站点级克隆 CSS —— 伪类/复杂选择器集中于此; 逐条注明真站规则出处
+  Ranking: Kks101Ranking,
+  Fulltext: Kks101Fulltext,
+  Search: Kks101Search,
   css: `
-/* [R26-3-6] 基底: 真站 body{background:#f2f3f4;color:#333;font-size:14px;font-family:"Microsoft YaHei"} */
-.clone-kks101{background:#f2f3f4;color:#333;font-size:14px}
-/* [R26-3-6] .mybox 白卡: 阴影 0 1px 3px rgba(0,0,0,.12),0 1px 2px rgba(0,0,0,.24)/圆角 3px/padding 16px/margin 24px 0 */
-.clone-kks101 .kks-mybox{background-color:#fff;border-radius:3px;box-shadow:0 1px 3px rgba(0,0,0,.12),0 1px 2px rgba(0,0,0,.24);padding:16px;margin:24px 0}
-/* [R26-3-6] .mytitle 板块标题: 16px/底边 rgba(150,150,150,.2)/pb 5px(不设 top 外距, 让位 Tailwind mt-* 工具类) */
-.clone-kks101 .kks-mytitle{margin-bottom:10px;border-bottom:1px solid rgba(150,150,150,.2);padding-bottom:5px;font-size:16px;font-weight:700}
-/* [R26-3-6] .bread 面包屑: a #1f6cb2, 站内 hover #06c(真站 a:hover) */
-.clone-kks101 .kks-bread button{color:#1f6cb2;transition:color .3s ease}
-.clone-kks101 .kks-bread button:hover{color:#06c;text-decoration:underline}
-/* [R26-3-6] .btn 蓝钮(.addbtn .btn: line-height 36px/padding 0 15px/16px/圆角 5px; hover 投影 0 0 10px rgba(0,0,0,.2)) */
-.clone-kks101 .kks-btn{text-align:center;border-radius:5px;background:#1f6cb2;cursor:pointer;border:none;color:#fff;line-height:36px;padding:0 15px;font-size:16px;transition:box-shadow .3s ease}
-.clone-kks101 .kks-btn:hover{box-shadow:0 0 10px rgba(0,0,0,.2);color:#fff}
-/* [R26-3-6] .infotag a/.tag ul a 标签胶囊: .8rem/line-height 1.8rem/边 1px #56a6c3/圆角 10px/底 rgb(232,244,255)/字 #1f6cb2 */
-.clone-kks101 .kks-tagbtn{font-size:.8rem;line-height:1.8rem;display:inline-block;padding:0 .725rem;text-align:center;border:1px solid #56a6c3;border-radius:10px;background:rgb(232,244,255);color:#1f6cb2;transition:opacity .2s ease}
-.clone-kks101 .kks-tagbtn:hover{opacity:.8}
-/* .infotag a 的 padding 0 .5rem 变体(书页標籤区) */
-.clone-kks101 .kks-tagbtn-sm{padding:0 .5rem}
-/* [R26-3-6] 正文段落(真站 .txtnav p: line-height 2/padding 10px 0/text-indent 5%/word-wrap break-word) */
-.clone-kks101 .kks-txt p{line-height:2;padding:10px 0;text-indent:5%;word-wrap:break-word}
-/* [R26-3-6] .page1 四格导航: 16px/line-height 48px/右边线 rgb(191 191 191 / 24%)/hover #f8f8f8 */
-.clone-kks101 .kks-page1-cell{text-align:center;line-height:48px;border-right:1px solid rgb(191 191 191 / 24%);transition:background .2s ease;cursor:pointer;background:transparent}
-.clone-kks101 .kks-page1-cell:last-child{border-right:none}
-.clone-kks101 .kks-page1-cell:hover:not(:disabled){background:#f8f8f8}
-/* [R26-3-6] .tools li i 圆钮: 36px/圆角 100px/底 #4c5356/白字 */
-.clone-kks101 .kks-tool{display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:100px;background:#4c5356;color:#fff;transition:opacity .2s ease}
-.clone-kks101 .kks-tool:hover{opacity:.85}
-/* [R26-3-6] .pages a + .pagelink 分页(a: 底 #f1f1f1/字 #7a7a7a/min-width 45px/高 35px/圆角 3px, hover 白底;
-   strong 当前页: .pagelink strong 后载覆盖 → 底 #caf1ff/字 #1f6cb2/700) */
-.clone-kks101 .kks-pg{display:inline-block;margin:2px;padding:0 6px;min-width:45px;border-radius:3px;text-align:center;height:35px;line-height:35px;background:#f1f1f1;color:#7a7a7a;font-size:16px;cursor:pointer;transition:background .2s ease}
-.clone-kks101 .kks-pg:hover{background-color:#ffffff}
-.clone-kks101 .kks-pg:disabled{cursor:default}
-.clone-kks101 .kks-pg-cur,.clone-kks101 .kks-pg-cur:hover{font-weight:bold;color:#1f6cb2;background:#caf1ff}
-/* [R26-3-6] .booklist li hover(首页行式列表): hover #f9f9f9 + 封面 scale 1.1(transition all .5s) */
-.clone-kks101 .kks-bookrow{transition:background .3s ease}
-.clone-kks101 .kks-bookrow:hover{background:#f9f9f9}
-.clone-kks101 .kks-bookrow img,.clone-kks101 .kks-cell img{transition:all .5s}
-.clone-kks101 .kks-bookrow:hover img,.clone-kks101 .kks-cell:hover img{transform:scale(1.1)}
-/* [R26-3-6] .newbox .newnav h3 a hover #1f6cb2(分類列表行标题) */
-.clone-kks101 .kks-newtitle{transition:color .3s ease}
-.clone-kks101 .kks-newtitle:hover{color:#1f6cb2}
-/* [R26-3-6] .newbox .labelbox label: 右边线 1px #ddd/padding-right 10px/margin-right 10px(末项无线) */
-.clone-kks101 .kks-labelbox-item{border-right:1px solid #ddd;line-height:1;padding-right:10px;margin-right:10px}
-.clone-kks101 .kks-labelbox-item:last-child{border-right:none}
-/* [R26-3-6] 响应式: <768px 收窄白盒内距/外距(真站 .mybox 恒 16px, 此处为窄屏可读性微调), 页1 行高 44px; 单列由组件网格断点保证, 禁横向滚动 */
-@media (max-width:767px){
-  .clone-kks101 .kks-mybox{padding:12px;margin:16px 0}
-  .clone-kks101 .kks-page1-cell{line-height:44px}
-  .clone-kks101 .kks-pg{min-width:34px;padding:0 4px}
+/* ==== 全局链接(hover/伪类/断点由本串承载; 基色 #666 / hover #06c ====
+   style.css a L28-32, a:hover L39-42) ==== */
+.clone-kks101 a{transition:color .3s ease}
+.clone-kks101 button.kkx-bread-a:hover{color:#06c}
+/* 列表行书名 hover 主蓝(style.css .newbox li:hover .newnav h3 a L1797-1799) */
+.clone-kks101 button.kkx-rowtitle:hover{color:#1f6cb2}
+/* 最近章節链 hover(style.css a:hover L39-42 同色承接) */
+.clone-kks101 button.kkx-rowlatest:hover{color:#06c}
+.clone-kks101 button.kkx-qustime-a:hover{color:#06c}
+.clone-kks101 button.kkx-catalog-a:hover{color:#06c}
+/* 标签胶囊 hover(style.css 全局 a:hover #06c L39-42) */
+.clone-kks101 button.kkx-taga:hover{color:#06c}
+/* 最近更新行书名 hover */
+.clone-kks101 button.kkx-ru-name:hover,.clone-kks101 button.kkx-ru-chap:hover,.clone-kks101 button.kkx-yd-name:hover{color:#06c}
+
+/* ==== 按钮系 ==== */
+/* .btn:hover 投影(style.css L434-437) */
+.clone-kks101 .kkx-btn:not(:disabled):hover{box-shadow:0 0 10px rgba(0,0,0,.2)}
+/* 大搜索钮 hover 加深(style.css .error-text form button 无显式 hover → 加深, 推断等价) */
+.clone-kks101 button.kkx-searchbtn:hover{color:#333}
+/* 大搜索框聚焦 = 真站 .searchInputActive 态影(style.css L3649-3665: shadow 0 2px 8px 1px rgba(64,60,67,.24)) */
+.clone-kks101 .kkx-searchinput:focus{box-shadow:0 2px 8px 1px rgba(64,60,67,.24);outline:none}
+
+/* ==== 封面 hover 缩放(真站 .5s 过渡 + scale 1.1) ==== */
+/* .newnovels li:hover .imgbox img scale(1.1)(style.css L1281-1291) */
+.clone-kks101 .kkx-nvimg img{transition:all .5s}
+.clone-kks101 .kkx-nvcard:hover .kkx-nvimg img{transform:scale(1.1)}
+/* .newbox li:hover .imgbox img scale(1.1)(style.css L1793-1795) */
+.clone-kks101 .kkx-rowimg img{transition:all .5s}
+.clone-kks101 .kkx-newrow:hover .kkx-rowimg img{transform:scale(1.1)}
+
+/* ==== 書單卡(hot 首页特色板块; block_booklist.css 逐条) ==== */
+/* .booklist-card:hover: translateY(-2px)+shadow 0 6px 20px rgba(0,0,0,.12)+边框加深(L39-43) */
+.clone-kks101 .kkx-blcard{transition:all .3s cubic-bezier(.4,0,.2,1)}
+.clone-kks101 .kkx-blcard:hover{transform:translateY(-2px);box-shadow:0 6px 20px rgba(0,0,0,.12);border-color:rgba(0,0,0,.1)}
+/* 大屏固定 3 列(block_booklist.css @min-width:1200px L16-20; 覆盖内联 auto-fill) */
+@media (min-width:1200px){
+  .clone-kks101 .kkx-blgrid{grid-template-columns:repeat(3,1fr) !important}
 }
+
+/* ==== 分页(.pagelink, style.css L2919-2944) ==== */
+.clone-kks101 .kkx-page-a:hover{background-color:#ffffff;color:#1f6cb2}
+.clone-kks101 .kkx-page-a.is-strong{background:#caf1ff}
+
+/* ==== 阅读页 page1 hover(style.css .page1 a:hover L2360-2362) ==== */
+.clone-kks101 .kkx-page1-a:not(:disabled):hover{background:#f8f8f8}
+.clone-kks101 .kkx-black .kkx-page1-a:not(:disabled):hover{background:#3a3e41}
+
+/* ================= 响应式断点(真站 990/1200/767/720 近似复刻; 375px 无横滚) ================= */
+/* 真站 @media (max-width:990px): col-8/col-4 单列(L755-768) */
+@media (max-width: 990px){
+  .clone-kks101 .kkx-bookrow > li{width:100% !important}
+  /* .booknav2 h1 降 16px(L797-799) */
+  .clone-kks101 .kkx-booknav2 h1{font-size:16px !important}
+  /* .newbox .newright/.zxzj 隐藏 + 封面 70×95(L1974-1982) */
+  .clone-kks101 .kkx-rowright,.clone-kks101 .kkx-zxzj{display:none !important}
+  .clone-kks101 .kkx-rowimg{width:70px !important;height:95px !important}
+  /* .shuye 面包屑隐藏 + .titxt 書頁显示(L2076-2082) */
+  .clone-kks101 .kkx-toc-bread{display:none}
+  .clone-kks101 .kkx-titxt{display:block !important}
+  /* 目录三列改单列(L2084-2086) */
+  .clone-kks101 .kkx-catalog-ul li{width:100% !important}
+}
+/* 真站 @media (max-width:1200px): newnovels li 15%(L1462-1465) */
+@media (max-width: 1199px){
+  .clone-kks101 .kkx-nv2 .kkx-nvcard{width:15%}
+}
+/* 真站 @media (max-width:767px): newnovels li 23%(L1476-1480) */
+@media (max-width: 767px){
+  .clone-kks101 .kkx-nv2 .kkx-nvcard{width:23%}
+}
+/* 真站 @media (max-width:720px) */
+@media (max-width: 720px){
+  /* .hide720 面包屑/作者行隐藏(L1681-1683, L2284-2286) */
+  .clone-kks101 .kkx-hide720{display:none !important}
+  /* .txtnav padding 0(L2280-2282) */
+  .clone-kks101 .kkx-txtnav{padding:0 !important}
+  /* .page1 负边距贴边(L2392-2402) */
+  .clone-kks101 .kkx-page1{margin:15px -15px -15px -15px !important}
+  /* .indexdaohang li 45% 双列(L3342-3350) */
+  .clone-kks101 .kkx-daohang li{width:45% !important;min-width:0 !important;margin:.3rem !important}
+  /* .recentupdate2 行收窄: 章节列隐藏(L1745-1752) */
+  .clone-kks101 .kkx-ru-chap{display:none !important}
+  .clone-kks101 .kkx-ru-name{width:70% !important}
+  /* 封面小卡降尺寸(.imgbox 80×115, L1482-1487) */
+  .clone-kks101 .kkx-nvimg{width:80px !important;height:115px !important}
+}
+/* block_booklist.css @max-width:991px: 卡 110px/封面区 100px/栈 80×100(L241-258) */
+@media (max-width: 991px){
+  .clone-kks101 .kkx-blcard{height:110px !important}
+  .clone-kks101 .kkx-blcover{flex:0 0 100px !important}
+}
+/* block_booklist.css @max-width:480px: 网格单列/卡 100px/封面区 90px(L293-309) */
+@media (max-width: 480px){
+  .clone-kks101 .kkx-blgrid{grid-template-columns:1fr !important}
+  .clone-kks101 .kkx-blcard{height:100px !important}
+  .clone-kks101 .kkx-blcover{flex:0 0 90px !important}
+  /* 书页封面 130×180/信息区收窄(真站 @990 .bookimg2 130×180 L778-791, 375px 再降) */
+  .clone-kks101 .kkx-bookimg2{width:110px !important;height:150px !important}
+  .clone-kks101 .kkx-booknav2{min-width:0 !important}
+  .clone-kks101 .kkx-bookbox{padding:0 !important;gap:12px !important}
+}
+/* 兜底: 375px 无横向滚动(行式卡内容均 ellipsis 截断) */
+.clone-kks101 .kkx-container,.clone-kks101 .kkx-mybox{overflow-x:hidden}
 `,
 }
+
+export default kks101Template

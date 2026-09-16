@@ -12,6 +12,8 @@ import { siteKeywordList, useSiteSEO, withAlpha } from './seo'
 import { EmptyState, ErrorState, TagCloud } from './bits'
 import { ThemeBookList } from './BookCard'
 import { addSearchHistory, clearSearchHistory, getSearchHistory } from './search-history'
+// [R28-0] 克隆模板注册表(theme.id → SiteTemplateSet): Search 结果页分发
+import { getTemplateSet } from './sites/registry'
 
 export function SearchView({ q }: { q?: string }) {
   const { site, theme, navigate } = usePublic()
@@ -105,6 +107,15 @@ export function SearchView({ q }: { q?: string }) {
   const onClearHistory = () => {
     clearSearchHistory()
     setHistoryTick((t) => t + 1)
+  }
+
+  // [R28-0] 克隆模板接线: 有 q(结果页态)且模板提供 Search → SiteTemplateSet.Search 分发。
+  // 空态搜索首页(无 q)仍由通用壳呈现(大搜索框+热搜/历史, 真站搜索落地页同构)。
+  // SEO/TDK(含 noindex)仍由本壳统一负责; 模板内错误态自行呈现。
+  const tplSet = getTemplateSet(theme.id)
+  if (q && tplSet?.Search) {
+    const TplSearch = tplSet.Search
+    return <TplSearch q={q} data={data} loading={loading} error={error} />
   }
 
   return (

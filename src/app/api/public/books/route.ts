@@ -81,8 +81,13 @@ export async function GET(req: Request) {
     // 状态白名单: 非法值忽略(不报错), 防任意字符串进查询
     if (status && ['unknown', 'ongoing', 'completed'].includes(status)) where.status = status
 
-    // 排序白名单(防 orderBy 注入任意字段)
-    const orderBy = sort === 'words' ? { wordCount: 'desc' as const } : { updatedAt: 'desc' as const }
+    // 排序白名单(防 orderBy 注入任意字段); [R28-0] +new(新书榜, createdAt desc) 供排行榜页型
+    const orderBy =
+      sort === 'words'
+        ? { wordCount: 'desc' as const }
+        : sort === 'new'
+          ? { createdAt: 'desc' as const }
+          : { updatedAt: 'desc' as const }
 
     // 站群偏移量仅在"无筛选"浏览时生效(首页书库翻页轮换);
     // 带 cat(分类) / q(搜索) / status 筛选时忽略 offset —— 否则会跳过该分类/搜索结果内前 offset 条

@@ -1,16 +1,20 @@
 // ============================================================
-// [R27-6b-9] shipsay(船说 CMS demo) 书籍详情页克隆 —— 船说 V4.2 novel 页还原
-// 素材等级: Wayback 实测 —— /tmp/r27-f2/ss-book2.html(2023 快照 /book/80001/ 完整 DOM):
+// [R28-2e-3] shipsay(船说 CMS demo) 书籍详情页克隆 —— 船说 V4.2 novel 页还原
+// 素材等级: Wayback 实测 —— /tmp/r28-2e/snap/ss-book.html(2024-05-20 快照
+// demo.shipsay.com/book/80001/《多情剑客无情剑》完整 DOM, 本轮重新抓取):
 //   .container > section.section > .novel_info_main(img 封面 + .novel_info_title >
 //     h1 书名 + i 作者：a + p > span 分类 + span 字数 + span.fullflag 全本 +
 //     .flex.to100 最新章节：a + em.s_gray 日期 + .flex > a.l_btn(fa-file-text 开始阅读) +
 //     a.l_btn_0(fa-tag 最近阅读)) +
-//   ul.flex.ulcard > li.act > a#a_info 作品信息 / li > a#a_catalog 目录（89章） +
-//   #info > .intro(简介) + .section.chapter_list > .title.jcc《书名》最新章节 + ul li(倒序 12) +
-//   #catalog > .section.chapter_list > ul#ul_all_chapters(全量章节)
-// 契约映射: ①「最近阅读」按钮 → TXT 下载(任务书唯一 <a href="/api/public/download?book=">, 同形)
-//           ②作品信息/目录 tab 双态 → 单页顺序展示(锚点滚动), tab 头保留可点(声明)
-// 色值: 实测快照(同首页); 图标 fa → lucide(Home/FileText/Tag)。
+//   ul.flex.ulcard > li.act > a#a_info 作品信息 / li > a#a_catalog 目录 span（89章） +
+//   #info > .intro(简介 p) + .section.chapter_list > .title.jcc《书名》最新章节 +
+//     ul li(站方倒序 12) + #catalog > .section.chapter_list > ul#ul_all_chapters(全量)
+// 契约映射(降级声明):
+//   ①「最近阅读」按钮(l_btn_0 → /history.html) → TXT 下载同形钮(唯一允许 <a>, 声明)
+//   ②作品信息/目录 tab 双态(真站 JS a_info/a_catalog 显隐) → 单页顺序展示 + tab 头锚点滚动(声明)
+//   ③最新章节 12 条: 真站为站方倒序 → 取当前目录页尾部 12 条倒序(多页书第 1 页≈最早, 声明)
+//   ④目录分页: 真站单页全量 → 契约 100 章/页分页(声明)
+// 色值: 实测快照(同首页); 图标 fa → lucide。
 // ============================================================
 'use client'
 
@@ -22,12 +26,15 @@ import { BookCover } from '../../BookCover'
 import { ErrorState, Sk } from '../../bits'
 import { fmtDate, formatWords } from '../../seo'
 
-/** [R27-6b-9] 船说模板实测色值(同 Home) */
+/** [R28-2e-3] 船说模板实测色值(同 Home) */
 const C = {
+  bg: '#f4f4f4',
+  card: '#ffffff',
   text: '#666666',
   link: '#1a1a1a',
   hover: '#ed4259',
   title: '#555555',
+  blue: '#4284ed',
   line: '#e3e3e3',
 } as const
 
@@ -71,7 +78,7 @@ export function ShipsayBook({ data, loading, error, tocPage, currentChapterId }:
   const lbtn = 'inline-flex items-center gap-1.5 rounded-[3px] px-3 py-1.5 text-[14px] text-white transition-opacity hover:opacity-85 disabled:opacity-50'
 
   return (
-    <div className="ss-home w-full pb-6" style={{ background: '#f4f4f4', color: C.text, fontSize: 14 }}>
+    <div className="ss-home w-full pb-6" style={{ background: C.bg, color: C.text, fontSize: 14 }}>
       <div className="mx-auto w-full max-w-[960px] px-2 pt-3">
         <div className="ss-card p-3">
           {/* ============ .novel_info_main ============ */}
@@ -96,7 +103,8 @@ export function ShipsayBook({ data, loading, error, tocPage, currentChapterId }:
                 <span className="ss-tag inline-block rounded-[3px] px-1.5 py-px text-[12px]" style={{ background: '#f4f4f4', color: C.text }}>
                   {formatWords(book.wordCount)}
                 </span>
-                <span className="ss-fullflag inline-block rounded-[3px] px-1.5 py-px text-[12px] text-white" style={{ background: book.status === 'completed' ? '#bf2c24' : '#4284ed' }}>
+                {/* 真站 span.fullflag「全本」: 遮罩完本红的实底等价(R24 实测 rgba(191,44,36,.75)) */}
+                <span className="ss-fullflag inline-block rounded-[3px] px-1.5 py-px text-[12px] text-white" style={{ background: book.status === 'completed' ? '#bf2c24' : C.blue }}>
                   {book.status === 'completed' ? '全本' : '连载'}
                 </span>
               </p>

@@ -1,7 +1,7 @@
 // ============================================================
-// [R27-6b-10] shipsay(船说 CMS demo) 目录页克隆 —— 船说 V4.2 #catalog 块独立成页
+// [R28-2e-5] shipsay(船说 CMS demo) 目录页克隆 —— 船说 V4.2 #catalog 块独立成页
 // 素材等级: 家族标准(降级声明) —— 船说 V4.2 无独立目录 URL(书页 /book/{id}/ 内
-// #catalog > ul#ul_all_chapters 即完整目录, ss-book2.html 快照实证); 按任务书五页型要求将
+// #catalog > ul#ul_all_chapters 即完整目录, ss-book.html 快照实证); 按任务书页型要求将
 // 目录块独立成页, 结构/样式逐条对齐快照实测: 白卡 + .title.jcc 标题 + 三列章节行 + 分页。
 // 当前章高亮为增强态(真站无, 声明)。
 // ============================================================
@@ -11,8 +11,10 @@ import type { SiteTocProps } from '../shared'
 import { usePublic } from '../../ctx'
 import { ErrorState, Sk } from '../../bits'
 
-/** [R27-6b-10] 船说模板实测色值(同 Home) */
+/** [R28-2e-5] 船说模板实测色值(同 Home) */
 const C = {
+  bg: '#f4f4f4',
+  card: '#ffffff',
   text: '#666666',
   link: '#1a1a1a',
   hover: '#ed4259',
@@ -34,7 +36,7 @@ export function ShipsayToc({ data, loading, error, page, currentChapterId }: Sit
   if (loading || !data) {
     return (
       <div className="mx-auto w-full max-w-[960px] px-2 pb-6 pt-3" aria-label="目录加载中">
-        <Sk className="mb-2 h-8 w-1/2" />
+        <Sk className="mx-auto mb-2 h-8 w-1/2" />
         <div className="ss-card p-3">
           <div className="grid grid-cols-1 gap-x-4 sm:grid-cols-2 lg:grid-cols-3" aria-hidden>
             {Array.from({ length: 12 }).map((_, i) => (
@@ -51,7 +53,7 @@ export function ShipsayToc({ data, loading, error, page, currentChapterId }: Sit
   const pg = 'ss-pg m-[2px] inline-flex h-[32px] min-w-[32px] items-center justify-center rounded-[3px] border px-1.5 text-[13px]'
 
   return (
-    <div className="ss-home w-full pb-6" style={{ background: '#f4f4f4', color: C.text, fontSize: 14 }}>
+    <div className="ss-home w-full pb-6" style={{ background: C.bg, color: C.text, fontSize: 14 }}>
       <div className="mx-auto w-full max-w-[960px] px-2 pt-3">
         <div className="ss-card p-3">
           {/* .title.jcc 标题(真站《书名》最新章节 同款式) */}

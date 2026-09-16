@@ -9,7 +9,8 @@ import type { ThemeDef } from '@/lib/crawl/themes'
 import type { SiteInfo } from './types'
 
 // [R26-c-1] +toc: 目录页(完整章节列表, 独立视图; 书页内「查看完整目录」跳转至此)
-export type PublicView = 'home' | 'book' | 'read' | 'search' | 'keyword' | 'category' | 'history' | 'toc'
+// [R26-c-1] +toc; [R28-0] +ranking/fulltext(扩展页型: 排行榜/全本完本)
+export type PublicView = 'home' | 'book' | 'read' | 'search' | 'keyword' | 'category' | 'history' | 'toc' | 'ranking' | 'fulltext'
 
 export interface ViewParams {
   view: PublicView
@@ -91,8 +92,8 @@ export function readCanonicalPath(
   return siteId ? `${base}${joiner}site=${encodeURIComponent(siteId)}` : base
 }
 
-// [R26-c-1] +toc
-const VIEW_LIST: PublicView[] = ['home', 'book', 'read', 'search', 'keyword', 'category', 'history', 'toc']
+// [R26-c-1] +toc; [R28-0] +ranking/fulltext
+const VIEW_LIST: PublicView[] = ['home', 'book', 'read', 'search', 'keyword', 'category', 'history', 'toc', 'ranking', 'fulltext']
 
 /** 查询串 → 视图参数 */
 export function parseView(search: string): ViewParams {

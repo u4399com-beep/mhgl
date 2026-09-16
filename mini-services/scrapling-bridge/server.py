@@ -47,6 +47,12 @@
 #       RFC 7230 token 白名单过滤、值剥 CR/LF/NUL(与引擎 safeHeaderKey/safeSingleLine
 #       同向); 响应体上限 MAX_BODY_BYTES; 超时上限 MAX_TIMEOUT_MS; 浏览器类模式
 #       并发闸(独立 launch 浏览器内存开销大, 防上游并发打爆沙箱)。
+#       [R28-4-E5] static 类(curl_cffi)并发闸 STATIC_SEM: /fetch static、/impersonate 与
+#       /extract(url 形态桥内抓取)共享(同一 curl_cffi 传输栈, 均为桥外进程/线程开销),
+#       修前无闸 —— 高并发规则配 scrapling-static/curlImpersonate 时桥内 curl_cffi 实例数
+#       不受控(R27-1b 遗留④)。默认 4, env STATIC_CONCURRENCY 可调; 服务模型是
+#       ThreadingHTTPServer(线程), 故用 threading.BoundedSemaphore(与 BROWSER_SEM 同款,
+#       语义同 asyncio 信号量: 超出并发排队等槽位, acquire 带超时防半开请求永久挂线程)
 # 运维: 由同目录 package.json 的 dev script 拉起(优先 .venv/bin/python, 回退系统
 #       python3); scrapling 装在 mini-services/scrapling-bridge/.venv 内
 #       (uv venv + uv pip install 'scrapling[fetchers]'), 浏览器依赖经 `scrapling install`。
@@ -72,6 +78,11 @@ MODES = ('static', 'stealthy', 'playwright')
 # 浏览器类模式(stealthy/playwright)每次请求独立 launch 浏览器实例, 内存开销大:
 # 桥内并发闸与引擎 hostGate 缺省上限(3)同向, 超出的请求排队等信号量
 BROWSER_SEM = threading.BoundedSemaphore(3)
+
+# [R28-4-E5] static 类并发闸: /fetch static、/impersonate、/extract(url 形态)共享
+# (三路径都是桥内 curl_cffi/同步 IO 传输)。默认 4, env STATIC_CONCURRENCY 可调(下限 1)
+STATIC_CONCURRENCY = max(1, int(os.environ.get('STATIC_CONCURRENCY', '4') or '4'))
+STATIC_SEM = threading.BoundedSemaphore(STATIC_CONCURRENCY)
 
 # [R9-b-19] venv/scrapling 缺失时的可操作修复提示(错误信封与 /health 同文附)
 INSTALL_HINT = (
@@ -341,7 +352,21 @@ def do_impersonate(payload) -> dict:
         kwargs['headers'] = headers
     if proxy:
         kwargs['proxies'] = {'http': proxy, 'https': proxy}
-    resp = cffi.request(method, url, **kwargs)
+    # [R28-4-E5] static 类并发闸(curl_cffi 实例数不受控的 R27-1b 遗留④): 与 /fetch static、
+    # /extract(url 形态)共享 STATIC_SEM; acquire 带超时(与请求 timeoutMs 同量级)防槽位全忙时
+    # 排队线程永久挂起(R9-b-18 同款口径)
+    static_acquired = False
+    try:
+        if not STATIC_SEM.acquire(timeout=max(1.0, timeout_ms / 1000)):
+            return {'ok': False, 'error': f'static 并发闸排队超时(>{int(timeout_ms / 1000)}s, {STATIC_CONCURRENCY} 槽位全忙), 请降低该源并发或稍后重试'}
+        static_acquired = True
+        resp = cffi.request(method, url, **kwargs)
+    finally:
+        if static_acquired:
+            try:
+                STATIC_SEM.release()
+            except ValueError:
+                pass
     html = resp.text or ''
     if len(html.encode('utf-8', errors='replace')) > MAX_BODY_BYTES:
         return {'ok': False, 'error': f'响应体超限({len(html)} chars)'}
@@ -404,7 +429,19 @@ def do_extract(payload) -> dict:
 
     final_url = url
     if not html:
-        page = fetch_static(url, timeout_ms, headers, proxy, True)
+        # [R28-4-E5] url 形态桥内抓取走 fetch_static(curl_cffi) → 同样受 STATIC_SEM 管制
+        static_acquired = False
+        try:
+            if not STATIC_SEM.acquire(timeout=max(1.0, timeout_ms / 1000)):
+                return {'ok': False, 'error': f'static 并发闸排队超时(>{int(timeout_ms / 1000)}s, {STATIC_CONCURRENCY} 槽位全忙), 请降低该源并发或稍后重试'}
+            static_acquired = True
+            page = fetch_static(url, timeout_ms, headers, proxy, True)
+        finally:
+            if static_acquired:
+                try:
+                    STATIC_SEM.release()
+                except ValueError:
+                    pass
         html = body_to_text(page)
         got = getattr(page, 'url', None)
         final_url = got if isinstance(got, str) and got else url
@@ -474,6 +511,7 @@ def do_fetch(payload) -> dict:
     impl = IMPLS[mode]
     acquired = False
     tracked = False
+    static_acquired = False
     try:
         if mode in BROWSER_MODES:
             # [R9-b-18] 修复: 信号量获取加超时(与请求 timeoutMs 同量级) —— 旧实现无限阻塞,
@@ -485,6 +523,12 @@ def do_fetch(payload) -> dict:
             # [R9-b-17]: 在飞浏览器请求计数(优雅关闭时限等收尾用)
             _browser_inflight_change(1)
             tracked = True
+        else:
+            # [R28-4-E5] static(curl_cffi)并发闸: 与 /impersonate、/extract(url 形态)共享
+            # STATIC_SEM(默认 4, env STATIC_CONCURRENCY); acquire 带超时防半开请求挂线程
+            if not STATIC_SEM.acquire(timeout=max(1.0, timeout_ms / 1000)):
+                return {'ok': False, 'error': f'static 并发闸排队超时(>{int(timeout_ms / 1000)}s, {STATIC_CONCURRENCY} 槽位全忙), 请降低该源并发或稍后重试'}
+            static_acquired = True
         page = impl(url, timeout_ms, headers, proxy, headless)
         html = body_to_text(page)
         if len(html.encode('utf-8', errors='replace')) > MAX_BODY_BYTES:
@@ -505,6 +549,11 @@ def do_fetch(payload) -> dict:
         if acquired:
             try:
                 BROWSER_SEM.release()
+            except ValueError:
+                pass
+        if static_acquired:
+            try:
+                STATIC_SEM.release()
             except ValueError:
                 pass
 
@@ -537,7 +586,7 @@ class Handler(BaseHTTPRequestHandler):
                 'versions': versions(),
                 'modes': list(MODES),
                 # [R27-1b-1]/[R27-1b-2] 新增端点能力位(引擎/运维可感知; 旧消费方不读此键零影响)
-                'capabilities': {'impersonate': True, 'extract': True},
+                'capabilities': {'impersonate': True, 'extract': True, 'staticConcurrency': STATIC_CONCURRENCY},
                 'ts': int(time.time() * 1000),
             }
             # [R9-b-19]: selfTest 失败时附可操作修复提示(运维/引擎侧可直接感知 venv 缺失原因)

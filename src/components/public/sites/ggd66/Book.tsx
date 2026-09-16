@@ -1,6 +1,6 @@
 // ============================================================
-// [R27-6-3] ggd66(格格党) 书籍详情页克隆 —— 按 https://www.ggd66.com/qu/33779/ 真站快照逐节还原
-// (/tmp/r27-f/ggd66-book.html + ggd66-style.css 实测)
+// [R28-2c] ggd66(格格党) 书籍详情页克隆 —— 基础五视图之 Book
+// 真站快照(R28 实测): /tmp/r28-2c/ggd66/ggd66-book.html(https://www.ggd66.com/qu/33779/ 直抓, 17.9KB)
 //
 // 真站 DOM(.container > ol.breadcrumb + .book.pt10 + dl.book.chapterlist):
 //   ├ ol.breadcrumb             面包屑(底 #cdf3eb/边 1px #ccc/圆角 4px/padding 8px 15px/14px;
@@ -13,8 +13,8 @@
 //   │   │                       p.booktime 更新时间; .bookmore a.btn.btn-info(底 #56ccb5 白字/圆角 4px/padding 6px 12px)
 //   ├ dl.book.chapterlist       h2 《书名》最新章节 + dd(25% 一行/底边 1px dashed #ccc/py 8px/nowrap)
 //   └ #list-chapterAll          h2 《书名》全部章节目录 + dd 全章节(真站 JS「查看全部章节↓」整页展开)
-// 契约映射: ①真站「加入书架」按钮 → TXT 下載(任务书唯一 <a href="/api/public/download?book=">, .btn-info 同形)
-//           ②真站 chips「N人读过」无数据契约 → 连载状态沿用 red chip, 阅读数 chip 以分类名替代(声明)
+// 契约映射: ①真站「加入书架」按钮 → TXT 下载(任务书唯一 <a href="/api/public/download?book=">, .btn-info 同形)
+//           ②真站 chips「N人读过」无数据契约 → 阅读数 chip 以分类名替代(声明)
 //           ③真站最新章节为站方倒序 12 条; 模板取当前目录页尾部 12 条倒序(多页书第 1 页≈最早, 声明)
 //           ④全部章节目录按契约 100 章/页分页(真站单页全量 JS 展开, 差异声明)
 // ============================================================
@@ -27,7 +27,7 @@ import { BookCover } from '../../BookCover'
 import { ErrorState, Sk } from '../../bits'
 import { fmtDate, formatWords } from '../../seo'
 
-/** [R27-6-3] 真站实测色值(ggd66-style.css) */
+/** [R28-2c-12] 真站实测色值(ggd66-style.css) */
 const TEAL = '#56ccb5'
 const GREEN_LINK = '#00886d'
 const TEXT_BODY = '#888'
@@ -38,14 +38,14 @@ const TAG_RED_BORDER = '#ffb0b4' // .booktag .red 边
 const TAG_BLUE = '#3f5a93' // .booktag .blue 字
 const TAG_BLUE_BORDER = '#89d4ff' // .booktag .blue 边
 
-/** [R27-6-3] 状态文案(真站 span.red「连载」) */
+/** [R28-2c-13] 状态文案(真站 span.red「连载」) */
 function statusText(s?: string | null): string {
   if (s === 'completed') return '完本'
   if (s === 'ongoing') return '连载'
   return '连载'
 }
 
-/** [R27-6-3] 面包屑(ol.breadcrumb: #cdf3eb 底/» 分隔, 导航禁 <a> 用 button) */
+/** [R28-2c-14] 面包屑(ol.breadcrumb: #cdf3eb 底/» 分隔, 导航禁 <a> 用 button) */
 function Crumb({ items }: { items: { label: string; go?: () => void }[] }) {
   return (
     <nav aria-label="面包屑" className="ggd-crumb mb-2.5 rounded-[4px] border px-[15px] py-2 text-[14px]" style={{ borderColor: LINE, background: CRUMB_BG }}>
@@ -71,7 +71,7 @@ function Crumb({ items }: { items: { label: string; go?: () => void }[] }) {
   )
 }
 
-/** [R27-6-3] .booktag chips(red: 作者/状态 · blue: 字数/分类) */
+/** [R28-2c-15] .booktag chips(red: 作者/状态 · blue: 字数/分类) */
 function Chip({ tone, children }: { tone: 'red' | 'blue'; children: React.ReactNode }) {
   const red = tone === 'red'
   return (
@@ -117,6 +117,7 @@ export function Ggd66Book({ data, loading, error, tocPage, currentChapterId }: S
   const firstChapter = chapters[0]
   // 真站「最新章节」= 站方倒序 12 条; 模板取当前页尾部 12 条倒序(声明)
   const latest12 = [...chapters].slice(-12).reverse()
+  const pg = 'ggd-pg m-[2px] inline-flex h-[35px] min-w-[35px] items-center justify-center rounded-[3px] border px-1 text-[14px]'
 
   return (
     <div className="mx-auto w-[90%] max-w-[1200px] pb-10" style={{ color: TEXT_BODY }}>
@@ -168,7 +169,7 @@ export function Ggd66Book({ data, loading, error, tocPage, currentChapterId }: S
             </button>
           </p>
           <p className="mb-1.5 text-[14px]">更新时间：{fmtDate(book.updatedAt) || '—'}</p>
-          {/* .bookmore 按钮组(真站 开始阅读/加入书架 → 开始阅读/TXT下載; TXT 为唯一 <a>) */}
+          {/* .bookmore 按钮组(真站 开始阅读/加入书架 → 开始阅读/TXT下载; TXT 为唯一 <a>) */}
           <div className="ggd-bookmore flex flex-wrap gap-2">
             <button
               type="button"
@@ -246,7 +247,7 @@ export function Ggd66Book({ data, loading, error, tocPage, currentChapterId }: S
               <button
                 type="button"
                 onClick={() => navigate({ view: 'book', bookId: book.id, page: tocPage - 1 })}
-                className="ggd-pg m-[2px] inline-flex h-[35px] min-w-[35px] items-center justify-center rounded-[3px] border px-1 text-[14px]"
+                className={pg}
                 style={{ borderColor: LINE }}
                 aria-label="上一页"
               >
@@ -255,7 +256,7 @@ export function Ggd66Book({ data, loading, error, tocPage, currentChapterId }: S
             )}
             {Array.from({ length: Math.min(10, tocTotalPages) }, (_, i) => Math.max(1, Math.min(tocPage - 4, tocTotalPages - 9)) + i).map((n) =>
               n === tocPage ? (
-                <strong key={n} className="ggd-pg m-[2px] inline-flex h-[35px] min-w-[35px] items-center justify-center rounded-[3px] border px-1 text-[14px]" aria-current="page">
+                <strong key={n} className={pg} aria-current="page">
                   {n}
                 </strong>
               ) : (
@@ -263,7 +264,7 @@ export function Ggd66Book({ data, loading, error, tocPage, currentChapterId }: S
                   key={n}
                   type="button"
                   onClick={() => navigate({ view: 'book', bookId: book.id, page: n })}
-                  className="ggd-pg m-[2px] inline-flex h-[35px] min-w-[35px] items-center justify-center rounded-[3px] border px-1 text-[14px]"
+                  className={pg}
                   style={{ borderColor: LINE }}
                   aria-label={`第 ${n} 页`}
                 >
@@ -275,7 +276,7 @@ export function Ggd66Book({ data, loading, error, tocPage, currentChapterId }: S
               <button
                 type="button"
                 onClick={() => navigate({ view: 'book', bookId: book.id, page: tocPage + 1 })}
-                className="ggd-pg m-[2px] inline-flex h-[35px] min-w-[35px] items-center justify-center rounded-[3px] border px-1 text-[14px]"
+                className={pg}
                 style={{ borderColor: LINE }}
                 aria-label="下一页"
               >

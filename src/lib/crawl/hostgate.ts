@@ -48,6 +48,14 @@ export const HOST_GATE_RATE_LIMIT_DEFAULT_MS = 30_000
 /** 限流冷却上限钳制(zz-b): 服务端给出离谱大值时最多停手 120s */
 export const HOST_GATE_RATE_LIMIT_MAX_MS = 120_000
 
+// ---------- [R28-4-E1] host 级长静默熔断(403 连败感知) ----------
+/** 触发阈值: hostRhythm.forbiddenStreak(403 连败)≥N */
+const FORBIDDEN_STREAK_THRESHOLD = 5
+/** 熔断基础时长: 阈值命中时 5min, 每多 1 次连败指数翻倍 */
+const FORBIDDEN_BASE_MS = 5 * 60_000
+/** 熔断上限钳制: 最多 15min */
+const FORBIDDEN_MAX_MS = 15 * 60_000
+
 // ---------- [R9-e-4] 增强: 请求节奏画像(响应变慢/挑战页感知 → 自动放缓准入节奏) ----------
 /**
  * 场景: 源站开始限流前常有前兆 —— 响应延迟逐次抬升(TTFB 恶化)/开始插入挑战页。
@@ -485,6 +493,18 @@ export function acquireHostGate(
   }
 
   const now = Date.now()
+  // [R28-4-E1] host 级熔断快速失败: 停手窗剩余时长超出既有 429 冷却上限(120s)时, 必为
+  // [R28-4-E1] reportHostForbidden 触发的长静默 —— 立即抛错而非入队白等 30s 超时(修后每章
+  // 毫秒级快速失败, 千章任务不再白等数小时; 短冷却(≤120s)维持既有入队等待语义, 零回归)。
+  // 错误名 HostCircuitOpen 供 runner 侧与 HostGateTimeout 同款豁免(不计源站失败, 只记观测日志)
+  if (st.rateLimitedUntil - now > HOST_GATE_RATE_LIMIT_MAX_MS) {
+    const e = new Error(
+      `host 级熔断中(${host}, 剩余 ${Math.round((st.rateLimitedUntil - now) / 1000)}s): 源站 403 连败触发的长静默, ` +
+      `期间请求快速失败, 章节保持未采集待增量重试`,
+    )
+    e.name = 'HostCircuitOpen'
+    throw e
+  }
   // 快速通道: 队列为空(不越过任何等待者) + 有余量 + 非限流冷却期 + 节流到点
   // ([R9-e-4] 节流判定用有效地板: PACE 关闭时 paceGapFloor 返回 st.minGapMs 原值, 判定不变)
   if (
@@ -606,6 +626,38 @@ export function reportHostRateLimited(url: string, retryAfterMs?: number): boole
   }
   st.rateLimitedUntil = until
   pump(st) // 立即复查: 若有等待者则安排 penaltyTimer 到点唤醒(pump 内冷却判定会拦住放行)
+  return true
+}
+
+/**
+ * [R28-4-E1] host 级长静默熔断: 源站 403 连败(由 fetcher.hostRhythm 记账, noteHostHttpFailure
+ * 403 分支接线调用)达阈值时把该 host 推入 5~15min 停手窗(随连败指数升级+连败驱动, 无抖动 ——
+ * 熔断粒度为分钟级, 抖动收益趋零)。复用 rateLimitedUntil 停手语义(与 429 冷却同一闸门):
+ * 冷却期内 pump 不放行; 超出 HOST_GATE_RATE_LIMIT_MAX_MS(120s) 的停手窗在 acquireHostGate
+ * 入口快速失败(HostCircuitOpen, 见彼处注), 章节保持 fetched=false 增量重试语义不变,
+ * 保护出口 IP 不再持续敲盾。
+ * 返回是否实际触发(true=调用方写观测日志); 无 host 账本(未过闸路径)/未达阈值/已有更晚冷却 → false
+ */
+export function reportHostForbidden(url: string, forbiddenStreak: number): boolean {
+  const st = gates().get(hostGateKeyOf(url))
+  if (!st) return false
+  if (!Number.isFinite(forbiddenStreak) || forbiddenStreak < FORBIDDEN_STREAK_THRESHOLD) return false
+  // 指数升级: 阈值 5 → 5min, 6 → 10min, ≥7 → 15min(钳上限)
+  const over = Math.min(4, Math.round(forbiddenStreak) - FORBIDDEN_STREAK_THRESHOLD)
+  const cooldown = Math.min(FORBIDDEN_MAX_MS, FORBIDDEN_BASE_MS * Math.pow(2, over))
+  const until = Date.now() + cooldown
+  if (until <= st.rateLimitedUntil) return false
+  // 与 reportHostRateLimited 同口径: 首次进入停手窗时保存 minGapMs 快照供冷却到期回滚
+  if (st.rateLimitedUntil <= Date.now()) {
+    st.minGapMsBeforeCooldown = st.minGapMs
+  }
+  st.rateLimitedUntil = until
+  st.failStreak = 0 // 连败账已兑现为熔断, 清零防冷却到期后立即再降额
+  pump(st) // 立即复查: 有等待者则安排 penaltyTimer 到点唤醒
+  console.warn(
+    `[hostgate] host 级熔断: ${st.host} 源站 403 连续 ${forbiddenStreak} 次, 长静默 ${Math.round(cooldown / 1000)}s ` +
+    `至 ${new Date(until).toLocaleTimeString('zh-CN', { hour12: false })}, 期间请求快速失败(HostCircuitOpen), 章节保持未采集待增量重试`,
+  )
   return true
 }
 

@@ -1,6 +1,7 @@
 // ============================================================
-// [R27-6-5] ggd66(格格党) 章节阅读页克隆 —— 按 https://www.ggd66.com/qu/33779/3476058.html 真站快照逐节还原
-// (/tmp/r27-f/ggd66-read.html + ggd66-style.css 实测)
+// [R28-2c] ggd66(格格党) 章节阅读页克隆 —— 基础五视图之 Read
+// 真站快照(R28 实测): /tmp/r28-2c/ggd66/ggd66-read.html
+// (https://www.ggd66.com/qu/33779/16454521.html 直抓, 22.3KB)
 //
 // 真站 DOM(.container > ol.breadcrumb + .book.read#acontent + p.text-center + .book.tuijian):
 //   ├ ol.breadcrumb        首页 » 分类 » 书名 » 章节名(ChapterData 无分类字段 → 首页 » 书名 » 章节名, 声明)
@@ -10,11 +11,11 @@
 //   │   ├ .readcontent     正文(24px/行高 180%/letter-spacing .1em/padding 10px 15px/顶边 1px #ccc;
 //   │   │                  ≤767px 左右 padding 0; ≤467px 18px) + 尾部 ↑返回顶部↑(回顶锚)
 //   │   └ (真站含 .fullbar/章内分页「第 1 章（1 / 2）」→ 契约为整章粒度, 分页语义并入上一章/下一章, 声明)
-//   ├ p.text-center        #linkPrev 書首頁(真站首页态 void(0)) / #linkIndex 書頁,目录 / #linkNext 下一页
+//   ├ p.text-center        #linkPrev 上一章 / #linkIndex 书页,目录 / #linkNext 下一页
 //   │                      btn.btn-default(白底/边 #ccc/字 #333; 桌面各 30%; ≤767px 前二 46%+下一页 94%)
-//   │                      模板映射: 書首頁→首页 · 書頁,目录→书页 · 下一页→下一章(补上一章至首钮位, 声明)
+//   │                      (R28 复核: 真站首钮即「上一章」, 三钮排布与模板一致)
 //   ├ p 温馨提示           真站提示键盘键(Enter 回书目/← 上一页/→ 下一页) → 模板等价实现 keydown(声明)
-//   └ .book.tuijian        相关阅读: 同类书链 10 枚(真站为同分类; ChapterData 无分类 → 字数热榜替代, 声明)
+//   └ .book.tuijian        相关阅读: 「{分类}相关阅读：」同分类书链 10 枚(ChapterData 无分类 → 字数热榜替代, 声明)
 // ============================================================
 'use client'
 
@@ -26,7 +27,7 @@ import type { BookItem } from '../../types'
 import { ChapterContent, useRecordReading } from '../template-kit'
 import { ErrorState, Sk, bookNavProps } from '../../bits'
 
-/** [R27-6-5] 真站实测色值(ggd66-style.css) */
+/** [R28-2c-17] 真站实测色值(ggd66-style.css) */
 const GREEN_LINK = '#00886d'
 const TEXT_BODY = '#888'
 const LINE = '#ccc'
@@ -35,10 +36,10 @@ const CRUMB_BG = '#cdf3eb'
 
 export function Ggd66Read({ data, loading, error }: SiteReadProps) {
   const { navigate } = usePublic()
-  // [R27-6-5] 相关阅读(真站同分类书链; 无分类字段 → 字数热榜 10 本替代)
+  // [R28-2c-18] 相关阅读(真站同分类书链; 无分类字段 → 字数热榜 10 本替代)
   const [rel, setRel] = useState<BookItem[] | null>(null)
 
-  // [R27-6-5] 阅读位置/时长记忆(hooks 顺序: 挂载即调, data 未就绪时内部自守)
+  // [R28-2c-19] 阅读位置/时长记忆(hooks 顺序: 挂载即调, data 未就绪时内部自守)
   useRecordReading(data?.book?.id, data?.chapter?.id, data?.chapter?.title)
 
   const bookId = data?.book?.id
@@ -57,12 +58,12 @@ export function Ggd66Read({ data, loading, error }: SiteReadProps) {
     }
   }, [bookId])
 
-  // [R27-6-5] 键盘导航(真站温馨提示: Enter 回书目/← 上一页/→ 下一页 → 章粒度映射)
+  // [R28-2c-20] 键盘导航(真站温馨提示: Enter 回书目/← 上一页/→ 下一页 → 章粒度映射)
   useEffect(() => {
     if (!data) return
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement | null)?.tagName
-      if (tag === 'INPUT' || tag === 'TEXTAREA') return
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement | null)?.isContentEditable) return
       if (e.key === 'ArrowLeft' && data.prev) navigate({ view: 'read', chapterId: data.prev.id })
       else if (e.key === 'ArrowRight' && data.next) navigate({ view: 'read', chapterId: data.next.id })
       else if (e.key === 'Enter') navigate({ view: 'book', bookId: data.book.id })
@@ -162,7 +163,7 @@ export function Ggd66Read({ data, loading, error }: SiteReadProps) {
         </div>
       </div>
 
-      {/* ============ p.text-center 三钮导航(真站 書首頁/書頁,目录/下一页 → 首钮位补上一章, 声明) ============ */}
+      {/* ============ p.text-center 三钮导航(真站 上一章/书页,目录/下一页 同款排布) ============ */}
       <nav aria-label="章节导航" className="ggd-readnav mt-1 flex flex-wrap justify-center text-center">
         <button type="button" onClick={() => prev && navigate({ view: 'read', chapterId: prev.id })} disabled={!prev} className={`${navBtn} w-[46%] sm:w-[30%]`} aria-label="上一章">
           上一章

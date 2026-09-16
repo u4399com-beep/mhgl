@@ -5106,3 +5106,243 @@ Stage Summary:
 - PSEO: 关键词→落地页全链路上线(SSR TDK/管理 API/面板/采集钩子), 服务端 API 实证生成与 404 负例
 - 主题: 10/10 站六文件克隆全接线(5 视图), 旧单文件 10 个全删, registry 为唯一消费入口; bun build --external '*' 不能作克隆模板交付门(不解析相对导入), 必须全项目 tsc
 - 事故改进: DB 每日自动备份+去危险 flag; 数据已按最小可用集重建, 章节正文待重挂任务恢复
+
+---
+Task ID: R28-2c
+Agent: general-purpose(clone-qb23-ggd66)
+Task: R28 八页型重建 — qb23(23QB书站/铅笔小说) 全页型克隆(sites/qb23/ 九文件)
+
+Work Log:
+- [R28-2c-qb23-考据] 真站直连全页型快照(/tmp/r28-2c/qb23/): home 49.5KB + category(/book/lastupdate_0_6_...html) 40KB + book(/book/5094/) 33.4KB + toc(/book/5094/catalog) 732KB + read(/book/5094/3644078.html) 94KB + search(/search.html?searchkey=) 14.8KB + top(/top.html 今日热榜) 49.7KB + 完本(/book/lastupdate_0_0_0_0_0_0_5_1_0.html 进度=已经完本) 40KB + style.css(/mxstatic/css/style.css) 125KB; 逐页型 DOM 缩进树解析 + CSS 逐规则取色
+- [R28-2c-qb23-页型实测] 真站 8 页型全存在: /top.html=今日热榜(单榜 module-items 封面网格 16 卡, main.bgys #eaedf1 灰蓝带); 完本无独立页=分类页进度筛选(URL 段7=5); /book/full_*.html 实测 302 回全部列表(判定 full_ 非真站全本形态, 用进度筛选页); 搜索 form action=/search.html 参数 searchkey; Read 页 footer 四钮(上一篇/+书签/目录/下一篇); 分类筛选行实测 5 行(分类/首字/字数/排序/进度)
+- [R28-2c-qb23-1] 九文件落地 src/components/public/sites/qb23/: Home.tsx(~240 行, module-items 封面网格 15 卡斜角序号+list-item×12 分类榜单列; QbGridCard 导出供 Ranking 复用) / Category.tsx(~330, .library-box×5 筛选行+library-stat+module-items 网格+#page 分页; QbFilterRow/QbFilterChip/QbPageBtn/pageWindowOf 导出供 Fulltext 复用) / Book.tsx(~360, view-heading 封面右浮+tag-link chips+btn-collect 红渐变/绿渐变/绿描边+最新章节 module-row-info+catalog-more+相关作品) / Toc.tsx(~290, .heading 裸排+#shuqian 阅读进度+分卷 h2.type+module-row 三列+#page) / Read.tsx(~250, chepnav 面包屑+article-title 2.75rem/800+article-content 680px+footer 四钮 f-left/f-center×2/f-right+fixed_right_bar A+/A-) / Ranking.tsx(~110, 今日热榜 page-title+library chip 三榜切换+bgys 灰带 module-items 网格) / Fulltext.tsx(~200, 完本=分类页模板+进度 selected=已经完本) / Search.tsx(~200, #search-content 搜索框+search-stat h1 38px/h2 命中数+module-search-item 双列结果卡) / index.ts(~90, qb23Template 8 视图+css 8 条 .clone-qb23 前缀)
+- [R28-2c-qb23-色板] style.css 实测: body #f8f9f9/#282828 · a:hover #ff2a14 · .box 白卡 padding 25px/radius 18px/shadow 0 7px 21px rgba(149,157,165,.22) · .library-item chip #f3f5f7 hover #eaedf1, selected #fef0e5/#ff2a14 · #page a #f3f5f7 radius 50px min-width 40px, strong #ff2a14 白字 · .module-row-info 斑马 #f7f8f9 · .btn-collect 渐变 #fc000c→#f9444d · .btn-aux 渐变 #7ec53d→#34a853 · .search-stat h1 38px · .module-search-item #f7f8f9 radius 18px cover 155px · .item-title #ECEEF1 · 序号 .one #fc4274/.two #ff8155/.three #fcb80a · top1~3 #e50914/#f73/#ffa82e
+- [R28-2c-qb23-降级] ①最新章节=tocPage 尾部 10 条倒序(单页书即真最新; 多页书页1尾部≈最早, 数据层无全量目录) ②Read +书签(sq 登录态)→钮位映射「书页」 ③书评感想/评论框(.pinglun)无契约不渲染 ④author/taglist 外链→站内 navigate ⑤分类筛选 首字/字数/排序/进度四行 aria-disabled 装饰片(数据层单维) ⑥Ranking 真站单榜今日热榜→契约三榜 chip 切换(榜单口径推断映射) ⑦Fulltext 真站无独立页→进度筛选页映射, stat 行「全部已经完本_更新时间_全部」 ⑧Search ac_hot 今日热门下拉/relatedTags 不渲染, novel-serial 右浮角标简化行内首片 ⑨Read h3.text-muted 卷名省略(ChapterData 无卷字段) ⑩真站目录单页全量 732KB→数据层 100 章/页 #page 分页形态复用
+- 质量门: bun build --target=browser 0 错(123 modules); 导航全 button+navigate(唯一 <a>=TXT 下载 /api/public/download?book=); 骨架 Sk+ErrorState+空态三态齐; 375px 无横滚(筛选行横滚+网格单列); 零 any; 相对导入 ../../ 已自查
+---
+Task ID: R28-3
+Agent: general-purpose(crawl-audit)
+Task: 采集引擎+反反爬逐行深度审计(只读)
+
+Work Log:
+- 前置: worklog 末段历史坑 checklist 化(R21 bqg713 诱饵已由 R21-b /unlock+水印校验根治/R25 清洗链全字段在位/R27-1b curl-impersonate 双轨/R27-2 PSEO/R27-5a 域为 admin 组件与本轮不重叠, 其报告 /tmp/r27-audit 已随 /tmp 清理); 逐文件全读 fetcher.ts(4302 行)/parser.ts(1191)/runner.ts(2288)/suggest.ts/types.ts(sanitize 全段)/pseo.ts+pseo-server.ts/admin rules 路由(test/[id]·calibrate/batch/import-builtin/calibrate-all)/scrapling-bridge server.py(663)/fetch-relay/index.ts/calibrate.ts(前 200+协议注释)/storage.ts 全文 + hostgate/obscura/downloader/sorter/smart/cleaner(尾段)/builtin-rules(29 条分页模式与 bqg713/qidian/xjp contentProxyUrl 链抽扫); 零代码修改/零 git/零服务触碰/零 DB, /tmp 下未产生任何脚本(纯静态读码)
+- 核实在位(不重复报): SSRF 逐跳守卫+loopback 精确豁免 / token 双重编码 R21-e-1 / 429 Retry-After 抢救链 ab-b / R15-d1-3 环熔断(允许 1 次重访) / R22-e 系列 6 修 / R25-5a sliceCodePoints / R18-c 续采对账 / R9-d-9 ghost sweeper / R22-f 系列批次循环修复 / PSEO 钩子接线(Setting→generateForBook(5)→try/catch, runner.ts:2099-2110 ✓) / listStart clamp≥1(tasks/_shared.ts:66)+{offset:N}=(p-1)*N 0 基表达 ✓ / restore Number()||1 ✓
+- 发现: 高 0 / 中 3 / 低 9 + 反反爬专题 6 条; 中危集中于 M1 curl-impersonate 桥轨未过滤引擎指纹头(fetcher.ts:2818-2827 桥轨收 buildHeaders 全量头组, server.py:311 契约期望已过滤 → chrome116 TLS × Chrome142 UA 版本错配, 轨 1 有 filterImpersonateHeaders 轨 2 没有, R27-1b"双轨同口径"未兑现; 默认关故中危) / M2 停止在途 AbortError 被 classifyHttpFailure 归 'timeout' 污染 hostRhythm 观测(fetcher.ts:852+4042) / M3 代理池对源站 403/429 逐条重试放大(每章≤10 代理+1 直连=11 次打向封锁源站, fetcher.ts:3357-3385, 与 pickProxyFor 单选语义不一致); 低危: jsonArrayWalk [k=v] 缺 %26 解码(与 jsonGet R4-18 漂移)/终败 attempt 白睡 0.4~1.2s/autoCookie=false 仍发罐中 Cookie/charset 探测窗 2048/suggest 走 fetchBinary 发 Accept:image+忽略 charset/parseToc xpath 容器 regex 字段空 html/findLargestText O(n·depth) CPU 尖峰/ratelimit-demo 规则无 allowLoopback 声明(测试面板必 502)/同名同作者跨源合并错书风险(设计留档)
+- 反反爬专题 6 条(每条现状→落地方案→收益/风险, 全部给到函数级接线点): ①403/429 host 级长静默熔断缺位(hostRhythm 20s 窗执行仅钳 3s; 方案=hostgate 新增 reportHostForbidden, forbiddenStreak≥5 → penaltyUntil 5~15min, 接线 noteHostHttpFailure) ②impersonate 档位自动轮换(resolveCurlImpersonateTier 加 tierOverride, fetchPageOnce 403/429 时 chrome116→edge101→safari17_0 换档重试一次, 预算并入 cookieRetries) ③trafilatura /extract 正文兜底接线点=runner.ts:1930-1932(plainLen<200 且 confidence<0.3 → POST {html} → \n wrap <p>(同 contentProxy fetcher.ts:3930-3935)→重清洗落库; FETCH_EXTRACT_FALLBACK=1 缺省关+每 host 3 败停用) ④bqg713 RC4+/api/hm 已被 R21-b 证据级推翻无需解锁; 规则引擎无 JS 执行位属安全特性, 未来 JS 解密走本地转换代理范式或受限声明式算子, DOM 兜底由 /extract 承接 ⑤每 host 并发/速率现状全景(hostGate 3+minGapMs 抖动+限流冷却 120s+全局信号量 10+浏览器类钳 3); 缺口=桥 static//impersonate 无桥侧并发闸(建议 STATIC_SEM) ⑥代理池钩子补强: sticky-host 策略(cf_clearance 与出口 IP 绑定, 随机轮换互踢)+FETCH_DEFAULT_PROXY_URL 全局默认池
+- 报告: /tmp/r28-audit/audit-report.md(file:line/触发/影响/修法, 高 0/中 3/低 9+专题 6, 与 worklog 历史已修项零重复)
+
+Stage Summary:
+- 高0/中3/低9 + 反反爬增强机会 6 条; 报告 /tmp/r28-audit/audit-report.md
+- 一句话清单: 中=①impersonate 桥轨指纹头未过滤(双轨不一致) ②停止中止 AbortError 误归 timeout ③代理池 4xx 逐条重试放大 11×/章; 低=%26 解码漂移/终败白睡/autoCookie 只停收不停发/charset 窗 2048/suggest Accept:image/xpath regex 字段/findLargestText CPU/ratelimit-demo loopback 声明/同名跨源合并
+- 待主控: M1/M3 建议下一修复轮优先(均 fetcher.ts 单点小 diff); 反反爬专题①③为最高性价比增强(宿主熔断+正文兜底); 串行质量门与修复排期归主控
+---
+Task ID: R28-2a
+Agent: general-purpose(clone-aijjxs-ddyueshu)
+Task: aijjxs(久久小说下载网) 7 页型克隆 — 真站直连实抓全页型考据 + 六/八文件重建
+
+Work Log:
+- [R28-2a-1] aijjxs 真站勘察(直连 200, 快照存 /tmp/r28-2a/aijjxs/): home(57.9KB)/cat(/txt/chuanyue/)/book(/txt/57361.html)/toc(/read/57361/ 内联style)/chapter(/read/47/57361/2.html)/txtlist(/txt/ 全站书库 toplist)/search(POST /e/search/index.php 仅帝国CMS提示壳, 无GET结果页); CSS 全量实抓 style.css(39.9KB)+read.css(12.8KB)+yecha/Common.css(18.9KB); :root 逐值提取
+- [R28-2a-2] 页型覆盖: Home=实测 / Category=实测 / Book=实测 / Toc=实测(内联样式全提) / Read=实测(read-v3) / Fulltext=实测映射(/txt/ 书库, 契约 status:completed 最近似页型) / Search=推断级(POST流程无结果页实拍) / Ranking=跳过(真站无独立排行榜页, sitemap 清点实证, 榜单仅为首页 aside 板块)
+- [R28-2a-3] 色板关键值(style.css :root): bg #f3efe7 / paper #fffdf8 / ink #1f2937 / muted #6b7280 / line #e5dccd / brand #0f766e / brandDark #115e59 / accent #b45309 / chip #eef9f7 / rank #fff5e6 / radius 14 / shadow 0 10px 30px rgba(17,24,39,.08); .book a:hover #09B295; .new #F03; .sfwj #09B295; download-btn 渐变 #da562a→#b8461d(hover #c94a20→#9e350f); listbg 渐变 #fffefa→#fffaf1 边 #ecdcc6 标题 #0b3b2e; read.css 暖羊皮纸系 bg #efe6d8→#eadfcf/panel #fff8ec/paper #fffcf6/link #6b3418→#a85a2a/正文 23px lh1.76 缩进2.4em; toc 内联 read-panel #fff 边 #e5e8ed 标题 28px #1f2d3d chapter-list 3列格
+- [R28-2a-4] 文件清单(sites/aijjxs/, 2162 行): Home.tsx 631(最新上传16+展示更多/封面推荐2/小说分类4组/专题书单3/aside 24h热榜+一周热榜+热门作者/hero KPI) / Category.tsx 280(.articleInfo h1+filters pill+listbg 封面图文卡+.pager+aside rank) / Book.tsx 307(.detail 图文 kv 6 行+内容简介+下载与说明双钮+猜您喜欢+tags 芯片) / Toc.tsx 203(read-wrap/panel+read-meta+read-intro+chapter-list 3列+pager) / Read.tsx 260(sk_gb 6色板+5档字号+view_t+view_content+view_page+view_tips) / Fulltext.tsx 206(saixuan 静态筛选+grid2 书卡+pager) / Search.tsx 169(form.search 复刻+panel lines 结果) / index.ts 106(css 串 24 条规则逐条注真站出处+移动端 980/900/680/640 断点)
+- [R28-2a-5] 降级/推断声明(文件头注逐条): ①txt KB 数=wordCount/1024 折算(真站为文件体积) ②KPI 会员口径无数据源→今日/本月/在库/日期四项真实推导 ③「今日已签到」头像墙不渲染 ④aside 双热榜=字数榜/新书榜切片(推断) ⑤小说分类4组=分类频次近似(真站为运营分组) ⑥「加入收藏」登录态→TXT下载同形替代 ⑦筛选行排序/大小/时间无契约参数→仅「最新上传」激活静态 ⑧Search 结果列表推断级(真站 POST 流程无 GET 结果页) ⑨Read 章内分页→按章推进等价映射 ⑩Toc 单页全量→契约 100 章/页补 pager; 每处均有行注
+- 质量门: bun build --target=browser 0 错(114 modules); 站内导航全 button+navigate; <a> 仅 TXT 下载(/api/public/download?book=) 出口; 骨架 Sk+ErrorState+EmptyState 三态齐; css 全 .clone-aijjxs 前缀; 375px 无横滚(overflow-x hidden 兜底+ellipsis 截断)
+
+Stage Summary:
+- aijjxs 完成 8 文件 2162 行, 页型 7/8(基础5+Fulltext+Search), Ranking 以真站无此页型跳过并声明; registry 接线待主控
+
+---
+Task ID: R28-2d
+Agent: general-purpose(clone-huangjinwu-x2552)
+Task: R28 主题模板 1:1 克隆 — huangjinwu(直连实测) 八页型重建
+
+Work Log:
+- [R28-2d-0] 考据: 读 shared.ts(R28-0 八页型契约)/template-kit.tsx/R28 视图壳(Ranking/Fulltext/Search/Home/Category)+registry(R28-1 空表重建期); 旧 git 5bb96cb 版仅 5 页型, 按 R28 要求重建+扩展
+- [R28-2d-0] huangjinwu 真站直连实测(Chrome UA, /tmp/r28-2d/huangjinwu/ 存档): 首页 200/57.5KB + style.css 200/44.4KB + /rank(39.5KB)+/rank/size(39KB)+/list(40.4KB)+/novel/262(44.8KB)+/novel/262/22282134(25.9KB)+/search?keyword=长生(39.4KB)+/dzss(53.7KB) 全 200
+- [R28-2d-0] 真站导航页型盘点: 首页 / 排行榜 /rank 书库 /list 标签 /tag 作者 /author 电子书 /dzss 搜索 /search; 书 /novel/{id}; 章 /novel/{id}/{cid}; 无全本列表页(/dzss 电子书为独立内容形态)
+- [R28-2d-1] Home.tsx(195 行): 热门推荐 6 纯文字卡(badge 三色 chip: category 实底蓝/status 浅蓝描边/words 透明描边)+分类排行榜 .ranking-module×6(蓝竖条榜头+计数徽章行 前3名蓝系)+最新更新 12 卡; 色值全部 hjw-style.css :root 实测
+- [R28-2d-2] Category.tsx(184): h1 小说分类 + .filter-bar 分类 chips(fetchCategories 数据面; 真站固定 9 类)+h2 {分类}列表+卡片网格+.pagination-list(page-info x/y+下一页/末页, page>1 补首页/上一页)
+- [R28-2d-3] Book.tsx(332): breadcrumb+.detail-header(cover 180×250+h1 32px+.detail-meta 蓝点圆角条+竖线分隔(≥768 css 串补)+detail-actions)+简介折叠(7.2em max-height+展开钮)+最新章节 12+章节目录(共N章, 100/页分页+当前章高亮)+相关小说(同分类替代)
+- [R28-2d-4] Toc.tsx(141): 真站无独立目录页(书页 .detail-section 区块) → 独立成页映射声明, DOM 逐条取自真站目录区块
+- [R28-2d-5] Read.tsx(229): breadcrumb+reader-header(书名链接+字体 range 14~24/行距 range 1.4~3)+reader-content(#f8fafc 纸面 2em 缩进 0.2em 字距 两端对齐 ChapterContent)+reader-nav 三段(上一章|目录|下一章)+键盘 ←/→(editable-target 守卫)+useRecordReading+同作者小说(fetchSearch(author) 近似, 空则热榜)
+- [R28-2d-6] Ranking.tsx(140): h1 小说排行榜+.filter-bar 榜 chips(onBoard 切换, 激活榜模块置前)+.top-section 分类排行 榜模块网格(计数徽章 1/2/3 名 #2563eb/#6f92ee/#a9c3f1 color-mix 换算); 真站 10 榜 → 数据面三榜声明
+- [R28-2d-7] Search.tsx(144): .search-form 白卡(input focus 蓝环 3px)+h1 搜索结果+.search-result-info(浅蓝底 「搜索"q"，共找到N条」)+book-grid+.search-empty 空态卡; 真站全量计数/分页无契约声明
+- [R28-2d-8] index.ts(93): huangjinwuTemplate(7 组件)+css 串 21 条(全部 .clone-huangjinwu 前缀, 每条注真站 style.css 规则出处); Fulltext 跳过声明(真站无全本列表页)
+
+Stage Summary:
+- 文件: sites/huangjinwu/ 8 文件 1458 行(Home195/Category184/Book332/Toc141/Read229/Ranking140/Search144/index93)
+- 页型覆盖表: Home=实测 | Category=实测(/list) | Book=实测(/novel/262) | Toc=实测(书页目录区块独立成页) | Read=实测(章节页) | Ranking=实测(/rank+单榜页) | Search=实测(?keyword=长生) | Fulltext=跳过(真站无)
+- 实测色板(:root): --bg #f0f4fb/渐变 #f5f8ff→#eef3fb · --card #fff · --secondary #2563eb · --primary #0f172a · --logo #1d4ed8 · --text #1e293b · --text-light #64748b · --text-muted #94a3b8 · --border #dbe4f0 · --hover #e8f1ff · --footer #e2eaf5 · --reader-bg #f8fafc · --reader-border #d8e3f0 · btn-hover #1d4ed8 · radius 6/10px · shadow 0 1px 2px rgba(15,23,42,.04)+0 4px 16px rgba(37,99,235,.06) · hover 阴影 0 8px 24px rgba(37,99,235,.14)
+- 降级声明: ①热门推荐=字数榜 top6 ②分类排行榜=单次 60 本按分类分组 ③detail-meta 人气/推荐省略 ④收藏/推荐登录态钮 → TXT 下载(唯一 <a>)+目录钮 ⑤相关小说/同作者 → 同分类/搜作者近似 ⑥章内分页(1/2)→下一章 ⑦榜 10→3 ⑧搜索计数/分页无契约 ⑨分类 chips 动态化
+- 质量门: bun build --target=browser 113 模块 0 错; 交互全 button+navigate; 骨架/ErrorState/EmptyState 三态齐; 375px 单列无横滚(版心 max-w-[1180px]+px-4); 零 any; 相对导入 ../ 深度自查(ctx/data/types/bits/seo 均 ../../)
+---
+Task ID: R28-2a2
+Agent: general-purpose(clone-ddyueshu-补完)
+Task: ddyueshu(顶点小说 www.ddyueshu.cc) 克隆补完 — R28-2a 超时遗留(已有 Home/Category/Book/Toc 4 文件), 补 Read/Fulltext/index 三文件
+
+Work Log:
+- [R28-2a2-考据] 前轮快照复用(/tmp/r28-2a/ddyueshu/): chapter.html(10.4KB 已解码 UTF8)+fulltext.html(265KB, 3010 条 li 书链实证)+biquge-css.raw(21KB)+style-css.raw(15KB) iconv 转码后逐规则核对; 真站补勘(直连 200): live 首页 26KB 无 <form>(搜索表单由 bqg_panel() JS 注入), /images/bqg.js 实抓破解 .header_search 表单 action, GET /modules/article/search.php?searchkey=圣墟 实测 200/0 字节(空壳)
+- [R28-2a2-页型覆盖] Read=实测(章节页快照逐层核对; read.html jumpPage 键盘 37=←上一章/39=→下一章/13=回目录原样还原+编辑态守卫); Fulltext=实测(/xiaoshuodaquan/ 全部小说大全=「全部小说」导航落点, .MessageDiv 提示条+#main .novellist 按大类 h2 分组+li 20% 五列书链); Search=跳过(真站 header 搜索 action=https://so.biqusoso.com/s1.php target=_blank 为第三方站外搜索引擎, 站内 search.php 空壳 200/0B, 前轮 POST 探针快照亦 0B → 无站内结果页, view:'search' 走 SearchView 通用兜底); Ranking=任务书范围外未做(真站有 /paihangbang/, 快照 ddyueshu-rank.html 14.9KB 已存档, 当前走 RankingView 通用兜底)
+- [R28-2a2-1] Read.tsx(197 行): .content_read>.box_con(.con_top 面包屑+A-/px/A+ 字号工具挂右端 / .bookname h1 25px/35px 黑体居中+.bottem1 三连「上一章 ←章节目录 →下一章」按真站排布 / #content 宽 85% 字距 0.2em 行高 150% 走 ChapterContent+.textinfo 本章字数 / .bottem2 上虚线同款三连); useReaderFont(14~24)+useRecordReading; 全 button+navigate, 零 <a>
+- [R28-2a2-2] Fulltext.tsx(167 行): .MessageDiv(bg #FFF9D9 边 1px #FFCC33)+.novellist 按分类分组 h2(bg #F6F8FE 底边 #DDD)+ul li(20% 底边 #DDD #B3B3B3)书名 button+.page 分页(dy-pg 形态); Sk/ErrorState/EmptyState 三态齐
+- [R28-2a2-3] index.ts(82 行): ddyueshuTemplate 6 组件(基础五+Fulltext); css 串 24 条全 .clone-ddyueshu 前缀逐条注真站出处(biquge L2/L4/L77/L132-169 + style.css L9-10/L132/L147/L149-153/L190-196); git 5bb96cb 旧版 css 考据成果复用重组(dy-btn/dy-pg/dy-bt-link/dy-cur/dy-cell 全保留), 新增 dy-crumb/dy-msg/dy-nl 三组+<640px li 20%→50% 双列断点(li 宽改走 css 串以便断点覆盖, 新组件不再 inline width)
+- [R28-2a2-色板] 沿用前轮实测色板(本轮逐条复核无漂移): body #E9FAFF/#555 · a #6F78A7 hover #FD5500(style.css L10) · .box_con 边 #88C6E5 · .con_top 底 #E1ECED · .bottem1/.bottem2 a #085308 · .downtxt #459DF5→hover #118860 · .page hover/active #00A86E · .MessageDiv #FFF9D9/#FFCC33 · .novellist h2 #F6F8FE/li #B3B3B3 边 #DDD · visited 红基因 #CC3300(Toc 同源)
+- [R28-2a2-降级] Read: ①真站正文 19pt≈25.3px 超偏好区间→useReaderFont 14~24 承接(A+/A- 任务书要求真站无) ②「加入书签」登录态 addBookMark JS→省略, useRecordReading 滚动防抖自动记忆等价 ③.lm 热门推荐行=站方固定硬链省略 ④bottem1/2 真站 900px 固定宽→max-width:900 窄屏适配 ⑤方正启体简体字体栈按真站声明自然回落雅黑; Fulltext: ①真站全站 3010 条按大类单页(Ctrl+F 提示)→契约 status:completed 24 本/页按分类分组+.page 分页 ②提示文案改完本口径(保留 Ctrl+F 句式) ③li 真站书名混排作者→name/author 分字段, author 进 title ④visited 红(契约无浏览态)不还原; 逐条见各文件头注
+- 质量门: bun build --target=browser 0 错(113 modules, 产物 /tmp/r28-chk-ddyueshu); 站内导航全 button+navigate(新文件零 <a>); 375px 无横滚(面包屑/标题 ellipsis+#content minWidth 0+li minWidth 135 flex 换行+overflow-x hidden 兜底); 零 any; 相对导入深度 ../../ 自查(shared/ctx/bits/seo/types=../../, template-kit=../)
+
+Stage Summary:
+- ddyueshu 补完至 7 文件 1386 行(Home 281/Category 202/Book 288/Toc 169 + Read 197/Fulltext 167/index 82), 页型 6/8(Search 真站站外引擎跳过+Ranking 任务书范围外, 均声明走视图壳通用兜底)
+- 遗留交接: ①已有 Book.tsx(R28-2a 产物)L136/L156 引用 C.dtSpan 但其 C 常量未定义该键(硬规则禁改已有文件, 未动) — TS2339 必挂全项目 tsc 门(bun build 不报/运行时无害, color undefined 回落默认), 请主控在 Book.tsx C 常量补一行 dtSpan: '#999999'(Category.tsx 同名色板键 #999999 可对齐) ②Ranking.tsx 可据 /tmp/r28-2a/ddyueshu/ddyueshu-rank.html 快照补做 ③registry 接线待主控
+
+---
+Task ID: R28-2b2
+Agent: general-purpose(pili-补完)
+Task: pili(霹雳书屋) 模板克隆补完 — Ranking.tsx 截断修复 + Search.tsx + index.ts(R28-2b 超时续作)
+
+Work Log:
+- [R28-2b2-0] 接手勘察: 前轮 R28-2b 无 worklog 段; /tmp/r28-2b/pili/ 快照完好(home 320K/book/all-list/menu/read63/top/search/tagsearch + wmcms.global/index/works/rank/comicall.css + read.css 207K); pili/ 已有 6 文件, 前五(Home/Category/Book/Toc/Read)完好未动; Ranking.tsx 188 行在 134-138 残留孤儿 map 块(裸 JSX 表达式语句 `<span key={col} />`, bun 解析器 Expected ";" 报错 ×2)——完整三列 map(139-180)其实已在文件内, 截断点即孤儿块
+- [R28-2b2-1] Ranking.tsx 补完 = 删除孤儿块(净 -5 行, 183 行), 保留并接回 `{[0,1,2].map}` 三列分栏: 每列 10 项 ol 行式列表(1-3 名 #484848 徽章/4+ #f0efee + 书名链 .pili-rank-name + 作者 64px + 数值 72px #ff9a6a), 列头 b 作品/strong 作者/em 数值(更新榜显更新日期/字数·新书榜显字数), bun build 单文件 0 错验证
+- [R28-2b2-2] Search 页型考据: 真站有搜索(实抓 home.html 全站表单 ×2: action=/module/search/search.php, method get+post, hidden module=novel/type=0, input name=key placeholder「可搜索小说名/作者名(/标签)」)→ Search 必做; 结果页本体不可得——search.php 直连/cloak 桥 lite+standard+maximum 三档均命中 Cloudflare「Just a moment...」31K 挑战页(前轮 search.html/search.json/tagsearch.html 同为挑战页); 桥况: 3012 scrapling 自检 ModuleNotFoundError 坏, 3016 cloak-browser 正常(POST /fetch), /impersonate curl_cffi 缺失坏(与 home-imp.json 109B 同因)
+- [R28-2b2-3] Search.tsx(209 行)新建: 搜索框按 wmcms.global.css 750-830 行实测复刻(.mod-top-search 44px #ece8e6 + .mod-search-input-wr 白底 1px #dcd8d4 右无边 + 14px 输入 + 74×44 提交钮; 雪碧图放大镜→按钮橙 #f89157+图标平替声明); 结果卡复用同模板族 wmcms 检索组件 ret-search-item(all-list.html 同源, 封面黑条+18px 标题+作者+分类字数+3 行简介+开始阅读米色钮)+结果头条 ret-search-head #f3f3f3「共N个结果」em 700; relatedTags 相关搜索词 chips(与 SearchView 通用壳同口径跳关键词落地, 对应真站 tagsearch 标签搜索); 三态齐(Sk 6 卡/ErrorState/EmptyState)
+- [R28-2b2-4] index.ts(58 行)新建: piliTemplate 七页型(Home/Category/Book/Toc/Read/Ranking/Search; 真站无独立全本页→不实现 Fulltext, 通用兜底); css 串 9 条全部 .clone-pili 前缀逐条注真站出处: .pili-read-content p←read.css(.read-content p lh1.8/margin1.2em/indent2em) / .pili-toc-link:visited←works.css(.works-chapter-item a:visited #A75646; button 无历史语义保留对齐规格) / .pili-ctrl-link:not(:disabled):hover←read.css(.chapter-control a:hover #1a1a1a+rgba(0,0,0,.03)) / .pili-dock-btn:hover←read.css(.left-bar-list dd a:hover #ed4259 含 svg) / .pili-rank-name(#666)+:hover(#fa8729)←rank.css .mod-rank-name1 481-488 行实测; 全站 a 过渡与页脚底色已由 themes.ts customCss 注入不重复
+- 质量门: bun build --target=browser src/components/public/sites/pili/index.ts --outdir /tmp/r28-chk-pili = 120 modules 0 错; 交互全 button+navigate(<a> 仅 Book.tsx TXT 下载出口, 新增两文件零 <a>); 零 any; 375px 无横滚(搜索框 flex min-w-0/结果卡 1 列起/榜单 lg 3 列 2 列 1 列降); 禁区合规(前五文件/shared/registry/视图壳/桥代码零改动)
+
+Stage Summary:
+- 文件: sites/pili/ 8 文件 1835 行(Home439/Category307/Book252/Read229/Search209/Toc158/Ranking183/index58); R28-2b2 实际改动=Ranking.tsx(补完)/Search.tsx(新)/index.ts(新, 覆盖旧 R26 版)
+- 页型覆盖表: Home=实测 | Category=实测(/0/list/1.html) | Book=实测 | Toc=实测(menu.html) | Read=实测(read63.html) | Ranking=实测(top.html) | Search=入口实测+结果列表推断级(search.php 被 CF 挑战拦截, 按 wmcms 同族检索组件复刻并声明) | Fulltext=跳过(真站无全本列表页)
+- 色板摘要: 主橙 #fd8929 · 浅橙 #ff9a6a · 按钮橙 #f89157(边 #ec7d4d, hover #f59966/active #f1854b) · 米色 #faead0+#eed3a4 · 深榜盒 #373533 · banner 书名条 #f1823a · 榜单头 #ff9a6a/竖条 #ff9126 · 徽章 #484848/#f0efee(榜) #ff4a4a/#ff7e3e/#ffb83d(分类侧栏) · 红 #d71704/#cd1604 · 访问章 #A75646 · 阅读画布 #ede7da/纸面 #faf5eb/边 #d8d8d8/侧坞红 #ed4259 · 搜索框 #ece8e6/#dcd8d4 · 文字 #333/#555/#666/#999 · 版心 1200px
+- 降级声明(文件头注逐条): Ranking ①真站 7 档数据榜→契约三榜 tab ②点击量→更新日期/字数近似 ③分类榜→分类导航 ④30 项三列分栏复刻; Search ①module/type 隐藏域→navigate 承担 ②雪碧图钮→图标平替 ③无 total/分页契约→不渲染分页 ④结果卡按 wmcms 同族组件推断; Toc ①契约 100 章/页补分页 ②书籤不渲染; Book ①计数→字数/分类/更新 ②作者卡降级 ③轮播图不渲染 ④最新章取目录页尾; Home 榜单以字数近似点击/月票
+- registry 接线待主控(kks101 另 agent 负责, 本 agent 零接触)
+
+---
+Task ID: R28-2g
+Agent: general-purpose(clone-trxsw)
+Task: trxsw 全页型克隆(Wayback)
+
+Work Log:
+- [R28-2g-0] 考据: 真站封锁确认(连 curl HTTP/2 PROTOCOL_ERROR, archive.org/CDX 沙箱直连超时实证); 前轮 Wayback 快照复用(/tmp/r28-2e/snap/tx-home.html 2019-10-19 真快照 26.8KB, 与 R25-1/R27-6b 同源 DOM 逐节复核) — 内页 tx-{book,read,read2,top,full,search,quanben,list,bcss} 全为 Wayback 404 错误页(146KB 同尺寸壳)再次实证「仅首页有存档」; 快照关键实测: 章节真链 /book/{bid}/{cid}.html(s3 列实链)/书 /book/{id}/, nav cat 7=同人小说(1..6=玄幻/武侠/都市/历史/游戏/科幻), 排行 /book/0_monthvisit_..., 全本 /book/0_lastupdate_0_0_2_0_1.html, .l h2 内 div.moreLeft+div.moreRight(更多>>), novelslist li 为「<a>书名</a> /作者」无书名号(修正旧版 «» 渲染), 6 板块 h2 无更多钮, 第 3 板块 class="content border"
+- [R28-2g-1] Home.tsx(338 行) 重建: 快照 DOM 逐节对齐(板块 li 去书名号+#firendlink 前缀「友情连接：」+JqH2 right 插槽承载 moreRight 语义); 降级声明 5 条(板块=分类分组近似运营固定位/s3 无 chapterId 纯文本/.r=字数热榜切片/头部归 SiteHeader/封面 67×82 等比)
+- [R28-2g-2] Read.tsx(199 行): 补 useReaderFont(14~24, A-/A+ 挂章节标题下与字数同行)+键盘守卫升级(isContentEditable/SELECT); 声明 2 条(字号钮为克隆侧增强/相关推荐=热榜替代)
+- [R28-2g-3] Ranking.tsx(170 行) 新建: 榜 tab(契约三榜 onBoard)+名次徽章 1/2/3 红#C00/橙#FF6600/蓝#1F5FA9+s1..s5 行式列表(与首页 .l 同骨架); 声明 3 条(真站 monthvisit 月点击→三榜承接/徽章配色推断/数值列字数万近似)
+- [R28-2g-4] Fulltext.tsx(191 行) 新建: 全本入口家族标准(分类筛选白卡+JqH2+s1..s5+杰奇方块分页 tx-pg); 声明 3 条(筛选条家族同构/数值列家族惯例/每页 24)
+- [R28-2g-5] Search.tsx(168 行) 新建: #searchbar 家族形态(直角输入 1px #ccc+深蓝渐变提交钮)+结果 s1..s5 列表+relatedTags chips; 声明 3 条(navigate 承担 GET searchkey/无 total 分页契约/相关词为克隆侧增强)
+- [R28-2g-6] index.ts(68 行): trxswTemplate 八组件全导出(基础五+Ranking/Fulltext/Search); css 串 7 条规则全 .clone-trxsw 前缀逐条注出处(a #333/hover #C00·tx-pg hover 深蓝·正文 2em 缩进·h2 渐变兜底·375px 无横滚声明)
+- [R28-2g-7] 质量门: bun build --target=browser 118 modules 0 错(/tmp/r28-chk-trxsw); Category/Book/Toc 复用 R27-6b git 版(仅文件头补 R28-2g 复核注, 逻辑零改); 修复 3 处: sr-only span→li(ul 内合法嵌套×3 文件)/板块竖线 sm:→lg:(2 列栅格不穿帮)/Search 头注断行; 零 any; <a> 仅 Book TXT 下载(/api/public/download?book=)+Home 友链(safeHref 白名单); 相对导入深度 ../../ 全自查(ctx/data/types/bits/seo/BookCover/safe-href, ../=shared/template-kit)
+
+Stage Summary:
+- 文件: sites/trxsw/ 9 文件 1732 行(Home338/Book256/Category194/Read199/Fulltext191/Toc151/Ranking170/Search168/index68), 页型 8/8 全实现
+- 页型覆盖表: Home=Wayback 实测(2019-10-19 快照逐节复刻) | Category=家族标准 | Book=家族标准 | Toc=家族标准 | Read=家族标准 | Ranking=家族标准(入口 URL 快照实证) | Fulltext=家族标准(入口 URL 快照实证) | Search=家族标准(#searchbar 壳实证+search.php 家族惯例); 内页无存档为 Wayback 二轮复抓实证非推定
+- 色板摘要(全家族标准级, b.css 无存档 R25 实证): nav 深蓝 #1C5087→#1F5FA9 · hover/名次红 #C00 · 名次橙 #FF6600/蓝 #1F5FA9 · 正文 #333/灰 #666/弱灰 #999 · 边 #ddd/点线 #ccc · ywtop/页脚 #f5f5f5 · h2 渐变 #fafbfc→#e9eef5+左 4px 竖条 · 960px 版心 14px 宋体 arial 系
+- 降级声明清单: Home×5(板块分组近似/s3 纯文本/.r 热榜切片/头部归 SiteHeader/封面等比) + Read×2(字号钮增强/相关推荐热榜) + Ranking×3(月点击→三榜/徽章配色推断/字数近似点击) + Fulltext×3(筛选条同构/数值列惯例/每页 24) + Search×3(navigate 映射/无 total 分页/相关词增强) = 16 条全部文件头行注
+- registry 接线待主控(trxswTemplate 已按 SiteTemplateSet 八键全量导出, 含 css 字符串)
+---
+Task ID: R28-2f
+Agent: general-purpose(clone-kks101)
+Task: kks101 全页型克隆
+
+Work Log:
+- [R28-2f-0] 接手勘察: /tmp/r28-2b/kks101/ 快照齐全(home 971行/class 793/book 695/toc 469/read 355/hot 1041/last 428/full 783/search2 709/search 0字节 + style.css 3745行 + block_booklist.css 400行), 通读全部快照+style.css 逐段读毕; sites/kks101/ 为空目录从零起步; 契约 shared.ts(8页型props)+template-kit.tsx(ChapterContent/useReaderFont/useRecordReading/groupTocVolumes)核对, aijjxs 作结构参考
+- [R28-2f-1] parts.tsx(378行)共享部件先行: K 色板(主蓝 #1f6cb2/底 #f2f3f4/文字 #333/#666 链接 hover #06c/红 #c60f13/浅蓝胶囊 rgb(232,244,255)+#56a6c3 边, 逐项注 style.css 行号) + KContainer(版心 1112px L59-65)/cardStyle(.mybox L164-174)/MyTitle(L185-190)/Bread(L574-581)/useCategories+CatDroplist(.weekl_yrank .droplist L1902-1941)/NewBoxRow(#article_list_content 行式: imgbox 100×140+h3 18px+labelbox+ol 简介两行+zxzj 最近章節+newright 双钮, L1759-1900, 前三名红/橙/黄圆徽 L1887-1900)/NovelCard(.newnovels li L1227-1295)/Pager(.pagelink L2919-2944)
+- [R28-2f-2] Home.tsx(330行): 复刻 home.html 主线=headerad 域名条(#fff2df L3127-3133, 文案按快照原文照录)+col-xinindex mybox(xinlogo 35px 站名+error-text 大搜索框 pill 50px radius25+SVG 放大镜 L3178-3209+indexdaohang 四枚主蓝砖 #1f6cb2 50px radius10 L3313-3333)+h3「熱門書單推薦」+booklist-grid 8 卡(block_booklist.css 卡 128px/封面区 #667eea→#764ba2 渐变 120px/L7-64)+.tag 标签胶囊墙(L3289-3300, fetchSuggestTags 词池); 降级: 書單聚合数据无源→最新书单封面卡近似, 我的書架会员功能→disabled 保留文案, 首页无书列表→契约 48 本以 /last 页 .recentupdate2 行式(书名 40%/章 60%/日期 #999 右 L1625-1641)「最近更新」板块承载
+- [R28-2f-3] Category.tsx(105行): class.html 复刻=小說分類 droplist 胶囊条+newnovels2「小說推薦」10 封面卡+col-88「點擊排行」newbox 行式(带分类标签+前三徽章)+.pagelink 分页; 三态齐(Sk/ErrorState/EmptyState); 分页 navigate category
+- [R28-2f-4] Book.tsx(389行): book.html 复刻=col-8(66%)+col-4(32%) 双列: ①面包屑卡(.bread 主蓝 L574-581)+bookbox 封面 180×240 阴影+状态角标(連載主蓝/全本红)+booknav2 h1 24px+作者/分類/字數|連載+開始閱讀主蓝钮(→toc 对齐真站 index.html 行为) ②infotag 標籤胶囊(data.tags)+目錄/簡介 tabs(真站三签, 書評无数据源省略)+qustime 前 6 章行(L722-738)+infolist 字數/章節數 灰底块(L669-690)+navtxt 简介 lh35(L699-706)+more-btn 完整目錄 ③侧栏「本周最強」tabshot 熱門/完本 双签+.ranking 列表(L1495-1593: 激活首项 NO.1 徽章+红字 h4+分类.作者+右侧封面 80×105); 熱門=latest 榜近似/完本=completed 过滤(声明); 推薦票浮层/加入書架/投推薦票/催更均无契约不渲染
+- [R28-2f-5] Toc.tsx(149行): toc.html 复刻=mytitle.shuye(面包屑+sorting 倒序/正序本地翻转, 真站同款交互)+catalog h3「目錄」(主蓝+4px 左竖条 :before L2053-2069)+allchapter 33.33% 三列章节链(#222 16px 底线 rgba(150,150,150,.2) L2028-2046, 当前章高亮主蓝加粗)+分页; 書籤块(登录态)不渲染; 真站 ajax 全量→契约 100 章/页分页承接
+- [R28-2f-6] Read.tsx(256行): read.html 复刻=mybox+面包屑(hide720)+tools 工具条(書頁📖/目錄📑/設置⚙️/黑夜🌙 四钮 36px 圆形 #4c5356, L2226-2250; 收藏会员态省略)+txtnav h1 20px 居中+txtinfo 作者(时间无字段省略)+ChapterContent(lh2, useReaderFont 字号 14-24)+setbox 设置面板(真站五排仅保留字號 input readonly+- 双钮 L2174-2202; 背景 5 圆点 JS 注色不可提取→黑夜钮承担 body.black: mybox rgb(32,40,46)/字 rgb(153,153,153) L2093-2104; 字體/語速无契约省略)+page1 三钮等分(上一章/目錄/下一章 lh48 分隔线 L2340-2366, 書籤无契约省略)+键盘 ←/→ 翻章+useRecordReading 阅读记忆+yuedutuijian「閱讀推薦」15 行白底块(latest 榜近似); 三态齐
+- [R28-2f-7] Ranking.tsx(113行): hot.html 复刻=weekl_yrank 榜型切换条(浅蓝盒 #56a6c3 边 rgb(232,244,255) 底, active #404040 加粗; 契约三榜 tab 渲染 board.label)+listbox(listleft 分类栏 120px+listright newbox 榜单行带逐行序号圆徽前三红橙黄+双钮); 降级: 六档榜型→三榜(words≈人氣·推薦/latest≈更新/new≈新書 声明), 連載/全本切换省略, listleft 分类为榜内过滤→近似跳分类视图, 分页无契约不渲染
+- [R28-2f-8] Fulltext.tsx(100行)+Search.tsx(156行): full.html=小說分類 droplist+「完本小說推薦」10 封面卡+「點擊排行」行式+分页; search2.html=「搜索關鍵詞「q」，共有 N 條結果」头条(.hottext 红 #c60f13 L2445-2447)+行式结果带书名查询词红字高亮(HotName 字面子串近似, 真站为服务端分词)+相關標籤胶囊(keyword 视图)+顶部 pill 搜索框 re-query navigate({view:'search',q}); SearchData 无 total/page→头条只显当前条数不分页(声明)
+- [R28-2f-9] index.ts(143行): kks101Template 八页型齐(Home/Category/Book/Toc/Read/Ranking/Fulltext/Search)+css 串 26 组规则每条注快照出处行号, 全部 .clone-kks101 前缀: 链接 hover #06c/列表行书名 hover 主蓝/封面 hover scale1.1(.5s)/書單卡 hover translateY(-2px)+阴影/按钮 hover 投影/搜索框 focus=.searchInputActive 态影(rgba(64,60,67,.24))/分页 hover+strong #caf1ff/page1 hover #f8f8f8+黑夜 #3a3e41/断点复刻 990(单列+newright·zxzj 隐藏+封面 70×95+目录单列+shuye 换 titxt)/1200·767(newnovels li 15%·23%)/720(hide720/txtnav padding0/page1 负边距/indexdaohang 45%/recentupdate2 收窄/封面 80×115)/991·480(block_booklist 卡 110·100px 单列)+375px 书页封面 110×150 收窄+overflow-x:hidden 兜底
+- [R28-2f-10] 自查: bun build --target=browser index.ts --outdir /tmp/r28-chk-kks101 = 116 modules 0 错; 零 <a> 元素(全 button+navigate, 本站快照无 TXT 下载出口故无 <a>)/零 any/零硬跳转; 相对导入 ../../ 深度全对(ctx/bits/data/seo/types/BookCover/shared/template-kit 实存); ul 直插 button 三处改为 li 包裹(HTML 语义); 375px 无横滚(行式卡 ellipsis+封面降尺寸+min-width 收窄)
+
+Stage Summary:
+- 文件: sites/kks101/ 10 文件 2119 行(parts378/Book389/Home330/Read256/Search156/Toc149/index143/Ranking113/Category105/Fulltext100); 仅写 sites/kks101/ + /tmp, 禁区零接触(registry 接线待主控)
+- 页型覆盖表: Home=实测(home.html, 書單板块数据推断级) | Category=实测(/novels/class) | Book=实测(/book) | Toc=实测(/book/index) | Read=实测(/txt) | Ranking=实测(hot.html=newhot 新書榜实证) | Fulltext=实测(/novels/full) | Search=入口+结果页实测(search2.html 查询词「火影」; search.html 为 0 字节入口壳)
+- 色板摘要: 主蓝 #1f6cb2(头部/按钮/tabs 激活/胶囊/面包屑) · 页底 #f2f3f4 · 卡 #fff+双影 rgba(0,0,0,.12/.24) radius3 · 文字 #333/#222/#000 · 次级 #757575/#999/#666 · 链接 #666→hover #06c · 红 #c60f13(hottext)+red(btn-tp/榜1) · 榜徽 rgb(255,111,0)/rgb(222,204,1) · 浅蓝胶囊 rgb(232,244,255)+边 #56a6c3+字 #1f6cb2 · 分隔 #eee/rgba(150,150,150,.2) · 域名条 #fff2df · 黑夜 mybox rgb(32,40,46)/字 rgb(153,153,153)/page1 #474b4e·#3a3e41 · 書單卡渐变 #667eea→#764ba2/字 #2c3e50/#7f8c8d · 分页 strong #caf1ff · 版心 1112px · 字号基线 14px/标题 16px/行题 18px/书名 24px
+- 降级声明(文件头逐条): Home①广告条文案照录②書單聚合数据→单封面书卡近似③我的書架 disabled/閱讀記錄→history 视图④首页无书列表→/last recentupdate2 行式承接⑤标签墙词池替代运营词表⑥繁简切换/滑出菜单归公共壳; Category①加入書架→章節目錄出口②點擊排行点击量无源仅徽章③推薦位取前10④作者无独立视图; Book①推薦票浮层略②addbtn 仅開始閱讀③催更略④qustime 无日期取目录前6章⑤書評頁签略⑥本周最強双榜近似; Toc①書籤块略②契约分页承接全量③正倒序本地翻转; Read①收藏略②書籤钮略三钮+键盘③setbox 仅字号(真站默认22→契约17)/背景→黑夜钮/字體·語速略④时间/分类面包屑近似⑤追更广告略⑥閱讀推薦=latest 榜近似; Ranking①六档→三榜②分类栏→跳分类近似③counter 徽章→真实序号④票数空占位略·不分页⑤加入書架降级; Fulltext①分类胶囊→跳分类近似②推薦位取前10③行式统一降级④labelbox 无分类标签对齐真站; Search①无 total/page 不分页②高亮字面近似③relatedTags→keyword 视图④加入書架降级
+- 质量门: bun build 0 错(116 modules); 交互 100% button+navigate 零 <a>(快照无 TXT 下载出口); 零 any; 三态(骨架/ErrorState/EmptyState)五数据页齐; 键盘←/→+三钮+useReaderFont+useRecordReading 齐; 375px 无横滚; css 每规则注出处行号且 .clone-kks101 前缀
+---
+Task ID: R28-5
+Agent: general-purpose(清理·整合·优化·精简)
+Task: R28 第 3 条指令落地 —— 行为保持的死代码清理/重复整合/临时产物清扫（lint 未跑按指令留主控, tsc 每批次门禁）
+
+Work Log:
+- [R28-5-0] 前置勘察: worklog 末 200 行 + 全域结构核对; 划定禁区(src/lib/crawl/**、src/lib/pseo*、pseo-server、mini-services/**、prisma/**、package.json、sites/registry.tsx、sites/shared.ts)全程零接触; 每批次 bunx tsc --noEmit = 0 错后再进下一批
+- [R28-5-1] template-kit.tsx 四导出逐个 grep 核实消费链: useReaderFont=9 站(ddyueshu/huangjinwu/trxsw/kks101/pili/shipsay/aijjxs/x2552/qb23)/useRecordReading=10 站(+ggd66)/ChapterContent=10 站/groupTocVolumes=3 站 4 处(ddyueshu Book+Toc, pili Toc, qb23 Toc) → 全部存活零删除; read-layouts/ 四布局+shared+reading-memory+bookmarks+chapter-progress 全部有消费链存活
+- [R28-5-2] public/ 孤儿与死导出删除: ①src/components/public/CategoryShowcase.tsx 整文件删(-122 行, 全项目零 import —— R24-5 旧主题 home 布局删除后该组件失联成孤儿, grep 全库仅 worklog 历史记载) ②data.ts 删 fetchShowcaseCategories+ShowcaseCategory(-49 行, 唯一消费者即①) ③BookCard.tsx 删 BookLine+BookPoster(-97 行, 全项目零 import; sites/aijjxs/Home.tsx 的 BookLine 为站内同名私有组件无关联), 连带清理 Clock3/fmtDate 两个随行死 import
+- [R28-5-3] 站内冗余 default 导出清理: aijjxs(7)/kks101(8)/ddyueshu(6) 共 21 个页型组件的 `export default X` 行删除 —— 各站 index.ts 全部具名导入+全项目零 default import+零 dynamic import 涉及 sites(动态 import 仅存 crawl 域与类型级 import(), 已逐一排查)
+- [R28-5-4] 零外部消费导出收回 export(保留内部消费): x2552/_kit.tsx 删 FOOT_BAR 常量(零消费)/TITLE_BAR+sizeK 收回 export; api/_lib/http.ts TASK_PROGRESS_SLIM_THRESHOLD+SLIM_KEEP 收回; api/_lib/batch.ts BATCH_ID_MAX_LEN+BatchParseOk+BatchParseFail 收回(BatchParseResult 为 parseBatchBody 返回契约保留 export)
+- [R28-5-5] 重复实现整合(纯函数级): ①src/lib/banned-words.ts 私有 escapeRegExp(逐字同实现)→ 改 import @/lib/utils(-3 行, [R28-5-2] 注) ②qb23/Toc.tsx 私有 pageWindowOf(与 Category.tsx 导出逐字同实现)→ 改 import './Category'(-6 行, [R28-5-1] 注); 未整合项与理由: C 色板 29 处/各站色板常量=克隆保真禁合并; statusText 3 站=真站文案口径各异(完本·连载/已完成·连载中/全本·连载)非重复; Pager 3 站=渲染级组件禁整合; JqH2(trxsw 内 5 文件)/kb(aijjxs 内 5 文件)/TextCard(huangjinwu 内 2)=同站跨文件低于「3 站以上」阈值且无天然宿主, 不动
+- [R28-5-6] themes 清理项核实: src/lib/themes.ts 不存在(主题定义实际位于禁区 src/lib/crawl/themes.ts); 'aurora' 仅存于历史标记注释与回退说明(R24-5 已把非法 id 回退归一化为 aijjxs, sites/backup/seo-audit 各处注释均在), 无死 preset 可清 → 零修改
+- [R28-5-7] console.log/注释死代码扫描: console.log 全项目仅 crawl 域 4 处(fetcher.ts cookie jar 持久化/优雅关闭 = 功能日志非残留, 禁区未动); 允许域启发式扫描(注释代码连续 ≥8 行模式)零命中, 无 >10 行注释死代码块
+- [R28-5-8] /tmp 与项目根清扫: 删 /tmp/{r28-e2e-x2-live,r28-e2e-kks101-home,r28-e2e-x2552-home}.png + r28-cookies.txt + r28-home-now.json + r28-s4.json + r28-s5.json + p1.html + p2.html; 删项目根 aijjxs-{book,cat,txtlist}.html 三份真站快照散落副本(仅注释提及其名, 正本确认存于保留档 /tmp/r28-2a/aijjxs/ 后删); 保留: /tmp/r28-audit/、/tmp/r28-2a..2g/、/tmp/r28-chk-*(含 5 个 chk-*.json 字面匹配保留前缀)、/tmp/r28-tsc1.txt、main-dev-restart.log; 存疑未动: /tmp/my-project(Sep14 镜像状目录来源不明)、浏览器 profile 目录(puppeteer_dev_profile-aw5qqF 检测到 live chrome 进程使用中, agent-browser-chrome-*/org.chromium.Chromium.* 一并保守不动)、boot-timeline.log(root 属主系统产物)
+- [R28-5-9] package.json 审计(只审不删): 全部 dependencies 均 ≥1 处 import 消费 —— 17 个 @radix-ui/* 各被对应 ui 包装组件引用/cheerio 8 文件/playwright 42/sonner 29/z-ai-web-dev-sdk 19/sharp 3/recharts 2(admin Dashboard)/iconv-lite 2/@xmldom·opencc-js·xpath=crawl 域解析编码/class-variance-authority 3/ui 体系; 最弱但实存消费: next-themes(仅 ui/sonner.tsx Toaster 主题)、clsx+tailwind-merge(仅 lib/utils cn)、@radix-ui/react-collapsible(仅 ui 包装层); 结论: 无零引用依赖, 无 uninstall 建议, 主控无需动作
+- [R28-5-10] docs/INSTALL-GUIDE.md 对齐核查: 端口表(主应用 3000 + mini-services 3010~3017)与 mini-services 8 服务源码 PORT 逐一比对全部一致(bqg713-3010/fetch-relay-3011/scrapling-bridge-3012/qimao-3013/deqixs-3014/xjp-3015/cloak-browser-3016/qidian-3017); 启动命令(bun run dev/build/start、bash .zscripts/dev.sh、nohup bun run start)与 package.json scripts 及 .zscripts/dev.sh 实存一致 → 无脱节零修改
+- [R28-5-11] 质量门: 每批次(孤儿删除/整合/export 收回)后 bunx tsc --noEmit 均 0 错; 终检 0 错; 未跑 lint/未启停服务/零 DB/零 git; 修复注释标记 [R28-5-1]~[R28-5-4] 4 处
+
+存疑保留清单(声明不动, 留主控裁决):
+1. /api/public/categories?limit=24 的 rep 字段(代表书封面计算): 唯一客户端消费者(fetchShowcaseCategories/CategoryShowcase)已删, 服务端响应形状保持原样未瘦身 —— 公开端点可能有 SSR/外部消费, 且 src/app 为核对为主辖区
+2. /tmp/my-project 目录: 内含 .initial_snapshot.json/.zscripts/.env.example 等, 形似工作区系统镜像非本轮产物, 来源不明未动
+3. /tmp 下浏览器 profile 三组(puppeteer_dev_profile-aw5qqF/agent-browser-chrome-84238fd9-*/org.chromium.Chromium.*): 检测到 live headless chrome 进程正使用前者, 保守全部不动
+4. src/lib/crawl/fetcher.ts 4 处 console.log: cookie jar 持久化/信号关闭日志属功能输出, 且 crawl 域禁碰
+5. seo-tpl.ts DEFAULT_PSEO_TEMPLATES: 无外部导入但被同文件 composePseoTdk 消费, 而 composePseoTdk 被禁区 pseo-server.ts 导入 → 导出链整体保留
+
+Stage Summary:
+- 删除清单: CategoryShowcase.tsx 整文件(122 行)/data.ts showcase 块(49)/BookCard.tsx BookLine+BookPoster(97)/banned-words.ts 私有 escapeRegExp(3)/qb23 Toc 私有 pageWindowOf(6)/x2552 _kit FOOT_BAR(2)/21 处冗余 export default 行(21) = 删 300 行
+- 整合清单: escapeRegExp→@/lib-utils(banned-words)/pageWindowOf→qb23 Category 单处定义(qb23 Toc 复用)
+- 增量: 注释与 import 补充 +3 行; 净删 ≈ 297 行(30 文件 touched: 删 1 文件+改 29)
+- 核实零删除项: template-kit 四导出/read-layouts 全套/bits·seo·data·search-history·types 全导出/十站 C 色板与 statusText/Pager(克隆保真)/themes(crawl 域)
+- tsc: 每批次 0 错, 终态 bunx tsc --noEmit 0 错; lint 按指令未跑(留主控统一); dev server 未动(3000 在跑)
+- [R28-5-12] 终检勘误: 本 agent 辖区内 0 错; 收尾时全量 tsc 出现的 2 处错误(crawl/fetcher.ts:2182/3495 TS2367 '"sticky-host"' 比较不可达)位于禁区 src/lib/crawl/** —— 实证为并行 R28-4 agent 在途编辑引入(fetcher.ts mtime 12:52:33 晚于本 agent 前一批次全绿门禁, 两分钟内错误集合从 TS2305 reportHostForbidden 变为 TS2367 sticky-host, 属进行中工作), 本 agent 未触碰该域, 留 R28-4 收口
+
+---
+Task ID: R28-4
+Agent: general-purpose(采集引擎审计修复+反反爬增强)
+Task: 落地 R28-3 审计报告(/tmp/r28-audit/audit-report.md) — 中危 M1-M3 + 低危 L1-L9 + 反反爬增强 ①②③⑤⑥(④ bqg713 已有结论不实现)
+
+Work Log:
+- [R28-4-M1] fetcher.ts:2965-2972 curlOnce 轨 2(桥 /impersonate)补 filterImpersonateHeaders —— 修前桥轨收 buildHeaders(fingerprint:true) 全量头组原样 POST, curl_cffi 显式头按名覆盖档位默认头 → chrome116 TLS × 引擎 Chrome141~142 UA/sec-ch-ua 错配(WAF 标准爬虫信号), 轨1/server.py("引擎已过滤"契约)三侧对齐。实测: ①桥侧 curl /impersonate chrome116→tls.peet.ws = UA Chrome/116.0.0.0 + JA4 t13d1516h2_8daaf6152771_e5627efa2ab1 + akamai_h2 1:65536;... 配对 ✓; ②引擎侧 bun 脚本(CURL_IMPERSONATE_BIN=/nonexistent + cwd=/tmp 强制桥轨)直调 fetchViaCurl: user_agent=Chrome/116(引擎 142 UA 与注入的 sec-ch-ua v142 均被剥除未发送)+JA4 t13d1516h2_8daaf6152771 配对 → M1-ENGINE-SIDE PASS
+- [R28-4-M2] fetcher.ts:854-860 classifyHttpFailure: 仅 isFetchTimeout===true(或 code ETIMEDOUT)→'timeout'; 裸 AbortError/ABORT_ERR(停止/换代在途中止)→'other' —— 与 runner.ts 章节错误两分支口径对齐, hostRhythm.classCounts['timeout'] 不再被停止事件污染(纯观测面, 请求行为零变化)
+- [R28-4-M3] fetcher.ts:3527-3538 fetchHttpWithCurlFallback 代理循环: 源站 403/429 记成功样本(传输层通)+sticky 反馈 ok 后立即 break(不再逐代理重试)。取舍声明(注释留档): 选"break 后落既有直连兜底"而非硬上抛 —— 保留"静默降级不硬断"契约 + 防"代理全被源站封而本机直连干净"的常见形态整章永败; 单章最坏 1 代理+1 直连=2 次(原 10+1=11 次, -82%), 残余由增强①熔断封顶; 网络层失败维持原轮换/指数退避冷却语义; 循环尾日志改 triedProxies/order.length 如实计数
+- [R28-4-L1] parser.ts:546-557 jsonArrayWalk [k=v] 补 %26 解码(对齐 jsonGet R4-18), `[name=a%26b]` 列表/目录容器路径不再被拆两条失配; bun 冒烟: items[name=a%26b].title 命中 1 条 PASS
+- [R28-4-L2] fetcher.ts:4307-4311 fetchPageOnce 终败跳过退避白睡: catch 尾 sleep 前判 attempt < baseAttempts + cookieRetries(与 while 条件一致, continue 路径在上方 cookieRetries 已定型), 终败章节省 0.4~1.2s
+- [R28-4-L3] fetcher.ts:1630-1636 buildHeaders: cfg.autoCookie===false 时跳过 jar 合并(仅保留显式 cfg.cookies) —— "只停收不发"语义补齐, 跨规则罐中会话(cf_clearance 等)不再串味; 三链(fetchHttp 逐跳/curl/fetchBinary)共用本函数一处修全链生效
+- [R28-4-L4] fetcher.ts:1188-1191+1206-1212+1164-1180 decodeBuffer: 嗅探窗 2048→8192(latin1+单正则开销线性可忽略) + 无 charset 且 FFFD 密度异常(前 64K 采样 ≥8 个且 ≥0.2%)时 gb18030 重解一次、仅 FFFD 更少才采纳(有界单次, 防 utf-8 合法 FFFD 误替换)
+- [R28-4-L5] suggest.ts:6+74-93 fetchSuggestKeywords 改走 fetchPage(engine:'http', 8s/0 重试/referer:false): ①Accept 由 image/avif 图片形态改浏览器家族导航形态(AJAX 端点不被 <img> 引用的语义指纹自洽) ②复用 decodeBuffer charset 三级探测(为将来 GBK 端点铺路); 当前 4 引擎均 UTF-8 行为等价, 失败仍 per-engine ok:false 不拖垮聚合
+- [R28-4-L6] parser.ts:1005-1010 parseToc xpath 容器 scopePairs 补 nodeHtml(node) 填充(对齐 parseList:837-840) —— regex 型字段(吃 html)与 json 型字段(parseJsonBody('')→undefined)在 xpath 容器下不再恒空
+- [R28-4-L7] parser.ts:1192-1215 findLargestText 两道剪枝闸: 每 tag 候选上限 200(document 序)+累计上限 600(cheerio each 返回 false 终止); bun 冒烟: 3000 候选页备用提取 105ms 有界返回(修前逐元素全子树 text() 近似 O(n·depth))
+- [R28-4-L8] builtin-rules.ts:3743+3857-3860 ratelimit-demo fetch 段补 allowLoopback:true(仅放宽 loopback, 私网/元数据仍硬拒)+description 声明修前差异(测试面板/任务链路 assertSafeTarget 必拒四段恒 502 仅 calibrate 可用) —— 补后三链路行为一致
+- [R28-4-L9] runner.ts:1414-1419 同名同作者跨源合并错书风险: 仅注释设计留档(报告裁定不改行为), 含可选加固方案(intro 相似度/首章 URL 归一比对, 不一致按不同书处理)
+- [R28-4-E1] host 级熔断: hostgate.ts:51-57 常量(threshold 5/base 5min/max 15min)+:629-650 reportHostForbidden(url, forbiddenStreak)(指数 5→10→15min 钳顶, 复用 rateLimitedUntil 停手语义+minGapMsBeforeCooldown 快照/到期回滚同口径, 触发时清 hostgate failStreak 防"冷却到期立即再降额", console 显式记录"熔断至 HH:MM"); fetcher.ts:942-947 noteHostHttpFailure 403 分支接线; hostgate.ts:496-507 acquireHostGate 快速失败(剩余>120s 必为长静默 → 同步 throw name='HostCircuitOpen', 毫秒级拒绝非 30s 白等, ≤120s 既有冷却零回归); runner.ts:1252-1255 gateFetch catch 豁免 HostCircuitOpen 不喂连败链 + runner.ts:2083-2094 章节 catch 分支(不计 errors/章节保持 fetched=false, 同 host 1min 节流 1 条 warn 防千章刷屏)
+- [R28-4-E2] impersonate 档位自动轮换: fetcher.ts:2635-2643 IMPERSONATE_TIER_ROTATION(chrome116→edge101→safari17_0, firefox 系桥轨专属不入序)+nextImpersonateTier(环形后继/异档回退)+resolveCurlImpersonateTier 第 4 参 tierOverride(最高优先/非法回常规); FetchCfgOpt+impersonateTierOverride 传输态字段(不进规则 JSON)→ fetchViaCurl:3042 逐跳透传; fetchPageOnce:4246-4266 403/429 时换档重试一次(与 cookieRetries 共用 MAX_COOKIE_RETRIES 预算防双倍放大, 每次抓取至多 1 次; 档位未启用时天然不触发零回归); curlImpersonateFallbacks 规则字段留作后续扩展位(注释声明)
+- [R28-4-E3] trafilatura 正文兜底: runner.ts:131-181 FETCH_EXTRACT_FALLBACK=1(缺省关)+trafilaturaExtractFallback(POST 桥 :3012 /extract html 直提形态, 20s 超时, 失败静默; 每 host 连续 3 败进程内停用 Map 记账 globalThis 防 HMR)+runner.ts:1992-2010 接线(plainLen<200 且 confidence<0.3 触发 → 产物重过 cleanContentHtml 且 plainLen≥100 才采纳, \n→<p> 转义与 contentProxy 路径同款, warn 日志记录兜底来源)。桥侧验证: /extract html-form 真实调用 ok:true chars:81 title 抽取 ✓
+- [R28-4-E5] 桥侧并发闸: server.py:82-85 STATIC_SEM=threading.BoundedSemaphore(STATIC_CONCURRENCY env 可调默认 4; 服务模型是 ThreadingHTTPServer 故用线程信号量, 与 BROWSER_SEM 同款 acquire 带超时防半开挂线程), /fetch static(do_fetch else 分支)+/impersonate+/extract url 形态三路径共享, finally 确定性释放; /health capabilities 增 staticConcurrency 观测位。重启验证: kill 旧进程(原为 package.json dev script 拉起的 python3 回退轨, scrapling/curl_cffi/trafilatura 全缺 → 顺带 uv venv .venv + uv pip install 'scrapling[fetchers]' trafilatura 重建 venv, dev script 优先轨自动生效) → /health selfTestOk:true(修前 false) versions={scrapling 0.4.15, curl_cffi 0.16.3, trafilatura 2.2.0} + /fetch static 真实请求 example.com 200/559chars ✓ + 并发 8 路(static 闸=4) 8/8 成功排队无失败 ✓
+- [R28-4-E6] 代理池 sticky-host + 全局默认池: fetcher.ts:2088-2150 proxySticky 进程级状态(键=目标 host 含端口, FIFO 512 上限)+stickyPickFor(粘滞条目优先复用, 否则 djb2 稳定 hash+offset 取池内固定下标起顺找可用, 冷却自动顺延)+proxyStickyNote(成功/源站行为清零连败, 网络层连败 2 次顺移 offset 换下一条); pickProxyFor:2182-2185 与 fetchHttpWithCurlFallback:3492-3497 两消费点各加分支(粘滞代理打头+其余作后备); types.ts:210+654 枚举白名单+文档; runner.ts buildFetch:2362-2373 FETCH_DEFAULT_PROXY_URL(规则与 override 均未配 proxyUrl 时注入, env 值经 parseProxyPool 同款校验, 缺省未设零变化, 回环目标 fetcher 侧本有 isLoopbackTarget 豁免不影响 token 转换代理)
+
+Stage Summary:
+- 落点: src/lib/crawl/{fetcher(约 130 行增量),hostgate(+56),runner(+90),parser,suggest,types,builtin-rules}.ts + mini-services/scrapling-bridge/server.py(+45); 每处注释标 [R28-4-N]; 文件所有权合规(src/lib/crawl/** + scrapling-bridge/**), 零触碰 components/pseo/prisma/package.json/其他 mini-services/sites
+- 验证: bunx tsc --noEmit 全项目 0 错; M1 双侧实测(桥侧+引擎侧强制桥轨, tls.peet.ws JA4+UA 配对 PASS, 注入的 sec-ch-ua/引擎 UA 被剥除); L1/L7 bun 冒烟 PASS; 桥 /health(selfTestOk:true)+/fetch 真实 200+/extract ok:true+STATIC_SEM 8 路并发 8/8 PASS; 桥已以新代码+venv 常驻 127.0.0.1:3012(pid 见 ss), 后续 dev script 重启自动走 .venv/bin/python
+- 环境事实留档: 本机 scrapling-bridge 曾处于"进程在但 venv 缺失"态(health 200 但 selfTestOk:false, /fetch·/impersonate 不可用), 本轮重建 .venv 修复; curl-impersonate 二进制仅 _bin 内 chrome/safari 档+chrome 内核(无 edge101 包装脚本), edge101/safari17_0 档走桥轨(与 E2 换档序配合正好)
+- 增强开关面(全部缺省关, 零回归): FETCH_EXTRACT_FALLBACK=1(trafilatura 兜底)/STATIC_CONCURRENCY(桥 static 并发, 默认 4)/FETCH_DEFAULT_PROXY_URL(全局默认代理池)/proxyRotationStrategy:'sticky-host'(规则级显式启用); E1/E2/M3 无开关 —— E1/E2 仅在 403/429 实际发生且 hostgate 账本/档位已启用时生效, M3 仅削减被封锁源的重复被拒请求
+- 遗留交接: ①R28-3 专题⑥建议的 curlImpersonateFallbacks 规则字段未加(任务书指定固定换档序, 扩展位已在注释声明); ②suggest ENGINES 池 per-engine 健康记忆(R28-3 ⑤③建议)未实施(不在任务清单); ③fetch-relay(3011)本轮零改动(无报告项涉及)
+---
+Task ID: R28(主控)
+Agent: main-orchestrator
+Task: R28 总控 — 删除全部主题模板 + 十站 8 页型 1:1 重克隆 + 扩展页型契约/视图壳/路由 + registry 重建接线 + 采集审计修复与反反爬增强落地 + 清理精简 + 质量门 + E2E + commit
+
+Work Log:
+- [R28-0] 契约扩展: shared.ts 8 页型(SiteTemplateSet +Ranking/Fulltext/Search 可选组件 + SiteRankingProps{boards,active,onBoard}/SiteFulltextProps/SiteSearchProps + RankingBoard/RankingSort); ctx.tsx PublicView/VIEW_LIST +ranking/fulltext; PublicSite renderView +2 case; 新建 RankingView.tsx(三榜并行 top60+tab+通用兜底)/FulltextView.tsx(status=completed+分页); SearchView +q 态模板分支; HomeView 兜底从 aijjxs 改通用网格(重建窗口期前台永不白屏); /api/public/books sort 白名单 +new(createdAt desc); data.ts BooksQuery sort 联合类型扩展; lint set-state-in-effect 用渲染期同步模式修平
+- [R28-1] 删除: sites/ 十站目录全删(registry 清空表+保 shared/template-kit 基础设施), tsc 0 验证编译完整
+- [R28-2] 十站 8 页型重建(5 并发 agent 超时但产出 5.5 站 → 3 补完 agent + kks101/trxsw 2 agent + 主控亲写 x2552):
+  aijjxs(2a, 8 文件 2162 行, 7/8 无 Ranking 声明) | pili(2b/2b2, 七页型, Ranking 截断修复+Search 补建, 直连 403 走 3012/3016 桥) | kks101(2f, 10 文件 2119 行, 8/8, 前置快照复用) | qb23(2c, 8 文件 1877 行, 8/8) | ddyueshu(2a/2a2/2h, 补 Read/Fulltext/index + 主控补 Ranking(快照 rank.html 逐条 css 考据: .top em #FA744E/.tli lh38 虚线), Search 声明跳过=真站搜索为第三方站外引擎) | ggd66(2c, 8 文件 1462 行, 7/8) | huangjinwu(2d, 8 文件 1458 行, 7/8 无 Fulltext 声明) | x2552(2d/2d-x 主控亲写, 8/8: _kit.tsx(LeftRail 双 block+BookTable 六列 18/46/13/8/9/6)+Category/Fulltext(实测快照表结构)+Book(h1+table#at+btnlinks)+Toc(dt 面包屑+4列 td.L)+Read/Ranking/Search(家族标准声明)) | shipsay(2e, 8 文件 1799 行, 8/8) | trxsw(2g, 9 文件 1736 行, 8/8, Wayback 2019 快照+杰奇家族标准, 修旧版 3 处偏差)
+  - 教训固化: Task 并发 5 agent 会 context deadline 超时(工具结果丢失但工作已落盘) → 小步快跑+worklog 每站一段是正确的容错设计; 快照资产 /tmp/r28-2* 是补完 agent 的生命线
+- [R28-fix] 接线后雷区排雷(主控): ①aijjxs/ddyueshu Home 4 处 onClick 与 bookNavProps spread 双写(TS2783) ②huangjinwu/Ranking/trxsw Ranking/x2552 Home bookNavProps(goBook) 签名误用(TS2345, bookNavProps 收 navigate 非 goBook) ③shared.ts 补 export type { BookItem } re-export(TS2459) ④ddyueshu/Book C.dtSpan 缺键交接项补齐 ⑤lint 17 项清零: 不规则空白(U+3000→{'\u3000'})/setState-in-effect×2 改渲染期同步/exhaustive-deps×4 books|chapters 包 useMemo/未用变量×9/unused eslint-disable×1
+- [R28-4] Agent: 采集审计修复+反反爬增强全落地(M1 桥轨指纹头过滤 JA4+UA 配对 PASS/M2 AbortError 归类/M3 代理 403/429 break 单章 11→2 次被拒/L1-L9 全修/增强①host 熔断 reportHostForbidden ②impersonate 档位轮换 chrome116→edge101→safari17_0 ③trafilatura 兜底 FETCH_EXTRACT_FALLBACK 缺省关 ⑤桥 STATIC_SEM 并发闸 ⑥代理 sticky-host+FETCH_DEFAULT_PROXY_URL); 发现并修复环境问题: scrapling 桥 venv 全缺 → uv 重建(selfTestOk:true)
+- [R28-5] Agent: 清理精简净删 ≈297 行(孤儿组件 CategoryShowcase 122 行/BookLine+BookPoster 97 行/21 处冗余 export default/纯函数整合 escapeRegExp+pageWindowOf); package.json 审计零未用依赖; INSTALL-GUIDE 端口表核对一致
+- [R28-E2E] agent-browser 全绿: 十主题首页逐一(.clone-{id} 容器+data-template-clone-css 注入+各异板块文案: 数据统计/热点榜单/上期强推/热门小说推荐/热门推荐/都市); 扩展页型 ranking(trxsw tabs=3 更新时间榜/字数排行/入库时间榜+x2552 表格 4 行)/fulltext(x2552 hasTbl=true)/search(huangjinwu h1 搜索结果); book/toc/read(huangjinwu 封界/x2552「封界最新章节」/ddyueshu+kks101 第1章); category(qb23/shipsay); PSEO 空表 → 管理 API 重生成 20 页(用户数据 4 书×5) + /p/封界-科幻小说-15zdv7m 渲染(TDK《封界》科幻小说-大疆无爱); 伪静态 /book/4.html(h1 封界全文阅读); 375px x2552/kks101/trxsw scrollWidth=375 零横滚; 截图目检 x2552 黑冰首页(公告条/排行榜封面卡/更新行/右栏双榜与真站结构逐块对齐)
+- [R28-事故] 发现用户在此期间手动建站「大疆无爱」(x2552 主题)+采集 4 书(重生六零/婚色难哄/别惹这个土包子/封界) — 用户数据零触碰; PSEO 重生成走管理 API 不改用户数据; dev server 两度被 OOM 杀(dmesg 实证 next-server 2.6GB/2.1GB), 并发 tsc 是主因, 质量门必须串行(重申)
+- [R28-质量门] 终态串行 lint 0/0 + tsc --noEmit 0 错; mini-services 3010-3017 全 UP; 主站 3000 重启后 200
+
+Stage Summary:
+- 主题: 十站 76 组件 8 页型全接线(快照/家族标准/推断三级素材标注在各文件头), registry 唯一消费入口, 旧 R26/R27 模板零残留; 扩展页型(排行/全本/搜索)为 R28 新增数据契约与视图路由
+- 采集: R28-3 审计高0/中3/低9 全修 + 反反爬增强 5 项落地(全部缺省关零回归), 桥 venv 重建 selfTestOk
+- 清理: 净删 ≈297 行, 死代码/孤儿导出清零, lint 0/0 + tsc 0 锁定
+- 待办移交: 12 项历史修改核验/R21 git push(本轮一并执行)/bqg713 JS 解锁(评估结论: 现行 /unlock 链即验证解, 规则引擎无 JS 执行位属安全特性)

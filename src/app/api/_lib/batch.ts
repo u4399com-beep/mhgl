@@ -7,9 +7,9 @@ import { isPlainObject } from './http'
 /** 单次批量操作 id 上限 */
 export const BATCH_MAX_IDS = 500
 /** 单个 id 最大长度(全库主键均为 cuid, 64 字符已远超需要) */
-export const BATCH_ID_MAX_LEN = 64
+const BATCH_ID_MAX_LEN = 64 // [R28-5-4] 零外部消费 → 收回 export(供 parseBatchBody 内部用)
 
-export interface BatchParseOk {
+interface BatchParseOk {
   ok: true
   action: string
   /** 去重消毒后的 id 列表(保留首次出现顺序 — 分类按勾选顺序重排依赖此顺序) */
@@ -18,7 +18,7 @@ export interface BatchParseOk {
   payload: Record<string, unknown>
 }
 
-export interface BatchParseFail {
+interface BatchParseFail {
   ok: false
   message: string
 }

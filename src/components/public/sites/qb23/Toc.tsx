@@ -1,15 +1,15 @@
 // ============================================================
-// [R26-4] qb23 铅笔小说(www.23qb.net) 目录页克隆 —— 5 页型之 Toc(独立视图)
-// 真站快照: /tmp/r26/qb23-toc.html(/book/100/catalog 直抓, 445KB 全量目录页)
+// [R28-2c] qb23 铅笔小说(www.23qb.net) 目录页克隆 —— 基础五视图之 Toc(独立视图)
+// 真站快照(R28 实测): /tmp/r28-2c/qb23/qb23-toc.html(/book/5094/catalog 直抓, 732KB 全量目录页)
 // 真站 DOM: main#main > .content
 //   ├ .heading(裸排于 #f8f9f9 底): h1.page-title(38px/700, 链接书籍页) + span.novel-tag-icon「作者：x」
 //   │   + time.itemtitle「更新时间：x」
 //   └ .module > .box(白卡)
 //       ├ span#shuqian > h2.module-title.type「阅读进度」(真站书签位; 克隆以 currentChapterId 呈现, 无则省略)
-//       ├ 每卷 h2.module-title.type「第一卷 富春山居图」(.box .type: margin 30px 0 20px, 首个 margin-top 0)
+//       ├ 每卷 h2.module-title.type「正文卷」(.box .type: margin 30px 0 20px, 首个 margin-top 0)
 //       └ .module-row-info×N 章节行(可点): padding 10px 15px / radius 10px / 底 #f7f8f9(min-768 全行,
 //           ≤767 斑马 even)/ .icon-video-file 18px #34a853 / 行文字 14px rgba(0,0,0,.83)
-// 真站目录单页罗列全部章节无分页(445KB); 克隆数据层 100 章/页 → 复用真站 #page 分页形态(红底当前页)。
+// 真站目录单页罗列全部章节无分页(732KB); 克隆数据层 100 章/页 → 复用真站 #page 分页形态(红底当前页)。
 // 真站行无当前章高亮, 增补 #fef0e5/#ff2a14 selected chip 语言(任务要求)。
 // 真站行 .module-row-shortcuts「阅读/下载」悬浮钮未复刻(数据层无对应端点, TXT 走书页)。
 // ============================================================
@@ -20,22 +20,22 @@ import type { ReactNode } from 'react'
 import type { SiteTocProps } from '../shared'
 import { usePublic } from '../../ctx'
 import { groupTocVolumes } from '../template-kit'
+import { pageWindowOf } from './Category' // [R28-5-1] 同站逐字重复(Toc 私有副本与 Category 导出同实现) → 改为单处定义
 import type { TocChapter } from '../../types'
 import { ErrorState, Sk } from '../../bits'
 import { fmtDate, formatWords } from '../../seo'
 
-/** [R26-4-16] 真站实测色值(style.css) */
+/** [R28-2c-16] 真站实测色值(style.css) */
 const QB_TEXT = '#282828'
 const QB_MUT40 = 'rgba(0,0,0,0.4)'
 const QB_MUT62 = 'rgba(0,0,0,0.62)'
-const QB_TXT68 = 'rgba(0,0,0,0.68)'
 const QB_TXT83 = 'rgba(0,0,0,0.83)'
 const QB_TITLE = 'rgba(7,7,10,0.92)'
 const QB_RED = '#ff2a14'
 const QB_GREEN = '#34a853'
 const QB_APRICOT = '#fef0e5'
 
-/** [R26-4-17] .module-row-info 章节行(min-768 三列; 行底/斑马/高亮由 index.css 统一驱动) */
+/** [R28-2c-17] .module-row-info 章节行(min-768 三列; 行底/斑马/高亮由 index.css 统一驱动) */
 function TocRow({ ch, current, onClick }: { ch: TocChapter; current?: boolean; onClick: () => void }) {
   return (
     <div
@@ -80,17 +80,11 @@ function QbPageBtn({
       disabled={disabled}
       aria-label={ariaLabel}
       className="mx-0.5 inline-block min-w-[40px] rounded-[50px] bg-[#f3f5f7] px-3 text-sm leading-10 transition-colors hover:bg-[#eaedf1] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-[#f3f5f7]"
-      style={{ color: QB_TXT68 }}
+      style={{ color: QB_TEXT }}
     >
       {children}
     </button>
   )
-}
-
-function pageWindowOf(page: number, totalPages: number): number[] {
-  const out = new Set<number>([1, totalPages])
-  for (let p = Math.max(1, page - 3); p <= Math.min(totalPages, page + 3); p++) out.add(p)
-  return [...out].sort((a, b) => a - b)
 }
 
 export function Qb23Toc({ data, loading, error, page, currentChapterId }: SiteTocProps) {
@@ -124,7 +118,7 @@ export function Qb23Toc({ data, loading, error, page, currentChapterId }: SiteTo
     )
   }
 
-  const { book, chapters, tocTotal, tocTotalPages, tocPage } = data
+  const { book, chapters, tocTotal, tocTotalPages } = data
   const volumeGroups = groupTocVolumes(chapters)
   const current = chapters.find((c) => c.id === currentChapterId)
   const pageWindow = pageWindowOf(page, tocTotalPages)
@@ -222,7 +216,7 @@ export function Qb23Toc({ data, loading, error, page, currentChapterId }: SiteTo
           {tocTotalPages > 1 && (
             <nav className="pt-6 text-center" aria-label="目录分页">
               <span className="mr-2 text-sm" style={{ color: QB_MUT40 }}>
-                第{tocPage || page}/{tocTotalPages}页
+                第{page}/{tocTotalPages}页
               </span>
               <QbPageBtn disabled={page <= 1} onClick={() => navigate({ view: 'toc', bookId: book.id, page: page - 1 })} ariaLabel="上一页">
                 上一页

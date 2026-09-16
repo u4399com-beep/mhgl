@@ -30,6 +30,9 @@ import { HistoryView } from './HistoryView'
 import { getTemplateSet } from './sites/registry'
 // [R27-5b-H2] 目录视图壳: renderView 补齐 ctx 已承认的 view='toc' 分支(修深链软死链)
 import { TocView } from './TocView'
+// [R28-0] 扩展页型视图壳: 排行榜/全本完本
+import { RankingView } from './RankingView'
+import { FulltextView } from './FulltextView'
 import { Sk } from './bits'
 import { FeedbackWidget } from './FeedbackWidget'
 import { BackToTop } from './BackToTop'
@@ -288,6 +291,11 @@ export default function PublicSite({
       // [R27-5b-H2] 补齐 ctx VIEW_LIST 已承认的 'toc' 视图分支(修前缺 case → 深链静默渲染首页软死链)
       case 'toc':
         return <TocView key={`toc-${view.bookId || ''}-${site.id}`} bookId={view.bookId} page={view.page || 1} />
+      // [R28-0] 扩展页型: 排行榜(三榜 tab)/全本·完本(status=completed 列表)
+      case 'ranking':
+        return <RankingView key={`ranking-${site.id}`} />
+      case 'fulltext':
+        return <FulltextView key={`fulltext-${site.id}-${view.page || 1}`} page={view.page || 1} />
       default:
         return <HomeView key={`home-${site.id}-${view.cat || ''}`} page={view.page || 1} cat={view.cat} />
     }

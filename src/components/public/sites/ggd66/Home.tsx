@@ -1,7 +1,7 @@
 // ============================================================
-// [R27-6-1] ggd66(格格党) 首页克隆 —— 按 https://www.ggd66.com/ 首页真站快照逐节还原
-// (/tmp/r27-f/ggd66-home.html + ggd66-style.css 实测, 2026 抓取)
-//
+// [R28-2c] ggd66(格格党) 首页克隆 —— 基础五视图之 Home
+// 真站快照(R28 实测): /tmp/r28-2c/ggd66/ggd66-home.html(https://www.ggd66.com/ 直连 200, 24.3KB)
+//   + ggd66-style.css(/static/simple/style.css 11.5KB, @charset gb2312)
 // 真站 DOM(.container 90%/max 1200px > .content):
 //   .content①  .content-left#fengtui(73%)      h2 热门小说推荐 + .item×6(两列浮动 50%):
 //   │            .image(120px 封面/1px #ccc 边/白底) + dl(dt: 书名 15px 700 + 右浮作者 14px,
@@ -15,7 +15,8 @@
 //   │                                          链接/s5 时间 右浮 90px/s4 作者 右浮 90px; 高 28px/dashed)
 //   .footer    底 #56ccb5 白字(全站 .site-footer 由 themes customCss 承担, 本组件不重复渲染)
 // 注: ①真站 .header(#1abc9c 50px 高白字导航)由 SiteHeader ggd66 头部承担, 本组件从 .content 起渲染
-//    ②真站搜索提交 /search 页 → 模板 navigate({view:'search'}); 排行榜/列表行点击 → 书页
+//    ②真站搜索提交 POST /search/(searchkey) → 模板 navigate({view:'search'}); 排行榜/列表行点击 → 书页
+//    ③真站导航「全本」/quanben/sort/ = 真站完本页(R28 新探明) → 全文本页型见 Fulltext.tsx
 // 色板出处(ggd66-style.css): body #f9f9f9/#888/15px · a #00886d · hover #f50 · #56ccb5(×10 按钮底/搜索边)
 // ============================================================
 'use client'
@@ -28,14 +29,14 @@ import type { BookItem } from '../../types'
 import { BookCover } from '../../BookCover'
 import { Sk, bookNavProps } from '../../bits'
 
-/** [R27-6-1] 真站实测色值(ggd66-style.css 逐条规则) */
+/** [R28-2c-1] 真站实测色值(ggd66-style.css 逐条规则) */
 const TEAL = '#56ccb5' // .btn-info/.search button/.footer/.pages strong(×10)
 const GREEN_LINK = '#00886d' // a 常态色
 const TEXT_BODY = '#888' // body 文字
 const LINE = '#ccc' // h2 底边/虚线行/封面边
 const COVER_BG = '#fff' // .image img 白底衬边
 
-/** [R27-6-1] 短时间格式(真站 #gengxin s5「09-16 01:22」形态) */
+/** [R28-2c-2] 短时间格式(真站 #gengxin s5「09-16 01:22」形态) */
 function fmtShort(d?: string): string {
   if (!d) return ''
   return d.slice(5, 16).replace('T', ' ')
@@ -44,7 +45,7 @@ function fmtShort(d?: string): string {
 export function Ggd66Home({ books, loading }: SiteHomeProps) {
   const { site, navigate } = usePublic()
 
-  // [R27-6-1] 阅读排行榜(真站 #fengyou ul 13 行, 点击榜基因 → 字数热榜喂形; 失败回退 props)
+  // [R28-2c-3] 阅读排行榜(真站 #fengyou ul 13 行, 点击榜基因 → 字数热榜喂形; 失败回退 props)
   const [rank, setRank] = useState<BookItem[] | null>(null)
   useEffect(() => {
     let alive = true
@@ -61,10 +62,10 @@ export function Ggd66Home({ books, loading }: SiteHomeProps) {
   }, [site.id])
   const rankList: BookItem[] = rank && rank.length ? rank : books.slice(0, 13)
 
-  // [R27-6-1] 最近更新(真站 #gengxin: 分类/书名/最新章节/时间/作者 五段行) — updatedAt 有序的 props 前 16 本
+  // [R28-2c-4] 最近更新(真站 #gengxin: 分类/书名/最新章节/时间/作者 五段行) — updatedAt 有序的 props 前 16 本
   const updated = books.filter((b) => b.updatedAt).slice(0, 16)
 
-  // [R27-6-1] 真站 .search 表单(input 80% + button 20%)
+  // [R28-2c-5] 真站 .search 表单(input 80% + button 20%)
   const [kw, setKw] = useState('')
   const submitSearch = (e: React.FormEvent) => {
     e.preventDefault()
@@ -73,9 +74,9 @@ export function Ggd66Home({ books, loading }: SiteHomeProps) {
     navigate({ view: 'search', q: t })
   }
 
-  // [R27-6-1] #fengtui 热门推荐 6 本(封面+文案卡, 真站两列浮动 → 网格)
+  // [R28-2c-6] #fengtui 热门推荐 6 本(封面+文案卡, 真站两列浮动 → 网格)
   const recs = books.slice(0, 6)
-  // [R27-6-1] #zuixin 最新小说列表(真站 24+ 行 → props 前 24)
+  // [R28-2c-7] #zuixin 最新小说列表(真站 24+ 行 → props 前 24)
   const latest = books.slice(0, 24)
 
   return (
@@ -154,7 +155,7 @@ export function Ggd66Home({ books, loading }: SiteHomeProps) {
                 value={kw}
                 onChange={(e) => setKw(e.target.value)}
                 type="text"
-                placeholder="输入关键词"
+                placeholder="搜索从这里开始..."
                 aria-label="搜索书名或作者"
                 className="h-[38px] w-full rounded-[5px] border-2 bg-[#f9f9f9] pl-[1em] pr-[21%] text-[16px] outline-none"
                 style={{ borderColor: TEAL, color: TEAL }}

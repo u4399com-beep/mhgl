@@ -44,7 +44,8 @@ export interface BooksQuery {
   q?: string
   cat?: string
   status?: string
-  sort?: 'latest' | 'words'
+  /** [R28-0] +new(新书榜): latest=更新榜(words=字数榜同理), 与 /api/public/books 白名单一致 */
+  sort?: 'latest' | 'words' | 'new'
   page?: number
   size?: number
   /** [R27-5b-M4] 批量 ids 直查(≤50, 我的书架用)—— 命中时服务端忽略分页/站群偏移/排序 */
@@ -272,52 +273,4 @@ export function fetchSuggestTags(): Promise<SuggestTagsEntry | null> {
     if (suggestInflight === p) suggestInflight = null
   })
   return p
-}
-
-// ---------------- 首页分类图文卡(6 分类封面) ----------------
-
-export interface ShowcaseCategory {
-  id: string
-  name: string
-  bookCount: number
-  /** 代表书: 字数最高带封面书; 无书时为 null */
-  rep: { id: string; num?: number | null; name: string; cover: string } | null
-}
-
-/**
- * 分类图文数据(非空分类按 sortOrder, 各带代表书封面), 失败静默返回 null(调用方不渲染区块)。
- */
-export function fetchShowcaseCategories(): Promise<ShowcaseCategory[] | null> {
-  return (async (): Promise<ShowcaseCategory[] | null> => {
-    try {
-      const res = await fetch('/api/public/categories?limit=24', { cache: 'no-store' })
-      const json: { ok?: boolean; data?: { items?: unknown } } = await res.json().catch(() => null)
-      if (!json?.ok || !json.data || !Array.isArray(json.data.items)) return null
-      const items: ShowcaseCategory[] = []
-      for (const raw of json.data.items) {
-        if (!raw || typeof raw !== 'object') continue
-        const it = raw as Record<string, unknown>
-        if (typeof it.id !== 'string' || typeof it.name !== 'string') continue
-        const repRaw = it.rep && typeof it.rep === 'object' ? (it.rep as Record<string, unknown>) : null
-        items.push({
-          id: it.id,
-          name: it.name,
-          bookCount: typeof it.bookCount === 'number' ? it.bookCount : 0,
-          rep:
-            repRaw && typeof repRaw.id === 'string' && typeof repRaw.name === 'string'
-              ? {
-                  id: repRaw.id,
-                  num: typeof repRaw.num === 'number' ? repRaw.num : null,
-                  name: repRaw.name,
-                  cover: typeof repRaw.cover === 'string' ? repRaw.cover : '',
-                }
-              : null,
-        })
-      }
-      for (const c of items) registerBookRef(c.rep?.id, c.rep?.num)
-      return items
-    } catch {
-      return null // 失败静默降级: 分类图文卡整体不渲染
-    }
-  })()
 }

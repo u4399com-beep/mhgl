@@ -128,6 +128,62 @@ function emptyStats(): TaskStats {
  *  站点改版/被全量拦截时 2~3 个批次内即熔断, 不再硬敲 */
 const CIRCUIT_ERROR_LIMIT = 20
 
+// ---------- [R28-4-E3] trafilatura 正文提取兜底(FETCH_EXTRACT_FALLBACK=1 缺省关) ----------
+/** 场景: 规则失效/站点改版/低质模板站时 parseContent 产出极短正文(confidence 低), 章节以
+ *  近 0 字入库。开关开启后, plainLen<200 且 confidence<0.3 的章节把原始 HTML POST 给
+ *  scrapling 桥 /extract(trafilatura 自适应正文提取, R27-1b 已就绪), 返回文本按 \n 段落
+ *  wrap <p>(与 fetcher contentProxy 路径同款转义)重过 cleanContentHtml 后落库。
+ *  护栏: ①桥调用恒回环直连(桥地址同 scrapling 桥, 引擎侧 SSRF 先例 impersonateOnceViaBridge);
+ *  ②兜底产物 plainLen≥100 才采纳(保底长度闸, 导航噪声提取器产物拒收);
+ *  ③每 host 连续 3 次兜底失败(桥不可达/桥内失败/提取空)即进程内停用该 host(防慢桥拖任务);
+ *  ④POST 超时 20s; ⑤失败静默(落原 cleaned, 不阻断采集链) */
+const FETCH_EXTRACT_FALLBACK_ENABLED = process.env.FETCH_EXTRACT_FALLBACK === '1'
+const FETCH_EXTRACT_BRIDGE_DEFAULT = process.env.SCRAPLING_BRIDGE_URL || 'http://127.0.0.1:3012'
+const FETCH_EXTRACT_MIN_PLAIN = 100
+const FETCH_EXTRACT_HOST_FAIL_LIMIT = 3
+// 每 host 兜底连败计数(进程内; globalThis 防 HMR 多实例)
+const globalForExtractFb = globalThis as unknown as { __novelExtractFbFail_v1?: Map<string, number> }
+const extractFbFailStreak: Map<string, number> = globalForExtractFb.__novelExtractFbFail_v1 ?? new Map()
+globalForExtractFb.__novelExtractFbFail_v1 = extractFbFailStreak
+
+/** [R28-4-E3] 桥 /extract 兜底提取: 成功返回 wrap 好的 <p> HTML(调用方还需重过 cleanContentHtml),
+ *  失败/停用返回 null(静默) */
+async function trafilaturaExtractFallback(pageUrl: string, html: string, bridgeUrl: string): Promise<string | null> {
+  if (!html) return null
+  const host = hostGateKeyOf(pageUrl)
+  if (host && (extractFbFailStreak.get(host) || 0) >= FETCH_EXTRACT_HOST_FAIL_LIMIT) return null
+  const bridge = (bridgeUrl || '').trim() || FETCH_EXTRACT_BRIDGE_DEFAULT
+  try {
+    const res = await fetch(`${bridge}/extract`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      // html 直提形态(url 作提取上下文供 trafilatura 参考坐标, 桥内不重新抓取)
+      body: JSON.stringify({ html, url: pageUrl }),
+      signal: AbortSignal.timeout(20_000),
+    })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const payload = (await res.json()) as { ok?: boolean; text?: string; error?: string }
+    if (!payload?.ok || typeof payload.text !== 'string' || !payload.text.trim()) {
+      throw new Error(String(payload?.error || 'ok/text 字段缺失').slice(0, 120))
+    }
+    if (host) extractFbFailStreak.set(host, 0)
+    // \n 段落 wrap <p>(与 contentProxy 路径 fetcher.ts 同款转义)
+    return payload.text
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .map((l) => `<p>${l.replace(/[<>&]/g, (c) => c === '<' ? '&lt;' : c === '>' ? '&gt;' : '&amp;')}</p>`)
+      .join('')
+  } catch {
+    if (host) extractFbFailStreak.set(host, (extractFbFailStreak.get(host) || 0) + 1)
+    return null
+  }
+}
+
+/** [R28-4-E1] host 级熔断观测日志节流: 同 host 1min 至多 1 条(防千章任务被熔断快速失败
+ *  逐章刷 warn 日志刷屏) */
+const hostCircuitWarnAt = new Map<string, number>()
+
 /** E4: 熔断后冷却窗口 —— 60s 内拒绝 control('start') 重启, 防止操作员反复硬敲故障源 */
 const CIRCUIT_COOLDOWN_MS = 60_000
 
@@ -1193,10 +1249,10 @@ export class TaskRunner {
       }
       return res
     } catch (e: any) {
-      // ee-d: fetch 超时(isFetchTimeout 标记)虽名为 AbortError 但属源站行为(慢站)——必须嗂连败,
-      // 否则慢站对 hostGate 降额链完全不可见(修前实证: 6 章节超时降额触发 0 次);
-      // 停止/换代在途中止(无标记 AbortError)保持 x-a 豁免不计连续失败
-      if (e?.isFetchTimeout || (e?.name !== 'AbortError' && e?.code !== 'ABORT_ERR')) {
+      // [R28-4-E1] host 级熔断(403 连败长静默)快速失败: 引擎侧闸门行为而非源站故障,
+      // 不喂连败降额链/不计 429 冷却(与下方 HostGateTimeout 豁免同口径); 章节错误分类由
+      // 调用方按 HostCircuitOpen 分支只记节流后的观测日志
+      if (e?.isFetchTimeout || (e?.name !== 'AbortError' && e?.code !== 'ABORT_ERR' && e?.name !== 'HostCircuitOpen')) {
         // zz-b: HTTP 429 以抛错形态抵达(fetchHttp/curl/auto 升级链均保留 err.status)——
         // 同样走限流冷却而非降额链, 防止限流站点被误降并发后照旧硬敲。
         // ab-b: 透传 fetcher 抛错对象抢救出的 Retry-After 毫秒值(无值/非法 → undefined → 30s 兜底)
@@ -1355,6 +1411,12 @@ export class TaskRunner {
     }
 
     // ---------- 3. 建库/更新书籍 ----------
+    // [R28-4-L9] 设计留档(本轮不改行为): 本查询 OR: [{sourceUrl}, {name, author}] 的
+    // "同名同作者"跨源合并是有意的设计权衡 —— 不同作品同名同人(同人/重名书)时, 第二源会被判为
+    // "已有更完整数据"跳过或反向增量合并, 章节并入错书; 跨源去重(1594-1622 附近)仅比章数,
+    // 不校验 intro/首章内容同源性。可选加固(留档未实施): 跨源合并前加一道低成本校验
+    // (intro 前缀相似度或双方 toc 首章 URL host+path 归一比对), 不一致则按不同书处理
+    // (复用 nextBookNum 新建)。存量行为(历史轮次未立案), 如实留档供后续轮次决策
     const existing = await db.book.findFirst({ where: { OR: [{ sourceUrl: bookUrl }, { name: bookName, author }] } })
     let bookId: string
     const bookData = {
@@ -1928,8 +1990,24 @@ export class TaskRunner {
             // 疑似被拦不入库: 保持 fetched=false, 下次增量自动重试; 合法JSON体是API数据非挑战页, 放行
             if (pageRes.blocked && parseJsonBody(pageRes.html) === undefined) throw new Error('章节页疑似被拦截(验证码/JS挑战)')
             const parsedC = await parseContent(q.url, pageRes.html, rule.content, contentFetchCfg)
-            const cleaned = cleanContentHtml(parsedC.content, rule.clean)
-            const plainLen = cleaned.replace(/<[^>]+>/g, '').length
+            // [R28-4-E3] cleaned/plainLen 改 let: trafilatura 兜底采纳时被替换(下方)
+            let cleaned = cleanContentHtml(parsedC.content, rule.clean)
+            let plainLen = cleaned.replace(/<[^>]+>/g, '').length
+            // [R28-4-E3] trafilatura 正文兜底(FETCH_EXTRACT_FALLBACK=1 缺省关): 极短正文 +
+            // 低置信度时 POST 桥 /extract 重提取; 产物重过 cleanContentHtml 且 plainLen≥100
+            // 才采纳(保底长度闸), 日志显式记录兜底来源。失败静默落原 cleaned(不阻断)
+            if (FETCH_EXTRACT_FALLBACK_ENABLED && plainLen < 200 && (parsedC.confidence ?? 1) < 0.3) {
+              const fbHtml = await trafilaturaExtractFallback(q.url, pageRes.html, contentFetchCfg.scraplingBridgeUrl || '')
+              if (fbHtml) {
+                const cleanedFb = cleanContentHtml(fbHtml, rule.clean)
+                const plainFb = cleanedFb.replace(/<[^>]+>/g, '').length
+                if (plainFb >= FETCH_EXTRACT_MIN_PLAIN) {
+                  await this.log(taskId, 'warn', `正文过短(${plainLen} chars, confidence=${(parsedC.confidence ?? 1).toFixed(2)}), trafilatura 兜底提取 ${plainFb} chars: ${q.url.slice(0, 120)}`)
+                  cleaned = cleanedFb
+                  plainLen = plainFb
+                }
+              }
+            }
             const chId0 = q.chId || idMap.get(q.url)
             let rel: string | null = null
             // oo-①修复(qq-c收编): 内容保存路径的 chapter.update 此前无 catch —— 章节行在
@@ -2002,6 +2080,18 @@ export class TaskRunner {
             } else if (e?.name === 'AbortError' || e?.code === 'ABORT_ERR') {
               // 修复(x-a): 停止/换代造成的中止不计章节失败(防停止时批量刷错误+errors虚高)
               // 章节保持 fetched=false, 下次增量照常优先重采
+            } else if (e?.name === 'HostCircuitOpen') {
+              // [R28-4-E1] host 级熔断快速失败: 403 连败长静默期间新请求毫秒级被拒 —— 引擎侧
+              // 闸门行为而非源站故障, 不计 errors/不计连败; 章节保持 fetched=false, 熔断解除后
+              // 增量重试可恢复。日志节流(同 host 1min 至多 1 条)防千章任务刷屏
+              {
+                const hkey = hostGateKeyOf(q.url)
+                const last = hostCircuitWarnAt.get(hkey) || 0
+                if (Date.now() - last > 60_000) {
+                  hostCircuitWarnAt.set(hkey, Date.now())
+                  await this.log(taskId, 'warn', `章节批量跳过: host 级熔断中(${hkey || '未知'}, 源站 403 连败长静默), 章节保持未采集; 熔断解除后增量重试可恢复`)
+                }
+              }
             } else if (e?.name === 'HostGateTimeout') {
               // bb-d: 同站并发闸门槽满等待超时 — hostGate 限流保护(引擎侧)而非源站故障,
               // 不计 errors/不计源站连续失败; 章节保持 fetched=false, 稍后增量重试可恢复
@@ -2270,7 +2360,16 @@ function parseFetchOverride(raw: string | null | undefined): Partial<FetchConfig
 }
 
 function buildFetch(rule: RuleConfig, override: Partial<FetchConfig>): Partial<FetchConfig> {
-  return { ...rule.fetch, ...override }
+  const merged: Partial<FetchConfig> = { ...rule.fetch, ...override }
+  // [R28-4-E6] FETCH_DEFAULT_PROXY_URL 全局默认池: 规则与任务级 override 均未配 proxyUrl 时
+  // 注入(env, 逗号分隔多条, 值过 parseProxyPool/isValidProxySpec 同款校验在 fetcher 消费侧
+  // 逐条生效, 非法条目自然被剔除), 免"每条规则逐个填代理"的运维面。缺省未设 env 时行为零变化;
+  // 回环目标在 fetcher 侧本就有 isLoopbackTarget 豁免, 默认池不影响 token 转换代理等回环链路
+  if (!merged.proxyUrl) {
+    const envPool = (process.env.FETCH_DEFAULT_PROXY_URL || '').trim()
+    if (envPool) merged.proxyUrl = envPool
+  }
+  return merged
 }
 
 /** Bug 5: 章节重排四阶段(阶段A/B/D + 分卷回填)的 .catch 收口 —— 修前 `.catch(() => {})`

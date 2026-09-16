@@ -13,6 +13,9 @@
 // 服务端 Setting 读取缓存见 ./banned-words-server.ts (60s TTL + 保存失效钩子)
 // ============================================================
 
+// [R28-5-2] 重复整合: 本文件原有同款正则转义(与 @/lib/utils 逐字同实现)下沉共用
+import { escapeRegExp } from '@/lib/utils'
+
 /** Setting 表存储 key(与管理端 BannedWordsSection / settings API 约定一致) */
 export const BANNED_WORDS_SETTING_KEY = 'bannedWords'
 
@@ -60,11 +63,6 @@ export function sanitizeBannedWordsConfig(raw: unknown): BannedWordsConfig {
     }
   }
   return { mode, words }
-}
-
-function escapeRegExp(s: string): string {
-  // 转义正则元字符, 词表内容永远按字面量匹配
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 interface CompiledBannedWords {
