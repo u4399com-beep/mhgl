@@ -104,7 +104,7 @@ function compileBannedWords(cfg: BannedWordsConfig | null | undefined): Compiled
  * - remove: 每处命中直接删除
  * 空文本/空词表原样返回; latin 词条大小写不敏感。
  */
-export function applyBannedWords(text: string, cfg: BannedWordsConfig | null | undefined): string {
+function applyBannedWords(text: string, cfg: BannedWordsConfig | null | undefined): string {
   if (typeof text !== 'string' || text === '') return typeof text === 'string' ? text : ''
   const { mode, re } = compileBannedWords(cfg)
   if (!re) return text

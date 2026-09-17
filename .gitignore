@@ -17,3 +17,4 @@ tsconfig.tsbuildinfo
 
 # sandbox runtime artifacts
 .zscripts/dev.pid
+backups/

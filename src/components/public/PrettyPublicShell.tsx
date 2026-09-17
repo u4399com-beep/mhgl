@@ -6,7 +6,7 @@
 
 import PublicSite from './PublicSite'
 
-export interface PrettyView {
+interface PrettyView {
   view: 'book' | 'read'
   bookId: string
   chapterId?: string

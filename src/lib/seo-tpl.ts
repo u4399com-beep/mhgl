@@ -144,7 +144,7 @@ export function sanitizeSeoTpl(raw: unknown): SeoTplSet {
   }
 }
 
-export interface ComposedTdk {
+interface ComposedTdk {
   title: string
   description: string
   keywords?: string
@@ -211,14 +211,14 @@ export function composeChapterTdk(vars: SeoTplVars, tpl?: SeoTplSet): ComposedTd
 // ============================================================
 
 /** PSEO 页 TDK 默认模板(statusText 不入句 — 未知状态时会留「，)」悬尾, 故不採用) */
-export const DEFAULT_PSEO_TEMPLATES = {
+const DEFAULT_PSEO_TEMPLATES = {
   title: '{keyword}',
   description:
     '{keyword}。{sitename}收录《{bookname}》({author}著，{category}小说)等{bookCount}部相关作品，提供{bookname}全文免费在线阅读、最新章节列表与全本TXT下载。',
   keywords: '{keyword},{bookname},{bookname}全文阅读,{bookname}txt,{author},{category}小说',
 } as const
 
-export interface PseoTplVars extends SeoTplVars {
+interface PseoTplVars extends SeoTplVars {
   /** 目标关键词(PSEO 页主体) */
   keyword?: string
   /** 相关书籍数(说明文案口径: "等 N 部相关作品") */

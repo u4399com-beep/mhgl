@@ -19,7 +19,7 @@ import { api } from './helpers'
 // ---------------- 结果类型 ----------------
 
 /** 服务端批量结果的跳过项 */
-export interface BatchSkipped {
+interface BatchSkipped {
   name?: string
   reason: string
 }

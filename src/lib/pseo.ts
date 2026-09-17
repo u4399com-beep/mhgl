@@ -5,11 +5,11 @@
 // ============================================================
 
 /** 单关键词码点上限(SQLite 索引友好 + 搜索展示安全线) */
-export const PSEO_KEYWORD_MAX = 40
+const PSEO_KEYWORD_MAX = 40
 /** slug 清洗后正文段码点上限(剩空间给哈希后缀) */
-export const PSEO_SLUG_BODY_MAX = 72
+const PSEO_SLUG_BODY_MAX = 72
 /** slug 哈希后缀字符数(base36) */
-export const PSEO_SLUG_SUFFIX_LEN = 6
+const PSEO_SLUG_SUFFIX_LEN = 6
 /** 单次生成全局页数上限(保护 POST 时长与 SQLite 写入) */
 export const PSEO_RUN_LIMIT = 500
 /** sitemap 纳入 PSEO URL 上限 */
@@ -29,7 +29,7 @@ export function normalizeKeyword(raw: string): string {
 
 // ---------------- 模板族 ----------------
 
-export interface PseoBookMeta {
+interface PseoBookMeta {
   name: string
   author: string
   category?: string | null
@@ -106,7 +106,7 @@ function fnv1a36(s: string): number {
 // ---------------- 相关书挑选(生成期) ----------------
 
 /** 相关书挑选的最小形状(生成期从 Prisma select 得到) */
-export interface PseoRelatedCandidate {
+interface PseoRelatedCandidate {
   id: string
   categoryId?: string | null
   wordCount?: number | null

@@ -69,7 +69,7 @@ export interface ReadLayoutProps {
  * 写入此 module-level ref, ReadView 的 keydown 处理器读 ref 派发。
  * 同一时刻仅一个阅读器实例挂载 (key=chapterId 强制 remount), 故单槽 ref 安全。
  */
-export interface ReaderActions {
+interface ReaderActions {
   onPrev?: () => void
   onNext?: () => void
   onScrollTop?: () => void
@@ -79,14 +79,14 @@ export interface ReaderActions {
 export const readerActionsRef: { current: ReaderActions } = { current: {} }
 
 /** 行距预设 (feat-a C) */
-export const LINE_HEIGHT_PRESETS: { label: string; value: number }[] = [
+const LINE_HEIGHT_PRESETS: { label: string; value: number }[] = [
   { label: '紧凑', value: 1.6 },
   { label: '标准', value: 1.8 },
   { label: '宽松', value: 2.1 },
 ]
 
 /** 字距预设 (feat-a C, 单位 px) */
-export const LETTER_SPACING_PRESETS: { label: string; value: number }[] = [
+const LETTER_SPACING_PRESETS: { label: string; value: number }[] = [
   { label: '紧凑', value: -0.3 },
   { label: '标准', value: 0 },
   { label: '宽松', value: 1 },

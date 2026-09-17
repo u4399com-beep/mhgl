@@ -2087,7 +2087,13 @@ interface ProxyState {
   /** [R9-e-2] 增强: 最近一次网络层封禁(冷却)时刻 ms, 0=无 —— 评分时近期封禁降权 */
   lastBanAt?: number
 }
-const PROXY_FAIL_COOLDOWN_MS = 30_000
+// [R32-2-1] FETCH_PROXY_COOLDOWN_MS env 覆盖(缺省 30_000 与原硬编码 const 逐字节一致, 不设 env
+// 行为零变化): markProxyFailed 的基础冷却(指数退避底数)。B 轨(出口代理池网关型 5xx 熔断)
+// 端到端冒烟需短冷却验证半开恢复与递增间隔, 顺带成为运维可调项; 上限 300s 钳制不变
+const PROXY_FAIL_COOLDOWN_MS = (() => {
+  const n = Number(process.env.FETCH_PROXY_COOLDOWN_MS)
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 30_000
+})()
 /** R4-3: 指数退避上限 —— 30s × 2^4 = 480s, 钳至 300s 防冷却过长 */
 const PROXY_FAIL_COOLDOWN_MAX_MS = 300_000
 

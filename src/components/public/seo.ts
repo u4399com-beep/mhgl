@@ -8,7 +8,7 @@ import type { CSSProperties } from 'react'
 import type { ThemeDef } from '@/lib/crawl/themes'
 import type { SiteInfo } from './types'
 
-export interface SeoOptions {
+interface SeoOptions {
   /** 页面标题；不传则跳过 document.title（由子视图负责，避免父子互相覆盖） */
   title?: string
   description?: string

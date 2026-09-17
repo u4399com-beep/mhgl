@@ -39,9 +39,9 @@ const CONFIRM_TONE_CLASS = {
   teal: "bg-teal-600 text-white hover:bg-teal-700",
 } as const
 
-export type ConfirmTone = keyof typeof CONFIRM_TONE_CLASS
+type ConfirmTone = keyof typeof CONFIRM_TONE_CLASS
 
-export interface ConfirmDialogProps {
+interface ConfirmDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   title: React.ReactNode

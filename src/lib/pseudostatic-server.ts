@@ -50,7 +50,7 @@ export async function getPseudoPreset(): Promise<PseudoPreset> {
 
 // ---------------- 路径解析(直达/刷新/后退共用) ----------------
 
-export interface ResolvedPretty {
+interface ResolvedPretty {
   view: 'book' | 'read'
   bookId: string
   chapterId?: string

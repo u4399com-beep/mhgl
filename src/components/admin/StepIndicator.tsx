@@ -8,7 +8,7 @@
 import { Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-export interface StepIndicatorProps {
+interface StepIndicatorProps {
   /** 步骤标签数组 (按顺序) */
   steps: string[]
   /** 当前步骤索引 (0-based) */

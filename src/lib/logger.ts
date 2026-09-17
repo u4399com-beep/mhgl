@@ -15,7 +15,7 @@
 // (默认 dev=debug, prod=info)
 // ============================================================
 
-export enum LogLevel {
+enum LogLevel {
   debug = 10,
   info = 20,
   warn = 30,
@@ -122,7 +122,7 @@ function resolveDefaultLevel(): LogLevel {
   return process.env.NODE_ENV === 'production' ? LogLevel.info : LogLevel.debug
 }
 
-export class Logger {
+class Logger {
   private level: LogLevel
   private bindings: Record<string, unknown>
 

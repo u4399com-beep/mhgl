@@ -39,7 +39,7 @@ export async function fetchCategories(): Promise<CategoryItem[]> {
   return (data?.items || []).map((c) => ({ id: c.id, name: c.name, _count: { books: c.bookCount } }))
 }
 
-export interface BooksQuery {
+interface BooksQuery {
   site?: string
   q?: string
   cat?: string
@@ -136,7 +136,7 @@ export interface FooterFriendLink {
   logo: string
 }
 
-export interface FooterWheelLink {
+interface FooterWheelLink {
   text: string
   url: string
 }
@@ -192,7 +192,7 @@ export function fetchFooterLinks(fresh = false, siteId = ''): Promise<FooterLink
 
 // ---------------- 全站搜索下拉词(首页/页脚随机词云) ----------------
 
-export interface SuggestTagsEntry {
+interface SuggestTagsEntry {
   ts: number
   /** 词池条数(缓存按它分键, 词池变化自然换键) */
   poolSize: number

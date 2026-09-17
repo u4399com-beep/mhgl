@@ -17,7 +17,7 @@ import { getPseudoPreset } from '@/lib/pseudostatic-server'
 
 export type WheelMode = 'home' | 'book' | 'mixed'
 
-export interface WheelConfig {
+interface WheelConfig {
   enabled: boolean
   mode: WheelMode
   count: number
@@ -77,7 +77,7 @@ function normalizeSiteDomain(raw: string): string {
 
 // ---------------- 链轮随机书籍 ----------------
 
-export interface WheelBook {
+interface WheelBook {
   id: string
   num?: number | null
   name: string
@@ -117,7 +117,7 @@ async function pickRandomBooks(need: number, excludeIds: string[] = []): Promise
 
 // ---------------- 链轮链接计算 ----------------
 
-export interface WheelLink {
+interface WheelLink {
   /** 锚文本: 站点标题 / 书名 */
   text: string
   /** 跨站绝对地址 https://{domain}{path} */
@@ -232,7 +232,7 @@ export async function computeWheelLinks(cfg: WheelConfig, excludeSiteId?: string
 
 // ---------------- 读侧缓存 (60s) ----------------
 
-export interface PublicFriendLink {
+interface PublicFriendLink {
   id: string
   name: string
   url: string

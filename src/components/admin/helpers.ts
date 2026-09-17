@@ -329,7 +329,7 @@ export interface RestoreResult {
 }
 
 /** SEO 体检 — 单条问题 */
-export interface SeoAuditIssue {
+interface SeoAuditIssue {
   severity: 'error' | 'warning' | 'info'
   category: 'tdk' | 'domain' | 'content' | 'links' | 'theme' | 'geo' | 'sitemap' | 'offset' | 'tech'
   message: string
@@ -410,7 +410,7 @@ export interface RuleTestResult {
 // ---------------- feat-b: 健康监控 (与 /api/admin/health 响应一致) ----------------
 export type HealthStatus = 'healthy' | 'degraded' | 'unhealthy'
 
-export interface HealthService {
+interface HealthService {
   reachable: boolean
   selfTestOk?: boolean
   note?: string
@@ -532,7 +532,7 @@ export function arrayToLines(arr?: string[] | null): string {
 }
 
 // ---------------- 状态徽章映射 ----------------
-export interface StatusMeta {
+interface StatusMeta {
   label: string
   className: string
 }

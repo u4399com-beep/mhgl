@@ -13,7 +13,7 @@
 import type { SeoTplSet, SeoTplVars } from './seo-tpl'
 
 /** 单套预设 = 完整三页型模板集 + 元信息(id/展示名/风格标签) */
-export interface SeoPreset extends SeoTplSet {
+interface SeoPreset extends SeoTplSet {
   /** 预设 id(来源追溯用, 如 'suspense') */
   id: string
   /** 展示名(如 '悬念型·隐藏结局'), 后台来源徽章用 */
@@ -354,7 +354,7 @@ export interface SeoRandomFieldSource {
   field: string
 }
 
-export interface RandomSeoTplResult {
+interface RandomSeoTplResult {
   /** 随机组合出的完整模板集(8 字段全部有值且必含 '{', 可直接进 sanitizeSeoTpl/PUT) */
   set: SeoTplSet
   /** 来源追溯: 三页型概览串(去重预设名) + 8 字段逐一来源 */

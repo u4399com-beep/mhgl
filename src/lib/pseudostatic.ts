@@ -28,7 +28,7 @@ export const PSEUDO_DEFAULT: PseudoPreset = 'query'
 /** Setting 表存储 key */
 export const PSEUDO_SETTING_KEY = 'pseudostatic'
 
-export interface PseudoPresetMeta {
+interface PseudoPresetMeta {
   id: PseudoPreset
   name: string
   desc: string
@@ -157,18 +157,18 @@ function lookupChapterRef(chapterId: string): { bookId: string; idx: number } | 
 
 // ---------------- 构建(按预设生成) ----------------
 
-export interface BookRef {
+interface BookRef {
   id: string
   num?: number | null
 }
 
-export interface ChapterRef {
+interface ChapterRef {
   id: string
   idx?: number | null
 }
 
 /** 书籍 token: numeric/directory/restful/compact → '1001'; alnum → 'b1001'; query/无num → null */
-export function bookTokenFor(book: BookRef | string, preset: PseudoPreset): string | null {
+function bookTokenFor(book: BookRef | string, preset: PseudoPreset): string | null {
   if (preset === 'query') return null
   const ref: BookRef = typeof book === 'string' ? { id: book } : book
   const num = clampInt(Number(ref.num ?? lookupBookNum(ref.id)))
@@ -177,7 +177,7 @@ export function bookTokenFor(book: BookRef | string, preset: PseudoPreset): stri
 }
 
 /** 章节 token: alnum → 'c3'; 其余 → '3'; query/无idx → null */
-export function chapterTokenFor(chapter: ChapterRef | string, preset: PseudoPreset): string | null {
+function chapterTokenFor(chapter: ChapterRef | string, preset: PseudoPreset): string | null {
   if (preset === 'query') return null
   const ref: ChapterRef = typeof chapter === 'string' ? { id: chapter } : chapter
   const idx = clampInt(Number(ref.idx ?? lookupChapterRef(ref.id)?.idx))
@@ -228,7 +228,7 @@ export function buildReadPath(
 }
 
 /** 视图参数(结构化, 与 ctx.ViewParams 同构, 避免循环依赖不直接 import) */
-export interface ViewUrlParams {
+interface ViewUrlParams {
   view: string
   bookId?: string
   chapterId?: string
@@ -280,7 +280,7 @@ export function buildViewUrl(v: ViewUrlParams, siteId: string, preset: PseudoPre
 
 // ---------------- 解析(宽容, 直达/刷新/后退共用) ----------------
 
-export interface ParsedPrettyPath {
+interface ParsedPrettyPath {
   view: 'book' | 'read'
   /** 书籍 token(数字 / b数字 / cuid) */
   bookToken: string

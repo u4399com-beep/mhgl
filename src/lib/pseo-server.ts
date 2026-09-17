@@ -19,7 +19,7 @@ import {
 } from './pseo'
 
 /** Setting 表 key: 采集入库后自动生成本书 PSEO 页(可选轻量钩子, 默认 '0') */
-export const PSEO_AUTO_SETTING_KEY = 'pseoAutoGenerate'
+const PSEO_AUTO_SETTING_KEY = 'pseoAutoGenerate'
 /** 每书默认页数上限 / 钳制范围 */
 const PER_BOOK_DEFAULT = 10
 const PER_BOOK_MIN = 1
@@ -35,7 +35,7 @@ const BOOK_CHUNK = 8
 /** slug P2002 重试次数(附随机熵) */
 const SLUG_RETRIES = 3
 
-export interface PseoGenerateInput {
+interface PseoGenerateInput {
   /** 指定书籍 id 列表(与 all 二选一; 都空 = 全部) */
   bookIds?: string[]
   all?: boolean
@@ -45,7 +45,7 @@ export interface PseoGenerateInput {
   perBook?: number
 }
 
-export interface PseoGenerateResult {
+interface PseoGenerateResult {
   generated: number
   skippedExisting: number
   booksScanned: number
@@ -70,7 +70,7 @@ function clampInt(v: unknown, def: number, min: number, max: number): number {
 }
 
 /** 站点兜底链(默认启用站 → 第一个启用站; 无启用站 null) — 与 [...slug] resolveMetaSite 同口径的生成期版本 */
-export async function defaultPseoSite(): Promise<{ id: string; name: string } | null> {
+async function defaultPseoSite(): Promise<{ id: string; name: string } | null> {
   return (
     (await db.site.findFirst({
       where: { isDefault: true, status: { not: false } },
