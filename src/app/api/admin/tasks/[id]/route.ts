@@ -56,7 +56,13 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       // [R34-2a-3] bookIds 同列入运行中禁改面: 它是 bookIds 模式的采集入口(队列源头), 与 bookUrl 模板同语义。
       //  以「请求体显式携带 bookIds」为准(partial 合并后 data.bookIds 恒有值, 不能作变更判据)
       const bookIdsChanged = body?.bookIds !== undefined && data.bookIds !== (exist as { bookIds?: string }).bookIds
-      if (modeChanged || bookUrlChanged || listUrlChanged || bookIdsChanged) {
+      // [R35-2a-4] bookIdFrom/bookIdTo 同列运行中禁改面(范围形式是 bookIds 模式的另一队列源头, 与 bookIds 同语义;
+      //  同样以请求体显式携带为准; schema push 前旧 client 上 exist 无该字段 → 走补丁值判变更, push 后自然对齐)
+      const bookIdFromChanged =
+        body?.bookIdFrom !== undefined && data.bookIdFrom !== (exist as { bookIdFrom?: string }).bookIdFrom
+      const bookIdToChanged =
+        body?.bookIdTo !== undefined && data.bookIdTo !== (exist as { bookIdTo?: string }).bookIdTo
+      if (modeChanged || bookUrlChanged || listUrlChanged || bookIdsChanged || bookIdFromChanged || bookIdToChanged) {
         return fail('任务运行中, 无法修改模式参数, 请先停止任务', 400)
       }
     }
@@ -67,7 +73,10 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       (data.bookUrl as string) ?? exist.bookUrl,
       (data.listUrl as string) ?? exist.listUrl,
       // [R34-2a-3] bookIds 合并值(schema 未 push/旧列不存在时 exist 上无该字段, 走补丁值或 undefined)
-      (data.bookIds as string) ?? (exist as { bookIds?: string }).bookIds
+      (data.bookIds as string) ?? (exist as { bookIds?: string }).bookIds,
+      // [R35-2a-4] 范围端点合并值(与 bookIds 同口径; 显式携带空串可清除, '' 非 nullish 不会被 exist 值覆盖)
+      (data.bookIdFrom as string | undefined) ?? (exist as { bookIdFrom?: string }).bookIdFrom,
+      (data.bookIdTo as string | undefined) ?? (exist as { bookIdTo?: string }).bookIdTo
     )
     if (pairErr) return fail(pairErr)
 

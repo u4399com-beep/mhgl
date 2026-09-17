@@ -250,6 +250,10 @@ export function TasksSection({ onNavigate }: { onNavigate?: (section: string) =>
                               {prog.phaseNote ? ` · ${prog.phaseNote}` : ''}
                             </div>
                           )}
+                          {/* [R35-2a-8] 书号范围子形态副标题(易实现, 与 name 同格不挤占徽章; 模式徽章维持「书号采集」) */}
+                          {t.mode === 'bookIds' && t.bookIdFrom && t.bookIdTo && (
+                            <div className="mt-0.5 text-[11px] text-zinc-600">范围 {t.bookIdFrom}-{t.bookIdTo}</div>
+                          )}
                         </TableCell>
                         <TableCell className="text-xs text-zinc-400">{t.rule?.name || '-'}</TableCell>
                         <TableCell>

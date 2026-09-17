@@ -103,8 +103,8 @@ function resolvePassword(): string {
   return DEFAULT_PASSWORD
 }
 
-/** [R15-c] 编译期默认密码常量(与 resolvePassword 内部值同源) */
-export const DEFAULT_ADMIN_PASSWORD = 'audit-fix-2025'
+/** [R15-c] 编译期默认密码常量(与 resolvePassword 内部值同源; [R35-2d-6] 仅 previewHintPassword 内部消费 → 去导出) */
+const DEFAULT_ADMIN_PASSWORD = 'audit-fix-2025'
 
 /**
  * [R15-c] 预览模式密码提示 —— 仅在「非生产运行时」且「生效密码恰为公开的编译期默认值」

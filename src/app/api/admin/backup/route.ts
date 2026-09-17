@@ -148,6 +148,9 @@ export async function GET() {
           bookUrl: t.bookUrl,
           // [R34-2a-8] 书号采集: bookIds 列入导出白名单(schema push 前旧 client 上 undefined, 序列化时自动省略)
           bookIds: (t as { bookIds?: string }).bookIds,
+          // [R35-2a-9] 书号范围: bookIdFrom/bookIdTo 列入导出白名单(同上, push 前旧 client 上 undefined 自动省略)
+          bookIdFrom: (t as { bookIdFrom?: string }).bookIdFrom,
+          bookIdTo: (t as { bookIdTo?: string }).bookIdTo,
           listUrl: t.listUrl, listStart: t.listStart,
           listEnd: t.listEnd, bookStart: t.bookStart, bookEnd: t.bookEnd,
           recrawlMode: t.recrawlMode, storageMode: t.storageMode,

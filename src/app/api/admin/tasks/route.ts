@@ -42,7 +42,8 @@ export async function POST(req: Request) {
     const { data, error } = normalizeTaskData(body ?? {}, 'full')
     if (error) return fail(error)
     // [R34-2a-3] 书号模式联动校验: 传入规范化后的 bookIds(模式为 single/range 时本参不参与校验)
-    const pairErr = validateTaskPair(data.mode, data.bookUrl, data.listUrl, data.bookIds)
+    // [R35-2a-4] 范围端点 bookIdFrom/bookIdTo 同传(书号列表与范围二选一互斥执法, single/range 模式不参与)
+    const pairErr = validateTaskPair(data.mode, data.bookUrl, data.listUrl, data.bookIds, data.bookIdFrom, data.bookIdTo)
     if (pairErr) return fail(pairErr)
 
     // full 模式下所有字段均已规范化

@@ -31,13 +31,11 @@ import { fetchBooks, fetchCategories } from '../../data'
 import type { BookItem } from '../../types'
 import { BookCover } from '../../BookCover'
 import { EmptyState, ErrorState, Sk, bookNavProps } from '../../bits'
-import { formatWords } from '../../seo'
+import { PiliResultCard } from './_kit' // [R35-2d-3] 原 Search/Category 逐字节重复的结果卡收敛
 
 const ORANGE = '#fd8929'
 const ORANGE_LIGHT = '#ff9a6a'
 const TITLE = '#333333'
-const MUTED = '#999999'
-const GRID_LINE = '#e8e7e6'
 // 真站 rank-num 徽章色(页内 <style> 实测)
 const RANK_BADGE = ['#ff4a4a', '#ff7e3e', '#ffb83d']
 const RANK_BADGE_REST = '#ccd0d7'
@@ -79,46 +77,6 @@ function sortBooks(books: BookItem[], key: SortKey): BookItem[] {
   if (key === 'update') arr.sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''))
   else arr.sort((a, b) => b.wordCount - a.wordCount) // 点击→字数近似(降级②)
   return arr
-}
-
-/** [R28-2b-2] 单个结果卡(ret-search-item: 封面+黑条 + 标题/作者/标签/简介/开始阅读) */
-function PiliCatCard({ book }: { book: BookItem }) {
-  const { navigate } = usePublic()
-  return (
-    <li className="flex gap-4 p-4" style={{ borderRight: `1px solid ${GRID_LINE}`, borderBottom: `1px solid ${GRID_LINE}` }}>
-      <div {...bookNavProps(navigate, book.id)} className="relative h-[133px] w-[100px] shrink-0 cursor-pointer overflow-hidden rounded-[2px]" aria-label={`查看《${book.name}》详情`}>
-        <BookCover name={book.name} cover={book.cover} showAuthor={book.author} style={{ borderRadius: 0 }} className="absolute inset-0" />
-        <span className="absolute inset-x-0 bottom-0 truncate bg-black/60 px-1 py-1 text-center text-[10px] text-white">
-          {book.latestChapter || book.name}
-        </span>
-      </div>
-      <div className="min-w-0 flex-1">
-        <button
-          type="button"
-          onClick={() => navigate({ view: 'book', bookId: book.id })}
-          className="block max-w-full truncate text-left text-lg leading-5 text-[#333333] transition-colors hover:text-[#fa8729]"
-          aria-label={`查看《${book.name}》详情`}
-        >
-          {book.name}
-        </button>
-        <p className="mt-1.5 truncate text-xs" style={{ color: '#666666' }}>作者：{book.author}</p>
-        <p className="mt-1 truncate text-xs" style={{ color: MUTED }}>
-          <span>分类：{book.category}</span>
-          <span className="ml-2">字数：{formatWords(book.wordCount)}</span>
-        </p>
-        <p className="mt-1 line-clamp-3 text-xs leading-[18px]" style={{ color: MUTED }}>{book.intro || '暂无简介'}</p>
-        <button
-          type="button"
-          onClick={() => navigate({ view: 'book', bookId: book.id })}
-          className="mt-2 h-9 rounded-[3px] px-4 text-sm text-[#5a4b32] transition-colors hover:bg-[#faead0]"
-          style={{ background: 'linear-gradient(180deg, #fffdf9, #fef8f0)', border: '1px solid #e0cfb1' }}
-          aria-label={`开始阅读《${book.name}》`}
-        >
-          开始阅读
-        </button>
-      </div>
-    </li>
-  )
 }
 
 /** [R28-2b-2] 左栏月点击排行(category-left-rank, 第一名带大封面) */
@@ -247,7 +205,7 @@ export function PiliCategory({ data, loading, error, catName, cat, page }: SiteC
               </div>
             ) : shown.length ? (
               <ul className="grid bg-white sm:grid-cols-2" style={{ listStyle: 'none' }}>
-                {shown.map((b) => <PiliCatCard key={b.id} book={b} />)}
+                {shown.map((b) => <PiliResultCard key={b.id} book={b} />)}
               </ul>
             ) : (
               <div className="bg-white p-6">

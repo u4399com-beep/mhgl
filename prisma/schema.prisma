@@ -115,10 +115,16 @@ model Task {
   ruleId String
   rule   Rule   @relation(fields: [ruleId], references: [id])
   // single(单本) | range(范围) | bookIds(书号) [R34-2a-1]
+  //  [R35-2a-2] bookIds(书号)模式含两种子形态: 书号列表(bookIds 非空)与书号范围(bookIdFrom/bookIdTo
+  //  均非空), 二者互斥由 API validateTaskPair 执法; 两者均空则视为空任务(启动后队列空)
   mode      String @default("single")
   bookUrl   String @default("") // 单本模式: 书籍页地址; bookIds 模式: 书籍页URL模板(必含 {bookId} 占位符)
   // bookIds(书号)模式: 书号原文(换行分隔, 由 API 规范化: trim/去空/去重) [R34-2a-1]
   bookIds   String @default("")
+  // [R35-2a-2] bookIds(书号)模式范围子形态: 起止书号(存数字字符串, trim; 空串=未用范围形式)。
+  //  运行时展开为 from..to 数字序列渲染 {bookId} 模板灌 bookQueue(上限 2000 本与列表形式同口径)
+  bookIdFrom String @default("")
+  bookIdTo   String @default("")
   // 范围模式: 列表页 {page} 起止
   listUrl   String @default("")
   listStart Int    @default(1)

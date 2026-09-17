@@ -92,6 +92,9 @@ export interface TaskRow {
   bookUrl: string
   // [R34-2a-6] 书号采集: 书号原文(换行分隔; schema push 后返回, 旧库行缺省 undefined 时消费方需容忍)
   bookIds?: string
+  // [R35-2a-8] 书号范围端点(bookIds 模式范围子形态; schema push 后返回, 旧库行缺省 undefined 时消费方需容忍)
+  bookIdFrom?: string
+  bookIdTo?: string
   listUrl: string
   listStart: number
   listEnd: number

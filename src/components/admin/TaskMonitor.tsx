@@ -343,7 +343,12 @@ export function TaskMonitor({ taskId, onBack }: TaskMonitorProps) {
               {task.name}
             </h2>
             <p className="mt-0.5 text-xs text-zinc-500">
-              规则: {task.rule?.name || '-'} · 模式: {taskModeLabel(task.mode)} · 重采:{' '}
+              规则: {task.rule?.name || '-'} · 模式: {taskModeLabel(task.mode)}
+              {/* [R35-2a-8] 书号范围子形态追加范围端点展示(模式文案保持「书号采集」) */}
+              {task.mode === 'bookIds' && task.bookIdFrom && task.bookIdTo
+                ? ` · 范围 ${task.bookIdFrom}-${task.bookIdTo}`
+                : ''}
+              {' '}· 重采:{' '}
               {task.recrawlMode === 'full' ? '完全覆盖' : '增量更新'} · 存储: {task.storageMode === 'db' ? '数据库' : 'TXT'}
               {/* jj-e 只读提示: 任务已开自动刷新时监控面板可感知(开关/间隔编辑在 TaskDialog) */}
               {!!task.autoRefresh && (

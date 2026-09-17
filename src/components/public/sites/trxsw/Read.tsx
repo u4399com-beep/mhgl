@@ -9,11 +9,10 @@
 // ============================================================
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import type { SiteReadProps } from '../shared'
 import { usePublic } from '../../ctx'
-import { fetchBooks } from '../../data'
-import type { BookItem } from '../../types'
+import { useRelatedBooks } from '../hooks' // [R35-2d-1] 原逐字节重复的 rel 拉取 effect 收敛
 import { ChapterContent, useReaderFont, useRecordReading } from '../template-kit'
 import { bookNavProps, ErrorState, Sk } from '../../bits'
 
@@ -31,27 +30,12 @@ export function TrxswRead({ data, loading, error }: SiteReadProps) {
   const { navigate } = usePublic()
   // 字号调节(克隆侧增强, 与通用阅读器偏好互通; 声明①)
   const { font, inc, dec } = useReaderFont()
-  // 相关阅读(家族惯例书链; ChapterData 无分类字段 → 字数热榜 10 本替代, 声明)
-  const [rel, setRel] = useState<BookItem[] | null>(null)
-
   // 阅读位置/时长记忆(hooks 顺序: 挂载即调)
   useRecordReading(data?.book?.id, data?.chapter?.id, data?.chapter?.title)
 
+  // 相关阅读(家族惯例书链; ChapterData 无分类字段 → 字数热榜 10 本替代, 声明) [R35-2d-1] 拉取 effect 收敛至 hooks.ts
   const bookId = data?.book?.id
-  useEffect(() => {
-    if (!bookId) return
-    let alive = true
-    fetchBooks({ sort: 'words', page: 1, size: 10 })
-      .then((d) => {
-        if (alive) setRel((d.books || []).filter((b) => b.id !== bookId).slice(0, 10))
-      })
-      .catch(() => {
-        if (alive) setRel([])
-      })
-    return () => {
-      alive = false
-    }
-  }, [bookId])
+  const rel = useRelatedBooks(bookId)
 
   // 键盘导航(杰奇家族惯例: Enter 回目录/← 上一页/→ 下一页)
   useEffect(() => {

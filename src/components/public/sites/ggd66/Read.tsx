@@ -19,11 +19,10 @@
 // ============================================================
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import type { SiteReadProps } from '../shared'
 import { usePublic } from '../../ctx'
-import { fetchBooks } from '../../data'
-import type { BookItem } from '../../types'
+import { useRelatedBooks } from '../hooks' // [R35-2d-1] 原逐字节重复的 rel 拉取 effect 收敛
 import { ChapterContent, useRecordReading } from '../template-kit'
 import { ErrorState, Sk, bookNavProps } from '../../bits'
 
@@ -36,27 +35,12 @@ const CRUMB_BG = '#cdf3eb'
 
 export function Ggd66Read({ data, loading, error }: SiteReadProps) {
   const { navigate } = usePublic()
-  // [R28-2c-18] 相关阅读(真站同分类书链; 无分类字段 → 字数热榜 10 本替代)
-  const [rel, setRel] = useState<BookItem[] | null>(null)
-
   // [R28-2c-19] 阅读位置/时长记忆(hooks 顺序: 挂载即调, data 未就绪时内部自守)
   useRecordReading(data?.book?.id, data?.chapter?.id, data?.chapter?.title)
 
+  // [R28-2c-18] 相关阅读(真站同分类书链; 无分类字段 → 字数热榜 10 本替代) [R35-2d-1] 拉取 effect 收敛至 hooks.ts
   const bookId = data?.book?.id
-  useEffect(() => {
-    if (!bookId) return
-    let alive = true
-    fetchBooks({ sort: 'words', page: 1, size: 10 })
-      .then((d) => {
-        if (alive) setRel((d.books || []).filter((b) => b.id !== bookId).slice(0, 10))
-      })
-      .catch(() => {
-        if (alive) setRel([])
-      })
-    return () => {
-      alive = false
-    }
-  }, [bookId])
+  const rel = useRelatedBooks(bookId)
 
   // [R28-2c-20] 键盘导航(真站温馨提示: Enter 回书目/← 上一页/→ 下一页 → 章粒度映射)
   useEffect(() => {

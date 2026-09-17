@@ -36,7 +36,7 @@ const META_BG = 'rgba(37,99,235,0.06)' // color-mix(in srgb,--secondary 6%,--car
 const SHADOW = '0 1px 2px rgba(15,23,42,0.04), 0 4px 16px rgba(37,99,235,0.06)'
 
 /** [R28-2d-3] .chapter-item 网格卡(真站 auto-fill minmax(250px,1fr)) */
-function ChapterItem({ ch, bookId, current }: { ch: TocChapter; bookId: string; current?: boolean }) {
+export function ChapterItem({ ch, bookId, current }: { ch: TocChapter; bookId: string; current?: boolean }) {
   const { navigate } = usePublic()
   const go = () => navigate({ view: 'read', bookId, chapterId: ch.id })
   return (

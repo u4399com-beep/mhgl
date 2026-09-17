@@ -17,10 +17,10 @@
 // ============================================================
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import type { SiteHomeProps } from '../shared'
 import { usePublic } from '../../ctx'
-import { fetchBooks } from '../../data'
+import { useWordsPool } from '../hooks' // [R35-2d-1] 原逐字节重复的 pool 拉取 effect 收敛
 import type { BookItem } from '../../types'
 import { bookNavProps } from '../../bits'
 import { formatWords } from '../../seo'
@@ -117,20 +117,7 @@ export function HjwHome({ books, loading }: SiteHomeProps) {
   const { site, navigate } = usePublic()
 
   // [R28-2d-1] 热门 6 卡(字数热榜基因 → 真站热门推荐位; 失败回退 props 前 6)
-  const [pool, setPool] = useState<BookItem[] | null>(null)
-  useEffect(() => {
-    let alive = true
-    fetchBooks({ site: site.id, sort: 'words', page: 1, size: 60 })
-      .then((d) => {
-        if (alive) setPool(d.books || [])
-      })
-      .catch(() => {
-        if (alive) setPool([])
-      })
-    return () => {
-      alive = false
-    }
-  }, [site.id])
+  const pool = useWordsPool(site.id)
 
   const hot = (pool && pool.length ? pool : books).slice(0, 6)
   // 最新更新(props 余量; 真站 update-section 同款卡片)

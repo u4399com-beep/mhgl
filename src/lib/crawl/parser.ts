@@ -751,19 +751,43 @@ function pickNextHref(
   return ''
 }
 
+// [R35-2c-2] 翻页传输层反反爬增强(双缺省关, 环境闸控制, 关闭态行为逐字节不变):
+//  - FETCH_TOC_PAGE_RETRY=1: 翻页请求失败(瞬时 403/429/超时)后单次重试(600ms 退避) ——
+//    缺省语义是抛错由调用方 break(已得页保留), 中途一跳瞬断即丢余下全部页且无重试机会;
+//    开启后对"翻页中段瞬断"多一次恢复机会(重试仍败则按原语义抛错 break)
+//  - FETCH_TOC_PAGE_JITTER=1: 翻页第 2 页起请求前插入 200~800ms 随机抖动 —— hostgate 的
+//    minGapMs 间隔对所有请求同分布, 翻页链(人类逐页点击阅读)叠加一个“先停一停再点下一页”
+//    的不规律停顿, 打断“恒定间隔连续翻页”的可聚类节奏指纹(与 hostRhythm/jitter15 同向)
+const TOC_PAGE_RETRY_ENABLED = process.env.FETCH_TOC_PAGE_RETRY === '1'
+const TOC_PAGE_JITTER_ENABLED = process.env.FETCH_TOC_PAGE_JITTER === '1'
+
 /** 翻页请求传输: fetchCfg.pageFetch 注入时走注入回调(runner 过闸路径, 与章节抓取同享
  *  hostGate 同站并发闸); 未注入时直连 fetchPage(rules/test 测试路由保持直连语义)。
  *  ll-c: refererUrl 可选第二参 —— parseToc/parseContent 翻页第2页起回传【上一页 URL】,
  *  runner 侧启用 refererChain 时 Referer 从"恒书籍页"升级为"翻页链逐页回溯"
  *  (真实浏览器从第1页点"下一页"导航, 第2页的 Referer 即第1页 URL); 未回传时语义不变。
- *  翻页失败语义不变: 抛错由调用方 catch 后 break(停止合并, 已得页保留) */
+ *  翻页失败语义不变: 抛错由调用方 catch 后 break(停止合并, 已得页保留);
+ *  [R35-2c-2] FETCH_TOC_PAGE_RETRY=1 时先单次重试一次(仍败才上抛, 上层 break 语义不变) */
 async function fetchPaginationPage(url: string, fetchCfg: Parameters<typeof fetchPage>[1], refererUrl?: string): Promise<string> {
-  if (fetchCfg?.pageFetch) {
-    const res = await fetchCfg.pageFetch(url, refererUrl)
-    return res?.html ?? ''
+  // [R35-2c-2] 翻页间隔抖动(缺省关): 人类翻页是"阅读停顿→点击下一页", 在请求前停顿
+  const doFetch = async (): Promise<string> => {
+    if (fetchCfg?.pageFetch) {
+      const res = await fetchCfg.pageFetch(url, refererUrl)
+      return res?.html ?? ''
+    }
+    const res = await fetchPage(url, fetchCfg)
+    return res.html
   }
-  const res = await fetchPage(url, fetchCfg)
-  return res.html
+  if (TOC_PAGE_JITTER_ENABLED) {
+    await new Promise((r) => setTimeout(r, 200 + Math.floor(Math.random() * 600)))
+  }
+  try {
+    return await doFetch()
+  } catch (e) {
+    if (!TOC_PAGE_RETRY_ENABLED) throw e
+    await new Promise((r) => setTimeout(r, 600))
+    return await doFetch()
+  }
 }
 
 // ---------------- 列表/目录解析 ----------------
@@ -1002,7 +1026,13 @@ export async function parseToc(
     try { curPath = new URL(url).pathname.toLowerCase() } catch { /* 解析失败忽略 */ }
     if (curPath && curPath === lastPath) {
       samePathStreak++
-      if (samePathStreak >= 5) break
+      if (samePathStreak >= 5) {
+        // [R35-2c-1] 伪翻页防环熔断不再静默: 同 path 翻页在"真实分页站(同路径+query 翻页且
+        // 页数>5)"形态下会误熔断丢后续页 —— 修前 break 无任何日志, 操作员无从区分
+        // "防环熔断"与"自然翻完"。warn-only, 控制流不变
+        console.warn(`[parser] 目录翻页连续 ${samePathStreak} 次同 path(${curPath.slice(0, 120)}, 疑似伪翻页防环熔断), 停止合并(已得 ${all.length} 章) —— 若该站为同路径分页请检查规则/翻页配置`)
+        break
+      }
     } else {
       samePathStreak = 0
     }
@@ -1075,10 +1105,22 @@ export async function parseToc(
       url = next
       try {
         current = await fetchPaginationPage(url, fetchCfg, refererForNext)
-      } catch {
+      } catch (e) {
+        // [R35-2c-1] 翻页请求失败不再静默: 修前 catch-break 无任何日志, 中途限流/瞬时 5xx
+        // 时后续页章节全部丢失且无痕迹(操作员只能靠章数对不上发现)。warn-only, 控制流不变
+        console.warn(`[parser] 目录翻页请求失败(第${p + 1}页 ${url.slice(0, 160)}), 停止合并(已得 ${all.length} 章): ${String((e as Error)?.message || e).slice(0, 120)}`)
         break
       }
     } else {
+      // [R35-2c-1] maxPages 截断告警: 翻页启用且已耗尽上限时, 若末页仍存在"下一页"候选
+      // (仅 DOM 探测不发请求), 说明真实目录页数超过 maxPages, 后续章节被静默丢弃 ——
+      // 修前无任何信号(返回值 pages 也无法区分"恰好完结"与"截断")。warn-only, 控制流不变
+      if (pageRule.pagination?.enabled) {
+        const truncatedNext = pickNextHref($, doc, pageRule.pagination.nextLink, current, base, url, ['下一页', '下页', '下一章'], (u) => seen.has('__page__' + u))
+        if (truncatedNext) {
+          console.warn(`[parser] 目录翻页达 maxPages=${maxPages} 上限仍有下一页(${truncatedNext.slice(0, 160)}), 已截断: 前 ${all.length} 章入库, 后续章节丢失 —— 请调大 toc.pagination.maxPages`)
+        }
+      }
       break
     }
   }
@@ -1148,10 +1190,20 @@ export async function parseContent(
       url = next
       try {
         current = await fetchPaginationPage(url, fetchCfg, refererForNext)
-      } catch {
+      } catch (e) {
+        // [R35-2c-1] 同 parseToc: 正文翻页请求失败不再静默(warn-only, 控制流不变)
+        console.warn(`[parser] 正文翻页请求失败(第${p + 1}页 ${url.slice(0, 160)}), 停止合并(已并 ${parts.length} 页, 本章正文可能不完整): ${String((e as Error)?.message || e).slice(0, 120)}`)
         break
       }
     } else {
+      // [R35-2c-1] maxPages 截断告警(同 parseToc 口径): 末页仍有"下一页"候选时正文分页
+      // 被静默截断(本章后半部丢失)。仅 DOM 探测不发请求; warn-only, 控制流不变
+      if (pageRule.pagination?.enabled) {
+        const truncatedNext = pickNextHref($, doc, pageRule.pagination.nextLink, current, base, url, ['下一页', '下页'], (u) => visited.has(u))
+        if (truncatedNext) {
+          console.warn(`[parser] 正文分页达 maxPages=${maxPages} 上限仍有下一页(${truncatedNext.slice(0, 160)}), 已截断合并(本章正文可能不完整) —— 请调大 content.pagination.maxPages`)
+        }
+      }
       break
     }
   }

@@ -315,6 +315,31 @@ interface FetchState {
   error?: string
 }
 
+/** feat-a D: 上次阅读徽章(有保存位置时渲染; 原两处 hero 按钮逐字节重复, [R35-2d-5] 收敛单处) */
+function LastReadBadge({ savedPos }: { savedPos: NonNullable<ReturnType<typeof getReadPos>> }) {
+  const { theme, navigate } = usePublic()
+  const v = theme.vars
+  return (
+    <button
+      type="button"
+      onClick={() => savedPos.chapterId && navigate({ view: 'read', chapterId: savedPos.chapterId })}
+      className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium transition-opacity hover:opacity-85"
+      style={{
+        border: `1px solid ${withAlpha(v.primary, 0.45)}`,
+        color: v.primary,
+        borderRadius: v.radius,
+        background: withAlpha(v.primary, theme.dark ? 0.16 : 0.08),
+      }}
+      aria-label={`继续阅读 ${savedPos.title || ''}`}
+      title={savedPos.title || '继续阅读'}
+    >
+      <Clock className="h-3.5 w-3.5" aria-hidden />
+      上次阅读
+      {savedPos.readTimeMs && savedPos.readTimeMs > 0 ? ` · 已读 ${formatReadTimeShort(savedPos.readTimeMs)}` : ''}
+    </button>
+  )
+}
+
 export function BookView({ bookId, tocPage }: { bookId?: string; tocPage: number }) {
   const { site, theme, navigate, pseudoPreset } = usePublic()
   const v = theme.vars
@@ -638,25 +663,7 @@ export function BookView({ bookId, tocPage }: { bookId?: string; tocPage: number
                   <div className="flex flex-wrap items-center gap-3 pt-1">
                     <ReadFirstButton firstChapterId={chapters[0]?.id} label="开始阅读" />
                     {/* feat-a D: 上次阅读徽章 (有 saved 位置时显示) */}
-                    {savedPos?.chapterId && (
-                      <button
-                        type="button"
-                        onClick={() => savedPos.chapterId && navigate({ view: 'read', chapterId: savedPos.chapterId })}
-                        className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium transition-opacity hover:opacity-85"
-                        style={{
-                          border: `1px solid ${withAlpha(v.primary, 0.45)}`,
-                          color: v.primary,
-                          borderRadius: v.radius,
-                          background: withAlpha(v.primary, theme.dark ? 0.16 : 0.08),
-                        }}
-                        aria-label={`继续阅读 ${savedPos.title || ''}`}
-                        title={savedPos.title || '继续阅读'}
-                      >
-                        <Clock className="h-3.5 w-3.5" aria-hidden />
-                        上次阅读
-                        {savedPos.readTimeMs && savedPos.readTimeMs > 0 ? ` · 已读 ${formatReadTimeShort(savedPos.readTimeMs)}` : ''}
-                      </button>
-                    )}
+                    {savedPos?.chapterId && <LastReadBadge savedPos={savedPos} />}
                     <button
                       type="button"
                       className="inline-flex items-center gap-1.5 px-5 py-2 text-sm font-medium transition-opacity hover:opacity-85"
@@ -751,25 +758,7 @@ export function BookView({ bookId, tocPage }: { bookId?: string; tocPage: number
                 <div className="flex flex-wrap items-center gap-3 pt-1">
                   <ReadFirstButton firstChapterId={chapters[0]?.id} label="开始阅读" />
                   {/* feat-a D: 上次阅读徽章 (有 saved 位置时显示) */}
-                  {savedPos?.chapterId && (
-                    <button
-                      type="button"
-                      onClick={() => savedPos.chapterId && navigate({ view: 'read', chapterId: savedPos.chapterId })}
-                      className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium transition-opacity hover:opacity-85"
-                      style={{
-                        border: `1px solid ${withAlpha(v.primary, 0.45)}`,
-                        color: v.primary,
-                        borderRadius: v.radius,
-                        background: withAlpha(v.primary, theme.dark ? 0.16 : 0.08),
-                      }}
-                      aria-label={`继续阅读 ${savedPos.title || ''}`}
-                      title={savedPos.title || '继续阅读'}
-                    >
-                      <Clock className="h-3.5 w-3.5" aria-hidden />
-                      上次阅读
-                      {savedPos.readTimeMs && savedPos.readTimeMs > 0 ? ` · 已读 ${formatReadTimeShort(savedPos.readTimeMs)}` : ''}
-                    </button>
-                  )}
+                  {savedPos?.chapterId && <LastReadBadge savedPos={savedPos} />}
                   <button
                     type="button"
                     className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium transition-opacity hover:opacity-85"

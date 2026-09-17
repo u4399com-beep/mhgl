@@ -12,9 +12,9 @@ import { useState } from 'react'
 import type { FormEvent } from 'react'
 import type { SiteSearchProps } from '../shared'
 import { usePublic } from '../../ctx'
-import { bookNavProps, ErrorState, Sk } from '../../bits'
+import { ErrorState, Sk } from '../../bits'
 import { BookCover } from '../../BookCover'
-import { fmtDate, formatWords } from '../../seo'
+import { SsBookMain } from './_kit' // [R35-2d-2] 原 Search/Fulltext/Category 三处逐字节重复的书条右栏收敛
 
 /** [R28-2e-8] 船说模板实测色值(同 Home) */
 const C = {
@@ -103,31 +103,7 @@ export function ShipsaySearch({ q, data, loading, error }: SiteSearchProps) {
                         </span>
                       </button>
                     </div>
-                    <div className="ss-w100 min-w-0 flex-1">
-                      <button
-                        type="button"
-                        {...bookNavProps(navigate, b.id)}
-                        className="ss-h2 block max-w-full truncate text-left text-[15px] font-bold leading-snug"
-                        style={{ color: C.title }}
-                        aria-label={`查看《${b.name}》详情`}
-                      >
-                        {b.name}
-                      </button>
-                      <p className="ss-indent m-0 mt-1 line-clamp-3 text-[12px] leading-[19px]" style={{ textIndent: '2em' }}>
-                        {b.intro || `${b.category} · ${b.author}`}
-                      </p>
-                      <p className="ss-li_bottom m-0 mt-1 flex items-center text-[12px]">
-                        <button type="button" onClick={() => navigate({ view: 'search', q: b.author })} className="truncate" style={{ color: C.link }} aria-label={`搜索 ${b.author} 的作品`}>
-                          {b.author}
-                        </button>
-                        <em className="ss-orange ml-auto shrink-0 not-italic" style={{ color: C.orange }}>
-                          {formatWords(b.wordCount)}
-                        </em>
-                        <em className="ss-blue ml-2 shrink-0 not-italic" style={{ color: C.blue }}>
-                          {fmtDate(b.updatedAt).slice(5) || '--'}
-                        </em>
-                      </p>
-                    </div>
+                    <SsBookMain b={b} />
                   </li>
                 ))}
               </ul>

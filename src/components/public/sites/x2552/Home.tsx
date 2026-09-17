@@ -16,13 +16,11 @@
 // ============================================================
 'use client'
 
-import { useEffect, useState } from 'react'
 import type { SiteHomeProps } from '../shared'
 import { usePublic } from '../../ctx'
-import { fetchBooks } from '../../data'
+import { useWordsPool } from '../hooks' // [R35-2d-1] 原逐字节重复的 pool 拉取 effect 收敛
 import { BookCover } from '../../BookCover'
 import { bookNavProps } from '../../bits'
-import type { BookItem } from '../../types'
 import { BdSub, BdTop, Block, C, UlTopRows, shortWords, useBookNav, yymmdd } from './_kit'
 
 /** [R28-2d-x1] 公告条(真站内联样式逐字还原) */
@@ -42,20 +40,7 @@ export function X2552Home({ books, loading }: SiteHomeProps) {
   const { goBook, goCat, goRanking } = useBookNav()
 
   // 榜单池(字数热榜基因; 失败回退 props)
-  const [pool, setPool] = useState<BookItem[] | null>(null)
-  useEffect(() => {
-    let alive = true
-    fetchBooks({ site: site.id, sort: 'words', page: 1, size: 60 })
-      .then((d) => {
-        if (alive) setPool(d.books || [])
-      })
-      .catch(() => {
-        if (alive) setPool([])
-      })
-    return () => {
-      alive = false
-    }
-  }, [site.id])
+  const pool = useWordsPool(site.id)
 
   const boardBooks = (pool && pool.length ? pool : books).slice(0, 6)
   const recommend = (pool && pool.length ? pool : books).slice(0, 15)

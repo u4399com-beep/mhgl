@@ -21,9 +21,8 @@
 
 import type { SiteCategoryProps } from '../shared'
 import { usePublic } from '../../ctx'
-import { useEffect, useState } from 'react'
-import { fetchCategories } from '../../data'
-import type { BookItem, CategoryItem } from '../../types'
+import { useSiteCats } from '../hooks' // [R35-2d-1] 原逐字节重复的 cats 拉取 effect 收敛
+import type { BookItem } from '../../types'
 import { ErrorState, Sk, bookNavProps } from '../../bits'
 import { formatWords } from '../../seo'
 
@@ -142,20 +141,7 @@ export function Ggd66Category({ data, loading, error, catName, cat, page }: Site
   const { navigate } = usePublic()
 
   // [R28-2c-11] .class 分类导航条(fetchCategories; 真站 8 分类 11.111% 等分)
-  const [cats, setCats] = useState<CategoryItem[] | null>(null)
-  useEffect(() => {
-    let alive = true
-    fetchCategories()
-      .then((d) => {
-        if (alive) setCats(d || [])
-      })
-      .catch(() => {
-        if (alive) setCats([])
-      })
-    return () => {
-      alive = false
-    }
-  }, [])
+  const cats = useSiteCats()
 
   if (error) {
     return (

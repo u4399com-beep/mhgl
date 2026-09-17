@@ -75,6 +75,79 @@ export interface HttpGetResult {
   error?: string
 }
 
+/** [R35-2c-3] 上游响应体上限(与引擎 fetchHttp MAX_NATIVE_HTML_BYTES=10MB 同量级) */
+const GET_RES_BODY_CAP_BYTES = 10 * 1024 * 1024
+
+/** [R35-2c-3] 流式限量读响应体: content-length 超限早退(取消连接不读), 流式读超限即 cancel;
+ *  无 body 流形态(理论不可达兜底)读后判长。全态返回不抛 */
+async function readArrayBufferCapped(res: Response, cap: number): Promise<{ ok: true; buf: ArrayBuffer } | { ok: false; size: number }> {
+  const cl = Number(res.headers.get('content-length') || 0)
+  if (cl && cl > cap) {
+    try { await res.body?.cancel().catch(() => {}) } catch { /* ignore */ }
+    return { ok: false, size: cl }
+  }
+  const rawBody = res.body as { getReader?: () => { read: () => Promise<{ done: boolean; value?: Uint8Array }> }; cancel?: () => Promise<void> } | null | undefined
+  if (!rawBody || typeof rawBody.getReader !== 'function') {
+    const buf = await res.arrayBuffer()
+    return buf.byteLength > cap ? { ok: false, size: buf.byteLength } : { ok: true, buf }
+  }
+  const reader = rawBody.getReader()
+  const chunks: Uint8Array[] = []
+  let total = 0
+  let overflow = false
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    if (!value) continue
+    total += value.byteLength
+    if (total > cap) {
+      overflow = true
+      try { await reader.cancel().catch(() => {}) } catch { /* ignore */ }
+      break
+    }
+    chunks.push(value)
+  }
+  if (overflow) return { ok: false, size: total }
+  const merged = new Uint8Array(total)
+  let off = 0
+  for (const c of chunks) { merged.set(c, off); off += c.byteLength }
+  return { ok: true, buf: merged.buffer as ArrayBuffer }
+}
+
+/**
+ * [R35-2c-4] 请求体限量读(fetch-relay 同款形态收敛共用; 本尊在 fetch-relay/index.ts,
+ * 此处供 cloak-browser 等无请求体上限的桥复用): 内存面与 readArrayBufferCapped 同 ——
+ * 只缓冲 ≤cap 部分; 超限后继续**丢弃式排空**(不缓冲, 5s 截止防无限流)而非立即 cancel ——
+ * Bun.serve 早拒+未消费体会导致 keep-alive 失步(残留体字节被服务端解析器当下一请求,
+ * 连接被杀, 复用方 fetch 抛 "socket closed unexpectedly")。排空保持连接同步。
+ * 注: 本副本与 fetch-relay/index.ts 的 readRequestCapped 逐字节同逻辑 —— 不改 fetch-relay
+ * (在跑服务不重启, 避免无谓回归面), 后续轮次可让 fetch-relay 改为导入本函数消重
+ */
+export async function readRequestCapped(body: ReadableStream<Uint8Array> | null, cap: number): Promise<{ ok: true; buf: Buffer } | { ok: false; size: number }> {
+  if (!body) return { ok: true, buf: Buffer.alloc(0) }
+  const reader = body.getReader()
+  const chunks: Uint8Array[] = []
+  let total = 0
+  const deadline = Date.now() + 5000
+  let over = false
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      total += value.byteLength
+      if (total > cap) {
+        over = true
+        if (Date.now() > deadline) break
+      } else {
+        chunks.push(value)
+      }
+    }
+  } finally {
+    try { await reader.cancel().catch(() => {}) } catch { /* 已关闭 */ }
+  }
+  return over ? { ok: false, size: total } : { ok: true, buf: Buffer.concat(chunks) }
+}
+
 /**
  * [R11-d-2] 整合: 带超时 + 瞬态重试 1 次的 GET, 全态返回不抛。
  * 此前 xjp-proxy / deqixs-proxy 各持一份逐字节同款(ss-d2④ 口径), qimao-proxy 的
@@ -92,7 +165,16 @@ export async function getRes(url: string, headers: Record<string, string>, timeo
         await new Promise((r) => setTimeout(r, 600))
         continue
       }
-      return { ok: res.ok, status: res.status, buf: await res.arrayBuffer() }
+      // [R35-2c-3] 响应体限量读(修前 arrayBuffer() 无上限): 上游异常超大响应(劫持/误配/
+      // 被当开放代理回塞大包)原先全量缓冲 —— 单请求可达百 MB 级, 5 个代理长驻进程被单请求
+      // 打爆内存。10MB 与引擎 fetchHttp MAX_NATIVE_HTML_BYTES 同量级; 超限早退 cancel 连接,
+      // 全态返回不抛(ok:false + error, 上游 status 保留供调用方日志), 5 个代理消费方均只判
+      // ok/status/error, 零适配
+      const body = await readArrayBufferCapped(res, GET_RES_BODY_CAP_BYTES)
+      if (!body.ok) {
+        return { ok: false, status: res.status, buf: new ArrayBuffer(0), error: `响应体过大(${body.size} > ${GET_RES_BODY_CAP_BYTES}字节, 已中止)` }
+      }
+      return { ok: res.ok, status: res.status, buf: body.buf }
     } catch (e) {
       if (attempt === 2) return { ok: false, status: -1, buf: new ArrayBuffer(0), error: String(e).slice(0, 120) }
       await new Promise((r) => setTimeout(r, 600))
@@ -250,24 +332,36 @@ export function createBridgeServer(opts: BridgeServerOptions) {
     )
   }
 
-  const server = Bun.serve({
-    port,
-    // HARD: 始终绑定 127.0.0.1(修复 H4, 不再依赖调用方默认值)
-    hostname: '127.0.0.1',
-    idleTimeout: idleTimeoutS,
-    async fetch(req): Promise<Response> {
-      const u = new URL(req.url)
-      if (u.pathname === '/health') return healthHandler()
+  let server: ReturnType<typeof Bun.serve>
+  try {
+    server = Bun.serve({
+      port,
+      // HARD: 始终绑定 127.0.0.1(修复 H4, 不再依赖调用方默认值)
+      hostname: '127.0.0.1',
+      idleTimeout: idleTimeoutS,
+      async fetch(req): Promise<Response> {
+        const u = new URL(req.url)
+        if (u.pathname === '/health') return healthHandler()
 
-      // BRIDGE_KEY 非空时, 所有非 /health 路由必须带 X-Bridge-Key 头
-      if (bridgeKey) {
-        const got = req.headers.get('x-bridge-key') || ''
-        if (!got || !constantTimeEqual(got, bridgeKey)) return unauthorized()
-      }
+        // BRIDGE_KEY 非空时, 所有非 /health 路由必须带 X-Bridge-Key 头
+        if (bridgeKey) {
+          const got = req.headers.get('x-bridge-key') || ''
+          if (!got || !constantTimeEqual(got, bridgeKey)) return unauthorized()
+        }
 
-      return userFetch(req)
-    },
-  })
+        return userFetch(req)
+      },
+    })
+  } catch (e) {
+    // [R35-2c-5] 端口绑定失败不再裸抛 Bun 栈: 补服务名/端口/占用排查指引后原样重抛
+    // (进程退出码与非零语义不变, 仅错误可操作性提升 —— EADDRINUSE 是 8 服务同机
+    // 部署/残留进程场景的常态故障, 修前裸栈不含服务名, 排障需逐个对端口号)
+    console.error(
+      `[${name}] 端口绑定失败(127.0.0.1:${port}): ${String((e as Error)?.message || e).slice(0, 200)}` +
+      ` —— 常见原因: 端口已被占用(旧实例残留/lsof -i :${port} 排查)或权限不足`,
+    )
+    throw e
+  }
 
   // 启动 banner —— 准确(不写误导的 0.0.0.0)
   console.log(

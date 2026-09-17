@@ -20,11 +20,10 @@
 // ============================================================
 'use client'
 
-import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { SiteHomeProps } from '../shared'
 import { usePublic } from '../../ctx'
-import { fetchBooks, fetchFooterLinks, type FooterFriendLink } from '../../data'
+import { useFooterLinks, useWordsPool } from '../hooks' // [R35-2d-1] 原逐字节重复的热榜/友链拉取 effect 收敛
 import { safeHref } from '../../safe-href'
 import { bookNavProps, Sk } from '../../bits'
 import { BookCover } from '../../BookCover'
@@ -112,28 +111,8 @@ export function TrxswHome({ books, loading }: SiteHomeProps) {
   const { site, navigate } = usePublic()
 
   // 板块分组 + .r 推荐: 字数热榜 60 一维拉取(失败静默回退 props)
-  const [hot, setHot] = useState<BookItem[] | null>(null)
-  const [links, setLinks] = useState<FooterFriendLink[]>([])
-  useEffect(() => {
-    let alive = true
-    fetchBooks({ site: site.id, sort: 'words', page: 1, size: 60 })
-      .then((d) => {
-        if (alive) setHot(d.books || [])
-      })
-      .catch(() => {
-        if (alive) setHot([])
-      })
-    fetchFooterLinks()
-      .then((d) => {
-        if (alive) setLinks(d?.friend || [])
-      })
-      .catch(() => {
-        if (alive) setLinks([])
-      })
-    return () => {
-      alive = false
-    }
-  }, [site.id])
+  const hot = useWordsPool(site.id) // [R35-2d-1] 原逐字节重复的热榜/友链拉取 effect 收敛(hooks.ts)
+  const links = useFooterLinks()
 
   const pool: BookItem[] = hot && hot.length ? hot : books
   const sections = buildSections(pool)

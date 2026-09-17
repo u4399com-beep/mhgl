@@ -9,10 +9,9 @@
 // ============================================================
 'use client'
 
-import { useEffect, useState } from 'react'
 import type { SiteRankingProps } from '../shared'
 import { usePublic } from '../../ctx'
-import { fetchBooks } from '../../data'
+import { useWordsPool } from '../hooks' // [R35-2d-1] 原逐字节重复的 pool 拉取 effect 收敛
 import type { BookItem } from '../../types'
 
 // [R28-2h] 真站 style.css .rank/.tli 段实测色值
@@ -36,20 +35,7 @@ const TAB_LABEL: Record<string, string> = { words: '小说总榜', latest: '更�
 export function DdyueshuRanking({ boards, active, onBoard, loading, error }: SiteRankingProps) {
   const { site } = usePublic()
   // 分类分榜数据池(字数热榜 60; 失败回退空)
-  const [pool, setPool] = useState<BookItem[] | null>(null)
-  useEffect(() => {
-    let alive = true
-    fetchBooks({ site: site.id, sort: 'words', page: 1, size: 60 })
-      .then((d) => {
-        if (alive) setPool(d.books || [])
-      })
-      .catch(() => {
-        if (alive) setPool([])
-      })
-    return () => {
-      alive = false
-    }
-  }, [site.id])
+  const pool = useWordsPool(site.id)
 
   const cur = boards.find((b) => b.key === active) || null
 

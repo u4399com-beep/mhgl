@@ -10,11 +10,9 @@
 
 import type { SiteCategoryProps } from '../shared'
 import { usePublic } from '../../ctx'
-import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
-import { fetchCategories } from '../../data'
 import { Pager } from './_kit' // [R34-2c-4] 与 Fulltext 逐字节重复的 Pager 收敛
-import type { CategoryItem } from '../../types'
+import { useSiteCats } from '../hooks' // [R35-2d-1] 原逐字节重复的 cats 拉取 effect 收敛
 import { bookNavProps, ErrorState, Sk } from '../../bits'
 
 /** [R27-6b-14] 杰奇 CMS 家族标准色板(同 Home) */
@@ -60,20 +58,7 @@ export function TrxswCategory({ data, loading, error, catName, cat, page }: Site
   const { navigate } = usePublic()
 
   // 分类导航(真站 .nav 深蓝条分类 ×7; 库内动态分类)
-  const [cats, setCats] = useState<CategoryItem[] | null>(null)
-  useEffect(() => {
-    let alive = true
-    fetchCategories()
-      .then((d) => {
-        if (alive) setCats(d || [])
-      })
-      .catch(() => {
-        if (alive) setCats([])
-      })
-    return () => {
-      alive = false
-    }
-  }, [])
+  const cats = useSiteCats()
 
   const books = data?.books || []
   const totalPages = data ? Math.ceil((data.total || 0) / (data.size || 24)) : 0

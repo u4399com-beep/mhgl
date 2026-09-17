@@ -148,6 +148,45 @@ export function extractChapterNo(title: string): number {
   return NaN
 }
 
+// [R35-2b-1] 容错提取(缺口回填专用): 仅在 extractChapterNo 返回 NaN 的条目上调用(调用方契约,
+// sortByChapterNo 闸内保证; 导出便于测试)。实证根因(book4.cc《斗破苍穹》): 目录末尾挂 6 个错号
+// 散章 —— 地七十一章 萧家形势/第八十七 下杀手/地两百四十二章 石漠城的变故/地两百四十三章
+// 击杀大斗师！/四百七十章 比试/第一千三百四十五 离开天墓, 标准提取全部 NaN 甩尾, 而正文规范位
+// (第七十章→第七十二章 等)恰好缺这些章, 它们是唯一副本非重复。容错三类形态:
+//   ①「地」错字当「第」: ^地\s*(中文|阿拉伯数字)\s*[章节回集]  地七十一章→71 地两百四十二章→242
+//   ②缺「第」:           ^中文数字\s*[章节回集]               四百七十章→470
+//   ③缺「章」:           ^第\s*中文数字\s*$ 或 ^第\s*中文数字\s+\S   第八十七→87 第一千三百四十五→1345
+// 防误伤: ①「地」后必须紧跟数字串(地方志/土地七百里不认); ③题首锚定+数字串后不得直接接字母/数字
+// (第一天上班/"第一天 噩梦"因"天"断数字串天然不认; "第一 噩梦"提出 tn=1, 由缺口闸"号已占用"校验拒绝,
+// 不会误插最前)。中文数字字符类与主提取一致(零〇一二两三四五六七八九十百千万亿)。
+const TOL_CN_CLS = '零〇一二两三四五六七八九十百千万亿'
+const TOL_RE_DI = new RegExp(`^地\\s*([0-9${TOL_CN_CLS}]+)\\s*[章节回集]`)
+const TOL_RE_NO_DI = new RegExp(`^([${TOL_CN_CLS}]+)\\s*[章节回集]`)
+const TOL_RE_NO_UNIT_END = new RegExp(`^第\\s*([${TOL_CN_CLS}]+)\\s*$`)
+const TOL_RE_NO_UNIT_TITLE = new RegExp(`^第\\s*([${TOL_CN_CLS}]+)\\s+\\S`)
+
+/** 容错 token 取值: 纯阿拉伯数字 parseInt, 其余(中文/混写)走 cnNumToNumber(与主提取同口径) */
+function tolTokenToNumber(raw: string): number {
+  return /[0-9]/.test(raw) && !/[零〇一二两三四五六七八九十百千万亿]/.test(raw)
+    ? parseInt(raw)
+    : cnNumToNumber(raw)
+}
+
+/** [R35-2b-1] 见上方块注释; 全部形态不命中返回 NaN(维持甩尾) */
+export function extractChapterNoTolerant(title: string): number {
+  if (!title) return NaN
+  // 与主提取同款折叠: 全角数字 + 数字间千位分隔符
+  const t = foldDigits(title.trim()).replace(/(\d)[,，](\d{3})(?!\d)/g, '$1$2')
+  for (const re of [TOL_RE_DI, TOL_RE_NO_DI, TOL_RE_NO_UNIT_END, TOL_RE_NO_UNIT_TITLE]) {
+    const m = t.match(re)
+    if (m) {
+      const n = tolTokenToNumber(m[1])
+      if (!isNaN(n)) return n
+    }
+  }
+  return NaN
+}
+
 /**
  * kk-a: 卷锚点识别 —— 纯分卷标题(如"第一卷 北游"/"卷二"/"Volume 3")
  * 返回 { no: 卷号, name: 卷名 }; 非卷标题(含章节单位如"第一卷 第1章")返回 null。
@@ -249,6 +288,31 @@ function sortByChapterNo(deduped: TocItem[]): TocItem[] {
   const validRatio = withNo.filter((w) => !isNaN(w.no)).length / Math.max(1, withNo.length)
 
   if (validRatio >= 0.6) {
+    // [R35-2b-2] 缺口回填闸(防误伤核心): 对标准提取 NaN 的条目依原序逐个尝试容错提取
+    // (extractChapterNoTolerant), 容错号 tn 仅当 !stdNums.has(tn) && tn>=minStd && tn<=maxStd+1
+    // (stdNums=本批标准提取成功的章号集合, minStd/maxStd 为其最小/最大值) 才接受 no=tn 纳入重排;
+    // 同一 tn 多候选先到先得(保原序, 接受后加入 stdNums), 其余维持 NaN 甩尾既有语义。
+    // 防误伤: "第一 噩梦"类真无号标题提出的 tn=1 因 1 已在标准集合被拒, 不会误插最前;
+    // 范围闸拦截 [minStd, maxStd+1] 之外的杂号。斗破苍穹实证: 尾部 6 个错号散章(71/87/242/243/
+    // 470/1345, 均唯一副本)回填后落正文规范位, 与标准条目一起按 no 排序(tie-break x.i-y.i 零变化)。
+    // 分卷路径 reorderWithVolumes 卷内复用本函数自动受益, 卷间逻辑不变。
+    const stdNums = new Set<number>()
+    let minStd = Infinity
+    let maxStd = -Infinity
+    for (const w of withNo) {
+      if (isNaN(w.no)) continue
+      stdNums.add(w.no)
+      if (w.no < minStd) minStd = w.no
+      if (w.no > maxStd) maxStd = w.no
+    }
+    for (const w of withNo) {
+      if (!isNaN(w.no)) continue
+      const tn = extractChapterNoTolerant(w.it.title)
+      if (isNaN(tn)) continue
+      if (stdNums.has(tn) || tn < minStd || tn > maxStd + 1) continue
+      w.no = tn
+      stdNums.add(tn)
+    }
     // 主序号排序; 无序号的按出现位置排
     withNo.sort((x, y) => {
       const xa = isNaN(x.no)

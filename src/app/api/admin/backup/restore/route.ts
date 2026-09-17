@@ -473,6 +473,17 @@ export async function POST(req: Request) {
             warnings.push(`任务 ${t.id} 关联的规则 ${ruleId} 不存在, 该任务已跳过`)
             continue
           }
+          // [R35-2a-10] 清偿 R33-2b-5: fetchConfig 恢复导入上限与 normalizeTaskData 同口径 50KB —— 修前
+          //  restore 侧 slice(0,100_000) 截断: 导入 fetchConfig∈(50KB,100KB] 的任务后, TaskMonitor 在线
+          //  调参/TaskDialog 任何 PUT 都会因合并后超 50KB 报「反反爬配置过大」而不可编辑; 且 slice 硬截
+          //  会产出非法 JSON(运行时 parse 回退 {} 静默丢配置)。改为超限整任务跳过 + warn 告警(不整体
+          //  失败, 与上方规则缺失跳过同型; 严格大于与 normalizeTaskData 的 >50_000 判定同口径),
+          //  ≤50KB 原样导入, 其余字段口径不动
+          const rawFetchConfig = String(t.fetchConfig || '{}')
+          if (rawFetchConfig.length > 50_000) {
+            warnings.push(`任务 ${t.id} 的反反爬配置超过 50KB 上限(${rawFetchConfig.length} 字符), 该任务已跳过`)
+            continue
+          }
           // R9-d-8: 状态归一化(running→paused / 非法值→pending), create/update 同口径
           const taskStatus = normalizeRestoredTaskStatus(t.status, warnings)
           await tx.task.upsert({
@@ -486,6 +497,10 @@ export async function POST(req: Request) {
               // [R34-2a-8] 书号采集: 恢复映射补 bookIds(旧备份无该字段 → 空串; 上限 400KB =
               //  2000 个×201 字符(200 书号+换行)的理论规范化上限, 避免合法满载被截断)
               bookIds: String(t.bookIds || '').slice(0, 400_000),
+              // [R35-2a-9] 书号范围: 恢复映射补 bookIdFrom/bookIdTo(旧备份无该字段 → 空串;
+              //  16 字符 = 12 位数字上限 + 余量, 与 bookIdFrom/bookIdTo 语义一致)
+              bookIdFrom: String(t.bookIdFrom || '').slice(0, 16),
+              bookIdTo: String(t.bookIdTo || '').slice(0, 16),
               listUrl: String(t.listUrl || '').slice(0, 500),
               listStart: Number(t.listStart) || 1,
               listEnd: Number(t.listEnd) || 1,
@@ -493,7 +508,8 @@ export async function POST(req: Request) {
               bookEnd: Number(t.bookEnd) || 0,
               recrawlMode: String(t.recrawlMode || 'incremental').slice(0, 20),
               storageMode: String(t.storageMode || 'db').slice(0, 20),
-              fetchConfig: String(t.fetchConfig || '{}').slice(0, 100_000),
+              // [R35-2a-10] 已在上方闸过 >50KB(整任务跳过), 此处原样入库(不再 slice 硬截防非法 JSON)
+              fetchConfig: rawFetchConfig,
               threadMin: Number(t.threadMin) || 1,
               threadMax: Number(t.threadMax) || 3,
               intervalMin: Number(t.intervalMin) || 500,
@@ -513,6 +529,9 @@ export async function POST(req: Request) {
               bookUrl: String(t.bookUrl || '').slice(0, 500),
               // [R34-2a-8] 同 create 侧: update 映射补 bookIds
               bookIds: String(t.bookIds || '').slice(0, 400_000),
+              // [R35-2a-9] 同 create 侧: update 映射补 bookIdFrom/bookIdTo
+              bookIdFrom: String(t.bookIdFrom || '').slice(0, 16),
+              bookIdTo: String(t.bookIdTo || '').slice(0, 16),
               listUrl: String(t.listUrl || '').slice(0, 500),
               listStart: Number(t.listStart) || 1,
               listEnd: Number(t.listEnd) || 1,
@@ -520,7 +539,8 @@ export async function POST(req: Request) {
               bookEnd: Number(t.bookEnd) || 0,
               recrawlMode: String(t.recrawlMode || 'incremental').slice(0, 20),
               storageMode: String(t.storageMode || 'db').slice(0, 20),
-              fetchConfig: String(t.fetchConfig || '{}').slice(0, 100_000),
+              // [R35-2a-10] 同 create 侧: 已闸过 >50KB, 原样入库
+              fetchConfig: rawFetchConfig,
               threadMin: Number(t.threadMin) || 1,
               threadMax: Number(t.threadMax) || 3,
               intervalMin: Number(t.intervalMin) || 500,

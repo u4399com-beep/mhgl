@@ -31,7 +31,8 @@ import { Loader2, Save } from 'lucide-react'
 import { toast } from 'sonner'
 import { api, type RuleRow, type TaskRow } from './helpers'
 // [R34-2a-7] 书号采集: 与 API 规范化/引擎建队列共用同一纯函数模块
-import { parseBookIdList, BOOK_ID_MAX_COUNT } from '@/lib/book-ids'
+// [R35-2a-7] 书号范围: parseBookIdRange 与 API/runner 共用同一校验口径
+import { parseBookIdList, parseBookIdRange, BOOK_ID_MAX_COUNT, BOOK_ID_RANGE_MAX } from '@/lib/book-ids'
 
 interface TaskDialogProps {
   open: boolean
@@ -48,6 +49,9 @@ interface TaskForm {
   mode: 'single' | 'range' | 'bookIds'
   bookUrl: string
   bookIds: string
+  // [R35-2a-7] 书号范围端点(bookIds 模式范围子形态): 提交时按子形态二选一清空另一侧
+  bookIdFrom: string
+  bookIdTo: string
   listUrl: string
   listStart: number
   listEnd: number
@@ -72,6 +76,8 @@ const emptyForm: TaskForm = {
   mode: 'single',
   bookUrl: '',
   bookIds: '',
+  bookIdFrom: '',
+  bookIdTo: '',
   listUrl: '',
   listStart: 1,
   listEnd: 1,
@@ -94,11 +100,18 @@ export function TaskDialog({ open, onOpenChange, task, onSaved }: TaskDialogProp
   const [rules, setRules] = useState<RuleRow[]>([])
   const [form, setForm] = useState<TaskForm>(emptyForm)
   const [saving, setSaving] = useState(false)
+  // [R35-2a-7] 书号来源子形态: 回显时 bookIdFrom&&bookIdTo 均非空 → 自动切到范围子模式, 否则列表子模式
+  const [bookIdSource, setBookIdSource] = useState<'list' | 'range'>('list')
 
   useEffect(() => {
     if (!open) return
     api.get<RuleRow[]>('/api/admin/rules').then((rs) => setRules(Array.isArray(rs) ? rs : [])).catch(() => setRules([]))
     if (task) {
+      // [R35-2a-7] 范围端点回显(旧库行/schema push 前缺省 undefined → 空串容错);
+      //  范围子形态判断与 Wizard 提交侧的落库约定(二选一, 另一侧恒空)互为镜像
+      const from = String(task.bookIdFrom ?? '').trim()
+      const to = String(task.bookIdTo ?? '').trim()
+      setBookIdSource(from && to ? 'range' : 'list')
       setForm({
         name: task.name,
         ruleId: task.ruleId,
@@ -106,6 +119,8 @@ export function TaskDialog({ open, onOpenChange, task, onSaved }: TaskDialogProp
         mode: task.mode === 'range' ? 'range' : task.mode === 'bookIds' ? 'bookIds' : 'single',
         bookUrl: task.bookUrl,
         bookIds: task.bookIds ?? '',
+        bookIdFrom: from,
+        bookIdTo: to,
         listUrl: task.listUrl,
         listStart: task.listStart ?? 1,
         listEnd: task.listEnd ?? 1,
@@ -125,6 +140,7 @@ export function TaskDialog({ open, onOpenChange, task, onSaved }: TaskDialogProp
       })
     } else {
       setForm(emptyForm)
+      setBookIdSource('list') // [R35-2a-7] 新建默认列表子模式
     }
   }, [open, task])
 
@@ -150,6 +166,8 @@ export function TaskDialog({ open, onOpenChange, task, onSaved }: TaskDialogProp
       }
     } else if (form.mode === 'bookIds') {
       // [R34-2a-7] 书号模式校验: 模板 http(s) + {bookId} 占位符 + 书号列表非空(文案与服务端 validateTaskPair 一致)
+      // [R35-2a-7] 书号来源二选一: 范围子形态 parseBookIdRange 全绿(透传精确文案, 与服务端同口径);
+      //  列表子形态维持既有校验逐字节不变
       const count = parseBookIdList(form.bookIds).length
       if (!form.bookUrl.trim()) {
         toast.error('书号采集必须填写书籍页URL模板(需含 {bookId} 占位符)')
@@ -163,13 +181,21 @@ export function TaskDialog({ open, onOpenChange, task, onSaved }: TaskDialogProp
         toast.error('书号采集必须填写书籍页URL模板(需含 {bookId} 占位符)')
         return
       }
-      if (count === 0) {
-        toast.error('书号采集必须填写书号列表')
-        return
-      }
-      if (count > BOOK_ID_MAX_COUNT) {
-        toast.error(`书号数量超过上限(去重后 ${count} 个, 最多 ${BOOK_ID_MAX_COUNT} 个)`)
-        return
+      if (bookIdSource === 'range') {
+        const range = parseBookIdRange(form.bookIdFrom, form.bookIdTo)
+        if (!range.ok) {
+          toast.error(range.error)
+          return
+        }
+      } else {
+        if (count === 0) {
+          toast.error('书号采集必须填写书号列表')
+          return
+        }
+        if (count > BOOK_ID_MAX_COUNT) {
+          toast.error(`书号数量超过上限(去重后 ${count} 个, 最多 ${BOOK_ID_MAX_COUNT} 个)`)
+          return
+        }
       }
     } else {
       if (!form.listUrl.trim()) {
@@ -205,7 +231,13 @@ export function TaskDialog({ open, onOpenChange, task, onSaved }: TaskDialogProp
     }
     setSaving(true)
     try {
-      const body = { ...form, name: form.name.trim() }
+      // [R35-2a-7] 书号来源二选一落库(与 Wizard 同一约定): 范围子形态提交 范围端点+清空列表;
+      //  列表子形态提交 列表+清空范围端点 —— 保证服务端互斥校验通过, 且下次回显子形态判断成立
+      const bookIdsPayload =
+        form.mode === 'bookIds' && bookIdSource === 'range'
+          ? { bookIds: '', bookIdFrom: form.bookIdFrom.trim(), bookIdTo: form.bookIdTo.trim() }
+          : { bookIds: form.bookIds, bookIdFrom: '', bookIdTo: '' }
+      const body = { ...form, name: form.name.trim(), ...bookIdsPayload }
       if (task) {
         await api.put(`/api/admin/tasks/${task.id}`, body)
         toast.success('任务已更新')
@@ -225,6 +257,9 @@ export function TaskDialog({ open, onOpenChange, task, onSaved }: TaskDialogProp
   const num = (v: number) => Number.isFinite(v) ? v : 0
   // [R34-2a-7] 书号实时计数(去重后, 渲染期派生值; 与主组件/引擎同口径)
   const bookIdCount = parseBookIdList(form.bookIds).length
+  // [R35-2a-7] 范围子形态实时解析(渲染期派生, 与 API/runner 同一口径)
+  const bookIdRange = parseBookIdRange(form.bookIdFrom, form.bookIdTo)
+  const rangeTouched = form.bookIdFrom.trim() !== '' || form.bookIdTo.trim() !== ''
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -310,7 +345,7 @@ export function TaskDialog({ open, onOpenChange, task, onSaved }: TaskDialogProp
                 />
               </div>
             ) : form.mode === 'bookIds' ? (
-              /* [R34-2a-7] 书号模式回显/编辑: 模板 + 书号列表 + 实时解析计数 */
+              /* [R34-2a-7] 书号模式回显/编辑: 模板 + 书号来源二选一(列表/范围) */
               <div className="space-y-3 rounded-md border border-zinc-800 bg-zinc-950/60 p-3">
                 <div className="space-y-1.5">
                   <Label className="text-xs text-zinc-400">书籍页 URL 模板 *</Label>
@@ -322,19 +357,76 @@ export function TaskDialog({ open, onOpenChange, task, onSaved }: TaskDialogProp
                   />
                   <p className="text-[10px] text-zinc-600">{'{bookId}'} 会被替换为书号(自动URL编码)</p>
                 </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs text-zinc-400">书号列表 *</Label>
-                  <Textarea
-                    className="min-h-28 border-zinc-700 bg-zinc-950 font-mono text-xs"
-                    placeholder={'每行一个书号, 也兼容逗号/顿号/空格分隔\n例:\n104021\n105732\n106891'}
-                    value={form.bookIds}
-                    onChange={(e) => patch({ bookIds: e.target.value })}
-                  />
-                  <p className={`text-[10px] ${bookIdCount > BOOK_ID_MAX_COUNT ? 'font-medium text-red-400' : 'text-zinc-600'}`}>
-                    已识别 {bookIdCount} 个书号(去重后)
-                    {bookIdCount > BOOK_ID_MAX_COUNT ? ` · 超过 ${BOOK_ID_MAX_COUNT} 上限, 请删减后再保存` : ''}
-                  </p>
+                {/* [R35-2a-7] 书号来源二选一: 书号列表(默认) / 书号范围(从-到自动展开) */}
+                <div className="space-y-2">
+                  <Label className="text-xs font-medium text-zinc-300">书号来源 *</Label>
+                  <RadioGroup
+                    value={bookIdSource}
+                    onValueChange={(v) => setBookIdSource(v === 'range' ? 'range' : 'list')}
+                    className="grid grid-cols-1 gap-2 sm:grid-cols-2"
+                  >
+                    <ModeCard
+                      value="list"
+                      current={bookIdSource}
+                      title="书号列表"
+                      desc="粘贴书号, 混合分隔符自动去重"
+                      onSelect={() => setBookIdSource('list')}
+                    />
+                    <ModeCard
+                      value="range"
+                      current={bookIdSource}
+                      title="书号范围"
+                      desc="从几到几, 自动展开连续书号"
+                      onSelect={() => setBookIdSource('range')}
+                    />
+                  </RadioGroup>
                 </div>
+                {bookIdSource === 'list' ? (
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-zinc-400">书号列表 *</Label>
+                    <Textarea
+                      className="min-h-28 border-zinc-700 bg-zinc-950 font-mono text-xs"
+                      placeholder={'每行一个书号, 也兼容逗号/顿号/空格分隔\n例:\n104021\n105732\n106891'}
+                      value={form.bookIds}
+                      onChange={(e) => patch({ bookIds: e.target.value })}
+                    />
+                    <p className={`text-[10px] ${bookIdCount > BOOK_ID_MAX_COUNT ? 'font-medium text-red-400' : 'text-zinc-600'}`}>
+                      已识别 {bookIdCount} 个书号(去重后)
+                      {bookIdCount > BOOK_ID_MAX_COUNT ? ` · 超过 ${BOOK_ID_MAX_COUNT} 上限, 请删减后再保存` : ''}
+                    </p>
+                  </div>
+                ) : (
+                  /* [R35-2a-7] 范围子形态: 从/到两输入框 + 实时计数/警示(text+inputMode 同 Wizard, 避免浏览器静默改写) */
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-zinc-400">书号范围 * <span className="text-zinc-600">最多 {BOOK_ID_RANGE_MAX} 本</span></Label>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        className="h-9 flex-1 border-zinc-700 bg-zinc-950 font-mono text-xs"
+                        placeholder="起始书号, 例: 104021"
+                        inputMode="numeric"
+                        value={form.bookIdFrom}
+                        onChange={(e) => patch({ bookIdFrom: e.target.value })}
+                        aria-label="起始书号"
+                      />
+                      <span className="shrink-0 text-xs text-zinc-500">到</span>
+                      <Input
+                        className="h-9 flex-1 border-zinc-700 bg-zinc-950 font-mono text-xs"
+                        placeholder="结束书号, 例: 105720"
+                        inputMode="numeric"
+                        value={form.bookIdTo}
+                        onChange={(e) => patch({ bookIdTo: e.target.value })}
+                        aria-label="结束书号"
+                      />
+                    </div>
+                    <p className={`text-[10px] ${bookIdRange.ok || !rangeTouched ? 'text-zinc-600' : 'font-medium text-red-400'}`}>
+                      {bookIdRange.ok
+                        ? `共 ${bookIdRange.count} 本(从 ${bookIdRange.from} 到 ${bookIdRange.to} 连续展开, 去重后)`
+                        : rangeTouched
+                          ? bookIdRange.error
+                          : `填写起止书号后自动展开为连续序列, 上限 ${BOOK_ID_RANGE_MAX} 本`}
+                    </p>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="space-y-3 rounded-md border border-zinc-800 bg-zinc-950/60 p-3">

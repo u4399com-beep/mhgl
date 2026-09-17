@@ -17,9 +17,9 @@
 import type { SiteTocProps } from '../shared'
 import { usePublic } from '../../ctx'
 import { EmptyState, ErrorState } from '../../bits'
+import { ChapterItem } from './Book' // [R35-2d-4] 原逐字节重复的章节卡收敛
 
 /** [R28-2d-1] 真站色值(hjw-style.css :root) */
-const SECONDARY = '#2563eb'
 const TEXT = '#1e293b'
 const TEXT_LIGHT = '#64748b'
 const BORDER = '#dbe4f0'
@@ -80,27 +80,10 @@ export function HuangjinwuToc({ data, loading, error, page, currentChapterId }: 
             <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
               {chapters.map((ch) => {
                 const current = ch.id === currentChapterId
-                const go = () => navigate({ view: 'read', bookId: book.id, chapterId: ch.id })
                 return (
                   <li key={ch.id}>
-                    <div
-                      role="button"
-                      tabIndex={0}
-                      onClick={go}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault()
-                          go()
-                        }
-                      }}
-                      className={`hjw-chitem cursor-pointer overflow-hidden rounded-[10px] border transition-all duration-300 ${current ? 'hjw-chitem-active' : ''}`}
-                      style={{ borderColor: current ? SECONDARY : BORDER, background: current ? '#e8f1ff' : undefined }}
-                      aria-current={current}
-                    >
-                      <div className="block truncate px-4 py-3 text-[15px]" style={{ color: current ? SECONDARY : TEXT }} title={ch.title}>
-                        {ch.title}
-                      </div>
-                    </div>
+                    {/* [R35-2d-4] 原与 Book.tsx ChapterItem 逐字节重复的章节卡收敛为单处定义 */}
+                    <ChapterItem ch={ch} bookId={book.id} current={current} />
                   </li>
                 )
               })}

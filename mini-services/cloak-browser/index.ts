@@ -47,7 +47,7 @@
 
 import puppeteer from 'puppeteer-extra'
 import StealthPlugin from 'puppeteer-extra-plugin-stealth'
-import { createBridgeServer, json } from '../_shared/server'
+import { createBridgeServer, json, readRequestCapped } from '../_shared/server'
 
 puppeteer.use(StealthPlugin())
 
@@ -874,7 +874,18 @@ createBridgeServer({
       // R8-2: 生成 reqId 用于 activeFetchPages 注册 —— timeout 时通过 reqId 查找并强制 close page
       const reqId = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
       const fetchPromise = (async () => {
-        const body: any = await req.json()
+        // [R35-2c-6] 请求体限量读(修前 req.json() 无上限): 与 fetch-relay/scrapling-bridge 同
+        // 口径 1MB 硬帽 —— 本服务虽仅绑 127.0.0.1, 但异常调用方/被复用的桥链路把超大 body
+        // 全量缓冲进 req.json() 仍是单请求 OOM 面(同 fetch-relay ss-d 治理)。超限/非 JSON
+        // 走既有 {ok:false,error} 信封(外层按 result.error 回 400, 与 url 非法同型)
+        const reqBody = await readRequestCapped(req.body, 1024 * 1024)
+        if (!reqBody.ok) return { ok: false, error: `请求体超限(>${1024 * 1024}B)` } as any
+        let body: any
+        try {
+          body = JSON.parse(reqBody.buf.toString('utf8') || 'null')
+        } catch {
+          return { ok: false, error: '请求体非 JSON' } as any
+        }
         const url = String(body?.url || '')
         if (!url || !/^https?:\/\//.test(url)) return { ok: false, error: 'url required' } as any
         const tier: StealthTier = body?.tier === 'standard' || body?.tier === 'maximum' ? body.tier : 'lite'

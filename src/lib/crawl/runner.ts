@@ -17,7 +17,15 @@ import { saveChapterTxt, saveCoverWebp, deleteBookTxt, ensureDirs } from './stor
 import { smartCategory, smartCompleteDetect } from './smart'
 import { fetchSuggestKeywords, mergeSuggestWords } from './suggest'
 import { sliceCodePoints } from '@/lib/utils' // [R25-5a] 码点截断(UTF-16 slice 会斩半 emoji 代理对)
-import { buildBookIdQueue, parseBookIdList, BOOK_ID_PLACEHOLDER } from '@/lib/book-ids' // [R34-2a-5] 书号采集: 与 API 规范化/UI 计数共用同一纯函数模块
+// [R34-2a-5] 书号采集: 与 API 规范化/UI 计数共用同一纯函数模块
+// [R35-2a-5] 书号范围: 范围校验(parseBookIdRange)与序列展开(buildBookIdQueueFromRange)同模块扩展
+import {
+  buildBookIdQueue,
+  buildBookIdQueueFromRange,
+  parseBookIdList,
+  parseBookIdRange,
+  BOOK_ID_PLACEHOLDER,
+} from '@/lib/book-ids'
 import { nextBookNum, withBookNumRetry } from '@/lib/pseudostatic-server'
 
 // feat-cloak-anticrawler B/E: 启动时加载持久化 cookie jar + 注册 SIGTERM 优雅关闭 hook
@@ -750,12 +758,20 @@ export class TaskRunner {
         await this.serializeStatusWrite(taskId, 'running')
         // [R34-2a-5] 模式文案三元扩映射: single/range 既有文案不变, bookIds 显示 书号×N(N=去重后书号数);
         //  unknown 值防御性回退原样显示(与前端 taskModeLabel 同口径)
+        // [R35-2a-5] bookIds 范围形式(bookIdFrom/bookIdTo 均非空)优先显示 书号范围{from}-{to};
+        //  此时列表为空, 既有 书号×N 文案会误导为 书号×0, 故由范围文案取代(非法值防御: 非数字/空串均回退列表文案)
+        const bookIdRangeLabel = (() => {
+          if (task.mode !== 'bookIds') return ''
+          const f = String((task as { bookIdFrom?: string }).bookIdFrom ?? '').trim()
+          const t = String((task as { bookIdTo?: string }).bookIdTo ?? '').trim()
+          return f && t && parseBookIdRange(f, t).ok ? `书号范围${f}-${t}` : ''
+        })()
         const modeLabel = task.mode === 'single'
           ? '单本'
           : task.mode === 'range'
             ? '范围'
             : task.mode === 'bookIds'
-              ? `书号×${parseBookIdList(task.bookIds).length}`
+              ? (bookIdRangeLabel || `书号×${parseBookIdList(task.bookIds).length}`)
               : task.mode
         await this.log(taskId, 'success', `▶ 任务启动 [${task.name}] 模式:${modeLabel} 重采:${task.recrawlMode === 'full' ? '完全覆盖' : '增量更新'} 存储:${task.storageMode === 'db' ? '数据库' : 'TXT文件'} 线程:${task.threadMin}~${task.threadMax} 间隔:${task.intervalMin}~${task.intervalMax}ms`)
         // 异步执行, 不阻塞API
@@ -964,19 +980,46 @@ export class TaskRunner {
         //  在下方按 bookQueue.length 自然计算, 零额外适配。续采语义与 single 同口径
         //  (不写 discoveredBookUrls); 重启增量时已完结书仍被下方 completedBookUrls 检查
         //  整体跳过, 连载书走增量复查, 重复书号已在 API 规范化层去重
+        // [R35-2a-5] 范围形式优先: bookIdFrom/bookIdTo 均非空 → parseBookIdRange 校验合法后
+        //  buildBookIdQueueFromRange 展开为数字序列渲染模板灌 bookQueue(渲染后 Set 去重保序);
+        //  非法(恢复导入/API 直建等绕过路径, 正常入库已被 validateTaskPair 拦截)warn 后回落
+        //  下方既有书号列表路径(逐字节零变化); 两端点均空也走列表路径(R34 既有语义)
         const template = (cfg.task.bookUrl || '').trim()
-        bookQueue = buildBookIdQueue(cfg.task.bookIds, template)
-        progress.discovered = bookQueue.length
-        // 防呆日志(API 校验已拦, 此处兜底 API 直建/恢复导入等绕过路径)
-        if (!template) {
-          await this.log(taskId, 'warn', '书号采集: 书籍页URL模板为空, 无书籍可采集(请补全模板后重跑)')
-        } else if (!template.includes(BOOK_ID_PLACEHOLDER)) {
-          await this.log(taskId, 'warn', `书号采集: 书籍页URL模板缺少 ${BOOK_ID_PLACEHOLDER} 占位符, 书号无法注入, 队列将折叠为单一字面地址: ${template.slice(0, 160)}`)
-        }
-        if (bookQueue.length === 0) {
-          await this.log(taskId, 'warn', '书号采集: 书号列表为空(或全部无效), 无书籍可采集')
+        const rawFrom = String((cfg.task as { bookIdFrom?: string }).bookIdFrom ?? '').trim()
+        const rawTo = String((cfg.task as { bookIdTo?: string }).bookIdTo ?? '').trim()
+        const range = rawFrom && rawTo ? parseBookIdRange(rawFrom, rawTo) : null
+        if (range?.ok) {
+          bookQueue = buildBookIdQueueFromRange(range.from, range.to, template)
+          progress.discovered = bookQueue.length
+          // 防呆日志(与列表路径三连同型; API 校验已拦, 此处兜底绕过路径)
+          if (!template) {
+            await this.log(taskId, 'warn', '书号采集: 书籍页URL模板为空, 无书籍可采集(请补全模板后重跑)')
+          } else if (!template.includes(BOOK_ID_PLACEHOLDER)) {
+            await this.log(taskId, 'warn', `书号采集: 书籍页URL模板缺少 ${BOOK_ID_PLACEHOLDER} 占位符, 书号无法注入, 队列将折叠为单一字面地址: ${template.slice(0, 160)}`)
+          }
+          if (bookQueue.length === 0) {
+            await this.log(taskId, 'warn', '书号采集: 范围展开后为空, 无书籍可采集')
+          } else {
+            await this.log(taskId, 'success', `书号采集(范围): ${range.from}-${range.to} 共 ${bookQueue.length} 本书待采集`)
+          }
         } else {
-          await this.log(taskId, 'success', `书号采集: 模板解析完成, 共 ${bookQueue.length} 本书待采集`)
+          if (range && !range.ok) {
+            await this.log(taskId, 'warn', `书号采集: 书号范围非法(${range.error}), 回落按书号列表解析`)
+          }
+          // [R34-2a-5] 既有书号列表路径([R35-2a-5] 逐字节零变化)
+          bookQueue = buildBookIdQueue(cfg.task.bookIds, template)
+          progress.discovered = bookQueue.length
+          // 防呆日志(API 校验已拦, 此处兜底 API 直建/恢复导入等绕过路径)
+          if (!template) {
+            await this.log(taskId, 'warn', '书号采集: 书籍页URL模板为空, 无书籍可采集(请补全模板后重跑)')
+          } else if (!template.includes(BOOK_ID_PLACEHOLDER)) {
+            await this.log(taskId, 'warn', `书号采集: 书籍页URL模板缺少 ${BOOK_ID_PLACEHOLDER} 占位符, 书号无法注入, 队列将折叠为单一字面地址: ${template.slice(0, 160)}`)
+          }
+          if (bookQueue.length === 0) {
+            await this.log(taskId, 'warn', '书号采集: 书号列表为空(或全部无效), 无书籍可采集')
+          } else {
+            await this.log(taskId, 'success', `书号采集: 模板解析完成, 共 ${bookQueue.length} 本书待采集`)
+          }
         }
       } else {
         progress.phase = 'discovery'

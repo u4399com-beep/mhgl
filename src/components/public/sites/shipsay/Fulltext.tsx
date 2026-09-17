@@ -17,13 +17,11 @@
 
 import type { SiteFulltextProps } from '../shared'
 import { usePublic } from '../../ctx'
-import { useEffect, useState } from 'react'
-import { fetchCategories } from '../../data'
-import type { CategoryItem } from '../../types'
-import { bookNavProps, ErrorState, Sk } from '../../bits'
+import { useSiteCats } from '../hooks' // [R35-2d-1] 原逐字节重复的 cats 拉取 effect 收敛
+import { ErrorState, Sk } from '../../bits'
 import { BookCover } from '../../BookCover'
-import { fmtDate, formatWords } from '../../seo'
 import { Pager } from './Category'
+import { SsBookMain } from './_kit' // [R35-2d-2] 原 Search/Fulltext/Category 三处逐字节重复的书条右栏收敛
 
 /** [R28-2e-7] 船说模板实测色值(同 Home) */
 const C = {
@@ -43,20 +41,7 @@ export function ShipsayFulltext({ data, loading, error, page }: SiteFulltextProp
   const { navigate } = usePublic()
 
   // #after_menu 分类链(全本页真站为 /quanben/xs/{slug}/ → 契约降级为切回普通分类, 声明)
-  const [cats, setCats] = useState<CategoryItem[] | null>(null)
-  useEffect(() => {
-    let alive = true
-    fetchCategories()
-      .then((d) => {
-        if (alive) setCats(d || [])
-      })
-      .catch(() => {
-        if (alive) setCats([])
-      })
-    return () => {
-      alive = false
-    }
-  }, [])
+  const cats = useSiteCats()
 
   const books = data?.books || []
   const totalPages = data ? Math.ceil((data.total || 0) / (data.size || 24)) : 0
@@ -148,31 +133,7 @@ export function ShipsayFulltext({ data, loading, error, page }: SiteFulltextProp
                         </span>
                       </button>
                     </div>
-                    <div className="ss-w100 min-w-0 flex-1">
-                      <button
-                        type="button"
-                        {...bookNavProps(navigate, b.id)}
-                        className="ss-h2 block max-w-full truncate text-left text-[15px] font-bold leading-snug"
-                        style={{ color: C.title }}
-                        aria-label={`查看《${b.name}》详情`}
-                      >
-                        {b.name}
-                      </button>
-                      <p className="ss-indent m-0 mt-1 line-clamp-3 text-[12px] leading-[19px]" style={{ textIndent: '2em' }}>
-                        {b.intro || `${b.category} · ${b.author}`}
-                      </p>
-                      <p className="ss-li_bottom m-0 mt-1 flex items-center text-[12px]">
-                        <button type="button" onClick={() => navigate({ view: 'search', q: b.author })} className="truncate" style={{ color: C.link }} aria-label={`搜索 ${b.author} 的作品`}>
-                          {b.author}
-                        </button>
-                        <em className="ss-orange ml-auto shrink-0 not-italic" style={{ color: C.orange }}>
-                          {formatWords(b.wordCount)}
-                        </em>
-                        <em className="ss-blue ml-2 shrink-0 not-italic" style={{ color: C.blue }}>
-                          {fmtDate(b.updatedAt).slice(5) || '--'}
-                        </em>
-                      </p>
-                    </div>
+                    <SsBookMain b={b} />
                   </li>
                 ))}
               </ul>

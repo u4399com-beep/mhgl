@@ -1,7 +1,14 @@
 // 任务创建/更新入参规范化 (POST/PUT 共用)
 import { clampInt, str, httpUrl, isPlainObject } from '../../_lib/http'
 // [R34-2a-3] 书号采集: 书号解析/规范化与引擎(runner)、前端(TaskWizard/TaskDialog)共用同一纯函数模块
-import { parseBookIdList, BOOK_ID_MAX_LEN, BOOK_ID_MAX_COUNT, BOOK_ID_PLACEHOLDER } from '@/lib/book-ids'
+// [R35-2a-3] 书号范围: parseBookIdRange 与引擎(runner)、前端共用同一校验口径
+import {
+  parseBookIdList,
+  parseBookIdRange,
+  BOOK_ID_MAX_LEN,
+  BOOK_ID_MAX_COUNT,
+  BOOK_ID_PLACEHOLDER,
+} from '@/lib/book-ids'
 
 // [R31-5-0] 补 'interrupted'(R31-3 移交项①): recovery.ts 服务重启后把孤儿 running 标为
 //  'interrupted', 列表路由 GET ?status= 过滤白名单按本数组执法, 缺值会导致中断任务筛不出来。
@@ -16,6 +23,10 @@ export interface NormalizedTask {
   bookUrl: string
   // [R34-2a-3] 书号原文(规范化后为换行分隔的去重书号列表; 非 bookIds 模式恒空串)
   bookIds: string
+  // [R35-2a-3] 书号范围(bookIds 模式范围子形态): 存数字字符串(trim); 两者均非空=范围形式,
+  //  与 bookIds 列表互斥(validateTaskPair 执法); 非 bookIds 模式恒空串
+  bookIdFrom: string
+  bookIdTo: string
   listUrl: string
   listStart: number
   listEnd: number
@@ -84,6 +95,29 @@ export function normalizeTaskData(
       return { data: {}, error: `书号数量超过上限(去重后 ${ids.length} 个, 最多 ${BOOK_ID_MAX_COUNT} 个)` }
     }
     out.bookIds = ids.join('\n')
+  }
+
+  // [R35-2a-3] 书号范围端点规范化: trim 存数字字符串(空串=未用范围形式), 与 bookIds 既有语义对齐:
+  //  full 恒输出(空串或值), partial 仅显式携带时输出(不误清空)。纯数字/互斥/上限等语义校验统一
+  //  由 validateTaskPair 用合并后生效值调 parseBookIdRange 执法(保证 PUT 合并场景同一口径),
+  //  本段只做形态规范化
+  if (full || body?.bookIdFrom !== undefined) {
+    const raw =
+      typeof body?.bookIdFrom === 'string'
+        ? body.bookIdFrom.trim()
+        : body?.bookIdFrom == null
+          ? ''
+          : String(body.bookIdFrom).trim()
+    out.bookIdFrom = raw
+  }
+  if (full || body?.bookIdTo !== undefined) {
+    const raw =
+      typeof body?.bookIdTo === 'string'
+        ? body.bookIdTo.trim()
+        : body?.bookIdTo == null
+          ? ''
+          : String(body.bookIdTo).trim()
+    out.bookIdTo = raw
   }
 
   // 页码/序号范围: 钳制 + 起≥止自动交换
@@ -155,7 +189,10 @@ export function validateTaskPair(
   bookUrl: string | undefined,
   listUrl: string | undefined,
   // [R34-2a-3] 书号采集联动校验入参(合并后的生效值); 旧调用点(不传)对 single/range 零影响
-  bookIds?: string
+  bookIds?: string,
+  // [R35-2a-3] 书号范围端点(合并后的生效值): bookIds 模式下列表与范围二选一互斥执法
+  bookIdFrom?: string,
+  bookIdTo?: string
 ): string | undefined {
   if (mode === 'single' && !bookUrl) return '单本模式必须填写书籍页URL'
   // [R12-a-4] 文案补充占位符语义: 引擎仅自动替换 {page}/{offset:N}(R12-a-2 起任务级
@@ -166,7 +203,19 @@ export function validateTaskPair(
     if (!bookUrl || !bookUrl.includes(BOOK_ID_PLACEHOLDER)) {
       return `书号采集必须填写书籍页URL模板(需含 ${BOOK_ID_PLACEHOLDER} 占位符)`
     }
-    if (parseBookIdList(bookIds).length === 0) return '书号采集必须填写书号列表'
+    // [R35-2a-3] 列表与范围二选一: 范围端点任一非空即视为用了范围形式, 此时列表必须为空;
+    //  范围合法性(纯数字/起止齐备/from≤to/≤2000)透传 parseBookIdRange 的精确文案;
+    //  两者都空沿用既有「书号采集必须填写书号列表」文案
+    const from = (bookIdFrom ?? '').trim()
+    const to = (bookIdTo ?? '').trim()
+    const listCount = parseBookIdList(bookIds).length
+    if ((from || to) && listCount > 0) return '书号列表与书号范围只能二选一'
+    if (from || to) {
+      const range = parseBookIdRange(from, to)
+      if (!range.ok) return range.error
+      return undefined
+    }
+    if (listCount === 0) return '书号采集必须填写书号列表'
   }
   return undefined
 }
