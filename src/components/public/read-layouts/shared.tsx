@@ -163,7 +163,14 @@ function decodeCharRefsOnce(s: string): string {
  * 其余伪协议(javascript:/vbscript:/data: 等)一律判不安全。
  */
 function isSafeUrlValue(raw: string): boolean {
-  const probe = decodeCharRefsOnce(raw).replace(/[\t\n\r]/g, '')
+  // [R33-2c-2] 浏览器 URL 解析入口会剥掉首尾「C0 控制符+空格」(WHATWG URL: strip leading
+  // and trailing C0 control or space)。修前 probe 只剥 \t\n\r —— " javascript:..." /
+  // "&#14;javascript:..." 等前导空白/控制符形态 scheme 探测失配被判"相对地址"放行, 而浏览器
+  // 侧剥掉前导后即复活 javascript: 执行。修后按浏览器同口径剥首尾 [\u0000-\u0020] 再探测
+  // (只剥两端不剥中间, 与浏览器一致: "java script:" 仍非合法 scheme 且浏览器同样不执行)
+  const probe = decodeCharRefsOnce(raw)
+    .replace(/[\t\n\r]/g, '')
+    .replace(/^[\u0000-\u0020]+|[\u0000-\u0020]+$/g, '')
   const m = /^([a-zA-Z][a-zA-Z0-9+.-]*):/.exec(probe) // [R27-6-fix] 去 char class 内多余转义
   if (!m) return true // 无 scheme → 相对地址/锚点
   return /^https?$/i.test(m[1])
@@ -172,11 +179,15 @@ function isSafeUrlValue(raw: string): boolean {
 function sanitizeTagAttrs(tag: string): string {
   return (
     tag
+      // [R33-2c-3] 属性名分隔符兼容 "/": HTML5 tokenizer 中 <img/src=x/onerror=y> 的斜杠与
+      // 空白等价(斜杠后仍回到 before-attribute-name 态), 修前 \s+ 使斜杠分隔的 on*/href/src
+      // 属性整体逃出剥离(bypass)。改 [\s/]+ 后两种形态同口径; 注: 仅作用于字面 tag span 内,
+      // 不影响实体转义正文(R11-c-1 语义不变)
       // 剥 on* 事件属性(onclick/onerror/onload…)——匹配 on 开头 + 字母数字 + ="..."或='...'或=`...`
-      .replace(/\s+on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|`[^`]*`|[^\s>]+)/gi, '')
+      .replace(/[\s/]+on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|`[^`]*`|[^\s>]+)/gi, '')
       // [R27-5b-M1] href/src 整属性出口白名单: 探测值(实体解码+剥 \t\n\r)命中 scheme
       // 白名单外的(含 jav&#x09;ascript: 等全部编码变体)整属性剥离; 原属性串原样保留/移除
-      .replace(/\s+(?:href|src)\s*=\s*(?:"[^"]*"|'[^']*'|`[^`]*`|[^\s>]+)/gi, (m) => {
+      .replace(/[\s/]+(?:href|src)\s*=\s*(?:"[^"]*"|'[^']*'|`[^`]*`|[^\s>]+)/gi, (m) => {
         const eq = m.indexOf('=')
         const val = m.slice(eq + 1).trim()
         const quoted = /^["'`]([\s\S]*)["'`]$/.exec(val) // [R27-6-fix] 去 regex 内多余 \" 转义
@@ -194,7 +205,10 @@ function sanitizeReaderHtml(html: string): string {
     .replace(/<(script|style|noscript|iframe|object|embed|template)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, ' ')
     .replace(/<(script|style|noscript|iframe|object|embed|template)\b[^>]*\/?>/gi, ' ')
   // 2./3. on* 事件属性与 javascript: URL 剥离 —— [R11-c-1] 仅作用于字面标签 span(<x …> 形态)
-  out = out.replace(/<[a-zA-Z][^>]*>/g, (tag) => sanitizeTagAttrs(tag))
+  // [R33-2c-4] tag 边界匹配感知引号: 修前 [^>]* 在属性值含 ">" 时提前截断(如 <img alt=">"
+  // onerror=…>), 真实 onerror 属性落在识别出的 span 之外而逃过消毒。修后引号段(含 ` 段,
+  // 与 sanitizeTagAttrs 的引号口径一致)整段消费, 使闭合 > 恒为真标签边界
+  out = out.replace(/<[a-zA-Z](?:"[^"]*"|'[^']*'|`[^`]*`|[^>])*>/g, (tag) => sanitizeTagAttrs(tag))
   return out
 }
 

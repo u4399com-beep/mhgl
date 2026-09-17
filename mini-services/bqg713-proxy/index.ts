@@ -128,6 +128,17 @@ const HOST_POOL = ['www.bqg413.cc', 'apige.cc']
 const FAMILY_RE = /^(?:www\.bqg\d+\.cc|api[a-z0-9]*\.cc)$/
 /** 动态学习主机(进程内, 重启清零): 探测目标属家族且不在池中时追加池尾 */
 const dynamicHosts: string[] = []
+// [R33-2a-4] 动态学习主机上限(FIFO): FAMILY_RE 接受无限多个互异形态(www.bqgN.cc /
+// api<任意>.cc), 修前逐条 push 永不淘汰 —— ①长驻进程内存无界增长(与 qidian-proxy
+// catalogCache/引擎 proxySticky 等"全局容器必须有界"纪律不一致); ②pool = HOST_POOL+dynamicHosts
+// 逐条串行探测(每台 12s 超时), 池线性膨胀使每个 /unlock 时延无界。上限 16: 家族真域极有限
+// (R21-b 实测 2~3 台), 16 已远超现实密度; 淘汰最旧学习条目仅丢"优先试它"的记忆, 行为语义不变
+const DYNAMIC_HOSTS_CAP = 16
+function pushDynamicHost(h: string): void {
+  if (dynamicHosts.includes(h)) return
+  while (dynamicHosts.length >= DYNAMIC_HOSTS_CAP) dynamicHosts.shift()
+  dynamicHosts.push(h)
+}
 
 function looksDecoy(txt: string): boolean {
   if (txt.length < MIN_CONTENT_LEN) return true
@@ -225,7 +236,8 @@ async function handleUnlock(u: URL): Promise<Response> {
   // 家族主机学习: 探测目标 host 属站点家族且不在池中 → 追加池尾(防滥用: 仅家族形态)
   const innerHost = inner?.hostname.toLowerCase() ?? ''
   if (innerHost && FAMILY_RE.test(innerHost) && !HOST_POOL.includes(innerHost) && !dynamicHosts.includes(innerHost)) {
-    dynamicHosts.push(innerHost)
+    // [R33-2a-4] 有界写入(修前裸 push 无上限, 见 DYNAMIC_HOSTS_CAP 注)
+    pushDynamicHost(innerHost)
     console.log(`[bqg713-proxy] unlock host-learned: ${innerHost}`)
   }
   const pool = [...HOST_POOL, ...dynamicHosts.filter((h) => !HOST_POOL.includes(h))]

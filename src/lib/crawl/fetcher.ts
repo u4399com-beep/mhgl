@@ -6,7 +6,8 @@
 // auto 模式: HTTP 被拦截(403/412/429/503/验证码特征/JS挑战)自动升级浏览器渲染
 // ============================================================
 import iconv from 'iconv-lite'
-import { type FetchConfig, DEFAULT_FETCH_CONFIG, isValidMirrorHost } from './types'
+// [R33-2a-3] 增补 hasNestedQuantifier: extractToken 的 'regex:' 分支运行时安全闸(见彼处注)
+import { type FetchConfig, DEFAULT_FETCH_CONFIG, isValidMirrorHost, hasNestedQuantifier } from './types'
 import { obscuraFetch, checkObscuraAvailable, clickSelectorAnywhere, buildIdentityInitScript, applyUaCdpOverride, shutdownObscura } from './obscura'
 // [R9-e-4] 增强: 请求节奏画像上报 —— hostgate 无内部依赖(无循环风险); 缺省开关关闭时
 // 上报函数为 no-op, 既有行为零变化
@@ -1469,7 +1470,14 @@ export async function checkBrowser(): Promise<boolean> {
  * launch, per-context proxy 无槽位复用串扰面。选路统一经 pickProxyFor 单一函数
  */
 async function renderWithBrowser(url: string, cfg: FetchConfig, ua: string): Promise<string> {
-  if (pickProxyFor(url, cfg)) return renderWithBrowserRaw(url, cfg, ua)
+  // [R33-2a-1] 修前本行调 pickProxyFor(url, cfg) 作“是否走代理路径”判定 —— 但该调用有副作用
+  //  (markProxyUsed: useCount++), 且选中结果随即被丢弃(renderWithBrowserRaw 内部会再选一次);
+  //  random 策略下两次选择可能不同 → 一条代理被空记使用计数, 每次浏览器渲染 useCount 双计,
+  //  round-robin/least-used 的负载平摊与 sticky 判定被系统性偏移。改为非消费型等价判定
+  //  hasUsableProxyFor(与 pickProxyFor 返回 '' 的三条件逐一同口径), 真正的选路只发生在
+  //  renderWithBrowserRaw 内那一次(副作用记在真正被使用的代理上); 附带收益: “全部代理冷却中”
+  //  warn 由每次浏览器渲染打 2 条降为 1 条
+  if (hasUsableProxyFor(url, cfg)) return renderWithBrowserRaw(url, cfg, ua)
   try {
     if (await checkObscuraAvailable()) {
       const res = await obscuraFetch(url, {
@@ -2422,6 +2430,16 @@ export function pickProxyFor(url: string, cfg: FetchConfig): string {
   return pick
 }
 
+/** [R33-2a-1] 非消费型代理可用性判定: 与 pickProxyFor 返回 '' 的三个早退条件
+ *  (①未配池 ②目标回环 ③池内全部冷却)逐一同口径, 但不做选择/不记 useCount ——
+ *  供“仅需判定是否存在可用代理”的调用点(renderWithBrowser 分流)使用, 选路副作用
+ *  仍由真正消费代理的路径(renderWithBrowserRaw→pickProxyFor)单次承担 */
+function hasUsableProxyFor(url: string, cfg: FetchConfig): boolean {
+  const pool = parseProxyPool(cfg.proxyUrl)
+  if (!pool.length || isLoopbackTarget(url)) return false
+  return pool.some((p) => isProxyAvailable(p))
+}
+
 /** 日志用代理脱敏: 隐藏内联凭证(u:p@ → ***@) */
 function redactProxy(proxy: string): string {
   // R3-4: 原 [^@/]+ 排除 '/' 字符, 但密码含 '/'(常见于 base64/hex 编码凭证)时正则不匹配,
@@ -2597,8 +2615,15 @@ async function fetchHttp(url: string, cfg: FetchConfig, ua: string, proxy = '', 
     // 无缓存体可回时重新取全量)。仅重试一次且仅限本层协商的 condKey(规则自带 If-* 头的
     // 304 形态维持旧抛错口径), 病态服务端连续 304 仍抛错防死循环
     let retriedBare304 = false
-    for (let hop = 0; ; hop++) {
-      if (hop > MAX_REDIRECT_HOPS) {
+    // [R33-2a-2] 修前循环计数器 hop 把「304 缓存条目被驱逐后的无条件 GET 重试」([R11-b-2])
+    //  也计入重定向跳预算: 长重定向链(20 跳)+末跳恰逢 304-驱逐重试时会误抛“重定向超过 20 跳
+    //  上限(疑似重定向环)”—— RFC 9111 的正确语义(重发一次无条件 GET)被打断, 且错误归因失真
+    //  (实际重定向只有 20 跳并未成环)。现拆出独立 redirectHops 计数器, 仅真实 3xx 跟随递增:
+    //  纯重定向链的上限语义与修前逐字节一致(20 跳可跟随/第 21 跳抛错), 304 重试不再消耗
+    //  跳预算(至多多一次无条件 GET, retriedBare304 单次标志有界)
+    let redirectHops = 0
+    for (;;) {
+      if (redirectHops > MAX_REDIRECT_HOPS) {
         throw new Error(`HTTP 重定向超过 ${MAX_REDIRECT_HOPS} 跳上限(疑似重定向环)`)
       }
       // ff-b①: HTTP 内容链逐跳注入完整指纹头组(与 UA 自洽的 sec-ch-ua*/Sec-Fetch-*)
@@ -2705,6 +2730,8 @@ async function fetchHttp(url: string, cfg: FetchConfig, ua: string, proxy = '', 
         }
         visitedHops.set(nextStr, (visitedHops.get(nextStr) || 0) + 1)
         hopUrl = nextStr
+        // [R33-2a-2] 仅真实重定向跳递增(304-重试 continue 不计, 见循环顶注)
+        redirectHops++
         continue
       }
       if (!res.ok) {
@@ -3944,8 +3971,16 @@ async function extractToken(body: string, pattern: string): Promise<string> {
   const p = (pattern || '').trim()
   if (!p) return ''
   if (p.startsWith('regex:')) {
+    // [R33-2a-3] 运行时正则安全闸(静态形态审查, 与 types.collectRegexIssues 保存期口径同源):
+    //  tokenPattern 的保存期 regexGate 只在 rules API 生效, 任务级 fetchConfig 覆盖路径
+    //  (runner.parseFetchOverride → sanitizeFetchConfig 白名单重建)不经该闸 —— 恶意/误配的
+    //  嵌套量词正则(如 (a+)+ / (a|aa)+)会在此对最大 10MB 的预取响应体执行指数回溯挂死
+    //  事件循环(try/catch 只防编译错不防挂起)。命中危险形态/超长按“提取失败”处理:
+    //  返回 '' 落入既有静默降级直连语义(与本函数 catch 口径一致), 正常模式零影响
+    const src = p.slice(6)
     try {
-      const m = new RegExp(p.slice(6)).exec(body)
+      if (src.length > 1000 || hasNestedQuantifier(src)) return ''
+      const m = new RegExp(src).exec(body)
       return m ? (m[1] ?? m[0] ?? '').trim() : ''
     } catch { return '' }
   }

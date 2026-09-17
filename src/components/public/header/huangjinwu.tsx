@@ -215,9 +215,12 @@ export function HuangjinwuHeader({ cats, pending }: ImitationHeaderProps) {
           </div>
         </div>
       </div>
-      {/* [R24-6-a-10] 遮罩(真站 .menu-overlay: 黑 60% + blur 4px) */}
+      {/* [R24-6-a-10] 遮罩(真站 .menu-overlay: 黑 60% + blur 4px)
+          [R33-2c-1] 关闭态必须禁用命中测试: opacity:0 元素仍参与 hit-testing, 修前该全屏
+          fixed 遮罩在 <768px 恒渲染于 z-60 顶层, 未开菜单时整页所有点击都被它拦截后吞掉
+          (closeMenu 空转), 移动端整站假死。修后关闭态加 pointer-events-none, 开启态不变 */}
       <div
-        className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-[4px] md:hidden"
+        className={`fixed inset-0 z-[60] bg-black/60 backdrop-blur-[4px] md:hidden ${menuOpen ? '' : 'pointer-events-none'}`}
         onClick={closeMenu}
         style={{ opacity: menuOpen ? 1 : 0, transition: 'opacity .35s cubic-bezier(.4,0,.2,1)' }}
         aria-hidden="true"

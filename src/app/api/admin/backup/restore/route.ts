@@ -334,7 +334,18 @@ export async function POST(req: Request) {
         }
         for (const b of books) {
           if (!b || typeof b.id !== 'string' || !b.id) continue
-          const categoryId = typeof b.categoryId === 'string' && b.categoryId ? b.categoryId : null
+          const rawCategoryId = typeof b.categoryId === 'string' && b.categoryId ? b.categoryId : null
+          // [R33-2b-1] 分类悬挂引用防御: 备份 rules/categories 走 take:500 截断、部分备份或外部编辑
+          //  都可能让 book.categoryId 指向不存在的分类 —— Prisma(SQLite)对 FK 强制执法(P2003 已实测),
+          //  原 upsert 直接抛错 → 整个 $transaction 回滚, 全部已导入数据一起丢, 且 errText 文案
+          //  ("关联数据不存在(并发变更)")误导操作员。修法与 chapters/tags/downloadJobs 的逐条容错
+          //  同型: 缺失分类置 null(书+章节保留, 丢的只是归属), 按 missing id 汇总告警(去重后单条)
+          let categoryId: string | null = null
+          if (rawCategoryId) {
+            const cat = await tx.category.findUnique({ where: { id: rawCategoryId }, select: { id: true } })
+            if (cat) categoryId = rawCategoryId
+            else warnings.push(`分类 ${rawCategoryId} 不存在, 引用它的书籍已置为未分类`)
+          }
           const bookNum = await allocBookNum(b.num)
           await tx.book.upsert({
             where: { id: b.id },
@@ -452,6 +463,16 @@ export async function POST(req: Request) {
           if (!t || typeof t.id !== 'string' || !t.id) continue
           const ruleId = String(t.ruleId || '')
           if (!ruleId) continue // 没有关联 rule 的任务无法重建
+          // [R33-2b-2] 规则悬挂引用防御: 备份 rules 走 take:500 截断而 tasks 走 take:5000, 规则
+          //  超过 500 条的库导出的备份在恢复时必然存在 task.ruleId 指向未随备份导入的规则 ——
+          //  原 upsert 直接撞 P2003 → 整个 $transaction 回滚(全部数据丢)。修法: 恢复前先验证
+          //  规则在本事务内可见, 缺失则跳过该任务并告警(与上方"没有关联 rule 的任务无法重建"
+          //  同语义, 与 chapters/downloadJobs 逐条容错同型)
+          const ruleExists = await tx.rule.findUnique({ where: { id: ruleId }, select: { id: true } })
+          if (!ruleExists) {
+            warnings.push(`任务 ${t.id} 关联的规则 ${ruleId} 不存在, 该任务已跳过`)
+            continue
+          }
           // R9-d-8: 状态归一化(running→paused / 非法值→pending), create/update 同口径
           const taskStatus = normalizeRestoredTaskStatus(t.status, warnings)
           await tx.task.upsert({
