@@ -18,10 +18,12 @@ import { smartCategory, smartCompleteDetect } from './smart'
 import { fetchSuggestKeywords, mergeSuggestWords } from './suggest'
 import { sliceCodePoints } from '@/lib/utils' // [R25-5a] 码点截断(UTF-16 slice 会斩半 emoji 代理对)
 // [R34-2a-5] 书号采集: 与 API 规范化/UI 计数共用同一纯函数模块
-// [R35-2a-5] 书号范围: 范围校验(parseBookIdRange)与序列展开(buildBookIdQueueFromRange)同模块扩展
+// [R35-2a-5] 书号范围: 范围校验(parseBookIdRange)与虚拟队列(buildBookIdRangeQueue)同模块扩展
+// [R37-1] 取消范围本数上限后队列不再物化数组 → 虚拟描述符(BookIdRangeQueue)按需现算
 import {
   buildBookIdQueue,
-  buildBookIdQueueFromRange,
+  buildBookIdRangeQueue,
+  type BookIdRangeQueue,
   parseBookIdList,
   parseBookIdRange,
   BOOK_ID_PLACEHOLDER,
@@ -139,7 +141,7 @@ const CIRCUIT_ERROR_LIMIT = 20
 
 /** [R36-2c-4] 书籍级连续失败熔断阈值 —— 章节级(CIRCUIT_ERROR_LIMIT)只覆盖"书籍页已抓到
  *  且目录非空"的正文阶段; 书籍页抓取超时/异常/拦截壳页在逐书循环里只计 errors 不熔断,
- *  死站/全站拦截 + 大 bookQueue(范围模式 10 万级/书号模式 2000 上限)时会逐本硬敲到底
+ *  死站/全站拦截 + 大 bookQueue(范围模式无上限 [R37-1]/书号模式 2000 上限)时会逐本硬敲到底
  *  (每本一次超时级请求+错误日志)。20 本连续失败与章节熔断同量级: 正常抖动够不着,
  *  站点级故障 2~3 轮内即熔断交由 autoRefresh 自愈 */
 const BOOK_CIRCUIT_ERROR_LIMIT = 20
@@ -1027,6 +1029,13 @@ export class TaskRunner {
       }
       // ---------- 发现书籍URL ----------
       let bookQueue: string[] = []
+      // [R37-1] 范围模式虚拟队列: bookQueue 保持空数组, 由 bookRangeQueue 承载队列语义
+      //  (O(1) length + 按 bi 现算 URL, 不物化数组 —— 范围上限取消后 12 位端点也零 OOM 风险)。
+      //  下方全部消费点(booksTotal/逐本循环/phaseNote)统一经 bookQueueLen/bookQueueAt 读写,
+      //  非范围模式(single/bookIds 列表/列表发现) bookRangeQueue 恒 null → 行为逐字节零变化
+      let bookRangeQueue: BookIdRangeQueue | null = null
+      const bookQueueLen = (): number => (bookRangeQueue ? bookRangeQueue.length : bookQueue.length)
+      const bookQueueAt = (i: number): string => (bookRangeQueue ? bookRangeQueue.at(i) : bookQueue[i])
       // ll-c2: 列表页已提取的书籍字段随行保存(key=absolutized bookUrl) — 部分源站 detail
       // 端点不稳定(番茄聚合API 2026-09-02 实测 data.data 空对象), detail 字段全空时不至于
       // 落到 URL 片段书名(修前入库《api/detail》); single 模式无列表字段, 兜底链零回归
@@ -1038,30 +1047,31 @@ export class TaskRunner {
       } else if (cfg.task.mode === 'bookIds') {
         // [R34-2a-5] 书号采集: 解析 task.bookIds(书号原文) → 逐个渲染书籍页 URL 模板
         //  ({bookId} → encodeURIComponent(书号)) → 灌 bookQueue。进度分母 progress.booksTotal
-        //  在下方按 bookQueue.length 自然计算, 零额外适配。续采语义与 single 同口径
+        //  在下方按队列长度自然计算(范围模式经 bookQueueLen 虚拟队列 [R37-1]), 零额外适配。续采语义与 single 同口径
         //  (不写 discoveredBookUrls); 重启增量时已完结书仍被下方 completedBookUrls 检查
         //  整体跳过, 连载书走增量复查, 重复书号已在 API 规范化层去重
         // [R35-2a-5] 范围形式优先: bookIdFrom/bookIdTo 均非空 → parseBookIdRange 校验合法后
-        //  buildBookIdQueueFromRange 展开为数字序列渲染模板灌 bookQueue(渲染后 Set 去重保序);
-        //  非法(恢复导入/API 直建等绕过路径, 正常入库已被 validateTaskPair 拦截)warn 后回落
-        //  下方既有书号列表路径(逐字节零变化); 两端点均空也走列表路径(R34 既有语义)
+        //  [R37-1] 建虚拟队列 buildBookIdRangeQueue(不再物化数字序列数组; 与旧 Set 去重口径等价,
+        //  模板缺占位符时折叠为单一字面地址 length=1); 非法(恢复导入/API 直建等绕过路径,
+        //  正常入库已被 validateTaskPair 拦截)warn 后回落下方既有书号列表路径(逐字节零变化);
+        //  两端点均空也走列表路径(R34 既有语义)
         const template = (cfg.task.bookUrl || '').trim()
         const rawFrom = String((cfg.task as { bookIdFrom?: string }).bookIdFrom ?? '').trim()
         const rawTo = String((cfg.task as { bookIdTo?: string }).bookIdTo ?? '').trim()
         const range = rawFrom && rawTo ? parseBookIdRange(rawFrom, rawTo) : null
         if (range?.ok) {
-          bookQueue = buildBookIdQueueFromRange(range.from, range.to, template)
-          progress.discovered = bookQueue.length
+          bookRangeQueue = buildBookIdRangeQueue(range.from, range.to, template)
+          progress.discovered = bookQueueLen()
           // 防呆日志(与列表路径三连同型; API 校验已拦, 此处兜底绕过路径)
           if (!template) {
             await this.log(taskId, 'warn', '书号采集: 书籍页URL模板为空, 无书籍可采集(请补全模板后重跑)')
           } else if (!template.includes(BOOK_ID_PLACEHOLDER)) {
             await this.log(taskId, 'warn', `书号采集: 书籍页URL模板缺少 ${BOOK_ID_PLACEHOLDER} 占位符, 书号无法注入, 队列将折叠为单一字面地址: ${template.slice(0, 160)}`)
           }
-          if (bookQueue.length === 0) {
+          if (bookQueueLen() === 0) {
             await this.log(taskId, 'warn', '书号采集: 范围展开后为空, 无书籍可采集')
           } else {
-            await this.log(taskId, 'success', `书号采集(范围): ${range.from}-${range.to} 共 ${bookQueue.length} 本书待采集`)
+            await this.log(taskId, 'success', `书号采集(范围): ${range.from}-${range.to} 共 ${bookQueueLen()} 本书待采集`)
           }
         } else {
           if (range && !range.ok) {
@@ -1253,7 +1263,7 @@ export class TaskRunner {
         }
       }
 
-      progress.booksTotal = bookQueue.length
+      progress.booksTotal = bookQueueLen()
       // jj-d: 书籍完成计数按轮归零 —— 修前跨轮累计(上一轮已完成的书计入本轮起点,
       // 重复运行的任务 booksDone 只增不减), TaskMonitor 计数标签会出现"书籍 2/1"
       // (Dashboard 进度条有钳制掩盖, 计数标签仍露馅); 每轮都从 bookQueue[0] 重跑, 归零才是真语义
@@ -1266,8 +1276,8 @@ export class TaskRunner {
       //  非失败结局(ok/blocked 之外的正常返回/跳过已完结)即归零; 停止/换代/引擎护栏超时
       //  (AbortError/HostGateTimeout/GlobalSemTimeout)不计入(引擎侧拥塞非源站故障)
       let consecutiveBookErrs = 0
-      for (let bi = 0; bi < bookQueue.length; bi++) {
-        const bookUrl = bookQueue[bi]
+      for (let bi = 0; bi < bookQueueLen(); bi++) {
+        const bookUrl = bookQueueAt(bi)
         if (rt.stopped || isStale()) break
         while (rt.paused && !rt.stopped && !isStale()) await sleep(600)
         if (rt.stopped || isStale()) break
@@ -1281,7 +1291,7 @@ export class TaskRunner {
           progress.booksDone++
           consecutiveBookErrs = 0 // [R36-2c-4] 跳过非失败, 连败计数归零
           progress.currentBook = bookUrl
-          progress.phaseNote = `跳过已完结 (${bi + 1}/${bookQueue.length})`
+          progress.phaseNote = `跳过已完结 (${bi + 1}/${bookQueueLen()})`
           await this.log(taskId, 'info', `跳过已完结: ${bookUrl}`)
           // [R31-5-1] P1-1: 本分支不走 crawlOneBook, 列表字段永远无消费点 —— 不删则该书的
           //  {name,author,intro,category} 条目滞留到 executeTask 结束(逐书累积)。此书本轮
@@ -1306,7 +1316,7 @@ export class TaskRunner {
 
         try {
           progress.currentBook = bookUrl
-          progress.phaseNote = `采集书籍 (${bi + 1}/${bookQueue.length})`
+          progress.phaseNote = `采集书籍 (${bi + 1}/${bookQueueLen()})`
           await this.saveProgress(taskId, progress, stats)
 
           const bookResult = await this.crawlOneBook(
@@ -1372,7 +1382,7 @@ export class TaskRunner {
           }
         }
         // [R36-2c-4] 书籍级连续失败熔断检查(每本末, 语义同章节熔断) —— 达阈值即中止:
-        //  防死站/全站拦截时按 bookQueue 逐本硬敲到底(范围模式 10 万本/书号模式 2000 本)
+        //  防死站/全站拦截时按 bookQueue 逐本硬敲到底(范围模式无上限/书号模式 2000 本)
         if (consecutiveBookErrs >= BOOK_CIRCUIT_ERROR_LIMIT) {
           rt.circuitTrippedAt = Date.now()
           await this.log(taskId, 'error', `🔴 熔断中止: 连续 ${consecutiveBookErrs} 本书采集失败(源站超时/抓取异常/拦截), 停止继续请求以保护站点与出口 IP; autoRefresh 任务将按计划自动重试; 60s 冷却期内手动重启将被拒绝`)

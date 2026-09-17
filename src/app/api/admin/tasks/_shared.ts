@@ -204,7 +204,7 @@ export function validateTaskPair(
       return `书号采集必须填写书籍页URL模板(需含 ${BOOK_ID_PLACEHOLDER} 占位符)`
     }
     // [R35-2a-3] 列表与范围二选一: 范围端点任一非空即视为用了范围形式, 此时列表必须为空;
-    //  范围合法性(纯数字/起止齐备/from≤to/≤2000)透传 parseBookIdRange 的精确文案;
+    //  范围合法性(纯数字/起止齐备/from≤to; 本数上限已取消 [R37-1])透传 parseBookIdRange 的精确文案;
     //  两者都空沿用既有「书号采集必须填写书号列表」文案
     const from = (bookIdFrom ?? '').trim()
     const to = (bookIdTo ?? '').trim()

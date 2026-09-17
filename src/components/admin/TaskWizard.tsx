@@ -40,8 +40,8 @@ import { toast } from 'sonner'
 import { api, safeParseRuleConfig, type RuleRow, type TaskForm } from './helpers' // [R36-2d-9] TaskForm 副本收敛至 helpers
 import { StepIndicator } from './StepIndicator'
 // [R34-2a-4] 书号采集: 与 API 规范化/引擎建队列共用同一纯函数模块, 保证三方计数/解析口径一致
-// [R35-2a-6] 书号范围: parseBookIdRange/BOOK_ID_RANGE_MAX 与 API/runner 共用同一校验口径
-import { parseBookIdList, parseBookIdRange, BOOK_ID_MAX_COUNT, BOOK_ID_RANGE_MAX } from '@/lib/book-ids'
+// [R35-2a-6][R37-1] 书号范围: parseBookIdRange 与 API/runner 共用同一校验口径(范围本数上限已取消)
+import { parseBookIdList, parseBookIdRange, BOOK_ID_MAX_COUNT } from '@/lib/book-ids'
 
 interface TaskWizardProps {
   open: boolean
@@ -594,11 +594,12 @@ function Step2Range({
               </p>
             </div>
           ) : (
-            /* [R35-2a-6] 范围子形态: 从/到两个数字输入框 + 实时计数「共 N 本」+ 超限红警 + from>to 即时提示。
-                用 text+inputMode=numeric 而非 type=number: 避免浏览器对 number 输入静默改写
-                (前导零剥离/科学计数法), 纯数字校验完全交由 parseBookIdRange/BOOK_ID_DIGITS_RE 执法 */
+            /* [R35-2a-6][R37-1] 范围子形态: 从/到两个数字输入框 + 实时计数「共 N 本」(本数不限)
+                + from>to 即时提示。用 text+inputMode=numeric 而非 type=number: 避免浏览器对
+                number 输入静默改写(前导零剥离/科学计数法), 纯数字校验完全交由
+                parseBookIdRange/BOOK_ID_DIGITS_RE 执法 */
             <div className="space-y-1.5">
-              <Label className="text-xs text-zinc-400">书号范围 * <span className="text-zinc-600">最多 {BOOK_ID_RANGE_MAX} 本</span></Label>
+              <Label className="text-xs text-zinc-400">书号范围 *</Label>
               <div className="flex items-center gap-2">
                 <Input
                   className="h-9 flex-1 border-zinc-700 bg-zinc-950 font-mono text-xs"
@@ -623,7 +624,7 @@ function Step2Range({
                   ? `共 ${bookIdRange.count} 本(从 ${bookIdRange.from} 到 ${bookIdRange.to} 连续展开, 去重后)`
                   : rangeTouched
                     ? bookIdRange.error
-                    : `填写起止书号后自动展开为连续序列, 上限 ${BOOK_ID_RANGE_MAX} 本`}
+                    : '填写起止书号后自动展开为连续序列, 不限本数'}
               </p>
             </div>
           )}

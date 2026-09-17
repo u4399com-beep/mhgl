@@ -6057,3 +6057,24 @@ Stage Summary:
 - 采集+反反爬: runner 首次逐行深审 6 修复(含 2 个 P1: 目录截断删真数据/stop-start epoch 碰撞)+批次洗牌/autoRefresh 抖动双缺省关增强
 - 清理: 24 文件净 -131 行; 疑点清偿 0 项新增留档 6 项(C 轨 4+D 轨 2)
 - 质量门 lint 0/0+tsc 0(主控串行含三轮收口), E2E 全绿(编辑流/重置流/穿透实证/最新章节/375px)
+
+---
+Task ID: R37-1
+Agent: 主控(直办)
+Task: 用户指令「书号范围采集取消上限」—— 解除 R35 引入的 BOOK_ID_RANGE_MAX=2000 本数上限, 且不得因取消上限引入 OOM 风险; 全链路(API 校验/引擎/UI)一致放开。
+
+Work Log:
+- 探查: rg 定位 BOOK_ID_RANGE_MAX 三处消费(book-ids.ts 校验/Wizard/Dialog 文案红警); runner bookQueue 全消费点枚举(booksTotal/循环边界/[bi]/2×phaseNote 共 5 处代码点), 判定范围队列可低成本虚拟化
+- src/lib/book-ids.ts: parseBookIdRange 删 ≤2000 闸(端点仍限 12 位纯数字); 删 BOOK_ID_RANGE_MAX 导出; buildBookIdQueueFromRange(物化数组, 取消上限后 12 位端点理论展开 10^12 条 URL→毫秒级 OOM)重写为 buildBookIdRangeQueue 虚拟描述符(BookIdRangeQueue{length, at(i)}: 含占位符→length=to-from+1+at(i)=render(from+i) 与旧 Set 去重口径逐字节等价; 缺占位符/空模板→折叠 length=1 与旧 Set 折叠等价), 零物化零 OOM
+- src/lib/crawl/runner.ts: 范围分支接虚拟队列(bookRangeQueue+bookQueueLen/bookQueueAt 双助手), 5 消费点改造; 非范围模式(single/列表发现/bookIds 列表) bookRangeQueue 恒 null 行为零变化; 列表形式 BOOK_ID_MAX_COUNT=2000 上限保留(用户仅指令范围); 过时注释 2 处同步(熔断注释「范围模式 10 万级/2000 上限」→「范围模式无上限」)
+- TaskWizard/TaskDialog: 删「最多 2000 本」label/「上限 2000 本」未填提示(改「不限本数」), 去 BOOK_ID_RANGE_MAX import; 列表形式红警保留; from>to 纯数字红警保留
+- _shared.ts validateTaskPair 注释同步(≤2000→本数上限已取消)
+- MultiEdit 非原子教训: 工具实际顺序应用, 第 6 块失配时前 5 块已落盘(与文档"原子"不符)——主控逐块核对现状补齐, 未重放已应用块
+- 沙箱重大运维事故处置: ①首个 dev server 被用户续采的「笔趣阁范围1-1」任务(bookEnd=20000)推到 RSS 2.6GB + 本轮编辑中间态热编译 → dmesg 实锤 global_oom 击杀(pid 1472) ②重启实例接连 3 次静默死亡, 前台 50s 对照实验证明调用内存活/调用结束被回收(23:05 代 entrypoint 后代进程豁免) ③对策: 单调用一体化 E2E(服务器+全流程同调用)+新建 scripts/dev-watchdog.sh(15s 轮询端口死亡即拉起, setsid 常驻在位) ④孤儿恢复 1/1 running→interrupted 生效, 用户任务无损待续采
+- 验证: bun -e 纯函数 19 断言(上限取消/前导零/12 位/越界拒绝+虚拟队列与旧物化逐元素等价/大范围 length O(1) at(0)/at(mid)/at(尾)/折叠口径); lint 0/0+tsc 0(主控串行); E2E: API 层 12 位端点(10^12 本)建任务 200 成功(旧代码 400 书号范围过大)+from>to 400+二选一 400+测试任务即删; 浏览器向导全流程(登录「填入」按钮绕 React 受控时序→选规则→书号采集→范围子形态): 计数「共 895979 本」无红警→12 位端点「共 999999895979 本」无拦截→from>to 红警「起始书号不能大于结束书号」保留, 页面错误 0
+- 教训留档: agent-browser 对 React 受控输入的 prototype.value setter 在 hydration 未稳时静默失效——优先用页面自带快捷入口(如「填入」预览密码按钮); tasks/rules API 响应为 {ok,data} 包装, bun -e 解析须走 .data
+
+Stage Summary:
+- 书号范围采集本数上限彻底取消(2000→∞): 三方(校验/UI/引擎)同口径放开; 内存安全由物化数组→虚拟队列保障(12 位端点 10^12 本零 OOM, length O(1)+at(i) 现算), 与旧口径逐字节等价; 列表形式 2000 上限与 from>to/纯数字/二选一校验全部保留
+- 运维: dev server OOM 链(用户范围任务 RSS 2.6GB 是主因)处置完毕, watchdog 在位, 任务 interrupted 等用户续采; 提醒: 该任务再续采仍可能顶到内存天花板(4GB 沙箱), 建议分批(bookEnd 调小)
+- 质量门: lint 0/0+tsc 0+纯函数 19 断言+API/UI E2E 全绿(0 页面错误)

@@ -31,8 +31,8 @@ import { Loader2, Save } from 'lucide-react'
 import { toast } from 'sonner'
 import { api, type RuleRow, type TaskForm, type TaskRow } from './helpers' // [R36-2d-9] TaskForm 副本收敛至 helpers
 // [R34-2a-7] 书号采集: 与 API 规范化/引擎建队列共用同一纯函数模块
-// [R35-2a-7] 书号范围: parseBookIdRange 与 API/runner 共用同一校验口径
-import { parseBookIdList, parseBookIdRange, BOOK_ID_MAX_COUNT, BOOK_ID_RANGE_MAX } from '@/lib/book-ids'
+// [R35-2a-7][R37-1] 书号范围: parseBookIdRange 与 API/runner 共用同一校验口径(范围本数上限已取消)
+import { parseBookIdList, parseBookIdRange, BOOK_ID_MAX_COUNT } from '@/lib/book-ids'
 
 interface TaskDialogProps {
   open: boolean
@@ -370,9 +370,10 @@ export function TaskDialog({ open, onOpenChange, task, onSaved }: TaskDialogProp
                     </p>
                   </div>
                 ) : (
-                  /* [R35-2a-7] 范围子形态: 从/到两输入框 + 实时计数/警示(text+inputMode 同 Wizard, 避免浏览器静默改写) */
+                  /* [R35-2a-7][R37-1] 范围子形态: 从/到两输入框 + 实时计数/警示(text+inputMode 同 Wizard,
+                      避免浏览器静默改写); 本数不限 */
                   <div className="space-y-1.5">
-                    <Label className="text-xs text-zinc-400">书号范围 * <span className="text-zinc-600">最多 {BOOK_ID_RANGE_MAX} 本</span></Label>
+                    <Label className="text-xs text-zinc-400">书号范围 *</Label>
                     <div className="flex items-center gap-2">
                       <Input
                         className="h-9 flex-1 border-zinc-700 bg-zinc-950 font-mono text-xs"
@@ -397,7 +398,7 @@ export function TaskDialog({ open, onOpenChange, task, onSaved }: TaskDialogProp
                         ? `共 ${bookIdRange.count} 本(从 ${bookIdRange.from} 到 ${bookIdRange.to} 连续展开, 去重后)`
                         : rangeTouched
                           ? bookIdRange.error
-                          : `填写起止书号后自动展开为连续序列, 上限 ${BOOK_ID_RANGE_MAX} 本`}
+                          : '填写起止书号后自动展开为连续序列, 不限本数'}
                     </p>
                   </div>
                 )}
