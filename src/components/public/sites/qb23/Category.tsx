@@ -37,7 +37,8 @@ const QB_RED = '#ff2a14'
 const QB_APRICOT = '#fef0e5' // .library-item.selected 底
 
 /** [R28-2c-6] .module-item 封面卡(分类页形态: 无序号角标/无 caption, 对齐真站空 caption 视觉) */
-function QbCatCard({ book }: { book: BookItem }) {
+// [R34-2c-5] 完本页(Fulltext)私有副本 QbFullCard 与本组件逐字节相同 → 收敛为单处定义
+export function QbCatCard({ book }: { book: BookItem }) {
   const { navigate } = usePublic()
   return (
     <div>

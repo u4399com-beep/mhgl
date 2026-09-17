@@ -21,6 +21,7 @@ import type { FormEvent } from 'react'
 import type { SiteSearchProps } from '../shared'
 import { usePublic } from '../../ctx'
 import { EmptyState, ErrorState, bookNavProps } from '../../bits'
+import { statusText } from './Home' // [R34-2c-7] 私有副本与 Home 逐字节相同 → 收敛为单处定义
 import { formatWords } from '../../seo'
 
 /** [R28-2d-1] 真站色值(hjw-style.css :root) */
@@ -30,11 +31,6 @@ const TEXT_LIGHT = '#64748b'
 const BORDER = '#dbe4f0'
 const HOVER_BG = '#e8f1ff'
 const SHADOW = '0 1px 2px rgba(15,23,42,0.04), 0 4px 16px rgba(37,99,235,0.06)'
-
-function statusText(s?: string | null): string {
-  if (s === 'completed') return '全本'
-  return '连载'
-}
 
 export function HjwSearch({ q, data, loading, error }: SiteSearchProps) {
   const { navigate } = usePublic()

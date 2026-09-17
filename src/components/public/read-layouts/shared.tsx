@@ -44,6 +44,20 @@ import {
 import { listBookmarks, toggleBookmark, formatRelativeTime, type Bookmark as BookmarkItem } from './bookmarks'
 import { getReadChapters, markChapterRead } from './chapter-progress'
 
+// [R34-2c-2] 通用阅读器与克隆模板(template-kit)共用的字号持久化键与读取器 —
+// 原先两处各自声明同键同校验的私有副本(用户偏好互通依赖双方键一致), 收敛为单处定义
+export const READER_FONT_KEY = 'public_reader_fontSize'
+
+export function readStoredFontSize(): number {
+  if (typeof window === 'undefined') return 17
+  try {
+    const n = Number(window.localStorage.getItem(READER_FONT_KEY))
+    return Number.isFinite(n) && n >= 14 && n <= 24 ? n : 17
+  } catch {
+    return 17
+  }
+}
+
 /** 三种阅读布局的统一入参（数据与用户偏好由 ReadView 编排, 布局组件只管形态） */
 export interface ReadLayoutProps {
   data: ChapterData | null

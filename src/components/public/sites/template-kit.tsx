@@ -6,28 +6,18 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import type { CSSProperties } from 'react'
-import { contentToHtml } from '../read-layouts/shared'
+import { contentToHtml, READER_FONT_KEY, readStoredFontSize } from '../read-layouts/shared'
 import { getReadTimeMs, saveReadPos, setReadTimeMs } from '../read-layouts/reading-memory'
 import type { TocChapter } from '../types'
 
-const READER_FONT_KEY = 'public_reader_fontSize'
-
-function readStoredFont(): number {
-  if (typeof window === 'undefined') return 17
-  try {
-    const n = Number(window.localStorage.getItem(READER_FONT_KEY))
-    return Number.isFinite(n) && n >= 14 && n <= 24 ? n : 17
-  } catch {
-    return 17
-  }
-}
+// [R34-2c-2] READER_FONT_KEY 与字号读取器收敛至 read-layouts/shared 单处定义(原私有副本同键同校验)
 
 /**
  * 章节页字号调节(localStorage 与通用阅读器同一键, 用户偏好互通)。
  * 返回当前字号(px)与放大/缩小回调; 模板里 A+/A- 按钮直接接 inc/dec。
  */
 export function useReaderFont(min = 14, max = 24): { font: number; inc: () => void; dec: () => void; set: (n: number) => void } {
-  const [font, setFont] = useState(readStoredFont)
+  const [font, setFont] = useState(readStoredFontSize)
   useEffect(() => {
     try {
       window.localStorage.setItem(READER_FONT_KEY, String(font))

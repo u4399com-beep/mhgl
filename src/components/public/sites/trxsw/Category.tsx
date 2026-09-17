@@ -13,6 +13,7 @@ import { usePublic } from '../../ctx'
 import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { fetchCategories } from '../../data'
+import { Pager } from './_kit' // [R34-2c-4] 与 Fulltext 逐字节重复的 Pager 收敛
 import type { CategoryItem } from '../../types'
 import { bookNavProps, ErrorState, Sk } from '../../bits'
 
@@ -52,39 +53,6 @@ function JqH2({ children, more }: { children: ReactNode; more?: () => void }) {
         </button>
       )}
     </h2>
-  )
-}
-
-/** [R27-6b-14] 杰奇家族分页(白底灰边方块, 当前页深蓝白字) */
-function Pager({ page, totalPages, onGo }: { page: number; totalPages: number; onGo: (p: number) => void }) {
-  if (totalPages <= 1) return null
-  const start = Math.max(1, Math.min(page - 4, totalPages - 9))
-  const nums = Array.from({ length: Math.min(10, totalPages) }, (_, i) => start + i)
-  const cell = 'tx-pg m-[2px] inline-flex h-[30px] min-w-[30px] items-center justify-center border px-1 text-[13px]'
-  return (
-    <nav aria-label="分页" className="tx-pages flex flex-wrap items-center justify-center py-3">
-      {page > 1 && (
-        <button type="button" onClick={() => onGo(page - 1)} className={cell} aria-label="上一页">
-          上一页
-        </button>
-      )}
-      {nums.map((n) =>
-        n === page ? (
-          <strong key={n} className={cell} style={{ background: C.navBlue, borderColor: C.navBlue, color: '#fff' }} aria-current="page">
-            {n}
-          </strong>
-        ) : (
-          <button key={n} type="button" onClick={() => onGo(n)} className={cell} aria-label={`第 ${n} 页`}>
-            {n}
-          </button>
-        ),
-      )}
-      {page < totalPages && (
-        <button type="button" onClick={() => onGo(page + 1)} className={cell} aria-label="下一页">
-          下一页
-        </button>
-      )}
-    </nav>
   )
 }
 

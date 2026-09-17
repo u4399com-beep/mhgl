@@ -23,11 +23,11 @@
 'use client'
 
 import { useMemo } from 'react'
-import type { CSSProperties } from 'react'
 import type { SiteFulltextProps } from '../shared'
 import { usePublic } from '../../ctx'
 import { EmptyState, ErrorState, Sk } from '../../bits'
 import type { BookItem } from '../../types'
+import { pgBtn } from './Book' // [R34-2c-8] 三组件内部逐字节相同的 pgBtn 收敛为单处定义
 
 // [R28-2a2-5] 真站 style.css L9-10/L190-196 实测色值
 const C = {
@@ -61,17 +61,6 @@ export function DdyueshuFulltext({ data, loading, error, page }: SiteFulltextPro
   }, [books])
 
   // .page 分页钮(真站无分页 → 家族标准形态补全, 降级声明①; style.css L149-153 形态)
-  const pgBtn = (on: boolean): CSSProperties => ({
-    display: 'inline-block',
-    margin: '4px 10px 4px 0',
-    padding: '4px 12px',
-    background: on ? '#00A86E' : '#fff',
-    color: on ? '#fff' : '#666',
-    border: `1px solid ${on ? '#00A86E' : '#BBB'}`,
-    fontSize: 12,
-    lineHeight: '16px',
-    cursor: 'pointer',
-  })
 
   if (error) {
     return (

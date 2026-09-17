@@ -82,7 +82,8 @@ function InfoChip({
 }
 
 /** [R28-2c-12] .module-row-info 章节行(绿文件 icon + 标题; 行底/斑马/高亮由 index.css 按 aria-current 统一驱动) */
-function ChapterRow({ ch, current, onClick }: { ch: TocChapter; current?: boolean; onClick: () => void }) {
+// [R34-2c-6] 目录页(Toc)私有副本 TocRow 与本组件逐字节相同 → 收敛为单处定义
+export function ChapterRow({ ch, current, onClick }: { ch: TocChapter; current?: boolean; onClick: () => void }) {
   return (
     <div
       role="button"

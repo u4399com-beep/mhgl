@@ -15,6 +15,7 @@ import type { SiteTocProps } from '../shared'
 import { usePublic } from '../../ctx'
 import { ErrorState, Sk } from '../../bits'
 import { groupTocVolumes } from '../template-kit'
+import { pgBtn } from './Book' // [R34-2c-8] 三组件内部逐字节相同的 pgBtn 收敛为单处定义
 
 const C = {
   page: '#E9FAFF',
@@ -34,18 +35,6 @@ export function DdyueshuToc({ data, loading, error, page, currentChapterId }: Si
   const chapters = data?.chapters ?? []
   const totalPages = data ? Math.max(1, data.tocTotalPages || 1) : 1
   const vols = groupTocVolumes(chapters)
-
-  const pgBtn = (on: boolean): CSSProperties => ({
-    display: 'inline-block',
-    margin: '4px 10px 4px 0',
-    padding: '4px 12px',
-    background: on ? '#00A86E' : '#fff',
-    color: on ? '#fff' : '#666',
-    border: `1px solid ${on ? '#00A86E' : '#BBB'}`,
-    fontSize: 12,
-    lineHeight: '16px',
-    cursor: 'pointer',
-  })
 
   if (error) {
     return (

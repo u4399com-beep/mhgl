@@ -13,8 +13,7 @@ import { getTheme } from '@/lib/crawl/themes'
 import { sliceCodePoints } from '@/lib/utils'
 import { usePublic } from '../ctx'
 import { withAlpha } from '../seo'
-import { addSearchHistory } from '../search-history'
-import { SuggestDropdown, useSearchBoxLogic } from './search-suggest'
+import { createSearchSubmit, SuggestDropdown, useSearchBoxLogic } from './search-suggest' // [R34-2c-3] +createSearchSubmit
 
 export function SearchBox({ compact }: { compact?: boolean }) {
   const { theme, navigate } = usePublic()
@@ -23,14 +22,8 @@ export function SearchBox({ compact }: { compact?: boolean }) {
   const logic = useSearchBoxLogic('', wrapRef, (term) => navigate({ view: 'search', q: term }))
 
   // 表单提交: 走 navigate, 同时记录历史
-  const onSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    const t = (logic.q || '').trim()
-    if (!t) return
-    addSearchHistory(t)
-    logic.setOpen(false)
-    navigate({ view: 'search', q: t })
-  }
+  // [R34-2c-3] 原逐字节重复的提交闭包收敛至 search-suggest 单处定义
+  const onSubmit = createSearchSubmit(logic, navigate)
 
   return (
     <form

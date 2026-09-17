@@ -29,7 +29,7 @@ import { formatWords } from '../../seo'
 
 /** [R28-2c-8] 真站实测色值(ggd66-style.css) */
 export const GGD_TEAL = '#56ccb5'
-export const GGD_GREEN_LINK = '#00886d'
+const GGD_GREEN_LINK = '#00886d'
 export const GGD_TEXT_BODY = '#888'
 export const GGD_LINE = '#ccc'
 

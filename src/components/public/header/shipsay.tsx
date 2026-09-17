@@ -5,8 +5,7 @@ import { useRef } from 'react'
 import { BookOpen, History, Home, Search } from 'lucide-react'
 import { usePublic } from '../ctx'
 import { Sk } from '../bits'
-import { addSearchHistory } from '../search-history'
-import { SuggestDropdown, useSearchBoxLogic } from './search-suggest'
+import { createSearchSubmit, SuggestDropdown, useSearchBoxLogic } from './search-suggest' // [R34-2c-3] +createSearchSubmit
 import { SiteSwitcher } from './common'
 import type { ImitationHeaderProps } from './registry'
 
@@ -26,14 +25,8 @@ function ShipsaySearchBox() {
   const wrapRef = useRef<HTMLFormElement | null>(null)
   const logic = useSearchBoxLogic('', wrapRef, (term) => navigate({ view: 'search', q: term }))
 
-  const onSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    const t = (logic.q || '').trim()
-    if (!t) return
-    addSearchHistory(t)
-    logic.setOpen(false)
-    navigate({ view: 'search', q: t })
-  }
+  // [R34-2c-3] 原逐字节重复的提交闭包收敛至 search-suggest 单处定义
+  const onSubmit = createSearchSubmit(logic, navigate)
 
   return (
     <form

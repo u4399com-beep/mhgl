@@ -6,8 +6,7 @@ import { Library } from 'lucide-react'
 import { usePublic } from '../ctx'
 import type { CategoryItem } from '../types'
 import { Sk } from '../bits'
-import { addSearchHistory } from '../search-history'
-import { SuggestDropdown, useSearchBoxLogic } from './search-suggest'
+import { createSearchSubmit, SuggestDropdown, useSearchBoxLogic } from './search-suggest' // [R34-2c-3] +createSearchSubmit
 import { SiteMark, SiteSwitcher } from './common'
 
 /** pili 搜索框 — 复古直角输入 + 橙色方块提交钮 + 建议下拉 */
@@ -17,14 +16,8 @@ function PiliSearchBox() {
   const wrapRef = useRef<HTMLFormElement | null>(null)
   const logic = useSearchBoxLogic('', wrapRef, (term) => navigate({ view: 'search', q: term }))
 
-  const onSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    const t = (logic.q || '').trim()
-    if (!t) return
-    addSearchHistory(t)
-    logic.setOpen(false)
-    navigate({ view: 'search', q: t })
-  }
+  // [R34-2c-3] 原逐字节重复的提交闭包收敛至 search-suggest 单处定义
+  const onSubmit = createSearchSubmit(logic, navigate)
 
   return (
     <form

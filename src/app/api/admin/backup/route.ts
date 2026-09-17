@@ -145,7 +145,10 @@ export async function GET() {
         }),
         tasks: tasks.map((t) => ({
           id: t.id, name: t.name, ruleId: t.ruleId, mode: t.mode,
-          bookUrl: t.bookUrl, listUrl: t.listUrl, listStart: t.listStart,
+          bookUrl: t.bookUrl,
+          // [R34-2a-8] 书号采集: bookIds 列入导出白名单(schema push 前旧 client 上 undefined, 序列化时自动省略)
+          bookIds: (t as { bookIds?: string }).bookIds,
+          listUrl: t.listUrl, listStart: t.listStart,
           listEnd: t.listEnd, bookStart: t.bookStart, bookEnd: t.bookEnd,
           recrawlMode: t.recrawlMode, storageMode: t.storageMode,
           fetchConfig: t.fetchConfig, threadMin: t.threadMin, threadMax: t.threadMax,

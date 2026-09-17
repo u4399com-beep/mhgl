@@ -4,7 +4,7 @@
 
 ## 归档规则（zz-e 轮定版）
 
-- `scripts/` 根目录只保留「活资产」：三套 Docker 断言（`verify-ss-a-docker.ts` / `verify-kk-b-docker.ts` / `verify-ll-a-docker.ts`，CI 级质量关）、种子脚本（`seed.ts` / `seed-rules-v2.ts` / `seed-rule-*.ts`）、站点 mock（`mock-novel-site.ts`）、运维工具（`export-autofill-rules.ts` / `fix-dd-b-stale-task.ts`），以及 zz-a 轮新建的 `ratelimit-site.ts`。
+- `scripts/` 根目录只保留「活资产」：种子脚本（`seed.ts` / `seed-rules-v2.ts` / `seed-rule-*.ts` / `seed-rules-batch-v2.ts` / `_seed-lib.ts`）、站点 mock（`mock-novel-site.ts`）、运维工具（`export-autofill-rules.ts` / `backfill-book-num.ts` / `gen-builtin-rules.ts`）、限流测试服务（`ratelimit-site.ts`）。注：zz-e 轮定性保留的三套 Docker 断言与 `fix-dd-b-stale-task.ts` 已在 R30 轮一并归档（见下节），质量门由 lint+tsc+E2E 串行取代。
 - **其余一律归档**：历史轮次 `verify-*`（结论已沉淀进断言矩阵或 worklog）、历史 `e2e-*`、一次性修复/工具脚本、历史轮次的 HTML/JSON 侦察取证样本。
 - 近三轮（zz/yy/xx）若新增 `e2e-*` 端到端回归脚本，应留在 `scripts/` 根目录。
 - 历史规则（ll-b/rr-b 轮）曾将 `verify-*`/`e2e-*` 定性为「永远留在原地」；zz-e 轮收紧为「根目录仅留断言资产+种子+运维工具」，其余下移本目录——两者不冲突：归档非删除，断言资产仍以三套 docker verify 为准。
@@ -52,6 +52,17 @@ e2e-bb-a2（yybsw）/ e2e-bb-b（dawei|dafeng 参数化）/ e2e-cc-a2（book4 br
 | 侦察探针 | probe-ss-c-confirm-visual.ts | ss-c 视觉确认探针 |
 | 取证样本 | qq-a2-{toc-sample,wap-book,wap-ch1p2,wap-root,wap-toc,www-book,www-list}.html | qq-a2 轮站点 HTML 快照（侦察证据） |
 | 书源参考 | reference-shuyuan-{7724,7698-qimao}.json | 「阅读(legado)」书源 JSON 参考（seed-rule-fanqie/qimao 头注释已同步改指本目录） |
+
+## R30 轮归档（2026-09, 「297+1357行精简归档」落地; README 索引 R34-2c 补录）
+
+| 组 | 文件 | 归档依据 |
+| --- | --- | --- |
+| Docker 断言三套 | verify-ss-a-docker.ts / verify-kk-b-docker.ts / verify-ll-a-docker.ts | zz-e 轮定性「根目录活资产」, R30 轮随清理一并归档(质量门已由 lint+tsc+E2E 串行取代); 复跑 `git mv` 回 `scripts/` 原位 |
+| 运维 | fix-dd-b-stale-task.ts | dd-b 一次性僵尸任务修复 CLI(R33 轮根目录重复副本已删, 本目录为唯一留存) |
+| 运行时构建取证 | tests-legacy/{database-runtime-build.sh, python-runtime-build.sh, python-runtime-container.sh} | 历史 Python/DB 运行时构建脚本, 现行 Dockerfile/compose 不引用 |
+| ab 轮验证 | verify-ab-b-ratelimit.ts / verify-ab-c-apply.ts | 限流桶/落地验证, 结论已沉淀进 proxy 与 worklog |
+| zz-a 校准 | verify-zz-a-calibrate.ts | 校准探针一次性, 结论已沉淀进 calibrate 实现与 worklog |
+| rr 轮探针补录 | probe-rr-c2-control-race.ts / probe-rr-c3-{redos,token-cache}.ts / probe-rr-d2-headers.ts | rr 轮控制链竞态/ReDoS/token 缓存/响应头侦察, 此前未列入 rr-a2/rr-b 索引, R34-2c 补录(verify 同名套件已在上表 verify-rr 段) |
 
 ## R31-7 轮归档（2 个，2026-09）
 

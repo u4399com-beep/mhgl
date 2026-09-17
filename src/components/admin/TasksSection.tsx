@@ -38,6 +38,7 @@ import {
   fmtDateTime,
   PHASE_META,
   safeJsonParse,
+  taskModeLabel, // [R34-2a-6] 模式显示名映射(含 bookIds「书号采集」, unknown 回退原值)
   TASK_STATUS_META,
   type TaskProgress,
   type TaskRow,
@@ -253,7 +254,8 @@ export function TasksSection({ onNavigate }: { onNavigate?: (section: string) =>
                         <TableCell className="text-xs text-zinc-400">{t.rule?.name || '-'}</TableCell>
                         <TableCell>
                           <Badge variant="outline" className="border-zinc-700 bg-zinc-900 text-zinc-300">
-                            {t.mode === 'single' ? '单本' : '范围'}
+                            {/* [R34-2a-6] 模式显示名映射: 单本/范围/书号采集, unknown 值回退原样 */}
+                            {taskModeLabel(t.mode)}
                           </Badge>
                         </TableCell>
                         <TableCell className="hidden md:table-cell">

@@ -483,6 +483,9 @@ export async function POST(req: Request) {
               ruleId,
               mode: String(t.mode || 'single').slice(0, 20),
               bookUrl: String(t.bookUrl || '').slice(0, 500),
+              // [R34-2a-8] 书号采集: 恢复映射补 bookIds(旧备份无该字段 → 空串; 上限 400KB =
+              //  2000 个×201 字符(200 书号+换行)的理论规范化上限, 避免合法满载被截断)
+              bookIds: String(t.bookIds || '').slice(0, 400_000),
               listUrl: String(t.listUrl || '').slice(0, 500),
               listStart: Number(t.listStart) || 1,
               listEnd: Number(t.listEnd) || 1,
@@ -508,6 +511,8 @@ export async function POST(req: Request) {
               name: String(t.name || '').slice(0, 200),
               mode: String(t.mode || 'single').slice(0, 20),
               bookUrl: String(t.bookUrl || '').slice(0, 500),
+              // [R34-2a-8] 同 create 侧: update 映射补 bookIds
+              bookIds: String(t.bookIds || '').slice(0, 400_000),
               listUrl: String(t.listUrl || '').slice(0, 500),
               listStart: Number(t.listStart) || 1,
               listEnd: Number(t.listEnd) || 1,

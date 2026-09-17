@@ -42,6 +42,19 @@ const C = {
   dtSpan: '#999999', // [R28-2a2 交接] dt 辅助文字色(Category.tsx 同名键同值; R28-2a 遗漏致 TS2339)
 } as const
 
+// [R34-2c-8] 原 Book/Toc/Fulltext 三组件内部逐字节相同的 pgBtn 提升为模块级单处定义
+export const pgBtn = (on: boolean): CSSProperties => ({
+  display: 'inline-block',
+  margin: '4px 10px 4px 0',
+  padding: '4px 12px',
+  background: on ? '#00A86E' : '#fff',
+  color: on ? '#fff' : '#666',
+  border: `1px solid ${on ? '#00A86E' : '#BBB'}`,
+  fontSize: 12,
+  lineHeight: '16px',
+  cursor: 'pointer',
+})
+
 export function DdyueshuBook({ data, loading, error, tocPage, currentChapterId }: SiteBookProps) {
   const { navigate } = usePublic()
   const book = data?.book ?? null
@@ -54,18 +67,6 @@ export function DdyueshuBook({ data, loading, error, tocPage, currentChapterId }
   // 真站「《书名》最新章节」= 站方倒序 12 条; 契约目录页第 1 页≈最早 → 降级为当前页尾 12 条倒序(声明于头注②同源口径)
   const latest12 = [...chapters].slice(-12).reverse()
   const mainChapters = vols ? null : chapters
-
-  const pgBtn = (on: boolean): CSSProperties => ({
-    display: 'inline-block',
-    margin: '4px 10px 4px 0',
-    padding: '4px 12px',
-    background: on ? '#00A86E' : '#fff',
-    color: on ? '#fff' : '#666',
-    border: `1px solid ${on ? '#00A86E' : '#BBB'}`,
-    fontSize: 12,
-    lineHeight: '16px',
-    cursor: 'pointer',
-  })
 
   if (error) {
     return (

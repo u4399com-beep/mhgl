@@ -1,5 +1,7 @@
 // 任务创建/更新入参规范化 (POST/PUT 共用)
 import { clampInt, str, httpUrl, isPlainObject } from '../../_lib/http'
+// [R34-2a-3] 书号采集: 书号解析/规范化与引擎(runner)、前端(TaskWizard/TaskDialog)共用同一纯函数模块
+import { parseBookIdList, BOOK_ID_MAX_LEN, BOOK_ID_MAX_COUNT, BOOK_ID_PLACEHOLDER } from '@/lib/book-ids'
 
 // [R31-5-0] 补 'interrupted'(R31-3 移交项①): recovery.ts 服务重启后把孤儿 running 标为
 //  'interrupted', 列表路由 GET ?status= 过滤白名单按本数组执法, 缺值会导致中断任务筛不出来。
@@ -9,8 +11,11 @@ export const TASK_STATUSES = ['pending', 'running', 'paused', 'stopped', 'done',
 
 export interface NormalizedTask {
   name: string
-  mode: 'single' | 'range'
+  // [R34-2a-3] 扩 'bookIds'(书号): bookUrl 复用存「书籍页 URL 模板」(必含 {bookId}), 零新增 URL 列
+  mode: 'single' | 'range' | 'bookIds'
   bookUrl: string
+  // [R34-2a-3] 书号原文(规范化后为换行分隔的去重书号列表; 非 bookIds 模式恒空串)
+  bookIds: string
   listUrl: string
   listStart: number
   listEnd: number
@@ -47,11 +52,12 @@ export function normalizeTaskData(
   }
 
   // 模式(显式提供非法值时报错, 不静默改写为 range 造成误解)
+  // [R34-2a-3] 白名单扩 'bookIds'(书号); 缺省/未提供时仍回退 'range'(与既有 full 缺省语义逐字节一致)
   if (full || body?.mode !== undefined) {
-    if (body?.mode !== undefined && !['single', 'range'].includes(body.mode)) {
-      return { data: {}, error: '采集模式必须是 single(单本) 或 range(范围)' }
+    if (body?.mode !== undefined && !['single', 'range', 'bookIds'].includes(body.mode)) {
+      return { data: {}, error: '采集模式必须是 single(单本)、range(范围) 或 bookIds(书号)' }
     }
-    out.mode = body?.mode === 'single' ? 'single' : 'range'
+    out.mode = ['single', 'range', 'bookIds'].includes(body?.mode) ? body.mode : 'range'
   }
 
   // URL 字段: 必须是合法 http(s) 或空串
@@ -64,6 +70,20 @@ export function normalizeTaskData(
     const u = httpUrl(body?.listUrl) || ''
     if (body?.listUrl && !u) return { data: {}, error: '列表页URL格式非法(需 http/https)' }
     out.listUrl = u
+  }
+
+  // [R34-2a-3] 书号采集: 书号原文规范化 —— 混合分隔符拆分(空白/逗号/顿号/分号)→trim→去空→去重(保序)
+  //  → 单项≤200 字→去重后总数≤2000(超限报错)→ 换行 join 写回, 保证 UI 与 runner 拿到干净数据。
+  //  httpUrl 已把 {bookId} 字面还原(R12-a-1 %7B/%7D 还原口径), 模板占位符在存库/回显/替换各环节保持原样
+  if (full || body?.bookIds !== undefined) {
+    const raw = typeof body?.bookIds === 'string' ? body.bookIds : body?.bookIds == null ? '' : String(body.bookIds)
+    const ids = parseBookIdList(raw)
+    const tooLong = ids.find((id) => id.length > BOOK_ID_MAX_LEN)
+    if (tooLong) return { data: {}, error: `单个书号长度超过 ${BOOK_ID_MAX_LEN} 字符上限` }
+    if (ids.length > BOOK_ID_MAX_COUNT) {
+      return { data: {}, error: `书号数量超过上限(去重后 ${ids.length} 个, 最多 ${BOOK_ID_MAX_COUNT} 个)` }
+    }
+    out.bookIds = ids.join('\n')
   }
 
   // 页码/序号范围: 钳制 + 起≥止自动交换
@@ -133,11 +153,20 @@ export function normalizeTaskData(
 export function validateTaskPair(
   mode: string | undefined,
   bookUrl: string | undefined,
-  listUrl: string | undefined
+  listUrl: string | undefined,
+  // [R34-2a-3] 书号采集联动校验入参(合并后的生效值); 旧调用点(不传)对 single/range 零影响
+  bookIds?: string
 ): string | undefined {
   if (mode === 'single' && !bookUrl) return '单本模式必须填写书籍页URL'
   // [R12-a-4] 文案补充占位符语义: 引擎仅自动替换 {page}/{offset:N}(R12-a-2 起任务级
   //  listUrl 覆盖规则模板), {cat} 等其他花括号写法不会被替换, 需写成具体值
   if (mode === 'range' && !listUrl) return '范围模式必须填写列表页URL(仅 {page}/{offset:N} 会被自动替换)'
+  // [R34-2a-3] 书号模式: bookUrl 复用为「书籍页 URL 模板」, 必含 {bookId} 字面量; 书号原文(解析后)非空
+  if (mode === 'bookIds') {
+    if (!bookUrl || !bookUrl.includes(BOOK_ID_PLACEHOLDER)) {
+      return `书号采集必须填写书籍页URL模板(需含 ${BOOK_ID_PLACEHOLDER} 占位符)`
+    }
+    if (parseBookIdList(bookIds).length === 0) return '书号采集必须填写书号列表'
+  }
   return undefined
 }

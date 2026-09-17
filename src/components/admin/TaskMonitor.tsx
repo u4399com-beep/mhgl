@@ -36,6 +36,7 @@ import {
   fmtNum,
   PHASE_META,
   safeJsonParse,
+  taskModeLabel, // [R34-2a-6] 模式显示名映射(含 bookIds「书号采集」, unknown 回退原值)
   TASK_STATUS_META,
   type TaskProgress,
   type TaskRow,
@@ -342,7 +343,7 @@ export function TaskMonitor({ taskId, onBack }: TaskMonitorProps) {
               {task.name}
             </h2>
             <p className="mt-0.5 text-xs text-zinc-500">
-              规则: {task.rule?.name || '-'} · 模式: {task.mode === 'single' ? '单本' : '范围'} · 重采:{' '}
+              规则: {task.rule?.name || '-'} · 模式: {taskModeLabel(task.mode)} · 重采:{' '}
               {task.recrawlMode === 'full' ? '完全覆盖' : '增量更新'} · 存储: {task.storageMode === 'db' ? '数据库' : 'TXT'}
               {/* jj-e 只读提示: 任务已开自动刷新时监控面板可感知(开关/间隔编辑在 TaskDialog) */}
               {!!task.autoRefresh && (

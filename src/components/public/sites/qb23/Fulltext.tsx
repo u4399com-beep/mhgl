@@ -14,46 +14,13 @@
 
 import type { SiteFulltextProps } from '../shared'
 import { usePublic } from '../../ctx'
-import type { BookItem } from '../../types'
-import { BookCover } from '../../BookCover'
-import { ErrorState, Sk, bookNavProps } from '../../bits'
-import { QbFilterChip, QbFilterRow, QbPageBtn, pageWindowOf } from './Category'
+import { ErrorState, Sk } from '../../bits'
+import { QbCatCard, QbFilterChip, QbFilterRow, QbPageBtn, pageWindowOf } from './Category' // [R34-2c-5] +QbCatCard(私有副本 QbFullCard 逐字节相同, 收敛)
 
 /** [R28-2c-22] 真站实测色值(style.css) */
 const QB_TEXT = '#282828'
 const QB_MUT40 = 'rgba(0,0,0,0.4)'
 const QB_MUT62 = 'rgba(0,0,0,0.62)'
-
-/** [R28-2c-23] 完本封面卡(与分类页同款 module-item: 无角标/无 caption) */
-function QbFullCard({ book }: { book: BookItem }) {
-  const { navigate } = usePublic()
-  return (
-    <div>
-      <div
-        {...bookNavProps(navigate, book.id)}
-        aria-label={`查看《${book.name}》详情`}
-        className="qb23-cover relative w-full cursor-pointer overflow-hidden rounded-[5px] pt-[140%]"
-      >
-        <div className="absolute inset-0">
-          <BookCover name={book.name} cover={book.cover} showAuthor={book.author} style={{ borderRadius: 0 }} />
-        </div>
-      </div>
-      <div className="mt-3 max-sm:mt-[7px]">
-        <button
-          type="button"
-          onClick={() => navigate({ view: 'book', bookId: book.id })}
-          className="block w-full truncate text-center text-sm font-bold text-[#282828] transition-colors hover:text-[#ff2a14] max-sm:font-normal"
-          aria-label={`查看《${book.name}》详情`}
-        >
-          {book.name}
-        </button>
-      </div>
-      <p className="mt-[3px] truncate text-center text-[13px] max-sm:mt-px max-sm:text-xs max-sm:text-[#aaadb5]" style={{ color: QB_MUT40 }}>
-        {book.author}
-      </p>
-    </div>
-  )
-}
 
 export function Qb23Fulltext({ data, loading, error, page }: SiteFulltextProps) {
   const { navigate } = usePublic()
@@ -127,7 +94,7 @@ export function Qb23Fulltext({ data, loading, error, page }: SiteFulltextProps) 
               ) : books.length ? (
                 <div className="grid grid-cols-3 gap-x-2.5 gap-y-3 sm:grid-cols-5 sm:gap-x-5 sm:gap-y-5" aria-label="已经完本书单">
                   {books.map((b) => (
-                    <QbFullCard key={b.id} book={b} />
+                    <QbCatCard key={b.id} book={b} />
                   ))}
                 </div>
               ) : (

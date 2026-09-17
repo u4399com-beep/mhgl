@@ -17,6 +17,7 @@ import { saveChapterTxt, saveCoverWebp, deleteBookTxt, ensureDirs } from './stor
 import { smartCategory, smartCompleteDetect } from './smart'
 import { fetchSuggestKeywords, mergeSuggestWords } from './suggest'
 import { sliceCodePoints } from '@/lib/utils' // [R25-5a] 码点截断(UTF-16 slice 会斩半 emoji 代理对)
+import { buildBookIdQueue, parseBookIdList, BOOK_ID_PLACEHOLDER } from '@/lib/book-ids' // [R34-2a-5] 书号采集: 与 API 规范化/UI 计数共用同一纯函数模块
 import { nextBookNum, withBookNumRetry } from '@/lib/pseudostatic-server'
 
 // feat-cloak-anticrawler B/E: 启动时加载持久化 cookie jar + 注册 SIGTERM 优雅关闭 hook
@@ -747,7 +748,16 @@ export class TaskRunner {
         // 插入新条目后检查是否超 200, 超过则驱逐最旧的已终态条目(running===false 的 epoch/cooldown)
         this.pruneRuntimesIfNeeded()
         await this.serializeStatusWrite(taskId, 'running')
-        await this.log(taskId, 'success', `▶ 任务启动 [${task.name}] 模式:${task.mode === 'single' ? '单本' : '范围'} 重采:${task.recrawlMode === 'full' ? '完全覆盖' : '增量更新'} 存储:${task.storageMode === 'db' ? '数据库' : 'TXT文件'} 线程:${task.threadMin}~${task.threadMax} 间隔:${task.intervalMin}~${task.intervalMax}ms`)
+        // [R34-2a-5] 模式文案三元扩映射: single/range 既有文案不变, bookIds 显示 书号×N(N=去重后书号数);
+        //  unknown 值防御性回退原样显示(与前端 taskModeLabel 同口径)
+        const modeLabel = task.mode === 'single'
+          ? '单本'
+          : task.mode === 'range'
+            ? '范围'
+            : task.mode === 'bookIds'
+              ? `书号×${parseBookIdList(task.bookIds).length}`
+              : task.mode
+        await this.log(taskId, 'success', `▶ 任务启动 [${task.name}] 模式:${modeLabel} 重采:${task.recrawlMode === 'full' ? '完全覆盖' : '增量更新'} 存储:${task.storageMode === 'db' ? '数据库' : 'TXT文件'} 线程:${task.threadMin}~${task.threadMax} 间隔:${task.intervalMin}~${task.intervalMax}ms`)
         // 异步执行, 不阻塞API
         this.executeTask(taskId).catch(async (e) => {
           await this.log(taskId, 'error', `任务异常终止: ${e?.message || e}`)
@@ -948,6 +958,26 @@ export class TaskRunner {
         bookQueue = [cfg.task.bookUrl]
         progress.discovered = 1
         await this.log(taskId, 'info', `单本模式: ${cfg.task.bookUrl}`)
+      } else if (cfg.task.mode === 'bookIds') {
+        // [R34-2a-5] 书号采集: 解析 task.bookIds(书号原文) → 逐个渲染书籍页 URL 模板
+        //  ({bookId} → encodeURIComponent(书号)) → 灌 bookQueue。进度分母 progress.booksTotal
+        //  在下方按 bookQueue.length 自然计算, 零额外适配。续采语义与 single 同口径
+        //  (不写 discoveredBookUrls); 重启增量时已完结书仍被下方 completedBookUrls 检查
+        //  整体跳过, 连载书走增量复查, 重复书号已在 API 规范化层去重
+        const template = (cfg.task.bookUrl || '').trim()
+        bookQueue = buildBookIdQueue(cfg.task.bookIds, template)
+        progress.discovered = bookQueue.length
+        // 防呆日志(API 校验已拦, 此处兜底 API 直建/恢复导入等绕过路径)
+        if (!template) {
+          await this.log(taskId, 'warn', '书号采集: 书籍页URL模板为空, 无书籍可采集(请补全模板后重跑)')
+        } else if (!template.includes(BOOK_ID_PLACEHOLDER)) {
+          await this.log(taskId, 'warn', `书号采集: 书籍页URL模板缺少 ${BOOK_ID_PLACEHOLDER} 占位符, 书号无法注入, 队列将折叠为单一字面地址: ${template.slice(0, 160)}`)
+        }
+        if (bookQueue.length === 0) {
+          await this.log(taskId, 'warn', '书号采集: 书号列表为空(或全部无效), 无书籍可采集')
+        } else {
+          await this.log(taskId, 'success', `书号采集: 模板解析完成, 共 ${bookQueue.length} 本书待采集`)
+        }
       } else {
         progress.phase = 'discovery'
         progress.phaseNote = '正在解析列表页…'

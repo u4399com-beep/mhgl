@@ -62,6 +62,18 @@ export type TaskStatus = 'pending' | 'running' | 'paused' | 'stopped' | 'done' |
 export type BookStatus = 'ongoing' | 'completed' | 'unknown'
 export type RuleSection = 'list' | 'book' | 'toc' | 'content'
 
+// [R34-2a-6] 任务模式显示名映射: single/range 既有文案不变, bookIds 显示「书号采集」;
+// unknown 值防御性回退原样显示(与 runner 启动日志 modeLabel 同口径)
+export const TASK_MODE_LABELS: Record<string, string> = {
+  single: '单本',
+  range: '范围',
+  bookIds: '书号采集',
+}
+export function taskModeLabel(mode: string | null | undefined): string {
+  if (!mode) return '-'
+  return TASK_MODE_LABELS[mode] ?? mode
+}
+
 export interface RuleRow {
   id: string
   name: string
@@ -76,8 +88,10 @@ export interface TaskRow {
   id: string
   name: string
   ruleId: string
-  mode: string // single | range
+  mode: string // single | range | bookIds [R34-2a-6]
   bookUrl: string
+  // [R34-2a-6] 书号采集: 书号原文(换行分隔; schema push 后返回, 旧库行缺省 undefined 时消费方需容忍)
+  bookIds?: string
   listUrl: string
   listStart: number
   listEnd: number

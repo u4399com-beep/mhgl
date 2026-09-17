@@ -15,15 +15,13 @@
 // ============================================================
 'use client'
 
-import { FileText } from 'lucide-react'
-import type { ReactNode } from 'react'
 import type { SiteTocProps } from '../shared'
 import { usePublic } from '../../ctx'
 import { groupTocVolumes } from '../template-kit'
-import { pageWindowOf } from './Category' // [R28-5-1] 同站逐字重复(Toc 私有副本与 Category 导出同实现) → 改为单处定义
-import type { TocChapter } from '../../types'
+import { pageWindowOf, QbPageBtn } from './Category' // [R28-5-1][R34-2c-6] 同站逐字重复(Toc 私有副本与 Category 导出同实现) → 改为单处定义; [R34-2c-6] +QbPageBtn
+import { ChapterRow } from './Book' // [R34-2c-6] 私有副本 TocRow 与 Book 的 ChapterRow 逐字节相同 → 收敛为单处定义
 import { ErrorState, Sk } from '../../bits'
-import { fmtDate, formatWords } from '../../seo'
+import { fmtDate } from '../../seo'
 
 /** [R28-2c-16] 真站实测色值(style.css) */
 const QB_TEXT = '#282828'
@@ -32,60 +30,7 @@ const QB_MUT62 = 'rgba(0,0,0,0.62)'
 const QB_TXT83 = 'rgba(0,0,0,0.83)'
 const QB_TITLE = 'rgba(7,7,10,0.92)'
 const QB_RED = '#ff2a14'
-const QB_GREEN = '#34a853'
 const QB_APRICOT = '#fef0e5'
-
-/** [R28-2c-17] .module-row-info 章节行(min-768 三列; 行底/斑马/高亮由 index.css 统一驱动) */
-function TocRow({ ch, current, onClick }: { ch: TocChapter; current?: boolean; onClick: () => void }) {
-  return (
-    <div
-      role="button"
-      tabIndex={0}
-      onClick={onClick}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault()
-          onClick()
-        }
-      }}
-      aria-label={`阅读 ${ch.title}`}
-      aria-current={current ? 'true' : undefined}
-      className="qb23-row flex min-h-[44px] cursor-pointer items-center gap-2 rounded-[10px] px-4 py-2.5 transition-colors"
-      style={{ color: current ? QB_RED : QB_TXT83 }}
-    >
-      <FileText className="h-4 w-4 shrink-0" style={{ color: QB_GREEN }} aria-hidden />
-      <span className={`truncate text-sm ${current ? 'font-bold' : ''}`}>{ch.title}</span>
-      <span className="ml-auto hidden shrink-0 pl-2 text-xs sm:block" style={{ color: QB_MUT40 }} aria-hidden>
-        {formatWords(ch.wordCount)}
-      </span>
-    </div>
-  )
-}
-
-function QbPageBtn({
-  children,
-  onClick,
-  disabled,
-  ariaLabel,
-}: {
-  children: ReactNode
-  onClick: () => void
-  disabled?: boolean
-  ariaLabel: string
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      aria-label={ariaLabel}
-      className="mx-0.5 inline-block min-w-[40px] rounded-[50px] bg-[#f3f5f7] px-3 text-sm leading-10 transition-colors hover:bg-[#eaedf1] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-[#f3f5f7]"
-      style={{ color: QB_TEXT }}
-    >
-      {children}
-    </button>
-  )
-}
 
 export function Qb23Toc({ data, loading, error, page, currentChapterId }: SiteTocProps) {
   const { navigate } = usePublic()
@@ -184,7 +129,7 @@ export function Qb23Toc({ data, loading, error, page, currentChapterId }: SiteTo
                   </h2>
                   <div className="qb23-rows grid grid-cols-1 gap-[5px] md:grid-cols-3">
                     {g.chapters.map((ch) => (
-                      <TocRow
+                      <ChapterRow
                         key={ch.id}
                         ch={ch}
                         current={currentChapterId === ch.id}
@@ -197,7 +142,7 @@ export function Qb23Toc({ data, loading, error, page, currentChapterId }: SiteTo
             ) : (
               <div className="qb23-rows grid grid-cols-1 gap-[5px] md:grid-cols-3">
                 {chapters.map((ch) => (
-                  <TocRow
+                  <ChapterRow
                     key={ch.id}
                     ch={ch}
                     current={currentChapterId === ch.id}

@@ -2,7 +2,7 @@
 
 // ============================================================
 // TaskDialog — 新建 / 编辑采集任务
-// 模式: 单本 | 范围; 重采: 完全覆盖 | 增量; 存储: 数据库 | TXT
+// 模式: 单本 | 范围 | 书号 [R34-2a-7]; 重采: 完全覆盖 | 增量; 存储: 数据库 | TXT
 // ============================================================
 import { useEffect, useState } from 'react'
 import {
@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { RadioGroup } from '@/components/ui/radio-group'
@@ -29,6 +30,8 @@ import { Separator } from '@/components/ui/separator'
 import { Loader2, Save } from 'lucide-react'
 import { toast } from 'sonner'
 import { api, type RuleRow, type TaskRow } from './helpers'
+// [R34-2a-7] 书号采集: 与 API 规范化/引擎建队列共用同一纯函数模块
+import { parseBookIdList, BOOK_ID_MAX_COUNT } from '@/lib/book-ids'
 
 interface TaskDialogProps {
   open: boolean
@@ -41,8 +44,10 @@ interface TaskDialogProps {
 interface TaskForm {
   name: string
   ruleId: string
-  mode: 'single' | 'range'
+  // [R34-2a-7] 扩 'bookIds'(书号): bookUrl 复用存书籍页 URL 模板(必含 {bookId}), bookIds 存书号原文
+  mode: 'single' | 'range' | 'bookIds'
   bookUrl: string
+  bookIds: string
   listUrl: string
   listStart: number
   listEnd: number
@@ -66,6 +71,7 @@ const emptyForm: TaskForm = {
   ruleId: '',
   mode: 'single',
   bookUrl: '',
+  bookIds: '',
   listUrl: '',
   listStart: 1,
   listEnd: 1,
@@ -96,8 +102,10 @@ export function TaskDialog({ open, onOpenChange, task, onSaved }: TaskDialogProp
       setForm({
         name: task.name,
         ruleId: task.ruleId,
-        mode: task.mode === 'range' ? 'range' : 'single',
+        // [R34-2a-7] bookIds 任务回显不崩: 三值白名单内原样回显, 未知历史值防御性回退 single
+        mode: task.mode === 'range' ? 'range' : task.mode === 'bookIds' ? 'bookIds' : 'single',
         bookUrl: task.bookUrl,
+        bookIds: task.bookIds ?? '',
         listUrl: task.listUrl,
         listStart: task.listStart ?? 1,
         listEnd: task.listEnd ?? 1,
@@ -138,6 +146,29 @@ export function TaskDialog({ open, onOpenChange, task, onSaved }: TaskDialogProp
       }
       if (!/^https?:\/\//i.test(form.bookUrl.trim())) {
         toast.error('书籍页 URL 需以 http:// 或 https:// 开头')
+        return
+      }
+    } else if (form.mode === 'bookIds') {
+      // [R34-2a-7] 书号模式校验: 模板 http(s) + {bookId} 占位符 + 书号列表非空(文案与服务端 validateTaskPair 一致)
+      const count = parseBookIdList(form.bookIds).length
+      if (!form.bookUrl.trim()) {
+        toast.error('书号采集必须填写书籍页URL模板(需含 {bookId} 占位符)')
+        return
+      }
+      if (!/^https?:\/\//i.test(form.bookUrl.trim())) {
+        toast.error('书籍页 URL 模板需以 http:// 或 https:// 开头')
+        return
+      }
+      if (!form.bookUrl.includes('{bookId}')) {
+        toast.error('书号采集必须填写书籍页URL模板(需含 {bookId} 占位符)')
+        return
+      }
+      if (count === 0) {
+        toast.error('书号采集必须填写书号列表')
+        return
+      }
+      if (count > BOOK_ID_MAX_COUNT) {
+        toast.error(`书号数量超过上限(去重后 ${count} 个, 最多 ${BOOK_ID_MAX_COUNT} 个)`)
         return
       }
     } else {
@@ -192,6 +223,8 @@ export function TaskDialog({ open, onOpenChange, task, onSaved }: TaskDialogProp
   }
 
   const num = (v: number) => Number.isFinite(v) ? v : 0
+  // [R34-2a-7] 书号实时计数(去重后, 渲染期派生值; 与主组件/引擎同口径)
+  const bookIdCount = parseBookIdList(form.bookIds).length
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -240,7 +273,7 @@ export function TaskDialog({ open, onOpenChange, task, onSaved }: TaskDialogProp
             <RadioGroup
               value={form.mode}
               onValueChange={(v) => patch({ mode: v as TaskForm['mode'] })}
-              className="grid grid-cols-2 gap-3"
+              className="grid grid-cols-1 gap-3 sm:grid-cols-3"
             >
               <ModeCard
                 value="single"
@@ -256,6 +289,14 @@ export function TaskDialog({ open, onOpenChange, task, onSaved }: TaskDialogProp
                 desc="遍历列表页翻页, 批量发现书籍"
                 onSelect={() => patch({ mode: 'range' })}
               />
+              {/* [R34-2a-7] 第三模式: 书号采集(编辑侧同步支持) */}
+              <ModeCard
+                value="bookIds"
+                current={form.mode}
+                title="书号采集"
+                desc="按书号模板批量构造书籍页地址"
+                onSelect={() => patch({ mode: 'bookIds' })}
+              />
             </RadioGroup>
 
             {form.mode === 'single' ? (
@@ -267,6 +308,33 @@ export function TaskDialog({ open, onOpenChange, task, onSaved }: TaskDialogProp
                   value={form.bookUrl}
                   onChange={(e) => patch({ bookUrl: e.target.value })}
                 />
+              </div>
+            ) : form.mode === 'bookIds' ? (
+              /* [R34-2a-7] 书号模式回显/编辑: 模板 + 书号列表 + 实时解析计数 */
+              <div className="space-y-3 rounded-md border border-zinc-800 bg-zinc-950/60 p-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-zinc-400">书籍页 URL 模板 *</Label>
+                  <Input
+                    className="h-9 border-zinc-700 bg-zinc-950 font-mono text-xs"
+                    placeholder="https://example.com/book/{bookId}.html"
+                    value={form.bookUrl}
+                    onChange={(e) => patch({ bookUrl: e.target.value })}
+                  />
+                  <p className="text-[10px] text-zinc-600">{'{bookId}'} 会被替换为书号(自动URL编码)</p>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-zinc-400">书号列表 *</Label>
+                  <Textarea
+                    className="min-h-28 border-zinc-700 bg-zinc-950 font-mono text-xs"
+                    placeholder={'每行一个书号, 也兼容逗号/顿号/空格分隔\n例:\n104021\n105732\n106891'}
+                    value={form.bookIds}
+                    onChange={(e) => patch({ bookIds: e.target.value })}
+                  />
+                  <p className={`text-[10px] ${bookIdCount > BOOK_ID_MAX_COUNT ? 'font-medium text-red-400' : 'text-zinc-600'}`}>
+                    已识别 {bookIdCount} 个书号(去重后)
+                    {bookIdCount > BOOK_ID_MAX_COUNT ? ` · 超过 ${BOOK_ID_MAX_COUNT} 上限, 请删减后再保存` : ''}
+                  </p>
+                </div>
               </div>
             ) : (
               <div className="space-y-3 rounded-md border border-zinc-800 bg-zinc-950/60 p-3">

@@ -41,7 +41,8 @@ export async function POST(req: Request) {
 
     const { data, error } = normalizeTaskData(body ?? {}, 'full')
     if (error) return fail(error)
-    const pairErr = validateTaskPair(data.mode, data.bookUrl, data.listUrl)
+    // [R34-2a-3] 书号模式联动校验: 传入规范化后的 bookIds(模式为 single/range 时本参不参与校验)
+    const pairErr = validateTaskPair(data.mode, data.bookUrl, data.listUrl, data.bookIds)
     if (pairErr) return fail(pairErr)
 
     // full 模式下所有字段均已规范化

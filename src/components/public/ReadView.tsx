@@ -27,11 +27,11 @@ import { ReadClassic } from './read-layouts/ReadClassic'
 import { ReadImmersive } from './read-layouts/ReadImmersive'
 import { ReadPaginated } from './read-layouts/ReadPaginated'
 import { ReadPili } from './read-layouts/ReadPili'
-import { readerActionsRef, useReadingProgress } from './read-layouts/shared'
+// [R34-2c-2] READER_FONT_KEY 与 readStoredFontSize 收敛至 read-layouts/shared（与 template-kit 同键互通, 单处定义）
+import { READER_FONT_KEY, readerActionsRef, readStoredFontSize, useReadingProgress } from './read-layouts/shared'
 // [R27-5b-H2] 克隆模板接线: registry 命中(theme.id ∈ 克隆五站)→ SiteTemplateSet.Read 分发
 import { getTemplateSet } from './sites/registry'
 
-const READER_FONT_KEY = 'public_reader_fontSize'
 const READER_NIGHT_KEY = 'public_reader_night'
 // feat-a C: 行距 / 字距持久化
 const READER_LINE_HEIGHT_KEY = 'public_reader_lineHeight'
@@ -39,16 +39,6 @@ const READER_LETTER_SPACING_KEY = 'public_reader_letterSpacing'
 
 const DEFAULT_LINE_HEIGHT = 1.8
 const DEFAULT_LETTER_SPACING = 0
-
-function readStoredFontSize(): number {
-  if (typeof window === 'undefined') return 17
-  try {
-    const n = Number(window.localStorage.getItem(READER_FONT_KEY))
-    return Number.isFinite(n) && n >= 14 && n <= 24 ? n : 17
-  } catch {
-    return 17
-  }
-}
 
 function readStoredNight(): boolean {
   if (typeof window === 'undefined') return false

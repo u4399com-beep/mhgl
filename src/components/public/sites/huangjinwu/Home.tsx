@@ -34,13 +34,15 @@ const HOVER_BG = '#e8f1ff' // --hover-color(status badge 底)
 const BG_TINT = '#f0f4fb' // --bg-color(ranking 榜头底)
 const SHADOW = '0 1px 2px rgba(15,23,42,0.04), 0 4px 16px rgba(37,99,235,0.06)' // --shadow
 
-function statusText(s?: string | null): string {
+// [R34-2c-7] 分类页/搜索页私有副本与本实现逐字节相同 → 收敛为单处定义
+export function statusText(s?: string | null): string {
   if (s === 'completed') return '全本'
   return '连载'
 }
 
 /** [R28-2d-1] .book-card 纯文字卡(标题/作者/简介 2 行/三色 badge 组) — 真站 .book-grid 卡 */
-function TextCard({ book }: { book: BookItem }) {
+// [R34-2c-7] 分类页(Category)私有副本与本组件逐字节相同 → 收敛为单处定义
+export function TextCard({ book }: { book: BookItem }) {
   const { navigate } = usePublic()
   return (
     <article

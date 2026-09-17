@@ -678,9 +678,24 @@ async function tryClickTurnstile(page: any): Promise<void> {
         const frameUrl = frames[i].url() || ''
         const isCfFrame = /challenges\.cloudflare\.com|cdn-cgi\/challenge-platform/.test(frameUrl)
         const sel = isCfFrame ? 'input[type=checkbox]' : '.cf-turnstile input[type=checkbox]'
-        const cnt = await frames[i].locator(sel).count().catch(() => 0)
-        if (cnt === 0) continue
-        await frames[i].click(sel, { timeout: 1500 }).catch(() => {})
+        // [R34-2b-5] 修复: 存在性探测改 puppeteer 原生 frame.$() —— 修前 frames[i].locator(sel).count()
+        //  是 Playwright Locator API(count() 在 puppeteer 的 Locator 上不存在, 实测 puppeteer 25.10.0
+        //  Locator 方法面无 count), 每 frame 必抛 TypeError 被下方 catch 吞掉 → 整个交互点击特性
+        //  自引入起即为静默 no-op(interactive Turnstile 永远等不到点击, 只能靠 30s 自动放行/
+        //  robots.txt 兜底)。现 frame.$(sel) 返回 ElementHandle|null(puppeteer 原生), 命中后经
+        //  handle.click() 实点(Promise.race 1500ms 上限保留原单 frame 点击超时语义), 用后 dispose
+        //  防句柄泄漏; 未命中(null)照旧换下一个 frame, 整体 8s 预算由调用方 waitCfChallenge 的
+        //  轮询节奏自然约束(与修前设计一致)
+        const handle = await frames[i].$(sel).catch(() => null)
+        if (!handle) continue
+        try {
+          await Promise.race([
+            handle.click().catch(() => { /* 被遮挡/不可点: 点击失败不换 frame(同一 widget) */ }),
+            new Promise((r) => setTimeout(r, 1500)),
+          ])
+        } finally {
+          try { await handle.dispose().catch(() => {}) } catch { /* ignore */ }
+        }
         return
       } catch { /* 静默: 换下一个 frame */ }
     }

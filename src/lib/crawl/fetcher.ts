@@ -2582,6 +2582,15 @@ async function fetchHttp(url: string, cfg: FetchConfig, ua: string, proxy = '', 
     if (strictLen && BODY_LEN_CHECK && cl && !compressed && total < cl) {
       throw new RangeError(`响应体截断(content-length=${cl}, 实际读 ${total} 字节), 判失败交上层重试`)
     }
+    // [R34-2b-3] 解压膨胀遥测(warn-only, 零行为变化): compressed 响应的 CL 头是压缩字节数,
+    // 与解压后长度天然不可比 —— R9-e-6 的 strictLen 截断校验因此只覆盖未压缩响应, 压缩路径
+    // 完全无比对面。此处补"膨胀比"观测: 解压后体量 ≥4MB 且 ≥声明×50 时打一条 warn(解压炸弹/
+    // 异常载荷证据链; 10MB 流式硬帽已在上方生效, 本观测不改变任何控制流, 下游照常消费)。
+    // 阈值依据: HTML 类 gzip 压缩比常态 5~10×, 50×+且绝对量 4MB+ 已远超正常页面形态;
+    // cl=0(无声明/chunked)不判。arrayBuffer 回退形态(中继重组响应)CL 语义不同, 不参与
+    if (compressed && cl > 0 && total >= 4 * 1024 * 1024 && total >= cl * 50) {
+      console.warn(`[fetcher] 响应体膨胀异常(疑似解压炸弹): 声明 ${cl}B, 解压后 ${total}B(${Math.round(total / cl)}×): ${url.slice(0, 160)}`)
+    }
     const merged = new Uint8Array(total)
     let off = 0
     for (const c of chunks) { merged.set(c, off); off += c.byteLength }
@@ -2863,7 +2872,119 @@ const CURL_TRANSPORT_PROFILES: readonly CurlTransportProfile[] = [
 
 /** [R27-1b-1] host → 生效传输画像(hash 钉扎下标语义与旧三画像完全兼容) */
 function curlProfileOf(host: string): CurlTransportProfile {
-  return CURL_TRANSPORT_PROFILES[curlTlsProfileIndex(host)] ?? { name: 'h2-default' }
+  return CURL_TRANSPORT_PROFILES[curlProfileIndexOf(host)] ?? { name: 'h2-default' }
+}
+
+// ---------- [R34-2b-2] TLS 画像按 host 自适应(FETCH_TLS_ADAPTIVE=1, 缺省关) ----------
+/**
+ * 场景: [R9-a-14]C.2 的三传输画像(hash%3 host 钉扎)对同一 host 恒定 —— 若某 host 的 WAF
+ * 恰好针对钉扎画像的 TLS/HTTP 版本组合拦截(JA3/JA4 或 h2 指纹黑名单), 该站每章必败同一
+ * 画像且无自愈面(换 UA/换 Cookie/退避重试都救不了指纹面)。开启后按 host 记录各画像近期
+ * 成功/失败(有界滑动窗口), 选择时取"该 host 近期成功率最高"的画像替代 hash 钉扎; 样本不足
+ * (MIN_SAMPLES)或开关关闭时维持 hash 钉扎(行为逐字节不变)。记账点在 fetchViaCurl 每跳
+ * (curl 链唯一画像生效位): 成功=status<400(传输+TLS 面工作、服务端未拒), 失败=status≥400
+ * 或传输层抛错; impersonate 档位生效时画像旗组被档位引擎接管, 不记账(recIdx=-1, 仅 https)。
+ * 与 [R30-3-E-A] 链路记忆(native vs curl 轨选择)正交: 那个决定"走哪条轨", 本开关决定
+ * "走 curl 时用哪副指纹"; 与 hostgate 降额/429 冷却(节奏面)也无共享状态, 零冲突。
+ * 状态: 进程级(globalThis 防 HMR, 同 chainMemory 先例), FIFO 256 host 上限 × 每 host 16
+ * 样本环(number[], 峰值内存 ~ 数十 KB), 与 OOM 防线内存预算纪律一致。
+ */
+const TLS_ADAPTIVE_ENABLED = process.env.FETCH_TLS_ADAPTIVE === '1'
+const TLS_ADAPTIVE_WIN = 16          // 每 host 滑动窗口样本数
+const TLS_ADAPTIVE_HOSTS_CAP = 256   // host 表上限(FIFO 驱逐)
+const TLS_ADAPTIVE_MIN_SAMPLES = 3   // 少于此样本数不拍板(维持 hash 钉扎)
+const TLS_ADAPTIVE_EXPLORE_BELOW = 0.5 // 最优画像成功率低于此值且存在未探索画像时, 转向探索
+interface TlsAdaptiveEntry { win: number[]; head: number; count: number }
+const globalForTlsAdaptive = globalThis as unknown as { __novelTlsAdaptive_v1?: Map<string, TlsAdaptiveEntry> }
+const tlsAdaptiveHosts = globalForTlsAdaptive.__novelTlsAdaptive_v1 ?? new Map<string, TlsAdaptiveEntry>()
+globalForTlsAdaptive.__novelTlsAdaptive_v1 = tlsAdaptiveHosts
+
+/** 记一笔画像结果: 样本编码 = profileIdx*2 + (ok?1:0), 环形覆盖(FIFO)。
+ *  开关关闭时 no-op(缺省态零内存/零开销, 保证"缺省关=零行为变化"不仅是选择面还有记账面) */
+function tlsAdaptiveNote(host: string, profileIdx: number, ok: boolean): void {
+  if (!TLS_ADAPTIVE_ENABLED) return
+  if (!host || profileIdx < 0 || profileIdx >= CURL_TRANSPORT_PROFILES.length) return
+  let e = tlsAdaptiveHosts.get(host)
+  if (!e) {
+    // FIFO 驱逐: Map 迭代序=插入序, 删最旧 host(同 chainMemory/proxySticky 纪律)
+    while (tlsAdaptiveHosts.size >= TLS_ADAPTIVE_HOSTS_CAP) {
+      const oldest = tlsAdaptiveHosts.keys().next().value
+      if (oldest === undefined) break
+      tlsAdaptiveHosts.delete(oldest)
+    }
+    e = { win: new Array<number>(TLS_ADAPTIVE_WIN).fill(-1), head: 0, count: 0 }
+    tlsAdaptiveHosts.set(host, e)
+  }
+  e.win[e.head] = profileIdx * 2 + (ok ? 1 : 0)
+  e.head = (e.head + 1) % TLS_ADAPTIVE_WIN
+  if (e.count < TLS_ADAPTIVE_WIN) e.count++
+}
+
+/** 择优(三段式探索/利用策略):
+ *  ① 无记录/样本不足 → -1(调用方落 hash 钉扎, 与缺省态逐字节一致);
+ *  ② 有数据: 取"窗口内成功率最高且 ≥1 个样本"的画像(平票时 hash 钉扎画像优先 = 无漂移偏好);
+ *     其成功率 ≥EXPLORE_BELOW 或三画像均已探索(无未样本画像)时直接用它(利用);
+ *  ③ 最优画像成功率 <EXPLORE_BELOW 且存在窗口内无样本的画像 → 取首个未探索画像(探索):
+ *     这正是"钉扎画像被 WAF 指纹封禁"场景的自愈入口 —— 若只会在有数据的画像里选,
+ *     钉扎画像连败后永远只有 0% 一个候选, 自适应退化为空谈。探索画像若也持续失败,
+ *     窗口内其成功率同样走低, 下轮转向下一个未探索画像(至多 3 画像轮完, 有界)。
+ *  健康站(钉扎画像恒成功)窗口内 rate=1 ≥0.5 恒落 ②, 行为与钉扎逐字节一致(零漂移)。 */
+function tlsAdaptiveBestIndex(host: string): number {
+  const e = tlsAdaptiveHosts.get(host)
+  if (!e || e.count < TLS_ADAPTIVE_MIN_SAMPLES) return -1
+  const n = CURL_TRANSPORT_PROFILES.length
+  const okArr = new Array<number>(n).fill(0)
+  const totArr = new Array<number>(n).fill(0)
+  for (let i = 0; i < e.count; i++) {
+    const v = e.win[i]
+    if (v < 0) continue
+    const p = Math.floor(v / 2)
+    if (p < 0 || p >= n) continue
+    totArr[p]++
+    if (v % 2 === 1) okArr[p]++
+  }
+  const pinned = curlTlsProfileIndex(host)
+  let best = -1
+  let bestRate = -1
+  let unexplored = -1
+  for (let p = 0; p < n; p++) {
+    if (totArr[p] === 0) {
+      if (unexplored < 0) unexplored = p
+      continue
+    }
+    const rate = okArr[p] / totArr[p]
+    if (rate > bestRate || (rate === bestRate && p === pinned)) { best = p; bestRate = rate }
+  }
+  if (best < 0) return -1
+  if (bestRate >= TLS_ADAPTIVE_EXPLORE_BELOW || unexplored < 0) return best
+  return unexplored
+}
+
+/** 生效画像下标: 开启且有意见 → 自适应最优; 否则 hash 钉扎(与旧 curlProfileOf 逐字节等价) */
+function curlProfileIndexOf(host: string): number {
+  if (TLS_ADAPTIVE_ENABLED) {
+    const best = tlsAdaptiveBestIndex(host)
+    if (best >= 0 && CURL_TRANSPORT_PROFILES[best]) return best
+  }
+  return curlTlsProfileIndex(host)
+}
+
+// [R34-2b-2] 测试出口(__r34 前缀, 仅验证脚本消费): 记账/择优/生效下标/观测/清空,
+//  与生产路径共用同一实现; 生产代码勿调
+export function __r34TlsAdaptiveNote(host: string, profileIndex: number, ok: boolean): void {
+  tlsAdaptiveNote(host, profileIndex, ok)
+}
+export function __r34TlsAdaptiveBestIndex(host: string): number {
+  return tlsAdaptiveBestIndex(host)
+}
+export function __r34TlsAdaptiveProfileIndexOf(host: string): number {
+  return curlProfileIndexOf(host)
+}
+export function __r34TlsAdaptiveStats(): { enabled: boolean; hosts: number; win: number; cap: number; minSamples: number } {
+  return { enabled: TLS_ADAPTIVE_ENABLED, hosts: tlsAdaptiveHosts.size, win: TLS_ADAPTIVE_WIN, cap: TLS_ADAPTIVE_HOSTS_CAP, minSamples: TLS_ADAPTIVE_MIN_SAMPLES }
+}
+export function __r34TlsAdaptiveReset(): void {
+  tlsAdaptiveHosts.clear()
 }
 
 // ---------- [R27-1b-2] curl-impersonate 档位解析(默认关, 显式选档才启用) ----------
@@ -3282,7 +3403,21 @@ export async function fetchViaCurl(url: string, cfg: FetchConfig, ua: string, pr
     // [R27-1b-7] 逐跳解析 impersonate 档位('' = 不启用 → curlOnce 旧轨, 零回归)
     // [R28-4-E2]: 第 4 参透传换档重试覆盖档位(fetchPageOnce 错误路径经 effCfg 注入, 逐跳继承)
     const hopTier = resolveCurlImpersonateTier(hostOf(hopUrl), hopCfg, curlProfileOf(hostOf(hopUrl)), (hopCfg as FetchCfgOpt).impersonateTierOverride)
-    const r = await curlOnce(hopUrl, headers, proxy, remaining, hopTier, bridgeUrl)
+    // [R34-2b-2] TLS 自适应记账下标: 仅"开关开启 + 无档位覆盖 + https"时传输画像旗组真实
+    //  生效才记账(curlOnce 内部对同 host 再次 curlProfileOf 与此处同数据同实现, 结果一致;
+    //  档位生效/http 目标/开关关闭时 recIdx=-1 跳过, 缺省态零开销)
+    const hopHostAdaptive = hostOf(hopUrl)
+    const recIdx = (TLS_ADAPTIVE_ENABLED && !hopTier && /^https:/i.test(hopUrl)) ? curlProfileIndexOf(hopHostAdaptive) : -1
+    let r: CurlHopResult
+    try {
+      r = await curlOnce(hopUrl, headers, proxy, remaining, hopTier, bridgeUrl)
+    } catch (e) {
+      // 传输层失败(超时/DNS/连接拒绝/TLS) = 该画像失败样本
+      if (recIdx >= 0) tlsAdaptiveNote(hopHostAdaptive, recIdx, false)
+      throw e
+    }
+    // 目标侧响应已取得: status<400 记成功(2xx/3xx 均说明 TLS 面未被指纹拒), ≥400 记失败
+    if (recIdx >= 0) tlsAdaptiveNote(hopHostAdaptive, recIdx, r.status < 400)
     if (cfg.autoCookie !== false && r.setCookies.length) {
       // 每跳 Set-Cookie 记到该跳 URL 的 origin 名下(与 native 逐跳同语义)
       cookieJar.store(originHost(hopUrl), r.setCookies)
@@ -4045,28 +4180,54 @@ async function prefetchToken(targetUrl: string, cfg: FetchConfig, ua: string): P
     try {
       return await existing
     } catch {
-      // 上一次预取失败, 落到下方自己重试一次(单次, 不再 in-flight 嵌套)
+      // [R34-2b-1] 并发 catch 窗口兄弟复用: 同代多个 caller 都在 await 同一 in-flight promise 时,
+      //  它失败后各 caller 的 catch 依次恢复, 首个恢复者创建新预取并登记, 其余恢复者在此复查
+      //  即可加入该新预取(修前各自再发一次预取, N 并发 caller = N 次重复请求打 token 端点)。
+      //  复用的 promise 再失败按既有口径返回 ''(静默降级直连, 与调用方 .catch(() => '') 等价);
+      //  无兄弟(本 caller 是首个恢复者)时落到下方创建路径重试一次(单次, 语义不变)
+      const sibling = inflightMap.get(cacheKey)
+      if (sibling) {
+        try {
+          return await sibling
+        } catch {
+          return ''
+        }
+      }
     }
   }
-  const p = (async () => {
-    try {
-      // [R9-a-13] B1: token 预取端点要求每次新响应(304 缓存会让过期 token 再次生效), 关闭条件请求
-      const noCond: FetchCfgOpt = { ...cfg, conditionalGet: false }
-      const body = await fetchHttpWithCurlFallback(real, noCond, ua)
-      const token = await extractToken(body, pattern)
-      if (token) {
-        const cache = tokenCache()
-        cache.set(cacheKey, { token, at: Date.now() })
-        tokenCacheTrim(cache) // rr-c3: 有界化(修前逐章分键条目永不清扫 → 长任务无界增长)
-      }
-      return token
-    } finally {
-      // 完成后清 in-flight 条目, 让下次 TTL 过期能重新预取
-      inflightMap.delete(cacheKey)
+  const p: Promise<string> = (async () => {
+    // [R9-a-13] B1: token 预取端点要求每次新响应(304 缓存会让过期 token 再次生效), 关闭条件请求
+    const noCond: FetchCfgOpt = { ...cfg, conditionalGet: false }
+    const body = await fetchHttpWithCurlFallback(real, noCond, ua)
+    const token = await extractToken(body, pattern)
+    if (token) {
+      const cache = tokenCache()
+      cache.set(cacheKey, { token, at: Date.now() })
+      tokenCacheTrim(cache) // rr-c3: 有界化(修前逐章分键条目永不清扫 → 长任务无界增长)
     }
+    return token
   })()
+  // [R34-2b-1 收口] 条件删除挂外链(修前在 IIFE 内部 finally 无条件 delete): 仅当表内仍登记
+  //  是本 promise 时才清键 —— 并发同代 caller 各自走创建路径时会先后覆盖同一键(后登记者
+  //  覆盖先登记者), 先完成者的无条件 delete 会误删后登记者的在飞登记, 使其脱离去重表 →
+  //  后续 caller 再发一次重复预取(TTL 过期瞬间 N 并发时放大)。条件化后每个 promise 只清
+  //  自己的登记, 误删面闭合; 外链时机比内部 finally 晚一个微任务, 期间同键 get 返回的是
+  //  已落定的同一 promise, 去重语义不变。完成后清条目, 让下次 TTL 过期能重新预取(不变)
+  void p.finally(() => {
+    if (inflightMap.get(cacheKey) === p) inflightMap.delete(cacheKey)
+  })
   inflightMap.set(cacheKey, p)
   return p
+}
+
+// [R34-2b-1] 测试出口(__r34 前缀, 仅验证脚本消费): 直通 prefetchToken + 测试态重置(30s
+//  token 缓存与 in-flight 表清空, 仅限全部 promise 落定后的代间调用), 生产代码勿调
+export async function __r34PrefetchTokenForTest(targetUrl: string, cfg: FetchConfig, ua: string): Promise<string> {
+  return prefetchToken(targetUrl, cfg, ua)
+}
+export function __r34TokenStateResetForTest(): void {
+  tokenCache().clear()
+  tokenInflight().clear()
 }
 
 // ---------- 镜像域名自动故障切换 (dd-b) ----------

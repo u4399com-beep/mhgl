@@ -53,7 +53,10 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       const modeChanged = data.mode !== undefined && data.mode !== exist.mode
       const bookUrlChanged = data.bookUrl !== undefined && data.bookUrl !== exist.bookUrl
       const listUrlChanged = data.listUrl !== undefined && data.listUrl !== exist.listUrl
-      if (modeChanged || bookUrlChanged || listUrlChanged) {
+      // [R34-2a-3] bookIds 同列入运行中禁改面: 它是 bookIds 模式的采集入口(队列源头), 与 bookUrl 模板同语义。
+      //  以「请求体显式携带 bookIds」为准(partial 合并后 data.bookIds 恒有值, 不能作变更判据)
+      const bookIdsChanged = body?.bookIds !== undefined && data.bookIds !== (exist as { bookIds?: string }).bookIds
+      if (modeChanged || bookUrlChanged || listUrlChanged || bookIdsChanged) {
         return fail('任务运行中, 无法修改模式参数, 请先停止任务', 400)
       }
     }
@@ -62,7 +65,9 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     const pairErr = validateTaskPair(
       (data.mode as string) ?? exist.mode,
       (data.bookUrl as string) ?? exist.bookUrl,
-      (data.listUrl as string) ?? exist.listUrl
+      (data.listUrl as string) ?? exist.listUrl,
+      // [R34-2a-3] bookIds 合并值(schema 未 push/旧列不存在时 exist 上无该字段, 走补丁值或 undefined)
+      (data.bookIds as string) ?? (exist as { bookIds?: string }).bookIds
     )
     if (pairErr) return fail(pairErr)
 

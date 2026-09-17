@@ -16,60 +16,16 @@ import { useEffect, useState } from 'react'
 import type { SiteCategoryProps } from '../shared'
 import { usePublic } from '../../ctx'
 import { fetchCategories } from '../../data'
-import { EmptyState, ErrorState, bookNavProps } from '../../bits'
-import { formatWords } from '../../seo'
-import type { BookItem, CategoryItem } from '../../types'
+import { EmptyState, ErrorState } from '../../bits'
+import { TextCard } from './Home' // [R34-2c-7 收口] 私有副本与 Home 逐字节相同 → 收敛为单处定义(statusText 本文件未用不引入)
+import type { CategoryItem } from '../../types'
 
 /** [R28-2d-1] 真站色值(与 Home 同源, hjw-style.css) */
-const SECONDARY = '#2563eb'
 const TEXT = '#1e293b'
-const TEXT_LIGHT = '#64748b'
 const BORDER = '#dbe4f0'
-const HOVER_BG = '#e8f1ff'
 const SHADOW = '0 1px 2px rgba(15,23,42,0.04), 0 4px 16px rgba(37,99,235,0.06)'
 /** [R28-2d-2] 骨架占位色(--border-color 40%) */
 const BG_SKELETON = 'rgba(219,228,240,0.4)'
-
-function statusText(s?: string | null): string {
-  if (s === 'completed') return '全本'
-  return '连载'
-}
-
-/** [R28-2d-2] .book-card 纯文字卡(真站列表页与首页同款) */
-function TextCard({ book }: { book: BookItem }) {
-  const { navigate } = usePublic()
-  return (
-    <article
-      {...bookNavProps(navigate, book.id)}
-      aria-label={`查看《${book.name}》详情`}
-      className="hjw-card block cursor-pointer overflow-hidden rounded-[10px] border bg-white transition-all duration-300"
-      style={{ borderColor: 'rgba(219,228,240,0.85)', boxShadow: SHADOW, color: TEXT }}
-    >
-      <div className="p-4">
-        <div className="hjw-card-title mb-2 truncate text-[16px] font-medium leading-[1.4]" style={{ color: TEXT }}>
-          {book.name}
-        </div>
-        <div className="mb-2 truncate text-[14px]" style={{ color: TEXT_LIGHT }}>
-          作者：{book.author}
-        </div>
-        <div className="mb-3 line-clamp-2 min-h-[2.55em] text-[14px] leading-[1.5]" style={{ color: TEXT_LIGHT }}>
-          {book.intro || `${book.category} · ${formatWords(book.wordCount)}`}
-        </div>
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <span className="inline-block rounded-[10px] px-3 py-1 text-[12px] font-medium leading-[1.5] text-white" style={{ background: SECONDARY }}>
-            {book.category || '小说'}
-          </span>
-          <span className="inline-block rounded-[10px] border px-3 py-1 text-[12px] font-medium leading-[1.5]" style={{ background: HOVER_BG, borderColor: BORDER, color: TEXT }}>
-            {statusText(book.status)}
-          </span>
-          <span className="inline-block rounded-[10px] border px-3 py-1 text-[12px] font-medium leading-[1.5]" style={{ borderColor: BORDER, color: TEXT_LIGHT }}>
-            {formatWords(book.wordCount)}
-          </span>
-        </div>
-      </div>
-    </article>
-  )
-}
 
 export function HjwCategory({ data, loading, error, catName, cat, page }: SiteCategoryProps) {
   const { navigate } = usePublic()

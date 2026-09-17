@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Slider } from '@/components/ui/slider'
@@ -38,6 +39,8 @@ import {
 import { toast } from 'sonner'
 import { api, safeParseRuleConfig, type RuleRow } from './helpers'
 import { StepIndicator } from './StepIndicator'
+// [R34-2a-4] 书号采集: 与 API 规范化/引擎建队列共用同一纯函数模块, 保证三方计数/解析口径一致
+import { parseBookIdList, BOOK_ID_MAX_COUNT } from '@/lib/book-ids'
 
 interface TaskWizardProps {
   open: boolean
@@ -51,8 +54,10 @@ interface TaskWizardProps {
 interface TaskForm {
   name: string
   ruleId: string
-  mode: 'single' | 'range'
+  // [R34-2a-4] 扩 'bookIds'(书号): bookUrl 复用存书籍页 URL 模板(必含 {bookId}), bookIds 存书号原文
+  mode: 'single' | 'range' | 'bookIds'
   bookUrl: string
+  bookIds: string
   listUrl: string
   listStart: number
   listEnd: number
@@ -76,6 +81,7 @@ const EMPTY_FORM: TaskForm = {
   ruleId: '',
   mode: 'single',
   bookUrl: '',
+  bookIds: '',
   listUrl: '',
   listStart: 1,
   listEnd: 1,
@@ -159,12 +165,18 @@ export function TaskWizard({ open, onOpenChange, onSaved, onNavigateToRules }: T
   const selectedRule = useMemo(() => rules.find((r) => r.id === form.ruleId) || null, [rules, form.ruleId])
 
   // ---- 选中规则时自动建议任务名 (用户未手编时跟随) ----
+  const bookIdCount = useMemo(() => parseBookIdList(form.bookIds).length, [form.bookIds]) // [R34-2a-4] 书号实时计数(去重后)
   useEffect(() => {
     if (!selectedRule || nameTouched) return
     const base = selectedRule.name
-    const suffix = form.mode === 'single' ? '单书采集' : `范围${form.listStart}-${form.listEnd}`
+    // [R34-2a-4] 书号模式 name suffix: 书号×N(N=去重后书号数)
+    const suffix = form.mode === 'single'
+      ? '单书采集'
+      : form.mode === 'bookIds'
+        ? `书号×${bookIdCount}`
+        : `范围${form.listStart}-${form.listEnd}`
     patch({ name: `${base}-${suffix}` })
-  }, [selectedRule, form.mode, form.listStart, form.listEnd, nameTouched, patch])
+  }, [selectedRule, form.mode, form.listStart, form.listEnd, bookIdCount, nameTouched, patch])
 
   // ---- 当前匹配的预设 ----
   const activePreset = useMemo<PresetKey | null>(() => {
@@ -189,6 +201,12 @@ export function TaskWizard({ open, onOpenChange, onSaved, onNavigateToRules }: T
       if (form.mode === 'single') {
         return /^https?:\/\//i.test(form.bookUrl.trim())
       }
+      // [R34-2a-4] 书号模式: 模板需 http(s) 且含 {bookId} 占位符; 书号去重后 1~2000 个
+      if (form.mode === 'bookIds') {
+        if (!/^https?:\/\//i.test(form.bookUrl.trim())) return false
+        if (!form.bookUrl.includes('{bookId}')) return false
+        return bookIdCount > 0 && bookIdCount <= BOOK_ID_MAX_COUNT
+      }
       if (!/^https?:\/\//i.test(form.listUrl.trim())) return false
       if (form.listStart > form.listEnd) return false
       if (form.bookStart > 0 && form.bookEnd > 0 && form.bookStart > form.bookEnd) return false
@@ -201,7 +219,7 @@ export function TaskWizard({ open, onOpenChange, onSaved, onNavigateToRules }: T
       return true
     }
     return true
-  }, [step, form])
+  }, [step, form, bookIdCount]) // [R34-2a-4 收口] bookIdCount 由 form.bookIds 派生, 显式声明满足 exhaustive-deps
 
   // ---- 创建任务 ----
   const createTask = async (start: boolean) => {
@@ -473,6 +491,8 @@ function Step2Range({
   bookUrlPlaceholder: string
   onNameEdit: () => void
 }) {
+  // [R34-2a-4] 书号实时计数(去重后, 与主组件/引擎同口径 parseBookIdList)
+  const bookIdCount = parseBookIdList(form.bookIds).length
   return (
     <div className="space-y-4">
       {/* 任务名 */}
@@ -496,10 +516,12 @@ function Step2Range({
         <RadioGroup
           value={form.mode}
           onValueChange={(v) => patch({ mode: v as TaskForm['mode'] })}
-          className="grid grid-cols-2 gap-2"
+          className="grid grid-cols-1 gap-2 sm:grid-cols-3"
         >
           <ModeTab active={form.mode === 'single'} title="单本采集" desc="直接指定一个书籍页地址" onClick={() => patch({ mode: 'single' })} />
           <ModeTab active={form.mode === 'range'} title="范围采集" desc="遍历列表页翻页, 批量发现书籍" onClick={() => patch({ mode: 'range' })} />
+          {/* [R34-2a-4] 第三模式: 书号采集 */}
+          <ModeTab active={form.mode === 'bookIds'} title="书号采集" desc="按书号模板批量构造书籍页地址" onClick={() => patch({ mode: 'bookIds' })} />
         </RadioGroup>
       </div>
 
@@ -514,6 +536,33 @@ function Step2Range({
             onChange={(e) => patch({ bookUrl: e.target.value })}
           />
           <p className="text-[10px] text-zinc-600">指向单本小说的详情页地址</p>
+        </div>
+      ) : form.mode === 'bookIds' ? (
+        /* [R34-2a-4] 书号采集分支: 模板 + 书号列表 + 实时解析计数 */
+        <div className="space-y-3 rounded-md border border-zinc-800 bg-zinc-950/60 p-3">
+          <div className="space-y-1.5">
+            <Label className="text-xs text-zinc-400">书籍页 URL 模板 *</Label>
+            <Input
+              className="h-9 border-zinc-700 bg-zinc-950 font-mono text-xs"
+              placeholder="https://example.com/book/{bookId}.html"
+              value={form.bookUrl}
+              onChange={(e) => patch({ bookUrl: e.target.value })}
+            />
+            <p className="text-[10px] text-zinc-600">{'{bookId}'} 会被替换为书号(自动URL编码)</p>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs text-zinc-400">书号列表 *</Label>
+            <Textarea
+              className="min-h-28 border-zinc-700 bg-zinc-950 font-mono text-xs"
+              placeholder={'每行一个书号, 也兼容逗号/顿号/空格分隔\n例:\n104021\n105732\n106891'}
+              value={form.bookIds}
+              onChange={(e) => patch({ bookIds: e.target.value })}
+            />
+            <p className={`text-[10px] ${bookIdCount > BOOK_ID_MAX_COUNT ? 'font-medium text-red-400' : 'text-zinc-600'}`}>
+              已识别 {bookIdCount} 个书号(去重后)
+              {bookIdCount > BOOK_ID_MAX_COUNT ? ` · 超过 ${BOOK_ID_MAX_COUNT} 上限, 请删减后再创建` : ''}
+            </p>
+          </div>
         </div>
       ) : (
         <div className="space-y-3 rounded-md border border-zinc-800 bg-zinc-950/60 p-3">
@@ -808,16 +857,28 @@ function SmartToggle({ label, desc, checked, onChange }: { label: string; desc: 
 // 步骤 4: 确认
 // ============================================================
 function Step4Confirm({ form, ruleName }: { form: TaskForm; ruleName: string }) {
+  // [R34-2a-4] 确认页模式/范围摘要扩 bookIds: 模式显示「书号采集(N 本)」, 范围行显示模板与书号数
+  const bookIdCount = parseBookIdList(form.bookIds).length
   const rows: { k: string; v: string }[] = [
     { k: '任务名称', v: form.name || '(未填写)' },
     { k: '采集规则', v: ruleName },
-    { k: '采集模式', v: form.mode === 'single' ? '单本采集' : '范围采集' },
+    {
+      k: '采集模式',
+      v:
+        form.mode === 'single'
+          ? '单本采集'
+          : form.mode === 'bookIds'
+            ? `书号采集(${bookIdCount} 本)`
+            : '范围采集',
+    },
     {
       k: '采集范围',
       v:
         form.mode === 'single'
           ? form.bookUrl || '(未填写)'
-          : `${form.listUrl || '(未填写)'} · 页 ${form.listStart}-${form.listEnd}${form.bookStart > 0 || form.bookEnd > 0 ? ` · 书 ${form.bookStart}-${form.bookEnd}` : ''}`,
+          : form.mode === 'bookIds'
+            ? `${form.bookUrl || '(未填写)'} · 共 ${bookIdCount} 个书号`
+            : `${form.listUrl || '(未填写)'} · 页 ${form.listStart}-${form.listEnd}${form.bookStart > 0 || form.bookEnd > 0 ? ` · 书 ${form.bookStart}-${form.bookEnd}` : ''}`,
     },
     { k: '线程数', v: `${form.threadMin} ~ ${form.threadMax}` },
     { k: '请求间隔', v: `${form.intervalMin} ~ ${form.intervalMax} ms` },

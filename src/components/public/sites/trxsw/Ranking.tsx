@@ -13,7 +13,7 @@
 // ============================================================
 'use client'
 
-import type { ReactNode } from 'react'
+import { JqH2 } from './_kit' // [R34-2c-4] 三文件逐字节重复的 JqH2 收敛
 import type { SiteRankingProps } from '../shared'
 import { usePublic } from '../../ctx'
 import { EmptyState, ErrorState, Sk } from '../../bits'
@@ -31,29 +31,6 @@ const C = {
   border: '#dddddd',
   dotted: '#cccccc',
 } as const
-
-function JqH2({ children }: { children: ReactNode }) {
-  return (
-    <h2
-      className="flex items-center overflow-hidden"
-      style={{
-        background: 'linear-gradient(180deg, #fafbfc 0%, #e9eef5 100%)',
-        borderBottom: `1px solid ${C.border}`,
-        borderLeft: `4px solid ${C.navBlue}`,
-        color: C.text,
-        fontSize: 14,
-        fontWeight: 700,
-        lineHeight: '32px',
-        minHeight: 32,
-        margin: 0,
-        paddingLeft: 8,
-        paddingRight: 8,
-      }}
-    >
-      {children}
-    </h2>
-  )
-}
 
 /** 数值列: 真站月点击 → 字数(万)近似(声明③) */
 function rankValue(b: BookItem): string {

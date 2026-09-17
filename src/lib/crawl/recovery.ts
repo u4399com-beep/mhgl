@@ -29,6 +29,17 @@
 //    即跳过; 单例不存在时(启动期常态)本进程必然无在跑任务 → 逐一标记是安全的。
 //    写入用 updateMany 条件更新(where: {id, status:'running'}), 窄化 check-then-act 窗口:
 //    并发 control(stop/pause) 已把状态改为非 running 时本更新不命中, 不覆盖操作员意图。
+//  - 启动时间窗([R34-2b-4], 双进程共享 SQLite 的保守防护): 恢复仅命中 updatedAt 早于
+//    「本进程模块加载时刻 - 10s」的行 —— register() 调用期进程内必无在跑任务(见上),
+//    单进程形态下任意 running 行的最后一次写入必然早于本进程启动(前一进程已死),
+//    窗口恒空转, 行为逐字节不变; 双进程共享同一 SQLite 文件时(后启进程仪表盘/第二个
+//    dev 实例), 另一进程正在跑的任务会在窗口内持续刷新 updatedAt 而被跳过, 不再被误标
+//    interrupted。窗口取 10s 与 runner.recoverOnBoot 的 createdAt-10s 宽限同源: 进程内
+//    一次成功采集循环对任务行的写入间隔远小于 10s, 而僵尸(前一进程死亡)的最后写入必然
+//    早于重启(watchdog 检测+拉起 ≥30s)。保守取舍(如实留档): 窗口只覆盖启动前 10s 内
+//    仍在写入的任务, 若「另一进程恰好启动前 >10s 未写任务行但仍在跑」(如长渲染阶段)
+//    仍可能被误标 —— 该形态下单进程是主要部署形态, 引入心跳/进程归属语义跨面过大,
+//    取 10s 最小干预面; 被误标任务的断点数据完好, 点启动即续采, 损害有界。
 // ============================================================
 import { db } from '@/lib/db'
 
@@ -52,6 +63,12 @@ const globalForRecovery = globalThis as unknown as {
   /** runner.ts 的 TaskRunner 单例槽(探测进程内在跑任务注册表, 不 import runner 防耦合) */
   __novelTaskRunner?: RunnerRegistryProbe
 }
+
+// [R34-2b-4] 进程启动锚点: 本模块被 instrumentation.register() 动态 import(先于任何请求
+// 受理), 模块求值时刻即进程启动期的可靠近似; 固定于模块加载时刻(后续手动调用不重算)
+const RECOVERY_BOOT_AT = Date.now()
+/** 启动时间窗宽限(与 runner.recoverOnBoot 的 createdAt-10s 同源, 依据见文件头) */
+const ORPHAN_BOOT_WINDOW_MS = 10_000
 
 export interface RecoverOrphanTasksResult {
   /** 扫到的 status='running' 行数 */
@@ -109,7 +126,13 @@ export async function recoverOrphanTasks(): Promise<RecoverOrphanTasksResult> {
   // 每轮行集有界防内存峰值 —— 本函数在启动路径上运行)
   const ORPHAN_SCAN_TAKE = 1000
   const rows = await db.task.findMany({
-    where: { status: 'running' },
+    where: {
+      status: 'running',
+      // [R34-2b-4] 启动时间窗: 仅收容「本进程启动前」最后一次写入的行(带 10s 宽限),
+      // 防双进程共享 SQLite 时误标另一进程的在跑任务(语义与依据见文件头; 单进程形态
+      // 下该过滤恒全量命中, 行为逐字节不变)
+      updatedAt: { lt: new Date(RECOVERY_BOOT_AT - ORPHAN_BOOT_WINDOW_MS) },
+    },
     select: { id: true, progress: true },
     orderBy: { updatedAt: 'asc' }, // 最久无心跳的僵尸最先收容
     take: ORPHAN_SCAN_TAKE,

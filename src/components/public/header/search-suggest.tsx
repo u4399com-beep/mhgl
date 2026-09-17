@@ -339,3 +339,20 @@ export function useSearchBoxLogic(
     submit,
   }
 }
+
+// [R34-2c-3] 搜索框表单提交处理器 — 原先 common(通用)与 9 个仿站头部各自持有逐字节相同的
+// 私有闭包(trim 空值 → 记录搜索历史 → 关下拉 → navigate 搜索视图), 收敛为单处工厂。
+// 注: 不复用 useSearchBoxLogic 内部 submit()(其额外 setHighlight(-1), 语义不同), 保持原行为逐字节等价。
+export function createSearchSubmit(
+  logic: Pick<ReturnType<typeof useSearchBoxLogic>, 'q' | 'setOpen'>,
+  navigate: ReturnType<typeof usePublic>['navigate'],
+): (e: React.FormEvent) => void {
+  return (e) => {
+    e.preventDefault()
+    const t = (logic.q || '').trim()
+    if (!t) return
+    addSearchHistory(t)
+    logic.setOpen(false)
+    navigate({ view: 'search', q: t })
+  }
+}
