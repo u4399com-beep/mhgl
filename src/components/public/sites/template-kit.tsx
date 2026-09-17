@@ -7,6 +7,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { contentToHtml, READER_FONT_KEY, readStoredFontSize } from '../read-layouts/shared'
+import { usePublic } from '../ctx'
 import { getReadTimeMs, saveReadPos, setReadTimeMs } from '../read-layouts/reading-memory'
 import type { TocChapter } from '../types'
 
@@ -17,7 +18,11 @@ import type { TocChapter } from '../types'
  * 返回当前字号(px)与放大/缩小回调; 模板里 A+/A- 按钮直接接 inc/dec。
  */
 export function useReaderFont(min = 14, max = 24): { font: number; inc: () => void; dec: () => void; set: (n: number) => void } {
-  const [font, setFont] = useState(readStoredFontSize)
+  // [R36-2a-fix-3] 主题覆盖 fontBase 为权威基线(admin「阅读设置」编辑过的字号即该主题阅读页基准;
+  //   未编辑(undefined)时维持 readStoredFontSize() 既有语义, 全部站点零回归)
+  const { themeOverride } = usePublic()
+  const ovBase = themeOverride?.read?.fontBase
+  const [font, setFont] = useState(() => (ovBase ?? readStoredFontSize()))
   useEffect(() => {
     try {
       window.localStorage.setItem(READER_FONT_KEY, String(font))
@@ -87,6 +92,18 @@ export function ChapterContent({ content, style, className }: { content: string;
   // content 引用稳定时(章节未切换)直接复用消毒产物。
   const html = useMemo(() => contentToHtml(content), [content])
   return <div className={className} style={style} dangerouslySetInnerHTML={{ __html: html }} />
+}
+
+/** [R36-2a-fix-4] 主题覆盖字号基线读取(fallback=站点原值; 未编辑返回 fallback 零回归) */
+export function useThemeFontBase(fallback: number): number {
+  const { themeOverride } = usePublic()
+  return themeOverride?.read?.fontBase ?? fallback
+}
+
+/** [R36-2a-fix-4] 主题覆盖行距倍率读取(fallback=站点原值; 未编辑返回 fallback 零回归) */
+export function useThemeLineHeight(fallback: number): number {
+  const { themeOverride } = usePublic()
+  return themeOverride?.read?.lineHeight ?? fallback
 }
 
 /**

@@ -64,8 +64,10 @@ export function DdyueshuBook({ data, loading, error, tocPage, currentChapterId }
   const curPage = tocPage > 0 ? tocPage : 1
   const vols = groupTocVolumes(chapters)
 
-  // 真站「《书名》最新章节」= 站方倒序 12 条; 契约目录页第 1 页≈最早 → 降级为当前页尾 12 条倒序(声明于头注②同源口径)
-  const latest12 = [...chapters].slice(-12).reverse()
+  // [R36-2b-4] 真站「《书名》最新章节」= 站方倒序 12 条; 原「当前页尾 12 条倒序」(多页书第 1 页≈最早)
+  // 升级为 API 全书最新 12 章(latestChapters idx desc 最新在前, 与目录分页解耦)。展示序与原设计
+  // 一致(最新在前) → API desc 序直接用不再 reverse; 缺字段容旧响应回落当前页尾 12 条倒序原口径
+  const latest12 = data?.latestChapters ? [...data.latestChapters] : [...chapters].slice(-12).reverse()
   const mainChapters = vols ? null : chapters
 
   if (error) {

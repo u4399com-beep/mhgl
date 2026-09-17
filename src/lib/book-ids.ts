@@ -6,8 +6,9 @@
 // 零依赖纯模块(不 import 任何运行时), 客户端/服务端均可安全引用。
 // ============================================================
 
-/** 书号原文分隔符: 空白(含换行)/半角逗号/全角逗号/顿号/半角分号/全角分号 */
-export const BOOK_ID_SPLIT_RE = /[\s,，、;；]+/
+/** 书号原文分隔符: 空白(含换行)/半角逗号/全角逗号/顿号/半角分号/全角分号
+ * [R36-2d-6] 仅本模块内部消费(parseBookIdList), rg 实证零外引 → 去导出 */
+const BOOK_ID_SPLIT_RE = /[\s,，、;；]+/
 /** 单个书号长度上限(超限整条报错, 防把整段文本误当书号灌库) */
 export const BOOK_ID_MAX_LEN = 200
 /** 单任务书号总数上限(去重后, 超限报错) */
@@ -41,8 +42,9 @@ export function parseBookIdList(raw: unknown): string[] {
 /**
  * 书籍页 URL 模板渲染: 把模板中的 {bookId} 占位符替换为 encodeURIComponent(书号)。
  * 使用 split/join 实现全局替换(模板中多处出现同换), 与 {page} 的 replaceAll 口径一致。
+ * [R36-2d-6] 仅本模块内部消费(buildBookIdQueue/buildBookIdQueueFromRange), rg 实证零外引 → 去导出
  */
-export function renderBookIdTemplate(template: string, id: string): string {
+function renderBookIdTemplate(template: string, id: string): string {
   return String(template || '').split(BOOK_ID_PLACEHOLDER).join(encodeURIComponent(id))
 }
 

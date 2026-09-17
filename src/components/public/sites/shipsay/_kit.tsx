@@ -11,13 +11,24 @@ import { bookNavProps } from '../../bits'
 import { fmtDate, formatWords } from '../../seo'
 import type { BookItem } from '../../types'
 
-/** [R28-2e-7] 船说模板实测色值(书条右栏四色, 与各页文件 C 同值) */
-const C = {
-  title: '#555555',
+/** [R28-2e-7] 船说模板实测色值(R24 直测 style.css 逐字节 + 2024 Wayback DOM 佐证)
+ * [R36-2d-5] 原各页文件同值色板(Home/Category/Search 11 键全量, Ranking 9 键,
+ * Book/Fulltext/Toc 与本件旧 C 各为其子集)收敛为单处全量定义; 页面文件 `SS_C as C` 消费 */
+export const SS_C = {
+  bg: '#f4f4f4',
+  card: '#ffffff',
+  text: '#666666',
   link: '#1a1a1a',
-  orange: '#f0643a',
+  hover: '#ed4259',
+  title: '#555555',
   blue: '#4284ed',
+  orange: '#f0643a',
+  line: '#e3e3e3',
+  maskOngoing: 'rgba(0,0,0,.4)',
+  maskCompleted: 'rgba(191,44,36,.75)',
 } as const
+
+const C = SS_C
 
 /** [R35-2d-2] 书条右栏 —— <div class="ss-w100"> 标题钮(bookNavProps)/三行简介钳制/作者链+字数+更新日期行 */
 export function SsBookMain({ b }: { b: BookItem }) {

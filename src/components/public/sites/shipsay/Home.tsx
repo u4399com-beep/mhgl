@@ -33,22 +33,8 @@ import { safeHref } from '../../safe-href'
 import { bookNavProps, Sk } from '../../bits'
 import { BookCover } from '../../BookCover'
 import { fmtDate, formatWords } from '../../seo'
+import { SS_C as C } from './_kit' // [R36-2d-5] 原与 Category/Search/Ranking 同值色板收敛单处
 import type { BookItem } from '../../types'
-
-/** [R28-2e-1] 船说模板实测色值(R24 直测 style.css 逐字节 + 2024 Wayback DOM 佐证) */
-const C = {
-  bg: '#f4f4f4',
-  card: '#ffffff',
-  text: '#666666',
-  link: '#1a1a1a',
-  hover: '#ed4259',
-  title: '#555555',
-  blue: '#4284ed',
-  orange: '#f0643a',
-  line: '#e3e3e3',
-  maskOngoing: 'rgba(0,0,0,.4)',
-  maskCompleted: 'rgba(191,44,36,.75)',
-} as const
 
 /** 日期短格式(真站 em.blue「2020-04-19」/ lastupdate span「04-19」形态) */
 function fmtShort(d?: string): string {

@@ -14,20 +14,8 @@ import type { RankingBoard } from '../shared'
 import { usePublic } from '../../ctx'
 import { bookNavProps, ErrorState, Sk } from '../../bits'
 import { formatWords } from '../../seo'
+import { SS_C as C } from './_kit' // [R36-2d-5] 原与 Home/Category/Search 同值色板收敛单处
 import type { BookItem } from '../../types'
-
-/** [R28-2e-6] 船说模板实测色值(同 Home) */
-const C = {
-  bg: '#f4f4f4',
-  card: '#ffffff',
-  text: '#666666',
-  link: '#1a1a1a',
-  hover: '#ed4259',
-  title: '#555555',
-  blue: '#4284ed',
-  orange: '#f0643a',
-  line: '#e3e3e3',
-} as const
 
 export function ShipsayRanking({ boards, active, onBoard, loading, error }: SiteRankingProps) {
   const { navigate } = usePublic()

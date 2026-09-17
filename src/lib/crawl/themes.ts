@@ -1,5 +1,7 @@
 // ============================================================
 // 主题模版注册表 — [R24-5] 9 套「站点克隆」主题(唯一主题集); [R25-4] 扩至 10 套
+// [R36-2a] 主题覆盖层: ThemeFooterCfg(页面底部) + ThemeOverride(阅读设置/页脚逐主题自定义),
+//   经 applyThemeOverrides 在解析点合并, 存储走 Setting.theme_overrides(读侧 src/lib/theme-overrides.ts)
 // 用户指令: 删除现在所有的主题模版, 克隆 9 个真实站点, 要求风格/布局/结构/配色完全一样:
 //   aijjxs(久久小说) / pili(霹雳书屋) / kks101(101看書) / qb23(铅笔小说) /
 //   ddyueshu(顶点小说) / x2552(吾爱文学网) / huangjinwu(黄金屋) / ggd66(格格党) / shipsay(船说CMS)
@@ -67,6 +69,246 @@ export function readOf(theme?: { read?: ThemeReadConfig } | null): ReadVars {
 }
 
 // ============================================================
+// [R36-2a-1] 页面底部可编辑配置 + 主题覆盖(阅读设置/页脚)纯合并与校验
+//   —— 静态注册表 10 套 preset 数据零变化; 覆盖仅经 applyThemeOverrides 在解析点生效
+// ============================================================
+
+/** 页面底部可编辑三要素: 空串=渲染内置默认文案(逐字节零回归); links 缺省空数组 */
+export interface ThemeFooterCfg {
+  /** 版权行(空串=默认「© {year} {site.name} · {site.domain} · 保留所有权利」) */
+  copyright: string
+  /** 声明行(空串=默认「本站内容来自公开网络采集，仅作技术演示，如有侵权请联系删除」) */
+  notice: string
+  /** 自定义底部链接组(非空渲染「自定义链接：」行, safeHref 白名单出口) */
+  links: { name: string; url: string }[]
+}
+
+/** 页脚缺省配置(空值语义: SiteFooter 渲染既有硬编码默认文案) */
+export const THEME_FOOTER_DEFAULTS: ThemeFooterCfg = {
+  copyright: '',
+  notice: '',
+  links: [],
+}
+
+/** 取主题的完整页脚配置(缺省回退, 与 readOf 对称) */
+export function footerOf(theme?: { footer?: Partial<ThemeFooterCfg> | null } | null): ThemeFooterCfg {
+  return { ...THEME_FOOTER_DEFAULTS, ...(theme?.footer || {}) }
+}
+
+/** 单主题覆盖(Setting.theme_overrides 的逐主题条目; 缺省段=该维度不覆盖) */
+export interface ThemeOverride {
+  read?: Partial<ReadVars>
+  footer?: Partial<ThemeFooterCfg>
+}
+
+/** 覆盖配置在 Setting 表中的 key(与 admin settings KEY_RE 兼容) */
+export const THEME_OVERRIDES_SETTING_KEY = 'theme_overrides'
+
+/** read 仅接受这 9 个合法键(白名单外键在合并时剔除) */
+const READ_OVERRIDE_KEYS = ['layout', 'measure', 'lineHeight', 'fontBase', 'indent', 'justify', 'toolbar', 'texture', 'chapterDeco'] as const
+/** footer 仅接受这 3 个合法键 */
+const FOOTER_OVERRIDE_KEYS = ['copyright', 'notice', 'links'] as const
+
+/**
+ * [R36-2a-1] 对解析出的主题应用覆盖(纯函数, 不修改入参, 返回新对象)。
+ * - ov 缺省/非对象/read+footer 全空段 → 原样返回入参(引用相等, 前台零行为变化)
+ * - read 浅合并: 仅 READ_OVERRIDE_KEYS 白名单键, 非法键剔除
+ * - footer 浅合并: 仅 FOOTER_OVERRIDE_KEYS 白名单键, 且从 THEME_FOOTER_DEFAULTS 起底(合并结果恒全量)
+ */
+export function applyThemeOverrides(theme: ThemeDef, ov?: ThemeOverride | null): ThemeDef {
+  if (!ov || typeof ov !== 'object' || Array.isArray(ov)) return theme
+  const rawRead = (ov as { read?: unknown }).read
+  const rawFooter = (ov as { footer?: unknown }).footer
+  const hasRead = !!rawRead && typeof rawRead === 'object' && !Array.isArray(rawRead)
+  const hasFooter = !!rawFooter && typeof rawFooter === 'object' && !Array.isArray(rawFooter)
+  if (!hasRead && !hasFooter) return theme
+  // 惰性拷贝: 白名单键全空(空段/仅非法键)的维度不注入, 双段皆空 → 原样返回入参(引用相等)
+  let next: ThemeDef | null = null
+  if (hasRead) {
+    const src = rawRead as Record<string, unknown>
+    const picked: Record<string, unknown> = {}
+    for (const k of READ_OVERRIDE_KEYS) {
+      if (src[k] !== undefined) picked[k] = src[k]
+    }
+    if (Object.keys(picked).length > 0) {
+      next ??= { ...theme }
+      next.read = { ...(theme.read || {}), ...picked } as ThemeReadConfig
+    }
+  }
+  if (hasFooter) {
+    const src = rawFooter as Record<string, unknown>
+    const picked: Record<string, unknown> = {}
+    for (const k of FOOTER_OVERRIDE_KEYS) {
+      if (src[k] !== undefined) picked[k] = src[k]
+    }
+    if (Object.keys(picked).length > 0) {
+      next ??= { ...theme }
+      next.footer = { ...THEME_FOOTER_DEFAULTS, ...(theme.footer || {}), ...picked } as ThemeFooterCfg
+    }
+  }
+  return next ?? theme
+}
+
+// ---------------- [R36-2a-2] 覆盖配置纯校验+钳制(零 IO, API 路由与 bun 单测共用) ----------------
+
+export interface ThemeOverrideSanitizeOk {
+  ok: true
+  value: ThemeOverride
+}
+export interface ThemeOverrideSanitizeErr {
+  ok: false
+  message: string
+}
+
+/** 枚举白名单(与 READ_DEFAULTS/ReadVars 联合类型一一对应) */
+export const READ_LAYOUT_OPTIONS: readonly ReadLayoutKind[] = ['classic', 'immersive', 'paginated', 'pili']
+export const READ_TOOLBAR_OPTIONS = ['inline', 'floating', 'bottom'] as const
+export const READ_TEXTURE_OPTIONS = ['none', 'paper', 'vignette'] as const
+export const READ_CHAPTER_DECO_OPTIONS = ['rule', 'ornament', 'none'] as const
+
+/** 数值边界(校验钳制口径, admin Slider 同界) */
+export const READ_MEASURE_MIN = 480
+export const READ_MEASURE_MAX = 900
+export const READ_FONT_MIN = 14
+export const READ_FONT_MAX = 24
+export const READ_LINE_MIN = 1.4
+export const READ_LINE_MAX = 2.6
+/** 页脚文本/链接边界 */
+export const FOOTER_TEXT_MAX = 300
+export const FOOTER_LINKS_MAX = 20
+export const FOOTER_LINK_NAME_MAX = 40
+export const FOOTER_LINK_URL_MAX = 500
+
+/** 链接 URL 存储侧白名单(与 public/safe-href 渲染出口同口径: 字面 https?:// 前缀, 实体编码形态天然不匹配) */
+const FOOTER_LINK_URL_RE = /^https?:\/\//i
+
+function isPlainObj(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v)
+}
+
+/** 有限数字→钳制后的整数(非有限返回 null) */
+function clampIntRange(n: unknown, min: number, max: number): number | null {
+  const x = typeof n === 'number' ? n : Number(n)
+  if (!Number.isFinite(x)) return null
+  return Math.min(max, Math.max(min, Math.round(x)))
+}
+
+/** 有限数字→钳制后保留 1 位小数(lineHeight 档位口径; 非有限返回 null) */
+function clampLineHeight(n: unknown): number | null {
+  const x = typeof n === 'number' ? n : Number(n)
+  if (!Number.isFinite(x)) return null
+  const r = Math.round(x * 10) / 10
+  return Math.min(READ_LINE_MAX, Math.max(READ_LINE_MIN, r))
+}
+
+/**
+ * 覆盖配置消毒: 任意来源(JSON body) → 合法 ThemeOverride | 明确错误文案。
+ * 校验失败返回 { ok:false, message }(API 直接 400 透传); 通过值仅含合法键与钳制后数值。
+ */
+export function sanitizeThemeOverride(raw: unknown): ThemeOverrideSanitizeOk | ThemeOverrideSanitizeErr {
+  if (!isPlainObj(raw)) return { ok: false, message: '配置必须是对象' }
+  const o = raw as Record<string, unknown>
+  const out: ThemeOverride = {}
+
+  const rawRead = o.read
+  if (rawRead !== undefined && rawRead !== null) {
+    if (!isPlainObj(rawRead)) return { ok: false, message: '阅读设置(read)必须是对象' }
+    const r = rawRead as Record<string, unknown>
+    const read: Record<string, unknown> = {}
+    if (r.layout !== undefined) {
+      if (!(READ_LAYOUT_OPTIONS as readonly string[]).includes(String(r.layout))) {
+        return { ok: false, message: `非法的阅读布局: ${String(r.layout).slice(0, 32)}(允许: ${READ_LAYOUT_OPTIONS.join('/')})` }
+      }
+      read.layout = r.layout
+    }
+    if (r.measure !== undefined) {
+      const m = clampIntRange(r.measure, READ_MEASURE_MIN, READ_MEASURE_MAX)
+      if (m === null) return { ok: false, message: '栏宽必须是数字(480~900)' }
+      read.measure = m
+    }
+    if (r.lineHeight !== undefined) {
+      const l = clampLineHeight(r.lineHeight)
+      if (l === null) return { ok: false, message: `行高必须是数字(${READ_LINE_MIN}~${READ_LINE_MAX})` }
+      read.lineHeight = l
+    }
+    if (r.fontBase !== undefined) {
+      const f = clampIntRange(r.fontBase, READ_FONT_MIN, READ_FONT_MAX)
+      if (f === null) return { ok: false, message: `字号必须是数字(${READ_FONT_MIN}~${READ_FONT_MAX})` }
+      read.fontBase = f
+    }
+    if (r.indent !== undefined) {
+      if (typeof r.indent !== 'boolean') return { ok: false, message: '段首缩进必须是布尔值' }
+      read.indent = r.indent
+    }
+    if (r.justify !== undefined) {
+      if (typeof r.justify !== 'boolean') return { ok: false, message: '两端对齐必须是布尔值' }
+      read.justify = r.justify
+    }
+    if (r.toolbar !== undefined) {
+      if (!(READ_TOOLBAR_OPTIONS as readonly string[]).includes(String(r.toolbar))) {
+        return { ok: false, message: `非法的工具条形态: ${String(r.toolbar).slice(0, 32)}(允许: ${READ_TOOLBAR_OPTIONS.join('/')})` }
+      }
+      read.toolbar = r.toolbar
+    }
+    if (r.texture !== undefined) {
+      if (!(READ_TEXTURE_OPTIONS as readonly string[]).includes(String(r.texture))) {
+        return { ok: false, message: `非法的纹理: ${String(r.texture).slice(0, 32)}(允许: ${READ_TEXTURE_OPTIONS.join('/')})` }
+      }
+      read.texture = r.texture
+    }
+    if (r.chapterDeco !== undefined) {
+      if (!(READ_CHAPTER_DECO_OPTIONS as readonly string[]).includes(String(r.chapterDeco))) {
+        return { ok: false, message: `非法的章节装饰: ${String(r.chapterDeco).slice(0, 32)}(允许: ${READ_CHAPTER_DECO_OPTIONS.join('/')})` }
+      }
+      read.chapterDeco = r.chapterDeco
+    }
+    if (Object.keys(read).length > 0) out.read = read as Partial<ReadVars>
+  }
+
+  const rawFooter = o.footer
+  if (rawFooter !== undefined && rawFooter !== null) {
+    if (!isPlainObj(rawFooter)) return { ok: false, message: '页面底部(footer)必须是对象' }
+    const f = rawFooter as Record<string, unknown>
+    const footer: Record<string, unknown> = {}
+    if (f.copyright !== undefined && f.copyright !== null) {
+      if (typeof f.copyright !== 'string') return { ok: false, message: '版权行必须是字符串' }
+      const c = f.copyright.trim()
+      if (c.length > FOOTER_TEXT_MAX) return { ok: false, message: `版权行不能超过 ${FOOTER_TEXT_MAX} 字(当前 ${c.length} 字)` }
+      if (c) footer.copyright = c
+    }
+    if (f.notice !== undefined && f.notice !== null) {
+      if (typeof f.notice !== 'string') return { ok: false, message: '声明行必须是字符串' }
+      const n = f.notice.trim()
+      if (n.length > FOOTER_TEXT_MAX) return { ok: false, message: `声明行不能超过 ${FOOTER_TEXT_MAX} 字(当前 ${n.length} 字)` }
+      if (n) footer.notice = n
+    }
+    if (f.links !== undefined && f.links !== null) {
+      if (!Array.isArray(f.links)) return { ok: false, message: '自定义链接必须是数组' }
+      if (f.links.length > FOOTER_LINKS_MAX) return { ok: false, message: `自定义链接最多 ${FOOTER_LINKS_MAX} 条(当前 ${f.links.length} 条)` }
+      const links: { name: string; url: string }[] = []
+      for (let i = 0; i < f.links.length; i++) {
+        const item = f.links[i]
+        if (!isPlainObj(item)) return { ok: false, message: `第 ${i + 1} 条链接必须是对象` }
+        const it = item as Record<string, unknown>
+        if (typeof it.name !== 'string' || !it.name.trim()) return { ok: false, message: `第 ${i + 1} 条链接名称不能为空` }
+        const name = it.name.trim()
+        if (name.length > FOOTER_LINK_NAME_MAX) return { ok: false, message: `第 ${i + 1} 条链接名称不能超过 ${FOOTER_LINK_NAME_MAX} 字` }
+        if (typeof it.url !== 'string' || !it.url.trim()) return { ok: false, message: `第 ${i + 1} 条链接 URL 不能为空` }
+        const url = it.url.trim()
+        if (url.length > FOOTER_LINK_URL_MAX) return { ok: false, message: `第 ${i + 1} 条链接 URL 不能超过 ${FOOTER_LINK_URL_MAX} 字符` }
+        if (!FOOTER_LINK_URL_RE.test(url)) return { ok: false, message: `第 ${i + 1} 条链接 URL 仅支持 http/https 协议` }
+        links.push({ name, url })
+      }
+      if (links.length > 0) footer.links = links
+    }
+    if (Object.keys(footer).length > 0) out.footer = footer as Partial<ThemeFooterCfg>
+  }
+
+  if (!out.read && !out.footer) return { ok: false, message: '没有需要保存的配置项' }
+  return { ok: true, value: out }
+}
+
+// ============================================================
 // [R24-5] 9 站点克隆 id —— layout/headerStyle/首页组件共用同一命名空间; [R25-4] +trxsw
 // ============================================================
 export type SiteCloneId =
@@ -112,6 +354,8 @@ export interface ThemeDef {
   dark: boolean
   /** 阅读页布局与排版（缺省走 readOf 回退值） */
   read?: ThemeReadConfig
+  /** [R36-2a-1] 页面底部可编辑配置(preset 不含此字段, 经 applyThemeOverrides 合并后恒全量) */
+  footer?: ThemeFooterCfg
   /** [R24-5] 每站注入的裸 CSS —— 选择器一律以 .clone-{id} 开头(作用域挂 PublicSite 根) */
   customCss?: string
   /** 后台主题卡片预览色 */

@@ -23,6 +23,8 @@ export interface SiteInfo {
   pseudoPreset?: string
   /** [R24-4] 全局 SEO 模板(/api/public/sites 附带, 书籍页/目录页/章节页自动 TDK 与 SSR 同源) */
   seoTpl?: import('@/lib/seo-tpl').SeoTplSet
+  /** [R36-2a-5] 主题覆盖 map(/api/public/sites 附带, key=themeId; PublicSite 经 applyThemeOverrides 合并生效) */
+  themeOverrides?: Record<string, import('@/lib/crawl/themes').ThemeOverride>
 }
 
 /** 分类（/api/admin/categories 返回结构） */

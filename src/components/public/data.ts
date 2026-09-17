@@ -83,6 +83,8 @@ export interface BookDetailData {
   tocSize: number
   tocTotalPages: number
   chapters: TocChapter[]
+  /** [R36-2b-2] 全书最新 12 章(API idx desc 最新在前, 与目录分页解耦); 旧响应/异常缺省 undefined → 消费方回落 chapters 原口径 */
+  latestChapters?: TocChapter[]
   tags: BookTagHit[]
 }
 
@@ -95,6 +97,9 @@ export function fetchBook(id: string, tocPage = 1, tocSize = 100): Promise<BookD
     registerBookRef(d.book?.id, d.book?.num)
     const bid = d.book?.id
     for (const c of d.chapters || []) registerChapterRef(c.id, bid, c.idx)
+    // [R36-2b-2] 全书最新 12 章也注册伪静态引用(多页书第 1 页时这些章不在 chapters 切片内,
+    // 不注册则最新章节块的阅读链回退查询串形态); 缺省 undefined 容旧响应
+    for (const c of d.latestChapters || []) registerChapterRef(c.id, bid, c.idx)
     return d
   })
 }

@@ -115,8 +115,10 @@ export function Ggd66Book({ data, loading, error, tocPage, currentChapterId }: S
 
   const { book, chapters, tocTotal, tocTotalPages } = data
   const firstChapter = chapters[0]
-  // 真站「最新章节」= 站方倒序 12 条; 模板取当前页尾部 12 条倒序(声明)
-  const latest12 = [...chapters].slice(-12).reverse()
+  // [R36-2b-5] 真站「最新章节」= 站方倒序 12 条; 原「当前页尾 12 条倒序」(多页书第 1 页≈最早)升级为
+  // API 全书最新 12 章(latestChapters idx desc 最新在前, 与目录分页解耦)。展示序与原设计一致(最新在前)
+  // → API desc 序直接用不再 reverse; 缺字段容旧响应回落当前页尾 12 条倒序原口径
+  const latest12 = data.latestChapters ? [...data.latestChapters] : [...chapters].slice(-12).reverse()
   const pg = 'ggd-pg m-[2px] inline-flex h-[35px] min-w-[35px] items-center justify-center rounded-[3px] border px-1 text-[14px]'
 
   return (

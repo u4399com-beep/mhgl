@@ -198,8 +198,10 @@ export function Qb23Book({ data, loading, error, tocPage, currentChapterId }: Si
 
   const { book, chapters, tocTotalPages, tags } = data
   const tagList = (tags || []).slice(0, 4)
-  // 真站「最新章节」为倒序最新 10 条; 克隆取当前 tocPage 尾部倒序(单页书即真最新, 见文件头降级①)
-  const latestRows = [...chapters].slice(-10).reverse()
+  // [R36-2b-7] 真站「最新章节」为倒序最新 10 条; 原「当前 tocPage 尾部倒序」(多页书第 1 页≈最早)
+  // 升级为 API 全书最新 10 条(latestChapters idx desc 最新在前, 与目录分页解耦)。展示序/行数与原
+  // 设计一致(最新在前×10) → API desc 序取前 10 不再 reverse; 缺字段容旧响应回落当前页尾 10 条倒序原口径
+  const latestRows = data.latestChapters ? data.latestChapters.slice(0, 10) : [...chapters].slice(-10).reverse()
 
   return (
     <div className="w-full pb-14" style={{ color: QB_TEXT }}>

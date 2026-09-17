@@ -5,7 +5,7 @@
 
 import { createContext, useContext } from 'react'
 import { buildBookPath, buildReadPath, buildViewUrl, sanitizePseudoPreset, type PseudoPreset } from '@/lib/pseudostatic'
-import type { ThemeDef } from '@/lib/crawl/themes'
+import type { ThemeDef, ThemeOverride } from '@/lib/crawl/themes'
 import type { SiteInfo } from './types'
 
 // [R26-c-1] +toc: 目录页(完整章节列表, 独立视图; 书页内「查看完整目录」跳转至此)
@@ -27,6 +27,8 @@ export interface PublicCtxValue {
   site: SiteInfo
   sites: SiteInfo[]
   theme: ThemeDef
+  /** [R36-2a-fix-1] 当前生效主题的覆盖配置(阅读设置/页面底部, 未编辑=undefined): 克隆阅读器以此为准基线 */
+  themeOverride?: ThemeOverride
   /** 伪静态预设(query/numeric/alnum/directory/restful/compact) — 书籍页/阅读页链接形态 */
   pseudoPreset: PseudoPreset
   embedMode: boolean

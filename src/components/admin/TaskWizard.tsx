@@ -37,7 +37,7 @@ import {
   Zap,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import { api, safeParseRuleConfig, type RuleRow } from './helpers'
+import { api, safeParseRuleConfig, type RuleRow, type TaskForm } from './helpers' // [R36-2d-9] TaskForm 副本收敛至 helpers
 import { StepIndicator } from './StepIndicator'
 // [R34-2a-4] 书号采集: 与 API 规范化/引擎建队列共用同一纯函数模块, 保证三方计数/解析口径一致
 // [R35-2a-6] 书号范围: parseBookIdRange/BOOK_ID_RANGE_MAX 与 API/runner 共用同一校验口径
@@ -52,33 +52,7 @@ interface TaskWizardProps {
 }
 
 // ---- 表单 ----
-interface TaskForm {
-  name: string
-  ruleId: string
-  // [R34-2a-4] 扩 'bookIds'(书号): bookUrl 复用存书籍页 URL 模板(必含 {bookId}), bookIds 存书号原文
-  mode: 'single' | 'range' | 'bookIds'
-  bookUrl: string
-  bookIds: string
-  // [R35-2a-6] 书号范围端点(bookIds 模式范围子形态): 提交时按子形态二选一清空另一侧
-  bookIdFrom: string
-  bookIdTo: string
-  listUrl: string
-  listStart: number
-  listEnd: number
-  bookStart: number
-  bookEnd: number
-  recrawlMode: 'full' | 'incremental'
-  storageMode: 'db' | 'txt'
-  threadMin: number
-  threadMax: number
-  intervalMin: number
-  intervalMax: number
-  smartCategory: boolean
-  smartComplete: boolean
-  autoSuggest: boolean
-  autoRefresh: boolean
-  refreshIntervalMin: number
-}
+// [R36-2d-9] TaskForm 表单态原副本(23 行)收敛至 helpers.ts(字段逐一同型, 零行为面)
 
 const EMPTY_FORM: TaskForm = {
   name: '',

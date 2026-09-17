@@ -19,7 +19,7 @@
 
 import { useEffect, useState } from 'react'
 import type { SiteReadProps } from '../shared'
-import { ChapterContent, useReaderFont, useRecordReading } from '../template-kit'
+import { ChapterContent, useReaderFont, useRecordReading, useThemeLineHeight } from '../template-kit'
 import { usePublic } from '../../ctx'
 import { fetchBooks, fetchSearch } from '../../data'
 import { ErrorState, bookNavProps } from '../../bits'
@@ -45,6 +45,9 @@ export function HuangjinwuRead({ data, loading, error }: SiteReadProps) {
   const { navigate } = usePublic()
   const { font, set: setFont } = useReaderFont(14, 24)
   const [lineHeight, setLineHeight] = useState(1.8)
+  // [R36-2a-fix-5] 主题覆盖行距: admin「阅读设置」编辑过则以覆盖为权威基线(0=未编辑哨兵, 零回归)
+  const hjwLhOv = useThemeLineHeight(0)
+  if (hjwLhOv && hjwLhOv !== lineHeight) setLineHeight(hjwLhOv) // [R36-2a-fix-5] render 期同步(useChapterBookmark 同款模式)
   const [related, setRelated] = useState<BookItem[] | null>(null)
 
   const chapter = data?.chapter || null

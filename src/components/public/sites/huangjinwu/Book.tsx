@@ -95,8 +95,11 @@ export function HjwBook({ data, loading, error, tocPage, currentChapterId }: Sit
     }
   }, [site.id, relCatId, relCat, relBookId])
 
-  // 最新章节: 当前目录页尾部 12 条倒序(真站为站方最新 12 条; 多页书第 1 页≈最早, 声明)
-  const latest = useMemo(() => chapters.slice(-12).reverse(), [chapters])
+  // [R36-2b-6] 最新章节: 原「当前目录页尾 12 条倒序」(多页书第 1 页≈最早)升级为 API 全书最新 12 章
+  // (latestChapters idx desc 最新在前, 与目录分页解耦)。展示序与原设计一致(最新在前) → API desc 序
+  // 直接用不再 reverse; 缺字段容旧响应回落当前页尾 12 条倒序原口径
+  const apiLatest = data?.latestChapters
+  const latest = useMemo(() => (apiLatest ? [...apiLatest] : [...chapters].slice(-12).reverse()), [apiLatest, chapters])
 
   // 简介折叠(真站 .detail-intro-content max-height 7.2em + .intro-toggle-btn)
   const longIntro = (book?.intro || '').length > 120

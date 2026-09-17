@@ -21,8 +21,9 @@
 //      加入書架(addbookcase 会员态)/進入書籤/投推薦票(do_vote)无契约 → 不渲染
 //   ③ .btn-urge「催更」为登录后留言功能 → 不渲染; 更新日期 BookDetail 无 updatedAt
 //      字段可显示时不渲染该行
-//   ④ .qustime「最近章節」带更新日期(TocChapter 无日期) → 仅列章名; 且契约目录按页
-//      取回(首页 1-100)拿不到末章 → 以目录页前 6 章呈现(推断级)
+//   ④ .qustime「最近章節」带更新日期(TocChapter 无日期) → 仅列章名; [R36-2b-9] 原契约目录按页
+//      取回拿不到末章 → 曾以目录页前 6 章呈现(推断级), 现升级为 API 全书最新 6 章(latestChapters,
+//      正序展示与原设计一致)
 //   ⑤ tabs 書評頁签(review-panel/comment-list)无评论数据契约 → 整个頁签省略,
 //      仅保留 目錄/簡介 两頁签
 //   ⑥ 侧栏「本周最強」: 熱門頁签以最近更新榜近似(words/人气无来源)、完本頁签以
@@ -140,6 +141,10 @@ export function Kks101Book({ data, loading, error }: SiteBookProps) {
   const book = data?.book ?? null
   const chapters = data?.chapters ?? []
   const tags = data?.tags ?? []
+  // [R36-2b-9] ul.qustime「最近章節」= 全书最新 6 章: API latestChapters desc 取前 6 再反转=正序
+  // (展示序与原设计一致); 修前因拿不到末章以目录页前 6 章呈现(多页书第 1 页=全书最早 6 章)。
+  // 缺字段容旧响应回落目录页前 6 章原口径
+  const recent6 = data?.latestChapters ? [...data.latestChapters].slice(0, 6).reverse() : chapters.slice(0, 6)
 
   // [R28-2f-21] 侧栏双榜数据(熱門=最近更新榜近似 / 完本=completed 过滤, 见说明⑥)
   useEffect(() => {
@@ -289,7 +294,7 @@ export function Kks101Book({ data, loading, error }: SiteBookProps) {
             {tab === 'chapters' ? (
               <div>
                 <ul className="kkx-qustime" style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-                  {chapters.slice(0, 6).map((c) => (
+                  {recent6.map((c) => (
                     <li key={c.id} style={{ margin: '0 5px' }}>
                       <button
                         type="button"

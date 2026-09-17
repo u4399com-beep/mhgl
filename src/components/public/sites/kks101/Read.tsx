@@ -37,7 +37,7 @@ import type { SiteReadProps } from '../shared'
 import { usePublic } from '../../ctx'
 import { fetchBooks } from '../../data'
 import { ErrorState, Sk } from '../../bits'
-import { ChapterContent, useReaderFont, useRecordReading } from '../template-kit'
+import { ChapterContent, useReaderFont, useRecordReading, useThemeLineHeight } from '../template-kit'
 import type { BookItem } from '../../types'
 import { K, KContainer, cardStyle, MyTitle, kkStatus } from './parts'
 
@@ -75,6 +75,8 @@ function ToolBtn({ label, glyph, onClick }: { label: string; glyph: string; onCl
 export function Kks101Read({ data, loading, error }: SiteReadProps) {
   const { navigate } = usePublic()
   const { font, inc, dec } = useReaderFont()
+  // [R36-2a-fix-5] 主题覆盖行距(未编辑=2 零回归)
+  const kLh = useThemeLineHeight(2)
   const [night, setNight] = useState(false)
   const [setOpen, setSetOpen] = useState(false)
   const [recommends, setRecommends] = useState<BookItem[]>([])
@@ -142,7 +144,7 @@ export function Kks101Read({ data, loading, error }: SiteReadProps) {
   const boxStyle: CSSProperties = night
     ? { ...cardStyle, background: K.night, color: K.nightText }
     : cardStyle
-  const txtStyle: CSSProperties = { lineHeight: 2, fontSize: font, wordWrap: 'break-word', color: night ? K.nightText : K.ink }
+  const txtStyle: CSSProperties = { lineHeight: kLh, fontSize: font, wordWrap: 'break-word', color: night ? K.nightText : K.ink }
   const pageBtn: CSSProperties = {
     width: '100%',
     fontSize: 16,

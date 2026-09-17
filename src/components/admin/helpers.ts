@@ -64,7 +64,8 @@ export type RuleSection = 'list' | 'book' | 'toc' | 'content'
 
 // [R34-2a-6] 任务模式显示名映射: single/range 既有文案不变, bookIds 显示「书号采集」;
 // unknown 值防御性回退原样显示(与 runner 启动日志 modeLabel 同口径)
-export const TASK_MODE_LABELS: Record<string, string> = {
+// [R36-2d-7] 消费方仅经 taskModeLabel 间接使用, rg 实证映射表零直接外引 → 去导出
+const TASK_MODE_LABELS: Record<string, string> = {
   single: '单本',
   range: '范围',
   bookIds: '书号采集',
@@ -142,6 +143,37 @@ export interface TaskStats {
   coversSaved?: number
   suggestWords?: number
   errors?: number
+}
+
+// [R36-2d-9] 任务表单态(TaskDialog 编辑弹层与 TaskWizard 向导原各持一份字段逐一同型副本)收敛单处。
+// 注: 两面板的 emptyForm/EMPTY_FORM 缺省值刻意不同(弹层 threadMin=1/intervalMin=500,
+// 向导 threadMin=2/intervalMin=1000), 属各表面 UI 缺省, 不收敛。
+export interface TaskForm {
+  name: string
+  ruleId: string
+  // [R34-2a] 扩 'bookIds'(书号): bookUrl 复用存书籍页 URL 模板(必含 {bookId}), bookIds 存书号原文
+  mode: 'single' | 'range' | 'bookIds'
+  bookUrl: string
+  bookIds: string
+  // [R35-2a] 书号范围端点(bookIds 模式范围子形态): 提交时按子形态二选一清空另一侧
+  bookIdFrom: string
+  bookIdTo: string
+  listUrl: string
+  listStart: number
+  listEnd: number
+  bookStart: number
+  bookEnd: number
+  recrawlMode: 'full' | 'incremental'
+  storageMode: 'db' | 'txt'
+  threadMin: number
+  threadMax: number
+  intervalMin: number
+  intervalMax: number
+  smartCategory: boolean
+  smartComplete: boolean
+  autoSuggest: boolean
+  autoRefresh: boolean
+  refreshIntervalMin: number
 }
 
 export interface BookListRow {

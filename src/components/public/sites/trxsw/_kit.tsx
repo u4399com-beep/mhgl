@@ -1,7 +1,8 @@
 // ============================================================
 // [R34-2c-4] trxsw(天下书屋) 杰奇 CMS 家族共享小件 —— 原 JqH2(简洁版)×3(Search/Fulltext/
 // Ranking)与 Pager×2(Fulltext/Category)为逐字节复制, 收敛为单处定义。
-// Home.tsx(带 right 插槽)与 Category.tsx(带「更多」按钮)的 JqH2 形态不同, 仍保留各自文件本地。
+// [R36-2d-11] JqH2Slot(右插槽版, 原 Home/Category 各持一份本地件)同款收敛; 简版与插槽版
+// className 差 justify-between gap-2(单子元素时无视觉差), 两形态并存防既有 DOM 类串漂移。
 // ============================================================
 'use client'
 
@@ -32,6 +33,40 @@ export function JqH2({ children }: { children: ReactNode }) {
       }}
     >
       {children}
+    </h2>
+  )
+}
+
+/**
+ * [R36-2d-11] 杰奇默认 h2·右插槽版 —— 原 Home.tsx 本地件(带 right 插槽)与 Category.tsx 本地件
+ * (无插槽; 原零调用的 more 参数已削)逐字节同 JSX 收敛。className 含 justify-between gap-2,
+ * 与简版 JqH2 不同, 勿混用。
+ */
+export function JqH2Slot({ children, right }: { children: ReactNode; right?: ReactNode }) {
+  const C = {
+    navBlue: '#1C5087',
+    text: '#333333',
+    border: '#dddddd',
+  } as const
+  return (
+    <h2
+      className="flex items-center justify-between gap-2 overflow-hidden"
+      style={{
+        background: 'linear-gradient(180deg, #fafbfc 0%, #e9eef5 100%)',
+        borderBottom: `1px solid ${C.border}`,
+        borderLeft: `4px solid ${C.navBlue}`,
+        color: C.text,
+        fontSize: 14,
+        fontWeight: 700,
+        lineHeight: '32px',
+        minHeight: 32,
+        margin: 0,
+        paddingLeft: 8,
+        paddingRight: 8,
+      }}
+    >
+      {children}
+      {right}
     </h2>
   )
 }

@@ -20,8 +20,8 @@
 //
 // 降级: ①鲜花/鸡蛋/总点击/收藏/推荐计数无契约 → 数据行以 字数/分类/更新时间 复刻
 // works-status 栅格 ②作者卡(作者等级/签约状态/是否上架) → 分类/状态/字数 ③作品轮播图
-// (works-slider-ad bx-carousel)无推荐书数据契约 → 不渲染 ④最新章行取当前目录页尾部
-// (多页书=最早页尾部, 与真站站方最新章可能不同页)。
+// (works-slider-ad bx-carousel)无推荐书数据契约 → 不渲染 ④[R36-2b-8] 最新章行原取当前目录页尾部
+// (多页书=最早页尾部) → 升级为 API 全书最新章(latestChapters[0], 与目录分页解耦)。
 // ============================================================
 'use client'
 
@@ -43,7 +43,10 @@ export function PiliBook({ data, loading, error, currentChapterId }: SiteBookPro
   const chapters = data?.chapters || []
   // 真站书页章节列表为「最新在前」倒序(第63章→第50章)
   const latestFirst = [...chapters].reverse()
-  const latestCh = latestFirst[0]
+  // [R36-2b-8] 「最新章」行 = 全书最新 1 章(API latestChapters[0] idx 最大, 与目录分页解耦; 修前取
+  // 当前目录页尾章 → 多页书第 1 页显示第 100 章而非全书末章)。缺字段容旧响应回落当前页尾章原口径
+  // (下方 50 条章节网格为「本页目录倒序预览」非最新块, 维持当前页数据不动)
+  const latestCh = data?.latestChapters?.[0] ?? latestFirst[0]
   const firstCh = chapters[0]
 
   if (error) {

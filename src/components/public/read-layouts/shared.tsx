@@ -32,7 +32,7 @@ import { Switch } from '@/components/ui/switch'
 import type { ReadVars } from '@/lib/crawl/themes'
 import { fetchBook } from '../data'
 import type { ChapterData } from '../types'
-import { usePublic } from '../ctx'
+import { usePublic, type ViewParams } from '../ctx'
 import { withAlpha } from '../seo'
 import {
   getReadPos,
@@ -41,20 +41,21 @@ import {
   setReadTimeMs,
   formatReadTime,
 } from './reading-memory'
-import { listBookmarks, toggleBookmark, formatRelativeTime, type Bookmark as BookmarkItem } from './bookmarks'
+import { listBookmarks, toggleBookmark, isBookmarked, formatRelativeTime, type Bookmark as BookmarkItem } from './bookmarks'
 import { getReadChapters, markChapterRead } from './chapter-progress'
 
 // [R34-2c-2] 通用阅读器与克隆模板(template-kit)共用的字号持久化键与读取器 —
 // 原先两处各自声明同键同校验的私有副本(用户偏好互通依赖双方键一致), 收敛为单处定义
 export const READER_FONT_KEY = 'public_reader_fontSize'
 
-export function readStoredFontSize(): number {
-  if (typeof window === 'undefined') return 17
+export function readStoredFontSize(base = 17): number {
+  // [R36-2a-fix-2] base 可传主题覆盖基线(fontBase); 无存储偏好时回落 base(缺省 17 零回归)
+  if (typeof window === 'undefined') return base
   try {
     const n = Number(window.localStorage.getItem(READER_FONT_KEY))
-    return Number.isFinite(n) && n >= 14 && n <= 24 ? n : 17
+    return Number.isFinite(n) && n >= 14 && n <= 24 ? n : base
   } catch {
-    return 17
+    return base
   }
 }
 
@@ -483,6 +484,104 @@ export function useReadingTimeTracker(bookId?: string): number {
   }, [bookId])
 
   return readTimeMs
+}
+
+/* ---------------- 四版式通用小件 (R36-2d 收敛) ---------------- */
+
+/**
+ * [R36-2d-1] feat-a B 章节书签状态钩子 —— 四版式(ReadClassic/ReadImmersive/ReadPaginated/
+ * ReadPili)逐字节重复的「useState + render 期 localStorage 同步 + 切换回调」收敛:
+ * - render 期间检测 localStorage 并 setState(与原版式内联实现同款模式, data 变化时同步);
+ * - onToggle 即时回写并更新 state(与原内联 onToggle 等价: 未就绪即 no-op)。
+ */
+export function useChapterBookmark(
+  bk: ChapterData['book'] | null | undefined,
+  ch: ChapterData['chapter'] | null | undefined,
+): { bookmarked: boolean; onToggle: () => void } {
+  const [bookmarked, setBookmarked] = useState(false)
+  if (typeof window !== 'undefined' && bk && ch) {
+    const next = isBookmarked(bk.id, ch.id)
+    if (next !== bookmarked) setBookmarked(next)
+  }
+  const onToggle = () => {
+    if (!bk || !ch) return
+    setBookmarked(toggleBookmark(bk.id, { id: ch.id, idx: ch.idx, title: ch.title }))
+  }
+  return { bookmarked, onToggle }
+}
+
+/**
+ * [R36-2d-2] feat-round-5 B1 全局阅读器动作注册 —— 四版式重复段收敛:
+ * onPrev/onNext 固定为章节导航, 滚动动作由版式注入(window / 内部滚动容器 / 横向舞台)。
+ * useEffect 无 deps — 每次 render 后写入最新闭包, 卸载时清空(避免读到陈旧 data),
+ * 与原版式内联实现一致。
+ */
+export function useReaderActions(
+  data: ChapterData | null,
+  navigate: (p: ViewParams) => void,
+  onScrollTop: () => void,
+  onScrollBottom: () => void,
+) {
+  useEffect(() => {
+    const actions = {
+      onPrev: () => data?.prev && navigate({ view: 'read', chapterId: data.prev.id }),
+      onNext: () => data?.next && navigate({ view: 'read', chapterId: data.next.id }),
+      onScrollTop,
+      onScrollBottom,
+    }
+    readerActionsRef.current = actions
+    return () => {
+      if (readerActionsRef.current === actions) readerActionsRef.current = {}
+    }
+  })
+}
+
+/**
+ * [R36-2d-3] feat-a A 位置恢复 inline 提示(2s 自动消失, useReadPosMemory 驱动) ——
+ * 四版式仅定位/层级类名不同(fixed|absolute × top × z), 经 posClass 注入。
+ */
+export function RestoredHint({ posClass }: { posClass: string }) {
+  const v = usePublic().theme.vars
+  return (
+    <div
+      className={`pointer-events-none ${posClass} left-1/2 -translate-x-1/2 rounded-full px-3.5 py-1.5 text-xs shadow-md`}
+      style={{ background: withAlpha(v.primary, 0.95), color: v.primaryText }}
+      role="status"
+    >
+      已定位到上次阅读位置
+    </div>
+  )
+}
+
+/**
+ * [R36-2d-4] 顶部阅读进度线 —— 四版式仅定位类名/进度口径(滚动|页码)/过渡时长/辉光不同。
+ * glow=true 时叠加 primary 辉光(immersive 暗底可读性)。
+ */
+export function ReadProgressLine({
+  pct,
+  posClass,
+  transitionMs = 80,
+  glow = false,
+}: {
+  pct: number
+  posClass: string
+  transitionMs?: number
+  glow?: boolean
+}) {
+  const v = usePublic().theme.vars
+  return (
+    <div className={posClass} aria-hidden>
+      <div
+        style={{
+          width: `${pct}%`,
+          height: '100%',
+          background: `linear-gradient(90deg, ${v.primary}, ${v.accent})`,
+          transition: `width ${transitionMs}ms linear`,
+          ...(glow ? { boxShadow: `0 0 8px ${v.primary}` } : null),
+        }}
+      />
+    </div>
+  )
 }
 
 /* ---------------- 阅读器统一设置面板 (feat-a C) ---------------- */

@@ -6,6 +6,7 @@
 
 import { useEffect, useState } from 'react'
 import { Landmark, Loader2, RefreshCw, ShieldCheck } from 'lucide-react'
+import { footerOf } from '@/lib/crawl/themes'
 import { usePublic } from './ctx'
 import { siteKeywordList, withAlpha } from './seo'
 import { TagCloud, SuggestTagCloud, designVars } from './bits'
@@ -23,6 +24,9 @@ export function SiteFooter() {
   const dv = designVars(theme)
   const glow = dv.glowColor ?? v.primary
   const year = new Date().getFullYear()
+  // [R36-2a-7] 页脚可编辑配置(theme.footer, 经 PublicSite applyThemeOverrides 合并后恒全量;
+  //   空串=保持既有默认文案逐字节不变, links 非空渲染「自定义链接：」行)
+  const f = footerOf(theme)
 
   // 友链/链轮 — 客户端拉取, 失败静默降级不渲染模块
   const [footerLinks, setFooterLinks] = useState<FooterLinksData | null>(null)
@@ -95,6 +99,28 @@ export function SiteFooter() {
         <TagCloud tags={siteKeywordList(site)} />
         {/* 随机下拉词(页脚版: 12 个, 无换一批) */}
         <SuggestTagCloud count={12} />
+        {/* [R36-2a-7] 自定义底部链接组(theme.footer.links): 样式对齐友链行, safeHref 白名单出口 */}
+        {f.links.length > 0 && (
+          <nav aria-label="自定义链接" className="text-xs leading-relaxed" style={{ color: v.textMuted }}>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span className="shrink-0 font-medium" style={{ color: v.text }}>
+                自定义链接：
+              </span>
+              {f.links.map((l, i) => (
+                <a
+                  key={`${i}-${l.name}`}
+                  href={safeHref(l.url)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={l.name}
+                  className="transition-opacity hover:opacity-70"
+                >
+                  {l.name}
+                </a>
+              ))}
+            </div>
+          </nav>
+        )}
         {footerLinks && (hasFriend || hasWheel) && (
           <nav
             aria-label="友情链接"
@@ -159,11 +185,13 @@ export function SiteFooter() {
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px]" style={{ color: v.textMuted }}>
           <span className="inline-flex items-center gap-1">
             <Landmark className="h-3 w-3" aria-hidden />
-            © {year} {site.name} · {site.domain} · 保留所有权利
+            {/* [R36-2a-7] 版权行可编辑(theme.footer.copyright); 空串=既有默认文案逐字节不变 */}
+            {f.copyright ? f.copyright : <>© {year} {site.name} · {site.domain} · 保留所有权利</>}
           </span>
           <span className="inline-flex items-center gap-1">
             <ShieldCheck className="h-3 w-3" aria-hidden />
-            本站内容来自公开网络采集，仅作技术演示，如有侵权请联系删除
+            {/* [R36-2a-7] 声明行可编辑(theme.footer.notice); 空串=既有默认文案逐字节不变 */}
+            {f.notice ? f.notice : '本站内容来自公开网络采集，仅作技术演示，如有侵权请联系删除'}
           </span>
           <span>GEO {site.geoRegion} · {site.geoPlacename}</span>
         </div>

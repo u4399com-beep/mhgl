@@ -20,9 +20,9 @@
 // ============================================================
 'use client'
 
-import type { ReactNode } from 'react'
 import type { SiteHomeProps } from '../shared'
 import { usePublic } from '../../ctx'
+import { JqH2Slot as JqH2 } from './_kit' // [R36-2d-11] 原本地 JqH2(右插槽版)收敛至 _kit
 import { useFooterLinks, useWordsPool } from '../hooks' // [R35-2d-1] 原逐字节重复的热榜/友链拉取 effect 收敛
 import { safeHref } from '../../safe-href'
 import { bookNavProps, Sk } from '../../bits'
@@ -41,30 +41,7 @@ const C = {
   topBg: '#f5f5f5',
 } as const
 
-/** [R28-2g-1] 杰奇默认 h2: 浅色渐变底纹 + 左 4px 深蓝竖条 + 下边线(真站 h2 为底纹图 → CSS 渐变等价) */
-function JqH2({ children, right }: { children: ReactNode; right?: ReactNode }) {
-  return (
-    <h2
-      className="flex items-center justify-between gap-2 overflow-hidden"
-      style={{
-        background: 'linear-gradient(180deg, #fafbfc 0%, #e9eef5 100%)',
-        borderBottom: `1px solid ${C.border}`,
-        borderLeft: `4px solid ${C.navBlue}`,
-        color: C.text,
-        fontSize: 14,
-        fontWeight: 700,
-        lineHeight: '32px',
-        minHeight: 32,
-        margin: 0,
-        paddingLeft: 8,
-        paddingRight: 8,
-      }}
-    >
-      {children}
-      {right}
-    </h2>
-  )
-}
+// [R28-2g-1] 杰奇默认 h2·右插槽版已收敛至 _kit.JqH2Slot [R36-2d-11]
 
 /** 日期 MM-DD(真站 s5「10-20」形态) */
 function fmtMD(d?: string | null): string {

@@ -10,8 +10,7 @@
 
 import type { SiteCategoryProps } from '../shared'
 import { usePublic } from '../../ctx'
-import type { ReactNode } from 'react'
-import { Pager } from './_kit' // [R34-2c-4] 与 Fulltext 逐字节重复的 Pager 收敛
+import { JqH2Slot as JqH2, Pager } from './_kit' // [R34-2c-4] Pager 收敛 / [R36-2d-11] 本地 JqH2 收敛至 _kit
 import { useSiteCats } from '../hooks' // [R35-2d-1] 原逐字节重复的 cats 拉取 effect 收敛
 import { bookNavProps, ErrorState, Sk } from '../../bits'
 
@@ -25,34 +24,7 @@ const C = {
   dotted: '#cccccc',
 } as const
 
-/** [R27-6b-14] 杰奇默认 h2(同 Home) */
-function JqH2({ children, more }: { children: ReactNode; more?: () => void }) {
-  return (
-    <h2
-      className="flex items-center justify-between gap-2 overflow-hidden"
-      style={{
-        background: 'linear-gradient(180deg, #fafbfc 0%, #e9eef5 100%)',
-        borderBottom: `1px solid ${C.border}`,
-        borderLeft: `4px solid ${C.navBlue}`,
-        color: C.text,
-        fontSize: 14,
-        fontWeight: 700,
-        lineHeight: '32px',
-        minHeight: 32,
-        margin: 0,
-        paddingLeft: 8,
-        paddingRight: 8,
-      }}
-    >
-      {children}
-      {more && (
-        <button type="button" onClick={more} className="shrink-0 text-[12px] font-normal hover:underline" style={{ color: C.gray }} aria-label="更多">
-          更多&gt;&gt;
-        </button>
-      )}
-    </h2>
-  )
-}
+// [R27-6b-14] 杰奇默认 h2(同 Home)已收敛至 _kit.JqH2Slot [R36-2d-11]
 
 export function TrxswCategory({ data, loading, error, catName, cat, page }: SiteCategoryProps) {
   const { navigate } = usePublic()

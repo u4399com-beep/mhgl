@@ -12,7 +12,8 @@
 // feat-round-11 A3: 未配置态的"添加"按钮升级为模板下拉
 //   8 种常见字段模板(书名/作者/简介/封面/章节标题/章节链接/正文/最新章节)一键预填。
 // ============================================================
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
+import { useAliveRef } from './hooks' // [R36-2d-10] alive 守卫收敛(aliveRef 为唯一 ref/effect 消费)
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -350,17 +351,10 @@ function FieldTestButton({ label, fieldKey, testContext }: FieldTestButtonProps)
     matchIdx: 0,
     showDebug: false,
   })
-  const aliveRef = useRef(true)
+  // [R36-2d-10] StrictMode 安全 alive 守卫(原与另 5 处重复的复位 effect 收敛至 hooks.ts)
+  const aliveRef = useAliveRef()
   // 测试 URL 输入框(预填 testContext.defaultUrl, 用户可改)
   const [url, setUrl] = useState(testContext.defaultUrl || '')
-
-  // 挂载/重挂载时复位 aliveRef(与 TestPanel 同款 StrictMode 兼容做法)
-  useEffect(() => {
-    aliveRef.current = true
-    return () => {
-      aliveRef.current = false
-    }
-  }, [])
 
   // 注: 不在 effect 中同步 defaultUrl → url(避免 set-state-in-effect 反模式);
   // 改在 Popover 打开时刷新(handleOpenChange), 关闭时保留用户编辑过的 URL

@@ -5,6 +5,7 @@
 // 批量操作: 全选/行复选框 + 删除/设分类/设状态/批量重采/繁转简
 // ============================================================
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useAliveRef } from './hooks' // [R36-2d-10] alive 守卫收敛
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -97,15 +98,8 @@ export function BooksSection({ onGoDownload }: BooksSectionProps) {
 
   const SIZE = 20
   const seqRef = useRef(0)
-  const aliveRef = useRef(true)
-
-  // 挂载/重挂载时复位 aliveRef(StrictMode dev 下会 卸载→重挂载, 旧实现只设 false 不复位 → 卡 loading)
-  useEffect(() => {
-    aliveRef.current = true
-    return () => {
-      aliveRef.current = false
-    }
-  }, [])
+  // [R36-2d-10] StrictMode 安全 alive 守卫(原与另 5 处重复的复位 effect 收敛至 hooks.ts)
+  const aliveRef = useAliveRef()
 
   // 搜索防抖: 避免每次按键都发请求, 同时降低旧响应覆盖新结果的概率
   useEffect(() => {
@@ -140,7 +134,7 @@ export function BooksSection({ onGoDownload }: BooksSectionProps) {
     } finally {
       if (aliveRef.current && seq === seqRef.current) setLoading(false)
     }
-  }, [page, q, categoryId, status])
+  }, [page, q, categoryId, status, aliveRef])
 
   useEffect(() => {
     load()

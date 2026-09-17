@@ -137,6 +137,13 @@ function emptyStats(): TaskStats {
  *  站点改版/被全量拦截时 2~3 个批次内即熔断, 不再硬敲 */
 const CIRCUIT_ERROR_LIMIT = 20
 
+/** [R36-2c-4] 书籍级连续失败熔断阈值 —— 章节级(CIRCUIT_ERROR_LIMIT)只覆盖"书籍页已抓到
+ *  且目录非空"的正文阶段; 书籍页抓取超时/异常/拦截壳页在逐书循环里只计 errors 不熔断,
+ *  死站/全站拦截 + 大 bookQueue(范围模式 10 万级/书号模式 2000 上限)时会逐本硬敲到底
+ *  (每本一次超时级请求+错误日志)。20 本连续失败与章节熔断同量级: 正常抖动够不着,
+ *  站点级故障 2~3 轮内即熔断交由 autoRefresh 自愈 */
+const BOOK_CIRCUIT_ERROR_LIMIT = 20
+
 // ---------- [R28-4-E3] trafilatura 正文提取兜底(FETCH_EXTRACT_FALLBACK=1 缺省关) ----------
 /** 场景: 规则失效/站点改版/低质模板站时 parseContent 产出极短正文(confidence 低), 章节以
  *  近 0 字入库。开关开启后, plainLen<200 且 confidence<0.3 的章节把原始 HTML POST 给
@@ -316,6 +323,26 @@ async function reconcileResumeSetsCore(
   return { removedUrls: stale, removedFrom, batches, queriedUrls: urls.length }
 }
 
+/** [R36-2c-1] 阶段E 批量删除安全闸决策(纯函数, export 供验证脚本单测):
+ *  修前阶段E 无条件 deleteMany(idx>tocItems.length 且 url 不在当前目录) —— 目录解析
+ *  截断/中途失败时(本轮 TOC 只是既有章节的前缀子集), 整本书尾部正章会被当"陈旧章"
+ *  批量清掉(实例链路: 翻页中一跳瞬断→TOC 只剩前 N 页→N 章之后全部被删, R35-2c-1
+ *  已证明该截断形态真实存在)。判据双闸:
+ *  ① 量闸: staleCount > max(50, 30%×既有章节数) —— 正常"源站删了少量旧章"远够不着;
+ *  ② 签名闸: creates ≤ 10%×tocLen(本轮目录 ≥90% 与既有章节按 URL/标题精确命中 =
+ *     前缀子集特征) —— 源站全量换 URL(迁移)时 creates≈全部, 不拦截(保留原删除+重采语义);
+ *  两闸同时命中才跳过删除(保留数据+告警), 其余场景行为与修前逐字节一致 */
+export function staleTailGuardDecision(
+  staleCount: number,
+  baseline: number,
+  createsLen: number,
+  tocLen: number,
+): { skip: boolean; threshold: number } {
+  const threshold = Math.max(50, Math.floor(Math.max(0, baseline) * 0.3))
+  const truncatedSignature = tocLen > 0 && createsLen <= Math.floor(tocLen * 0.1)
+  return { skip: staleCount > threshold && truncatedSignature, threshold }
+}
+
 // ---------- 全局单例 ----------
 const globalForRunner = globalThis as unknown as { __novelTaskRunner?: TaskRunner }
 
@@ -327,6 +354,18 @@ export class TaskRunner {
   private refreshTimers = new Map<string, ReturnType<typeof setTimeout>>()
   /** rr-c2: control 每 task 串行化链(键=taskId, 值=队尾 promise; 尾 settles 后自删防无界增长) */
   private controlChains = new Map<string, Promise<unknown>>()
+  /** [R36-2c-2] per-task 单调 epoch 计数器(跨 runtime 条目生命周期存活):
+   *  旧实现 epoch 存在 runtime 对象上, 而 stop 路径经 cancelAutoRefresh→disposeRuntime 把
+   *  条目从 runtimes 删除 —— 紧接的 start 会创建全新 runtime 并从 epoch=1 重新计数, 与
+   *  仍在途的旧循环 myEpoch=1 碰撞: 旧循环 isStale() 永假, 且其 finally 的
+   *  `r.epoch === myEpoch` 检查误命中新一轮 runtime → ①清掉新轮 running 标志(isRunning
+   *  变 false, ghost sweeper 可能把在跑任务回收为 paused) ②清空新轮续采集合(后续
+   *  saveProgress 把半空集合落库 → progress 回退/已完结书重采)。本 Map 独立于 runtimes
+   *  存活, 保证同任务每次全新 start 的 epoch 严格单调递增, 旧代循环的 epoch 比较恒漂移。
+   *  FIFO 512 上限(与 fetcher hostRhythm/extractFbFailStreak 同款): 驱逐最旧任务计数器
+   *  仅使该任务 epoch 基线回落到 rt.epoch(其 runtime 存活期内单调性仍保持), 需 512 个
+   *  独立任务先后启动才可达, 实际不可达 */
+  private taskEpochs = new Map<string, number>()
   /** R4-8: control() 30s timeout race 修复 —— per-task 状态写串行化链。
    *  原问题: controlInner 卡在 SQLite busy 等待时, Promise.race 30s 超时让 run reject,
    *  但底层 controlInner 继续执行; 后续 control('stop') 入队执行, 其 db.task.update(status='stopped')
@@ -383,6 +422,15 @@ export class TaskRunner {
     // R9-d-9: 单例构造即启动兜底 sweeper(recoverOnBoot 只覆盖进程启动一轮, 运行期幽灵态
     // 由本 sweeper 周期回收); globalThis 单例保证构造仅一次, dev HMR 不会重复挂载
     this.ensureGhostSweeper()
+  }
+
+  /** [R36-2c-2] 取下一单调 epoch(见 taskEpochs 字段注)。取值优先级: 跨代计数器 > 当前
+   *  runtime epoch > 0; 写入经 numberMapFifoSet 有界化。private 但以纯逻辑(零 DB/零 IO)
+   *  供临时验证脚本经实例直测 */
+  private nextEpochFor(taskId: string, rt: Pick<TaskRuntime, 'epoch'>): number {
+    const next = (this.taskEpochs.get(taskId) ?? (rt.epoch || 0)) + 1
+    numberMapFifoSet(this.taskEpochs, taskId, next, 512)
+    return next
   }
 
   /** R4-8: per-task status 串行写 —— 把 db.task.update(status:...) 串到 prev 链尾,
@@ -502,7 +550,8 @@ export class TaskRunner {
     // + DB 反复 update → 自伤站点。下限 5 分钟与正常采集批次间隔同量级, 上限 1 天防止定时器
     // 在长生命周期内永久驻留。autoRefresh 自愈语义不变(站点改版场景 5 分钟足够冷启动一次)
     const clampedMin = Math.max(5, Math.min(1440, Math.round(delayMin)))
-    const ms = Math.max(0, Math.round(clampedMin * 60_000))
+    // [R36-2c-7] CRAWL_AUTOREFRESH_JITTER=1(缺省关)时触发时刻随机化 ±10%(见 jitterAutoRefreshMs 注)
+    const ms = jitterAutoRefreshMs(Math.max(0, Math.round(clampedMin * 60_000)))
     const timer = setTimeout(async () => {
       this.refreshTimers.delete(taskId)
       // 触发时复核: 任务仍存在/autoRefresh 仍开/未在运行/仍处终态(期间被 stop/pause 则放弃)
@@ -743,7 +792,10 @@ export class TaskRunner {
         }
         // 新启动(修复: stop→立刻 start 时, 旧一轮循环可能还卡在 fetch/sleep 里未退出,
         // 必须自增 epoch 让它自行终止, 否则新旧两个循环会并发采集同一任务)
-        rt.epoch = (rt.epoch || 0) + 1
+        // [R36-2c-2] epoch 自增改走跨代单调计数器(taskEpochs): stop 路径 disposeRuntime
+        //  已删除 runtime 条目, 旧写法在新对象上从 1 重新计数会与在途旧循环的 myEpoch 碰撞
+        //  (碰撞后果见 taskEpochs 字段注); 单调计数器保证新旧两代 epoch 严格不同
+        rt.epoch = this.nextEpochFor(taskId, rt)
         rt.running = true
         rt.paused = false
         rt.stopped = false
@@ -892,6 +944,15 @@ export class TaskRunner {
     const myEpoch = rt.epoch
     // 本轮已作废判断: 新一轮 start 会自增 epoch, 旧循环在所有检查点看到漂移即退出
     const isStale = () => rt.epoch !== myEpoch
+    // [R36-2c-3] 本循环是否仍持有活跃 runtime 条目: stop 路径 disposeRuntime 会把条目从
+    //  runtimes 删除(旧循环闭包仍持 rt 引用), 紧接的 start 又会装入全新对象 —— 旧代收尾写
+    //  (已停止进度落库/finally 清标志)必须避开新一代 runtime, 防旧代收尾覆写新循环的
+    //  running 标志与续采集合(碰撞后果见 taskEpochs 字段注)
+    const rtIsCurrent = () => this.runtimes.get(taskId) === rt
+    // [R36-2c-3] 进度收尾写权判定: 本代 runtime 仍是条目(正常运行)→有写权; 条目已被接替
+    //  (stop→start, 新循环在跑 isRunning=true)→无写权(进度权归新循环); 条目被删除且无新循环
+    //  (普通 stop 收尾)→有写权(保留停止时刻最终进度落库的原语义)
+    const progressOwned = () => rtIsCurrent() || !this.isRunning(taskId)
     // zz-d 修复(running 标志泄漏): ensureDirs/loadConfig 与 `!cfg` 提前返回原先都在下方
     // try 之外 —— 二者抛错(磁盘/DB 故障)或任务恰在启动窗口被删(loadConfig 返回 null)
     // 时 finally 不执行, rt.running 永久卡 true: 活任务后续 start 恒被"任务已在运行中"
@@ -1068,6 +1129,12 @@ export class TaskRunner {
         //  误熔断; 抓取失败(404/网络/限流冷却恢复期)走逐页 error 路径不计数, 防误熔断
         const DISCOVERY_EMPTY_PAGE_BREAK = 10
         let consecutiveEmptyPages = 0
+        // [R36-2c-5] 发现阶段连续抓取失败熔断 —— 修前抓取失败页只计 errors 不熔断, 死站
+        //  + 大 listEnd(上限 10 万页)配置会逐页硬敲到底(每页一次超时级请求+错误日志);
+        //  连续 20 页真失败(超时/HTTP 异常/连接拒绝; GlobalSemTimeout 引擎护栏豁免不计)
+        //  判定源站不可用, 提前终止翻页(已发现部分照常进入采集, 同 R22-f-4 空页熔断语义)
+        const DISCOVERY_FAIL_CIRCUIT = 20
+        let consecutivePageFails = 0
         for (let p = cfg.task.listStart; p <= cfg.task.listEnd; p++) {
           if (rt.stopped || isStale()) break
           while (rt.paused && !rt.stopped && !isStale()) await sleep(600)
@@ -1093,6 +1160,7 @@ export class TaskRunner {
             // bookUrl 而非 url —— 原 ['url'] 单字段取法使列表页整库采集模式对全部真实规则
             // 静默失效(发现 0 本书)。双字段都做 absolutize, 取值时 url 优先 bookUrl 兜底
             const parsed = parseList(res.html, url, listRule, ['url', 'bookUrl'])
+            consecutivePageFails = 0 // [R36-2c-5] 本页抓取+解析成功, 连败归零
             const pageUrls = parsed.items.map((i) => i.fields.url || i.fields.bookUrl).filter(Boolean)
             // feat-contentproxy-resume(范围任务续采): 已发现过的书籍 URL 不再加入 bookQueue
             // (节省后续书籍页/目录/正文抓取; 已采集过的书籍会被 completedBookUrls 跳过整本)
@@ -1143,7 +1211,12 @@ export class TaskRunner {
               await this.log(taskId, 'warn', `列表页 P${p} 引擎并发护栏等待超时(全局信号量), 页面保持未抓取; 稍后重跑可恢复`)
             } else {
               stats.errors++
+              consecutivePageFails++ // [R36-2c-5]
               await this.log(taskId, 'error', `列表页 P${p} 抓取失败: ${e?.message}`)
+              if (consecutivePageFails >= DISCOVERY_FAIL_CIRCUIT) {
+                await this.log(taskId, 'error', `连续 ${consecutivePageFails} 页列表抓取失败(P${p}), 判定源站不可用, 提前终止翻页(已发现 ${urls.length} 本继续采集; 稍后重跑可恢复余量页)`)
+                break
+              }
             }
           }
           await sleepGap(cfg.interval(), rt, myEpoch)
@@ -1171,7 +1244,13 @@ export class TaskRunner {
             if (!queued.has(k)) listFields.delete(k)
           }
         }
-        await this.log(taskId, 'success', `范围发现完成: 共 ${bookQueue.length} 本书待采集`)
+        if (bookQueue.length === 0) {
+          // [R36-2c-6] 0 本任务可观测: 修前 0 本与正常完成同文案(success 级), 操作员难以
+          //  区分"真没书"与"配置错/规则字段不匹配"(parseList 只认 url/bookUrl 双字段)
+          await this.log(taskId, 'warn', `范围发现完成: 0 本书待采集(请检查 listUrl 模板/listStart~listEnd/bookStart~bookEnd 配置, 及列表页规则字段是否为 url/bookUrl)`)
+        } else {
+          await this.log(taskId, 'success', `范围发现完成: 共 ${bookQueue.length} 本书待采集`)
+        }
       }
 
       progress.booksTotal = bookQueue.length
@@ -1183,6 +1262,10 @@ export class TaskRunner {
       await this.saveProgress(taskId, progress, stats)
 
       // ---------- 逐本采集 ----------
+      // [R36-2c-4] 书籍级连续失败熔断计数(语义同章节级 consecutiveErrs): 严格连续 —— 任一
+      //  非失败结局(ok/blocked 之外的正常返回/跳过已完结)即归零; 停止/换代/引擎护栏超时
+      //  (AbortError/HostGateTimeout/GlobalSemTimeout)不计入(引擎侧拥塞非源站故障)
+      let consecutiveBookErrs = 0
       for (let bi = 0; bi < bookQueue.length; bi++) {
         const bookUrl = bookQueue[bi]
         if (rt.stopped || isStale()) break
@@ -1196,6 +1279,7 @@ export class TaskRunner {
         // 两 Set 已被清空, 此分支不触发(完全覆盖重采语义保留)
         if (rt.completedBookUrls.has(bookUrl)) {
           progress.booksDone++
+          consecutiveBookErrs = 0 // [R36-2c-4] 跳过非失败, 连败计数归零
           progress.currentBook = bookUrl
           progress.phaseNote = `跳过已完结 (${bi + 1}/${bookQueue.length})`
           await this.log(taskId, 'info', `跳过已完结: ${bookUrl}`)
@@ -1234,6 +1318,14 @@ export class TaskRunner {
           if (bookResult === 'blocked' || bookResult === 'empty-toc') {
             // 跳过的书也计入已完成, 防 booksDone/booksTotal 进度条永远到不了头
             progress.booksDone++
+            // [R36-2c-4] 拦截壳页计入书籍连败(请求成功但被反爬拦截, 与章节拦截同风险面);
+            //  empty-toc 可能是合法空书(书号模式撞无效书号/无章节书), 不计入
+            if (bookResult === 'blocked') consecutiveBookErrs++
+            else consecutiveBookErrs = 0
+          }
+          // [R36-2c-4] 采集成功归零连败
+          if (bookResult === 'ok') {
+            consecutiveBookErrs = 0
           }
           // feat-combo-theme-incremental: 状态分流由 crawlOneBook 内部完成 ——
           // detectedStatus==='completed' 时 crawlOneBook 已将 bookUrl 加入 rt.completedBookUrls;
@@ -1257,6 +1349,7 @@ export class TaskRunner {
             // ee-d: 书籍页级 fetch 超时 —— 计失败+可见日志(与列表页路径口径一致),
             // 书籍保持未完成态, 稍后增量重试可恢复
             stats.errors++
+            consecutiveBookErrs++ // [R36-2c-4]
             await this.log(taskId, 'error', `书籍抓取超时(源站在 timeout 内未响应, 书籍保持未完成): ${bookUrl.slice(0, 120)}`)
             await this.saveProgress(taskId, progress, stats)
           } else if (e?.name === 'AbortError' || e?.code === 'ABORT_ERR') {
@@ -1273,9 +1366,20 @@ export class TaskRunner {
             await this.saveProgress(taskId, progress, stats)
           } else {
             stats.errors++
+            consecutiveBookErrs++ // [R36-2c-4]
             await this.log(taskId, 'error', `书籍采集失败 ${bookUrl}: ${e?.message}`)
             await this.saveProgress(taskId, progress, stats)
           }
+        }
+        // [R36-2c-4] 书籍级连续失败熔断检查(每本末, 语义同章节熔断) —— 达阈值即中止:
+        //  防死站/全站拦截时按 bookQueue 逐本硬敲到底(范围模式 10 万本/书号模式 2000 本)
+        if (consecutiveBookErrs >= BOOK_CIRCUIT_ERROR_LIMIT) {
+          rt.circuitTrippedAt = Date.now()
+          await this.log(taskId, 'error', `🔴 熔断中止: 连续 ${consecutiveBookErrs} 本书采集失败(源站超时/抓取异常/拦截), 停止继续请求以保护站点与出口 IP; autoRefresh 任务将按计划自动重试; 60s 冷却期内手动重启将被拒绝`)
+          await this.saveProgress(taskId, progress, stats)
+          const bookCbErr = new Error(`连续 ${consecutiveBookErrs} 本书采集失败, 触发书籍级连续错误熔断(阈值 ${BOOK_CIRCUIT_ERROR_LIMIT})`)
+          ;(bookCbErr as any).isCircuitBreak = true
+          throw bookCbErr
         }
         await sleepGap(cfg.interval(), rt, myEpoch)
       }
@@ -1286,8 +1390,13 @@ export class TaskRunner {
         // 全归新循环; 修前 rt.stopped 已被新一轮重置为 false, 旧循环在此误写"任务完成"+done
         // (运行中任务被旧循环误标完成的实证见 verify-ee-d-epoch.ts)
       } else if (rt.stopped) {
-        progress.phaseNote = '已停止'
-        await this.saveProgress(taskId, progress, stats)
+        // [R36-2c-3] stop→立即 start 场景: 条目已被新一代接替(rtIsCurrent 假 + isRunning 真),
+        //  旧循环不得再写"已停止"进度(会用旧 progress 对象回滚新循环刚写的进度 JSON);
+        //  普通 stop(条目已删且无新循环)保留原落库语义
+        if (progressOwned()) {
+          progress.phaseNote = '已停止'
+          await this.saveProgress(taskId, progress, stats)
+        }
       } else {
         progress.phase = 'done'
         progress.phaseNote = '任务完成'
@@ -1343,7 +1452,12 @@ export class TaskRunner {
     } finally {
       const r = this.runtimes.get(taskId)
       // 仅当仍是本轮运行时才清 running: 停止后立刻重启的场景下, 旧循环收尾不能抹掉新一轮的 running 标志
-      if (r && r.epoch === myEpoch) {
+      // [R36-2c-3] 增加同代对象判定(r === rt): stop 经 disposeRuntime 删条目后, 紧接的 start
+      //  装入全新 runtime 对象 —— 旧代 epoch 计数在新对象上重新从 1 起(跨代计数器修复前)
+      //  或即使单调计数器生效后, 对象身份判定也能直接排除旧代收尾误清新代的可能:
+      //  修前此处 r.epoch === myEpoch 会误命中新代(两代都是 1), 清掉新代 running 标志
+      //  (isRunning 变假 → ghost sweeper 可能把在跑任务回收为 paused)并清空新代续采集合
+      if (r && r === rt && r.epoch === myEpoch) {
         r.running = false
         // [R31-5-2] P1-2(审计 OOM 报告): 本轮循环已退出(epoch 未漂移 → 换代让位路径不走此处,
         //  不会踩新一轮的集合), 任务达终态(done/error/stopped)或已自然收尾 —— 四个续采大集合
@@ -2042,11 +2156,23 @@ export class TaskRunner {
     }
     const currentUrls = tocItems.map((it) => it.url).filter(Boolean)
     if (currentUrls.length > 0) {
-      const staleTail = await db.chapter.deleteMany({
-        where: { bookId, idx: { gt: tocItems.length }, url: { notIn: currentUrls } },
-      })
-      if (staleTail.count > 0) {
-        await this.log(taskId, 'info', `阶段E: 清理 ${staleTail.count} 条目录外陈旧章(idx>${tocItems.length})`)
+      // [R36-2c-1] 先 count 后删: 命中安全闸(目录截断签名+超阈值)时跳过删除保留数据,
+      //  防把整本书尾部正章当"陈旧章"批量清掉(决策依据见 staleTailGuardDecision 注);
+      //  未命中时行为与修前一致(单条 deleteMany, 常规陈旧章清理照常)
+      const staleWhere = { bookId, idx: { gt: tocItems.length }, url: { notIn: currentUrls } }
+      const staleCount = await db.chapter.count({ where: staleWhere })
+      const guard = staleTailGuardDecision(staleCount, existChapters.length, creates.length, tocItems.length)
+      if (guard.skip) {
+        await this.log(
+          taskId,
+          'warn',
+          `阶段E 已拦截: 待删目录外章节 ${staleCount} 条超过安全阈值 ${guard.threshold}, 且本次目录 ${tocItems.length} 章几乎全部与既有章节匹配(疑似目录翻页截断/中途失败), 已保留全部数据; 请检查目录分页配置后重跑本任务(重跑后目录完整时多余数据会被正常清理)`,
+        )
+      } else {
+        const staleTail = await db.chapter.deleteMany({ where: staleWhere })
+        if (staleTail.count > 0) {
+          await this.log(taskId, 'info', `阶段E: 清理 ${staleTail.count} 条目录外陈旧章(idx>${tocItems.length})`)
+        }
       }
     }
 
@@ -2121,7 +2247,7 @@ export class TaskRunner {
         threads = randInt(clampMin(live.threadMin, live.threadMax), live.threadMax)
         interval = randInt(clampMin(live.intervalMin, live.intervalMax), live.intervalMax)
       }
-      const batch = queue.splice(0, threads)
+      const batch = shuffleBatch(queue.splice(0, threads)) // [R36-2c-8] 批内顺序随机化(缺省关)
       progress.lastThread = threads
       progress.lastInterval = interval
       await this.log(taskId, 'info', `⚙ 线程批次: ${threads} 线程 × ${batch.length} 章`)
@@ -2536,6 +2662,37 @@ export function jitteredInterval(base: number, jitterMs?: number): number {
     : base * (0.8 + Math.random() * 0.4)
   const extra = typeof jitterMs === 'number' && jitterMs > 0 ? Math.random() * jitterMs : 0
   return Math.max(0, Math.round(pct + extra))
+}
+
+/**
+ * [R36-2c-7] CRAWL_AUTOREFRESH_JITTER=1(缺省关): 自动刷新触发时刻随机化 ±10%(下限仍钳 5min)
+ * —— autoRefresh 任务是同一 URL 集合的周期性重访者, 固定周期整点触发是可聚类机器指纹
+ * (源站可见“每 30min 准时一波同 UA 同路径序列抓取”); 随机化后触发时刻在区间内不可预测。
+ * 关闭时与原值逐字节一致。env 在函数内读取(非模块常量)供验证脚本双态直测;
+ * export 同 jitteredInterval 先例(纯函数零状态)
+ */
+export function jitterAutoRefreshMs(baseMs: number): number {
+  if (process.env.CRAWL_AUTOREFRESH_JITTER !== '1') return baseMs
+  const jittered = Math.round(baseMs * (0.9 + Math.random() * 0.2))
+  return Math.max(5 * 60_000, jittered)
+}
+
+/**
+ * [R36-2c-8] CRAWL_BATCH_SHUFFLE=1(缺省关): 章节批次内顺序随机化(Fisher-Yates 原地洗牌)
+ * —— 修前每批按目录 idx 升序出门, 源站可见“/book/1.html→/book/2.html→…”的完美递增访问
+ * 序列(最强爬虫指纹之一; types.ts pathJitter 注释所称“runner 批次内随机洗牌”语义实际
+ * 不存在, 本增强补齐)。仅打乱本批抓取顺序: 章节入库 idx/进度计数/txt 文件名均按各自
+ * q.idx/独立计数, 与抓取顺序无关, 关闭时恒等返回原数组(零开销零回归)
+ */
+export function shuffleBatch<T>(arr: T[]): T[] {
+  if (process.env.CRAWL_BATCH_SHUFFLE !== '1') return arr
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    const tmp = arr[i]
+    arr[i] = arr[j]
+    arr[j] = tmp
+  }
+  return arr
 }
 function safeJson<T>(s: string | null | undefined): Partial<T> {
   try { return s ? JSON.parse(s) : {} } catch { return {} }

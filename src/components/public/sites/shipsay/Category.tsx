@@ -24,22 +24,7 @@ import { usePublic } from '../../ctx'
 import { useSiteCats } from '../hooks' // [R35-2d-1] 原逐字节重复的 cats 拉取 effect 收敛
 import { ErrorState, Sk } from '../../bits'
 import { BookCover } from '../../BookCover'
-import { SsBookMain } from './_kit' // [R35-2d-2] 原 Search/Fulltext/Category 三处逐字节重复的书条右栏收敛
-
-/** [R28-2e-2] 船说模板实测色值(同 Home) */
-const C = {
-  bg: '#f4f4f4',
-  card: '#ffffff',
-  text: '#666666',
-  link: '#1a1a1a',
-  hover: '#ed4259',
-  title: '#555555',
-  blue: '#4284ed',
-  orange: '#f0643a',
-  line: '#e3e3e3',
-  maskOngoing: 'rgba(0,0,0,.4)',
-  maskCompleted: 'rgba(191,44,36,.75)',
-} as const
+import { SsBookMain, SS_C as C } from './_kit' // [R35-2d-2] 书条右栏收敛 / [R36-2d-5] 色板收敛单处
 
 /** [R28-2e-2] 船说分页(家族标准: 圆角按钮, 当前页主红; 快照无分页段 → 家族标准声明) */
 export function Pager({ page, totalPages, onGo }: { page: number; totalPages: number; onGo: (p: number) => void }) {

@@ -10,7 +10,8 @@
 //   左右仅在 lg+ 并排, 移动端纵向堆叠(响应式 lg:grid-cols-5)
 //   debugHtml 为 null(服务端调试构建失败) → 隐藏调试区, 仅展示提取结果
 // ============================================================
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
+import { useAliveRef } from './hooks' // [R36-2d-10] alive 守卫收敛(aliveRef 为唯一 ref/effect 消费)
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -46,15 +47,8 @@ export function TestPanel({ section, rule, fetchConfig, cleanConfig, defaultUrl 
   const [error, setError] = useState('')
   // feat-c: 当前激活的匹配(由"匹配详情"行点击设置, 传给 DebugHtmlViewer 高亮对应 mark)
   const [activeMatch, setActiveMatch] = useState<{ field: string; idx: number } | null>(null)
-  const aliveRef = useRef(true)
-
-  // 挂载/重挂载时复位 aliveRef(StrictMode dev 下会 卸载→重挂载, 旧实现只设 false 不复位 → 卡 loading)
-  useEffect(() => {
-    aliveRef.current = true
-    return () => {
-      aliveRef.current = false
-    }
-  }, [])
+  // [R36-2d-10] StrictMode 安全 alive 守卫(原与另 5 处重复的复位 effect 收敛至 hooks.ts)
+  const aliveRef = useAliveRef()
 
   const runTest = async () => {
     if (!url.trim()) {

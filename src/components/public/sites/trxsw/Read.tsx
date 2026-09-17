@@ -13,7 +13,7 @@ import { useEffect } from 'react'
 import type { SiteReadProps } from '../shared'
 import { usePublic } from '../../ctx'
 import { useRelatedBooks } from '../hooks' // [R35-2d-1] 原逐字节重复的 rel 拉取 effect 收敛
-import { ChapterContent, useReaderFont, useRecordReading } from '../template-kit'
+import { ChapterContent, useReaderFont, useRecordReading, useThemeLineHeight } from '../template-kit'
 import { bookNavProps, ErrorState, Sk } from '../../bits'
 
 /** [R27-6b-17] 杰奇 CMS 家族标准色板(同 Home) */
@@ -30,6 +30,8 @@ export function TrxswRead({ data, loading, error }: SiteReadProps) {
   const { navigate } = usePublic()
   // 字号调节(克隆侧增强, 与通用阅读器偏好互通; 声明①)
   const { font, inc, dec } = useReaderFont()
+  // [R36-2a-fix-5] 主题覆盖行距(未编辑=2 零回归)
+  const txLh = useThemeLineHeight(2)
   // 阅读位置/时长记忆(hooks 顺序: 挂载即调)
   useRecordReading(data?.book?.id, data?.chapter?.id, data?.chapter?.title)
 
@@ -132,7 +134,7 @@ export function TrxswRead({ data, loading, error }: SiteReadProps) {
             </button>
           </span>
         </p>
-        <ChapterContent content={chapter.content} className="tx-content border-t pt-2.5" style={{ fontSize: font, lineHeight: 2, color: C.text }} />
+        <ChapterContent content={chapter.content} className="tx-content border-t pt-2.5" style={{ fontSize: font, lineHeight: txLh, color: C.text }} />
         <div className="pb-1 pt-2 text-right">
           <button type="button" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} className="text-[12px] hover:underline" style={{ color: C.gray }} aria-label="返回顶部">
             返回顶部

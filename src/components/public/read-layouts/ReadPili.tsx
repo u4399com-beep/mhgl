@@ -6,28 +6,30 @@
 // ============================================================
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import type { CSSProperties } from 'react'
 import { ChevronLeft, ChevronRight, ListTree } from 'lucide-react'
 import { readOf } from '@/lib/crawl/themes'
 import { usePublic } from '../ctx'
 import { formatWords, withAlpha } from '../seo'
 import { Sk } from '../bits'
-import { isBookmarked, toggleBookmark } from './bookmarks'
 import {
   BookmarkToggle,
   ChapterDeco,
   ChapterEndDeco,
+  ReadProgressLine,
   ReaderSettingsPopover,
+  RestoredHint,
   TocDrawer,
   actualFontPx,
   contentToHtml,
-  readerActionsRef,
+  useChapterBookmark,
   useReadPosMemory,
+  useReaderActions,
   useReadingProgress,
   useReadingTimeTracker,
   type ReadLayoutProps,
-} from './shared'
+} from './shared' // [R36-2d] 书签/动作注册/恢复提示/进度线四处重复段收敛
 
 export function ReadPili({
   data,
@@ -50,8 +52,8 @@ export function ReadPili({
   const ch = data?.chapter
   const bk = data?.book
 
-  // feat-a B: 书签状态
-  const [bookmarked, setBookmarked] = useState(false)
+  // feat-a B: 书签状态 [R36-2d-1] 收敛至 shared.useChapterBookmark
+  const { bookmarked, onToggle: toggleBookmarked } = useChapterBookmark(bk, ch)
   // feat-a A/D: 位置记忆 (window 滚动) + 阅读时长
   const ready = !loading && !!ch && !!bk
   const { restoredHint } = useReadPosMemory({
@@ -62,24 +64,14 @@ export function ReadPili({
   })
   useReadingTimeTracker(bk?.id)
 
-  if (typeof window !== 'undefined' && bk && ch) {
-    const next = isBookmarked(bk.id, ch.id)
-    if (next !== bookmarked) setBookmarked(next)
-  }
-
   // feat-round-5 B1: 注册全局阅读器动作 (供 ReadView 键盘快捷键派发)
-  useEffect(() => {
-    const actions = {
-      onPrev: () => data?.prev && navigate({ view: 'read', chapterId: data.prev.id }),
-      onNext: () => data?.next && navigate({ view: 'read', chapterId: data.next.id }),
-      onScrollTop: () => window.scrollTo({ top: 0, behavior: 'smooth' }),
-      onScrollBottom: () => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' }),
-    }
-    readerActionsRef.current = actions
-    return () => {
-      if (readerActionsRef.current === actions) readerActionsRef.current = {}
-    }
-  })
+  // [R36-2d-2] 收敛至 shared.useReaderActions (useEffect 无 deps, 每次 render 写入最新闭包)
+  useReaderActions(
+    data,
+    navigate,
+    () => window.scrollTo({ top: 0, behavior: 'smooth' }),
+    () => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' }),
+  )
 
   // 夜间调色: 日间=原站暖纸画布 #ede7da, 夜间=沉稳暗底
   const canvasBg = night ? '#15171c' : '#ede7da'
@@ -99,21 +91,11 @@ export function ReadPili({
 
   return (
     <div data-pili-read className="read-layout-pili flex min-h-screen flex-col" style={{ background: canvasBg, transition: 'background-color .3s' }}>
-      {/* 阅读进度条 */}
-      <div className="pointer-events-none fixed inset-x-0 top-0 z-[60] h-0.5" aria-hidden>
-        <div style={{ width: `${progress}%`, height: '100%', background: `linear-gradient(90deg, ${v.primary}, ${v.accent})`, transition: 'width 80ms linear' }} />
-      </div>
+      {/* 阅读进度条 [R36-2d-4] 收敛至 shared.ReadProgressLine */}
+      <ReadProgressLine pct={progress} posClass="pointer-events-none fixed inset-x-0 top-0 z-[60] h-0.5" />
 
-      {/* feat-a A: 位置恢复 inline 提示 */}
-      {restoredHint && (
-        <div
-          className="pointer-events-none fixed left-1/2 top-3 z-[60] -translate-x-1/2 rounded-full px-3.5 py-1.5 text-xs shadow-md"
-          style={{ background: withAlpha(v.primary, 0.95), color: v.primaryText }}
-          role="status"
-        >
-          已定位到上次阅读位置
-        </div>
-      )}
+      {/* feat-a A: 位置恢复 inline 提示 [R36-2d-3] 收敛至 shared.RestoredHint */}
+      {restoredHint && <RestoredHint posClass="fixed top-3 z-[60]" />}
 
       {/* 顶部细 read-header 条: 返回书页 + 章题 + 阅读设置 */}
       <header
@@ -154,11 +136,7 @@ export function ReadPili({
             {/* feat-a B: 书签 */}
             <BookmarkToggle
               bookmarked={bookmarked}
-              onToggle={() => {
-                if (!bk || !ch) return
-                const added = toggleBookmark(bk.id, { id: ch.id, idx: ch.idx, title: ch.title })
-                setBookmarked(added)
-              }}
+              onToggle={toggleBookmarked}
               triggerClassName={toolBtn}
               triggerStyle={{ color: bookmarked ? v.primary : textColor }}
               activeColor={v.primary}

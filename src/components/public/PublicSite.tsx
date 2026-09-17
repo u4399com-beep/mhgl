@@ -12,7 +12,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeftCircle, Eye } from 'lucide-react'
-import { getTheme } from '@/lib/crawl/themes'
+import { applyThemeOverrides, getTheme } from '@/lib/crawl/themes'
 import { parsePrettyPath } from '@/lib/pseudostatic'
 import { fetchSites } from './data'
 import { parseView, presetOfSites, PublicProvider, viewToUrl, type PublicCtxValue, type ViewParams } from './ctx'
@@ -172,7 +172,14 @@ export default function PublicSite({
   // (声明先于 navigate: 依赖数组立即求值, 后置声明会触发 TDZ)
   const pseudoPreset = useMemo(() => presetOfSites(sites), [sites])
   // 主题解析: 预览覆盖(?theme=)优先于站点自身主题; getTheme 对非法 id(旧 preset/旧组合/'aurora')自回退 THEMES[0]
-  const theme = useMemo(() => getTheme(themeOverride || site?.themeId), [themeOverride, site?.themeId])
+  // [R36-2a-6] 主题覆盖(阅读设置+页面底部, 随站点引导下发): 对解析结果应用 applyThemeOverrides;
+  //   未下发/未命中/缺省段 → 原样返回等价主题(前台零行为变化)。overrides 引用随 sites 状态稳定,
+  //   useMemo 依赖含它保证下发/变更后重算; SSR/CSR 一致(首载两侧均为未合并 base, 数据就绪后同步合并)
+  const overridesMap = site?.themeOverrides
+  const theme = useMemo(() => {
+    const base = getTheme(themeOverride || site?.themeId)
+    return applyThemeOverrides(base, overridesMap?.[base.id])
+  }, [themeOverride, site?.themeId, overridesMap])
   // [R27-5b-H2] 克隆模板集(registry 命中才有): css 注入 + 视图壳内五视图分发
   const tplSet = getTemplateSet(theme.id)
 
@@ -207,6 +214,8 @@ export default function PublicSite({
             site,
             sites,
             theme,
+            // [R36-2a-fix-1] 当前主题覆盖下发给克隆阅读器(useReaderFont 基线/行距倍率); 未编辑=undefined
+            themeOverride: overridesMap?.[theme.id],
             pseudoPreset,
             embedMode: !!embedMode,
             // embedMode 下切换器走 navigate({view:'home', site:id}) 也可；提供 switchSite 保持语义清晰
@@ -219,7 +228,7 @@ export default function PublicSite({
             },
           }
         : null,
-    [site, sites, theme, pseudoPreset, embedMode, navigate, switchSite],
+    [site, sites, theme, pseudoPreset, embedMode, navigate, switchSite, overridesMap],
   )
 
   // 首屏加载期 SEO 兜底（仅站点未就绪时接管 head；站点就绪后完全退位给各视图，防止父子互覆盖）

@@ -10,22 +10,24 @@ import { useEffect, useRef, useState } from 'react'
 import { ArrowUpToLine, ChevronLeft, ChevronRight, ListTree } from 'lucide-react'
 import { readOf } from '@/lib/crawl/themes'
 import { usePublic } from '../ctx'
-import { formatWords, withAlpha } from '../seo'
+import { formatWords } from '../seo'
 import { Sk } from '../bits'
-import { isBookmarked, toggleBookmark } from './bookmarks'
 import {
   BookmarkToggle,
+  ReadProgressLine,
   ReaderSettingsPopover,
+  RestoredHint,
   TocDrawer,
   actualFontPx,
   contentToHtml,
-  readerActionsRef,
   textureStyle,
+  useChapterBookmark,
   useReadPosMemory,
+  useReaderActions,
   useReadingProgress,
   useReadingTimeTracker,
   type ReadLayoutProps,
-} from './shared'
+} from './shared' // [R36-2d] 书签/动作注册/恢复提示/进度线四处重复段收敛
 
 export function ReadImmersive({
   data,
@@ -51,8 +53,8 @@ export function ReadImmersive({
   const ch = data?.chapter
   const bk = data?.book
 
-  // feat-a B: 书签状态 (data 变化时同步)
-  const [bookmarked, setBookmarked] = useState(false)
+  // feat-a B: 书签状态 (data 变化时同步) [R36-2d-1] 收敛至 shared.useChapterBookmark
+  const { bookmarked, onToggle: toggleBookmarked } = useChapterBookmark(bk, ch)
   // feat-a A/D: 位置记忆 (内部滚动容器 scrollerRef) + 阅读时长
   const ready = !loading && !!ch && !!bk
   const { restoredHint } = useReadPosMemory({
@@ -64,24 +66,14 @@ export function ReadImmersive({
   })
   useReadingTimeTracker(bk?.id)
 
-  if (typeof window !== 'undefined' && bk && ch) {
-    const next = isBookmarked(bk.id, ch.id)
-    if (next !== bookmarked) setBookmarked(next)
-  }
-
   // feat-round-5 B1: 注册全局阅读器动作 (沉浸式使用内部滚动容器)
-  useEffect(() => {
-    const actions = {
-      onPrev: () => data?.prev && navigate({ view: 'read', chapterId: data.prev.id }),
-      onNext: () => data?.next && navigate({ view: 'read', chapterId: data.next.id }),
-      onScrollTop: () => scrollerRef.current?.scrollTo({ top: 0, behavior: 'smooth' }),
-      onScrollBottom: () => scrollerRef.current?.scrollTo({ top: scrollerRef.current.scrollHeight, behavior: 'smooth' }),
-    }
-    readerActionsRef.current = actions
-    return () => {
-      if (readerActionsRef.current === actions) readerActionsRef.current = {}
-    }
-  })
+  // [R36-2d-2] 收敛至 shared.useReaderActions (useEffect 无 deps, 每次 render 写入最新闭包)
+  useReaderActions(
+    data,
+    navigate,
+    () => scrollerRef.current?.scrollTo({ top: 0, behavior: 'smooth' }),
+    () => scrollerRef.current?.scrollTo({ top: scrollerRef.current.scrollHeight, behavior: 'smooth' }),
+  )
 
   // 沉浸画布配色：始终暗底（浅色主题也转入暗色画布）; night = 墨黑加深
   const canvas = night ? '#000000' : theme.dark ? undefined : '#14171c'
@@ -127,18 +119,8 @@ export function ReadImmersive({
       }}
       aria-label="沉浸阅读"
     >
-      {/* 顶部进度线 */}
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-20 h-0.5" aria-hidden>
-        <div
-          style={{
-            width: `${progress}%`,
-            height: '100%',
-            background: `linear-gradient(90deg, ${v.primary}, ${v.accent})`,
-            transition: 'width 80ms linear',
-            boxShadow: `0 0 8px ${v.primary}`,
-          }}
-        />
-      </div>
+      {/* 顶部进度线 [R36-2d-4] 收敛至 shared.ReadProgressLine */}
+      <ReadProgressLine pct={progress} posClass="pointer-events-none absolute inset-x-0 top-0 z-20 h-0.5" glow />
 
       {/* 顶栏：返回 + 书名章节 + 目录（滚动收纳） */}
       <header
@@ -318,11 +300,7 @@ export function ReadImmersive({
         {/* feat-a B: 书签 */}
         <BookmarkToggle
           bookmarked={bookmarked}
-          onToggle={() => {
-            if (!bk || !ch) return
-            const added = toggleBookmark(bk.id, { id: ch.id, idx: ch.idx, title: ch.title })
-            setBookmarked(added)
-          }}
+          onToggle={toggleBookmarked}
           triggerClassName={toolBtn}
           triggerStyle={{ color: bookmarked ? v.primary : textColor }}
           activeColor={v.primary}
@@ -330,16 +308,8 @@ export function ReadImmersive({
         />
       </div>
 
-      {/* feat-a A: 位置恢复 inline 提示 */}
-      {restoredHint && (
-        <div
-          className="pointer-events-none absolute left-1/2 top-12 z-30 -translate-x-1/2 rounded-full px-3.5 py-1.5 text-xs shadow-md"
-          style={{ background: withAlpha(v.primary, 0.95), color: v.primaryText }}
-          role="status"
-        >
-          已定位到上次阅读位置
-        </div>
-      )}
+      {/* feat-a A: 位置恢复 inline 提示 [R36-2d-3] 收敛至 shared.RestoredHint */}
+      {restoredHint && <RestoredHint posClass="absolute top-12 z-30" />}
 
       <TocDrawer open={drawer} onClose={() => setDrawer(false)} bookId={bk?.id} activeChapterId={ch?.id} variant="immersive" />
     </div>

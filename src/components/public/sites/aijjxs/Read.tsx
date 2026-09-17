@@ -35,7 +35,7 @@ import type { SiteReadProps } from '../shared'
 import { usePublic } from '../../ctx'
 import { ErrorState, Sk } from '../../bits'
 import { formatWords } from '../../seo'
-import { ChapterContent, useReaderFont, useRecordReading } from '../template-kit'
+import { ChapterContent, useReaderFont, useRecordReading, useThemeLineHeight } from '../template-kit'
 
 // [R28-2a-21] 真站 read.css :root 实测色值(阅读页专属暖羊皮纸色系, 硬编码)
 const R = {
@@ -82,6 +82,8 @@ export function AijjxsRead({ data, loading, error }: SiteReadProps) {
   const prev = data?.prev ?? null
   const next = data?.next ?? null
   const reader = useReaderFont()
+  // [R36-2a-fix-5] 主题覆盖行距(未编辑=1.76 零回归)
+  const ajxLh = useThemeLineHeight(1.76)
   // [R28-2a-24] 正文底色(真站 backcolor(1..6) 全页换肤; 本站作用于正文/翻页面板, 默认纸白)
   const [bg, setBg] = useState<string>(R.paper)
 
@@ -224,7 +226,7 @@ export function AijjxsRead({ data, loading, error }: SiteReadProps) {
 
         {/* .view_content 正文面板 */}
         <div className="ajx-view-content" style={{ ...panelBox, borderRadius: 16, background: bg, padding: 'clamp(24px, 4vw, 40px)' }}>
-          <ChapterContent content={chapter.content} className="ajx-read-txt" style={{ fontSize: reader.font, lineHeight: 1.76, letterSpacing: '0.01em', wordBreak: 'break-word' }} />
+          <ChapterContent content={chapter.content} className="ajx-read-txt" style={{ fontSize: reader.font, lineHeight: ajxLh, letterSpacing: '0.01em', wordBreak: 'break-word' }} />
         </div>
 
         {/* .view_page 翻页导航(真站章内分页 → 等价按章推进, 降级声明④) */}

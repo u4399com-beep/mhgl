@@ -10,12 +10,14 @@
 import { useEffect } from 'react'
 import type { SiteReadProps } from '../shared'
 import { usePublic } from '../../ctx'
-import { ChapterContent, useReaderFont, useRecordReading } from '../template-kit'
+import { ChapterContent, useReaderFont, useRecordReading, useThemeLineHeight } from '../template-kit'
 import { BdSub, BdTop, C } from './_kit'
 
 export function X2552Read({ data, loading, error }: SiteReadProps) {
   const { navigate } = usePublic()
   const { font, set } = useReaderFont(14, 24)
+  // [R36-2a-fix-5] 主题覆盖行距(未编辑=2 零回归)
+  const xLh = useThemeLineHeight(2)
   const chapter = data?.chapter ?? null
   const book = data?.book ?? null
 
@@ -82,7 +84,7 @@ export function X2552Read({ data, loading, error }: SiteReadProps) {
               </dd>
               <dd style={{ margin: 0 }}>
                 <div
-                  style={{ padding: '12px 6px', fontSize: font, lineHeight: 2, color: C.text }}
+                  style={{ padding: '12px 6px', fontSize: font, lineHeight: xLh, color: C.text }}
                   className="x2-reader"
                 >
                   <ChapterContent content={chapter.content} />

@@ -13,20 +13,22 @@ import { readOf } from '@/lib/crawl/themes'
 import { usePublic } from '../ctx'
 import { formatWords, withAlpha } from '../seo'
 import { Sk } from '../bits'
-import { isBookmarked, toggleBookmark } from './bookmarks'
 import {
   BookmarkToggle,
   ChapterDeco,
+  ReadProgressLine,
   ReaderSettingsPopover,
+  RestoredHint,
   TocDrawer,
   actualFontPx,
   contentToHtml,
-  readerActionsRef,
   textureStyle,
+  useChapterBookmark,
   useReadPosMemory,
+  useReaderActions,
   useReadingTimeTracker,
   type ReadLayoutProps,
-} from './shared'
+} from './shared' // [R36-2d] 书签/动作注册/恢复提示/进度线四处重复段收敛
 
 export function ReadPaginated({
   data,
@@ -52,8 +54,8 @@ export function ReadPaginated({
   const ch = data?.chapter
   const bk = data?.book
 
-  // feat-a B: 书签状态
-  const [bookmarked, setBookmarked] = useState(false)
+  // feat-a B: 书签状态 [R36-2d-1] 收敛至 shared.useChapterBookmark
+  const { bookmarked, onToggle: toggleBookmarked } = useChapterBookmark(bk, ch)
   // feat-a A/D: 横向分页的 ratio = scrollLeft / (scrollWidth - clientWidth)
   const ready = !loading && !!ch && !!bk
   const getRatio = useCallback((): number => {
@@ -78,24 +80,14 @@ export function ReadPaginated({
   })
   useReadingTimeTracker(bk?.id)
 
-  if (typeof window !== 'undefined' && bk && ch) {
-    const next = isBookmarked(bk.id, ch.id)
-    if (next !== bookmarked) setBookmarked(next)
-  }
-
   // feat-round-5 B1: 注册全局阅读器动作 (分页式使用横向滚动, top/bottom = 首末页)
-  useEffect(() => {
-    const actions = {
-      onPrev: () => data?.prev && navigate({ view: 'read', chapterId: data.prev.id }),
-      onNext: () => data?.next && navigate({ view: 'read', chapterId: data.next.id }),
-      onScrollTop: () => stageRef.current?.scrollTo({ left: 0, behavior: 'smooth' }),
-      onScrollBottom: () => stageRef.current?.scrollTo({ left: stageRef.current.scrollWidth, behavior: 'smooth' }),
-    }
-    readerActionsRef.current = actions
-    return () => {
-      if (readerActionsRef.current === actions) readerActionsRef.current = {}
-    }
-  })
+  // [R36-2d-2] 收敛至 shared.useReaderActions (useEffect 无 deps, 每次 render 写入最新闭包)
+  useReaderActions(
+    data,
+    navigate,
+    () => stageRef.current?.scrollTo({ left: 0, behavior: 'smooth' }),
+    () => stageRef.current?.scrollTo({ left: stageRef.current.scrollWidth, behavior: 'smooth' }),
+  )
 
   // 夜间调色（与旧版语义一致）
   const stageBg = night ? (theme.dark ? 'rgba(0,0,0,0.45)' : '#15171c') : v.surface
@@ -200,17 +192,8 @@ export function ReadPaginated({
 
   return (
     <div className="read-layout-paginated mx-auto w-full max-w-6xl px-3 py-5 sm:px-6 sm:py-8">
-      {/* 页进度条（页码驱动, 与滚动布局区分） */}
-      <div className="pointer-events-none fixed inset-x-0 top-0 z-50 h-0.5" aria-hidden>
-        <div
-          style={{
-            width: `${pct}%`,
-            height: '100%',
-            background: `linear-gradient(90deg, ${v.primary}, ${v.accent})`,
-            transition: 'width 120ms linear',
-          }}
-        />
-      </div>
+      {/* 页进度条（页码驱动, 与滚动布局区分）[R36-2d-4] 收敛至 shared.ReadProgressLine */}
+      <ReadProgressLine pct={pct} posClass="pointer-events-none fixed inset-x-0 top-0 z-50 h-0.5" transitionMs={120} />
 
       {/* 文头工具条: 返回 + Aa设置/书签/目录 */}
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
@@ -247,11 +230,7 @@ export function ReadPaginated({
           {/* feat-a B: 书签 */}
           <BookmarkToggle
             bookmarked={bookmarked}
-            onToggle={() => {
-              if (!bk || !ch) return
-              const added = toggleBookmark(bk.id, { id: ch.id, idx: ch.idx, title: ch.title })
-              setBookmarked(added)
-            }}
+            onToggle={toggleBookmarked}
             triggerClassName={iconPill}
             triggerStyle={{
               border: `1px solid ${lineColor}`,
@@ -276,16 +255,8 @@ export function ReadPaginated({
         </div>
       </div>
 
-      {/* feat-a A: 位置恢复 inline 提示 */}
-      {restoredHint && (
-        <div
-          className="pointer-events-none fixed left-1/2 top-3 z-50 -translate-x-1/2 rounded-full px-3.5 py-1.5 text-xs shadow-md"
-          style={{ background: withAlpha(v.primary, 0.95), color: v.primaryText }}
-          role="status"
-        >
-          已定位到上次阅读位置
-        </div>
-      )}
+      {/* feat-a A: 位置恢复 inline 提示 [R36-2d-3] 收敛至 shared.RestoredHint */}
+      {restoredHint && <RestoredHint posClass="fixed top-3 z-50" />}
 
       {/* 章节题头（左对齐, 与典书版居中制式区分） */}
       {loading || !ch || !bk ? (

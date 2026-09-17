@@ -5,6 +5,7 @@
 // 批量操作: 全选/行复选框 + 批量启动/暂停/停止/删除(单失败不中断附 skipped)
 // ============================================================
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useAliveRef } from './hooks' // [R36-2d-10] alive 守卫收敛
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -62,15 +63,8 @@ export function TasksSection({ onNavigate }: { onNavigate?: (section: string) =>
   const [batchDeleteConfirm, setBatchDeleteConfirm] = useState(false)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const seqRef = useRef(0)
-  const aliveRef = useRef(true)
-
-  // 挂载/重挂载时复位 aliveRef(StrictMode dev 下会 卸载→重挂载, 旧实现只设 false 不复位 → 卡 loading)
-  useEffect(() => {
-    aliveRef.current = true
-    return () => {
-      aliveRef.current = false
-    }
-  }, [])
+  // [R36-2d-10] StrictMode 安全 alive 守卫(原与另 5 处重复的复位 effect 收敛至 hooks.ts)
+  const aliveRef = useAliveRef()
 
   const load = useCallback(async (silent = false) => {
     const seq = ++seqRef.current
@@ -84,7 +78,7 @@ export function TasksSection({ onNavigate }: { onNavigate?: (section: string) =>
     } finally {
       if (!silent && aliveRef.current && seq === seqRef.current) setLoading(false)
     }
-  }, [])
+  }, [aliveRef])
 
   // 列表 3s 轮询: 监控视图打开期间暂停(TaskMonitor 自带 2s 监控轮询, 双轮询叠加属空转), 返回列表自动恢复
   // 注: 组件内条件 return(TaskMonitor 替换渲染)位于全部 hooks 之后, 本 effect 以依赖切换实现暂停, 不引入 hooks 违规

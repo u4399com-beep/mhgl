@@ -24,7 +24,7 @@ import { useEffect } from 'react'
 import { Bookmark, MinusSquare, Moon, Settings, StepBack, StepForward } from 'lucide-react'
 import type { SiteReadProps } from '../shared'
 import { usePublic } from '../../ctx'
-import { ChapterContent, useReaderFont, useRecordReading } from '../template-kit'
+import { ChapterContent, useReaderFont, useRecordReading, useThemeFontBase, useThemeLineHeight } from '../template-kit'
 import { ErrorState, Sk } from '../../bits'
 
 /** [R28-2e-4] 船说模板实测色值(同 Home; .read_bg 底色真站 CSS 未存档 → 沿用全站 #f4f4f4) */
@@ -42,6 +42,9 @@ export function ShipsayRead({ data, loading, error }: SiteReadProps) {
   const { navigate } = usePublic()
   // 字号调节(真站 .fontsize A-/A/A+ → changeSize('min'/'normal'/'plus'))
   const { font, inc, dec, set } = useReaderFont()
+  // [R36-2a-fix-5] 主题「阅读设置」覆盖基线(未编辑=原值 17/1.7 零回归)
+  const fontBase = useThemeFontBase(17)
+  const lhMult = useThemeLineHeight(1.7)
 
   // 阅读位置/时长记忆(hooks 顺序: 挂载即调)
   useRecordReading(data?.book?.id, data?.chapter?.id, data?.chapter?.title)
@@ -103,7 +106,7 @@ export function ShipsayRead({ data, loading, error }: SiteReadProps) {
                 <button type="button" onClick={dec} className={`${iconBtn} border`} style={{ borderColor: C.line, color: C.link, background: C.card }} aria-label="缩小字号">
                   A-
                 </button>
-                <button type="button" onClick={() => set(17)} className={`${iconBtn} border`} style={{ borderColor: C.line, color: C.link, background: C.card }} aria-label="标准字号">
+                <button type="button" onClick={() => set(fontBase)} className={`${iconBtn} border`} style={{ borderColor: C.line, color: C.link, background: C.card }} aria-label="标准字号">
                   A
                 </button>
                 <button type="button" onClick={inc} className={`${iconBtn} border`} style={{ borderColor: C.line, color: C.link, background: C.card }} aria-label="放大字号">
@@ -150,7 +153,7 @@ export function ShipsayRead({ data, loading, error }: SiteReadProps) {
           <ChapterContent
             content={chapter.content}
             className="ss-readcontent border-t pt-3"
-            style={{ fontSize: font, lineHeight: `${Math.round(font * 1.7)}px`, color: '#333' }}
+            style={{ fontSize: font, lineHeight: `${Math.round(font * lhMult)}px`, color: '#333' }}
           />
         </section>
 

@@ -6,29 +6,31 @@
 // ============================================================
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import type { CSSProperties } from 'react'
 import { ArrowUpToLine, ChevronLeft, ChevronRight, ListTree } from 'lucide-react'
 import { readOf } from '@/lib/crawl/themes'
 import { usePublic } from '../ctx'
 import { formatWords, withAlpha } from '../seo'
 import { Sk } from '../bits'
-import { isBookmarked, toggleBookmark } from './bookmarks'
 import {
   BookmarkToggle,
   ChapterDeco,
   ChapterEndDeco,
+  ReadProgressLine,
   ReaderSettingsPopover,
+  RestoredHint,
   TocDrawer,
   actualFontPx,
   contentToHtml,
-  readerActionsRef,
   textureStyle,
+  useChapterBookmark,
   useReadPosMemory,
+  useReaderActions,
   useReadingProgress,
   useReadingTimeTracker,
   type ReadLayoutProps,
-} from './shared'
+} from './shared' // [R36-2d] 书签/动作注册/恢复提示/进度线四处重复段收敛
 
 export function ReadClassic({
   data,
@@ -51,8 +53,8 @@ export function ReadClassic({
   const ch = data?.chapter
   const bk = data?.book
 
-  // feat-a B: 书签状态 (data 变化时同步)
-  const [bookmarked, setBookmarked] = useState(false)
+  // feat-a B: 书签状态 (data 变化时同步) [R36-2d-1] 收敛至 shared.useChapterBookmark
+  const { bookmarked, onToggle: toggleBookmarked } = useChapterBookmark(bk, ch)
   // feat-a A/D: 位置记忆 + 阅读时长 (data 就绪后激活)
   const ready = !loading && !!ch && !!bk
   const { restoredHint } = useReadPosMemory({
@@ -63,29 +65,14 @@ export function ReadClassic({
   })
   useReadingTimeTracker(bk?.id)
 
-  // feat-a B: data 变化时重新读 localStorage bookmarked
-  if (typeof window !== 'undefined' && bk && ch) {
-    const next = isBookmarked(bk.id, ch.id)
-    if (next !== bookmarked) {
-      // 直接在 render 期间检测并 setState (与原 prevCh 同款模式, 安全)
-      setBookmarked(next)
-    }
-  }
-
   // feat-round-5 B1: 注册全局阅读器动作 (供 ReadView 键盘快捷键派发)
-  // useEffect 无 deps — 每次 render 后写入最新闭包, 卸载时清空 (避免读到陈旧 data)
-  useEffect(() => {
-    const actions = {
-      onPrev: () => data?.prev && navigate({ view: 'read', chapterId: data.prev.id }),
-      onNext: () => data?.next && navigate({ view: 'read', chapterId: data.next.id }),
-      onScrollTop: () => window.scrollTo({ top: 0, behavior: 'smooth' }),
-      onScrollBottom: () => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' }),
-    }
-    readerActionsRef.current = actions
-    return () => {
-      if (readerActionsRef.current === actions) readerActionsRef.current = {}
-    }
-  })
+  // [R36-2d-2] 收敛至 shared.useReaderActions (useEffect 无 deps, 每次 render 写入最新闭包)
+  useReaderActions(
+    data,
+    navigate,
+    () => window.scrollTo({ top: 0, behavior: 'smooth' }),
+    () => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' }),
+  )
 
   // 夜间调色（与旧版语义一致：暗主题更沉, 浅主题切深底）
   const panelBg = night
@@ -109,17 +96,8 @@ export function ReadClassic({
 
   return (
     <div className="read-layout-classic mx-auto w-full max-w-3xl px-3 py-5 sm:px-6 sm:py-8">
-      {/* 阅读进度条 */}
-      <div className="pointer-events-none fixed inset-x-0 top-0 z-50 h-0.5" aria-hidden>
-        <div
-          style={{
-            width: `${progress}%`,
-            height: '100%',
-            background: `linear-gradient(90deg, ${v.primary}, ${v.accent})`,
-            transition: 'width 80ms linear',
-          }}
-        />
-      </div>
+      {/* 阅读进度条 [R36-2d-4] 收敛至 shared.ReadProgressLine */}
+      <ReadProgressLine pct={progress} posClass="pointer-events-none fixed inset-x-0 top-0 z-50 h-0.5" />
 
       {/* 文头工具条（inline 形态）: 面包屑式返回 + Aa设置/书签/目录 */}
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
@@ -156,11 +134,7 @@ export function ReadClassic({
           {/* feat-a B: 书签切换 */}
           <BookmarkToggle
             bookmarked={bookmarked}
-            onToggle={() => {
-              if (!bk || !ch) return
-              const added = toggleBookmark(bk.id, { id: ch.id, idx: ch.idx, title: ch.title })
-              setBookmarked(added)
-            }}
+            onToggle={toggleBookmarked}
             triggerClassName={toolBtn}
             triggerStyle={{
               border: `1px solid ${lineColor}`,
@@ -185,16 +159,8 @@ export function ReadClassic({
         </div>
       </div>
 
-      {/* feat-a A: 位置恢复 inline 提示 (2s 自动消失) */}
-      {restoredHint && (
-        <div
-          className="pointer-events-none fixed left-1/2 top-3 z-50 -translate-x-1/2 rounded-full px-3.5 py-1.5 text-xs shadow-md"
-          style={{ background: withAlpha(v.primary, 0.95), color: v.primaryText }}
-          role="status"
-        >
-          已定位到上次阅读位置
-        </div>
-      )}
+      {/* feat-a A: 位置恢复 inline 提示 (2s 自动消失) [R36-2d-3] 收敛至 shared.RestoredHint */}
+      {restoredHint && <RestoredHint posClass="fixed top-3 z-50" />}
 
       {/* 纸面正文面板 */}
       <article

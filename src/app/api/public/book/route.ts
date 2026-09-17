@@ -23,15 +23,27 @@ export async function GET(req: Request) {
     })
     if (!book) return fail('书籍不存在', 404)
 
-    const [total, tags, chapters] = await Promise.all([
+    // [R36-2b-1] 目录切片与全书最新 12 章共用同一 select 字段集(单源定义, 防两处漂移)
+    const TOC_CHAPTER_SELECT = { id: true, idx: true, title: true, wordCount: true, volume: true }
+
+    const [total, tags, chapters, latestChapters] = await Promise.all([
       db.chapter.count({ where: { bookId: id } }),
       db.bookTag.findMany({ where: { bookId: id }, orderBy: { hits: 'desc' }, take: 30 }),
       db.chapter.findMany({
         where: { bookId: id },
         orderBy: { idx: 'asc' },
-        select: { id: true, idx: true, title: true, wordCount: true, volume: true },
+        select: TOC_CHAPTER_SELECT,
         skip: effectiveSkip,
         take: tocSize,
+      }),
+      // [R36-2b-1] 全书最新 12 章(idx desc 最新在前, 无 skip 与目录分页完全解耦)——
+      // 章节目录页「最新章节」块数据源; 修前各主题 Book.tsx 从当前页切片取尾 12 章,
+      // 多页书第 1 页显示的是第 88-100 章而非全书末 12 章。空书=空数组
+      db.chapter.findMany({
+        where: { bookId: id },
+        orderBy: { idx: 'desc' },
+        select: TOC_CHAPTER_SELECT,
+        take: 12,
       }),
     ])
 
@@ -59,6 +71,8 @@ export async function GET(req: Request) {
       tocSize,
       tocTotalPages: Math.ceil(total / tocSize) || 1,
       chapters,
+      // [R36-2b-1] 全书最新 12 章(desc 序, 最新在前); 前端缺省 undefined 容旧缓存回落原口径
+      latestChapters,
       tags,
     })
   })
