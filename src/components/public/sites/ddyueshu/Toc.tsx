@@ -1,157 +1,58 @@
 // ============================================================
-// [R28-2a] ddyueshu 克隆目录页 —— 真站无独立目录页(书页 #list 即全量目录,
-//   快照 /tmp/r28-2a/ddyueshu/ddyueshu-book.html 实证), 本页为「书页 #list 独立成页」映射:
-//   .con_top 面包屑 + #list dl(dt 分卷/正文 + dd 33% 网格) + .page 分页, 家族标准形态。
-//
-//   降级/推断说明:
-//   ① 真站无此独立页型 → 形态按书页 #list 逐类名复刻(dt bg #C3DFEA / dd w33% dashed #CCC)
-//   ② 当前章高亮: 真站 .novellist li a:visited{COLOR:red} 基因 → #CC3300
-//   ③ 真站全量单页 → 契约 100 章/页分页(.page 家族标准形态)
+// [R39-2d] ddyueshu 克隆目录页 —— biquge 家族完整目录形态(.box_con #list dl: dt 卷 / dd 章)
+//   (真站 book 页内嵌首页目录; 完整目录以同形态分页展开, 平台 Toc 视图契约)
 // ============================================================
 'use client'
 
-import type { CSSProperties } from 'react'
 import type { SiteTocProps } from '../shared'
-import { usePublic } from '../../ctx'
+import { usePublic, viewToUrl } from '../../ctx'
 import { ErrorState, Sk } from '../../bits'
-import { groupTocVolumes } from '../template-kit'
-import { pgBtn } from './Book' // [R34-2c-8] 三组件内部逐字节相同的 pgBtn 收敛为单处定义
-
-const C = {
-  page: '#E9FAFF',
-  ink: '#555',
-  link: '#6F78A7',
-  ddInk: '#444444',
-  cur: '#CC3300', // visited 基因红
-  boxBorder: '#88C6E5',
-  conTopBg: '#E1ECED',
-  dtBg: '#C3DFEA',
-  row: '#CCCCCC',
-} as const
+import { DdyFooter } from './parts'
 
 export function DdyueshuToc({ data, loading, error, page, currentChapterId }: SiteTocProps) {
-  const { navigate } = usePublic()
+  const { site, navigate } = usePublic()
   const book = data?.book ?? null
   const chapters = data?.chapters ?? []
-  const totalPages = data ? Math.max(1, data.tocTotalPages || 1) : 1
-  const vols = groupTocVolumes(chapters)
-
-  if (error) {
-    return (
-      <div className="dy-toc" style={{ background: C.page, color: C.ink, padding: '14px 10px' }}>
-        <div className="mx-auto w-full" style={{ maxWidth: 980 }}>
-          <ErrorState message="目录加载失败" detail={error} />
-        </div>
-      </div>
-    )
-  }
-
-  if (loading || !book) {
-    return (
-      <div className="dy-toc" style={{ background: C.page, color: C.ink, padding: '14px 10px 24px' }} role="status" aria-label="目录加载中">
-        <div className="mx-auto w-full" style={{ maxWidth: 980 }}>
-          <Sk className="h-10 w-full" style={{ borderRadius: 0, background: 'rgba(225,236,237,0.9)' }} />
-          <Sk className="mt-2.5 h-96 w-full" style={{ borderRadius: 0, background: 'rgba(255,255,255,0.8)' }} />
-        </div>
-      </div>
-    )
-  }
-
-  const ddStyle: CSSProperties = {
-    borderBottom: `1px dashed ${C.row}`,
-    display: 'inline-block',
-    width: '33%',
-    minWidth: 200,
-    height: 25,
-    lineHeight: '200%',
-    margin: 0,
-    marginBottom: 5,
-    overflow: 'hidden',
-    textAlign: 'left',
-    textIndent: 10,
-    whiteSpace: 'nowrap',
-    textOverflow: 'ellipsis',
-    boxSizing: 'border-box',
-    verticalAlign: 'middle',
-  }
-
-  const renderDl = (title: string, list: typeof chapters) => (
-    <dl style={{ margin: '0 0 10px', overflow: 'hidden' }}>
-      <dt style={{ background: C.dtBg, display: 'block', fontSize: 14, lineHeight: '28px', overflow: 'hidden', textAlign: 'center', width: '98%', margin: '0 auto 5px', color: '#333' }}>
-        {title}
-      </dt>
-      {list.map((c) => {
-        const current = currentChapterId === c.id
-        return (
-          <dd key={c.id} style={ddStyle}>
-            <button
-              type="button"
-              onClick={() => navigate({ view: 'read', chapterId: c.id })}
-              className={`dy-dd${current ? ' dy-cur' : ''}`}
-              style={{ background: 'none', border: 0, padding: 0, cursor: 'pointer', color: current ? C.cur : C.ddInk, fontSize: 12, textAlign: 'left', width: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-            >
-              {c.title}
-            </button>
-          </dd>
-        )
-      })}
-    </dl>
-  )
+  const totalPages = data?.tocTotalPages || 1
 
   return (
-    <div className="dy-toc" style={{ background: C.page, color: C.ink, fontFamily: '"Segoe UI","Microsoft YaHei",sans-serif', fontSize: 12, padding: '0 0 16px' }}>
-      <div className="mx-auto w-full" style={{ maxWidth: 980, padding: '10px 10px 0' }}>
-        <div className="dy-boxcon" style={{ border: `2px solid ${C.boxBorder}`, overflow: 'hidden' }}>
-          {/* .con_top 面包屑 */}
-          <div className="dy-con-top" style={{ borderBottom: `1px solid ${C.boxBorder}`, textAlign: 'left', padding: '0 10px', lineHeight: '40px', height: 40, background: C.conTopBg }}>
-            <button type="button" onClick={() => navigate({ view: 'home' })} className="dy-a" style={{ background: 'none', border: 0, padding: 0, cursor: 'pointer', color: C.link, fontSize: 12 }}>
-              顶点小说
-            </button>
-            {' &gt; '}
-            <span>{book.name}章节目录</span>
+    <div className="ddy-toc">
+      <div id="ddy-main">
+        <div className="ddy-box-con">
+          <div className="ddy-con-top">
+            <a href="#" onClick={(e) => { e.preventDefault(); navigate({ view: 'home' }) }}>{site.name}</a>
+            {' > '}{book ? `《${book.name}》完整目录` : '目录'}
           </div>
-          <div style={{ padding: 2, overflow: 'hidden' }}>
-            {vols ? (
-              vols.map((g) => renderDl(g.volume || '正文', g.chapters))
-            ) : (
-              renderDl(`《${book.name}》正文`, chapters)
-            )}
-
-            {/* .page 分页(降级声明③) */}
-            {totalPages > 1 && (
-              <div className="dy-pagebar" style={{ width: '100%', margin: '10px auto', overflow: 'hidden' }} aria-label="目录分页">
-                {Array.from({ length: Math.min(totalPages, 10) }).map((_, i) => {
-                  const p = i + 1
-                  return (
-                    <button key={p} type="button" onClick={() => navigate({ view: 'toc', bookId: book.id, page: p })} className="dy-pg" style={pgBtn(p === page)}>
-                      {p}
-                    </button>
-                  )
-                })}
-                {page < totalPages && (
-                  <button type="button" onClick={() => navigate({ view: 'toc', bookId: book.id, page: page + 1 })} className="dy-pg" style={pgBtn(false)}>
-                    下一页
-                  </button>
-                )}
-                <b style={{ float: 'none', display: 'inline-block', margin: '4px 0', padding: '4px 12px', color: '#888', fontSize: 12 }}>
-                  共 {data?.tocTotal ?? chapters.length} 章 · {totalPages} 页
-                </b>
-              </div>
-            )}
-            <div style={{ textAlign: 'center', padding: '6px 0 8px' }}>
-              <button
-                type="button"
-                onClick={() => navigate({ view: 'book', bookId: book.id })}
-                className="dy-a"
-                style={{ background: 'none', border: 0, padding: 0, cursor: 'pointer', color: C.link, fontSize: 13 }}
-              >
-                返回书籍详情页
-              </button>
-            </div>
-          </div>
+          {loading ? (
+            <div className="ddy-box-con-inner"><Sk style={{ height: 300 }} /></div>
+          ) : error || !book ? (
+            <div className="ddy-box-con-inner"><ErrorState message="目录加载失败" detail={error} /></div>
+          ) : (
+            <dl className="ddy-list">
+              <dt>《{book.name}》正文 · 第 {page} / {totalPages} 页</dt>
+              {chapters.map((c) => (
+                <dd key={c.id} className={c.id === currentChapterId ? 'ddy-ch-active' : undefined}>
+                  <a
+                    href={viewToUrl({ view: 'read', chapterId: c.id }, site.id)}
+                    onClick={(e) => { e.preventDefault(); navigate({ view: 'read', chapterId: c.id }) }}
+                    title={c.title}
+                  >{c.title}</a>
+                </dd>
+              ))}
+            </dl>
+          )}
+          <dl className="ddy-page ddy-toc-page">
+            <dd>
+              <a href="#" onClick={(e) => { e.preventDefault(); if (book && page > 1) navigate({ view: 'toc', bookId: book.id, page: page - 1 }) }}>上一页</a>
+              <a href="#" onClick={(e) => { e.preventDefault(); if (book && page < totalPages) navigate({ view: 'toc', bookId: book.id, page: page + 1 }) }}>下一页</a>
+              {book && (
+                <a href="#" onClick={(e) => { e.preventDefault(); navigate({ view: 'book', bookId: book.id }) }}>返回书页</a>
+              )}
+            </dd>
+          </dl>
         </div>
       </div>
+      <DdyFooter />
     </div>
   )
 }
-

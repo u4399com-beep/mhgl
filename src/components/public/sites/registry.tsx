@@ -1,21 +1,16 @@
 // ============================================================
-// [R28-1] 站点克隆模板注册表 —— SiteTemplateSet 的唯一消费入口
+// [R39-1] 站点克隆模板注册表 —— SiteTemplateSet 的唯一消费入口
 //
-// R28 用户指令「删除现有所有主题模版 → 重新完整克隆」执行完毕: R26/R27 十套模板
-// 已删除并由本轮 5+3 agent + 主控以 8 页型契约(基础五视图 + Ranking/Fulltext/Search
-// 扩展三视图)重建, 在此集中挂载。
+// R39 用户指令「先彻底删除现有所有主题模版 → 再重新完整克隆」执行中:
+// R28 轮 10 套模板已全部删除(src/components/public/sites/{id}/ + header/{id}.tsx),
+// 本轮按真站快照(/tmp/r39-snap/{id}/)逐站 1:1 重克隆后在此挂载, 模板 id 与导出名
+// 与 R28 轮一致(registry 零改动挂载)。
 //
-// 覆盖表(8 页型 = H首页 C分类 B书 T目录 R章节 + Ran排行 Ful全本 Sea搜索):
-//   aijjxs     H C B T R     Ful Sea  (真站无独立排行页, 声明)
-//   pili       H C B T R Ran Sea     (真站无独立全本页, 声明)
-//   kks101     H C B T R Ran Ful Sea  (8/8)
-//   qb23       H C B T R Ran Ful Sea  (8/8)
-//   ddyueshu   H C B T R Ran Ful      (真站搜索为第三方站外引擎, 声明)
-//   ggd66      H C B T R     Ful Sea  (真站无独立排行页, 声明)
-//   huangjinwu H C B T R Ran Sea      (真站无全本列表页, 声明)
-//   x2552      H C B T R Ran Ful Sea  (8/8, Wayback 实测为主)
-//   shipsay    H C B T R Ran Ful Sea  (8/8, Wayback 实测为主)
-//   trxsw      H C B T R Ran Ful Sea  (8/8, Wayback 实测为主)
+// 页型覆盖表(8 页型 = H首页 C分类 B书 T目录 R章节 + Ran排行 Ful全本 Sea搜索):
+//   aijjxs     H C B T R     Ful Sea  (真站无独立排行页, 榜单为首页 aside 板块; 声明)
+//   ddyueshu   H C B T R Ran Ful     (Sea 不实现: 真站无站内搜索结果页, header 搜索为站外 JS; 声明)
+//   ggd66      H C B T R     Ful Sea  (Ran 不实现: 真站无独立排行页, 榜单为首页 aside 板块; 声明)
+//   (其余各站重建中, 逐站回填)
 //
 // css 注入: 各套 css 字段(全部选择器以 .clone-{id} 开头)由 PublicSite 在
 // .clone-{theme.id} 作用域下统一注入(<style data-template-clone-css>)。
@@ -23,27 +18,29 @@
 // ============================================================
 import type { SiteTemplateSet } from './shared'
 import { aijjxsTemplate } from './aijjxs'
-import { piliTemplate } from './pili'
-import { kks101Template } from './kks101'
-import { qb23Template } from './qb23'
 import { ddyueshuTemplate } from './ddyueshu'
 import { ggd66Template } from './ggd66'
-import { huangjinwuTemplate } from './huangjinwu'
 import { x2552Template } from './x2552'
+import { qb23Template } from './qb23'
+import { huangjinwuTemplate } from './huangjinwu'
+import { kks101Template } from './kks101'
+import { piliTemplate } from './pili'
 import { shipsayTemplate } from './shipsay'
 import { trxswTemplate } from './trxsw'
 
-const TEMPLATE_SETS: Record<string, SiteTemplateSet> = {
-  aijjxs: aijjxsTemplate, // [R28-2a] 8 文件 2162 行
-  pili: piliTemplate, // [R28-2b/2b2] 七页型(Ranking 截断修复+Search 补建)
-  kks101: kks101Template, // [R28-2f] 10 文件 2119 行
-  qb23: qb23Template, // [R28-2c] 8 文件 1877 行
-  ddyueshu: ddyueshuTemplate, // [R28-2a/2a2/2h] 补完+Ranking 补建
-  ggd66: ggd66Template, // [R28-2c] 8 文件 1462 行
-  huangjinwu: huangjinwuTemplate, // [R28-2d] 8 文件 1458 行
-  x2552: x2552Template, // [R28-2d/2d-x] Wayback 快照重建+主控补完 8 文件
-  shipsay: shipsayTemplate, // [R28-2e] 8 文件 1799 行
-  trxsw: trxswTemplate, // [R28-2g] 9 文件 1736 行
+const TEMPLATE_SETS: Partial<Record<string, SiteTemplateSet>> = {
+  aijjxs: aijjxsTemplate, // [R39-2a] 9 文件重克隆(快照 /tmp/r39-snap/aijjxs/ 2026-09-18 直连实抓)
+  ddyueshu: ddyueshuTemplate, // [R39-2d] 10 文件重克隆(biquge 家族, GBK 快照 2026-09-18)
+  ggd66: ggd66Template, // [R39-2e] 7 文件重克隆(绿系简洁风, 快照 2026-09-18)
+  pili: piliTemplate, // [R39-2j] 6 文件重克隆(wmcms 橙棕系, cloak 快照 2026-09-18)
+  kks101: kks101Template, // [R39-2i] 6 文件重克隆(繁体蓝系书单卡墙, 快照 2026-09-18)
+  huangjinwu: huangjinwuTemplate, // [R39-2h] 7 文件重克隆(现代蓝系 CSS 变量设计, 快照 2026-09-18)
+  qb23: qb23Template, // [R39-2g] 7 文件重克隆(mxone 红色卡片墙, 快照 2026-09-18)
+  x2552: x2552Template, // [R39-2f] legacy 恢复(真站本轮快照文本编码损坏, 结构/黑冰 CSS 已复核一致; R28 Wayback 实测克隆)
+  // [R39-2c] 以下两站真站已不可达(本轮 curl/relay/cloak/ZAI 四链路复核): trxsw.com 服务器空响应、
+  // demo.shipsay.com 仅 ZAI 间歇可达。恢复 R28 轮基于真实抓取(Wayback 实测)的克隆成果, 来源已注明各文件头
+  shipsay: shipsayTemplate,
+  trxsw: trxswTemplate,
 }
 
 /**

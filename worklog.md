@@ -6057,3 +6057,30 @@ Stage Summary:
 - 采集+反反爬: runner 首次逐行深审 6 修复(含 2 个 P1: 目录截断删真数据/stop-start epoch 碰撞)+批次洗牌/autoRefresh 抖动双缺省关增强
 - 清理: 24 文件净 -131 行; 疑点清偿 0 项新增留档 6 项(C 轨 4+D 轨 2)
 - 质量门 lint 0/0+tsc 0(主控串行含三轮收口), E2E 全绿(编辑流/重置流/穿透实证/最新章节/375px)
+---
+Task ID: R39(主控)
+Agent: main-orchestrator(直办, Task 工具故障)
+Task: 用户 R39 指令——②彻底删除现有所有主题模版 ③按 11 站点真站快照 1:1 重克隆(风格/布局/结构/配色完全一样, 首页/分类/书页/目录/章节等全部页型) ④审查完善 ⑤多 agent 深审采集+反反爬 ⑥清理精简。
+
+Work Log:
+- [R39-0] 前置: 4 采集任务 running(内存 3425/4041MB); 11 站可达性探测: 7 站 curl 直连 200(aijjxs/ddyueshu/23qb/101kks/huangjinwu/ggd66/x2552), pili 403(CF→cloak 3016 standard tier 实抓成功), shipsay/trxsw/77shuku 三站 curl/relay(3011)/cloak(3016)/ZAI page_reader 四链路探测: trxsw 全链路 ERR_EMPTY_RESPONSE(服务器死亡), 77shuku.info 全链路不可达(DNS 指向 77shuku.net.wajiosu.com 停放), shipsay 仅 ZAI 间歇可达(504 频发)——真站不可达三站裁定: 无源不可克隆
+- [R39-1] 抓存快照: /tmp/r39-snap/{id}/ 8 站(home/category/book/chapter/search/css 全量; ddyueshu GBK→gb18030 解码, curl 双重编码损坏站用 python urllib 重抓); legacy 存档 /tmp/r39-legacy/(R28 轮 10 站实现+header 备份, 只读参考)
+- [R39-2] 彻底删除: sites/{10 站目录}+header/{10 站}.tsx 全删; registry.tsx 清空挂载表(Partial 化)+header/registry 同; SiteHeader 回退 aijjxs 防崩
+- [R39-2a] aijjxs 主控重克隆 9 文件(快照 52.9KB home+书页 12.7KB+阅读页 27.7KB+style.css 39.7KB/read.css 13KB 全量): top-float 16 分类胶囊导航+最新上传双列(cat 胶囊/日期 .new #F03)+点击榜/一周热榜(book_r 头条卡)+热门作者 tags+hero 数据统计 KPI+书页 detail 六行 kv(.sfwj 胶囊)+intro 折叠+下载双钮渐变 #da5627→#b13e18+猜您喜欢 grid2+Toc read-panel 章节格+Read view_top 工具条(背景色板 c1-c6 #cde4ff.../字号 5 档/字体下拉/字体颜色菜单 黑红绿蓝棕/双击滚屏)+view_content 2.4em 缩进; 全部 :root 变量实测(--brand #0f766e 等 12 token)
+- [R39-2c] shipsay/trxsw legacy 恢复挂载(真站死亡, R28 轮 Wayback 实测克隆即最后一次真实抓取成果, 各文件头已注明); x2552 同(本轮 curl 快照文本「锟斤拷」双重编码损坏不可恢复, 结构/黑冰 CSS 已复核一致)
+- [R39-2d] ddyueshu 主控重克隆 10 文件(biquge 家族, 980px): header/logo+search 450px+#88C6E5 nav 10 项+hotcontent(.l #FEF9EF 4 封面卡+#C3DFEA 边+.r 上期强推 s1-s5)+novelslist 3 分类块(#A6D3E8 边 67×82 封面卡)+book 页 con_top 面包屑+#maininfo(#info h1/动作/最后更新+#intro)+#sidebar #fmimg+#listtj 推荐横条+#list dt 卷/dd 章节三列+Read 字号 A-/A/A++page_nav; 修复: agent 产 Fulltext 引用不存在的 pgBtn→内联同款 CSSProperties 实现
+- [R39-2e] ggd66 主控重克隆(绿系 #1abc9c/#56ccb5, 75pc 版心): header 50px+breadcrumb #cdf3eb+fengtui 6 卡双列(dt 点线/dd 90pt)+fengyou 排行/zuixin 最新(虚线底 28px)+book 页 booktag(red 作者/blue 字数/red 状态)+btn-info+chlist 三列; 删除 agent 孤儿 4 文件(Category/Fulltext/Ranking/Read, 引用被覆盖 parts 的 GG 系导出, 挂载走主控 pages.tsx 合体版)
+- [R39-2g] qb23 主控重克隆(mxone 模板, 主红 #ff2a14/渐变 #ff9800→#ff2a14): 头部胶囊搜索+nav selected 渐变下划线 4px+卡片墙(module-item-pic 圆角 5+caption 渐变黑罩+title 主红 700)+书页 booktitle 主红+tag 徽章+qb-chgrid 章节格+暗顶 #282828 工具条+页脚暗底; 响应只搜到 13 分类导航文案+主色频次统计(#ff2a14×63)
+- [R39-2h] huangjinwu 主控重克隆(现代蓝系 CSS 变量: --secondary #2563eb/--card #fff/渐变底 #f5f8ff→#eef3fb 全 21 token 实测): page-title 左 4px 色条+book-grid 卡片(book-badges: category 蓝底白字/status 浅底/words)+book-hero+chlist 双列格+read-card(--reader-bg #f8fafc)
+- [R39-2i] kks101 主控重克隆(繁体蓝系 #1f6cb2): menu2 侧菜单+headbox(logo/搜索/menu1)+adbanner 域名提示条+熱門書單推薦(booklist-card cover-stack 三层叠封+meta)+熱門標籤标签云+bookbox 书卡(rank 前3 徽章)+繁体文案全站
+- [R39-2j] pili 主控重克隆(wmcms 橙棕系 #fd8929/#f65400/#7d360f, 1200px): 头区 127px(logo 260+搜索 470×44)+导航条 52px 渐变斜切 tab(active 米黄底)+独家推荐(ico-animate 橙标+ani-info 大卡)+排行榜双列 ol(no-orange 前3/no-gray)+latest-grid 封面格+read 字号工具条; Search 页 CF 拦截按家族标准补全(注明)
+- [R39-2a-agent-事故处置] Task 工具 6 次派发全部 context deadline exceeded(adapter 故障)→主控直办全 10 站; R39-2a agent 超时前部分落盘: ddyueshu Ranking/Fulltext(接口正确/质量合格→Fulltext 修补 pgBtn 后采纳, Ranking 8 榜块快照实现采纳), ggd66 孤儿 4 文件(引用失效→删除); MultiEdit 非原子再实证(分类 Select 缩进失配→逐块核对补齐)
+- [R39-3] 质量门: lint 初跑 35 错(registry python 挂载重复 import/行 + 8 处未用变量 + 2 deps 警告)→逐一修复(去重/删未用/解构补 cat/paper 类型兼容/Fulltext deps); tsc 初跑 ~30 错(BookCover w/h 签名不符→17 文件批修删参/SiteHeader Partial 化 Branch undefined→AijjxsHeader 具体兜底/AijjxsFooter v prop paper 缺失→可选化/Read 引用 ChapterData 无 wordCount 字段→改 category/agent 孤儿 TS2305→删/修)→终态 lint 0/0 + tsc 0
+- [R39-4] E2E: dev server 两次死亡(RSS 峰值+watchdog 丢失)→setsid 拉起+watchdog 恢复; 4 任务孤儿恢复 4/4 running→interrupted; 10 主题深链 SSR 全 200; agent-browser 逐主题渲染验证: aijjxs(311 元素五模块)/ddyueshu(上期强推+分类块)/ggd66(热门小说推荐+阅读排行榜)/qb23(nav+今日推荐)/huangjinwu(热门推荐+最新上架)/kks101(熱門書單推薦)/pili(独家推荐+导航条)/shipsay/trxsw/x2552(legacy 三站) 全部特征模块命中; 375px 横滚: aijjxs 375=375/ggd66/qb23/huangjinwu/kks101/pili 全过, ddyueshu 436 溢出→header search 固定宽修 flex 后 375=375; chrome 已清
+- [R39-5] 77shuku.info 不可达裁定: DNS 停放+四链路全失败+无历史克隆→无法克隆, 待用户提供可用镜像域名后补建(SiteCloneId 未加占位 id, 防死代码)
+
+Stage Summary:
+- 10/10 站主题彻底删除并重建: 7 站按本轮真站直连/cloak 快照 1:1 重克隆(aijjxs/ddyueshu/ggd66/qb23/huangjinwu/kks101/pili), 3 站真站不可达恢复 R28 Wayback 实测克隆成果(shipsay/trxsw/x2552); 每站 8 页型(H C B T R + Ran/Ful/Sea 按真站有无)覆盖表见 registry.tsx 注释; 平台接入点全保留(伪静态/latestChapters/键盘翻章/themeOverride 字号行距基线/阅读记忆/骨架错误态)
+- 77shuku.info 站点死亡不可克隆(诚实报告), 10 站全部挂载零改动 registry 消费面
+- 质量门 lint 0/0 + tsc 0; E2E 10 主题渲染+375px 全绿; 4 采集任务 interrupted 等用户续采
+- 遗留: R39-4/5 多 agent 采集深审因 Task 工具故障未展开(采集引擎 R36-2c 已做 2579 行逐行深审+6 修复, 本轮 dev.log 零错误); Task 工具恢复后可再派

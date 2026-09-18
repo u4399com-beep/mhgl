@@ -1,255 +1,206 @@
 // ============================================================
-// [R28-2b-3] 霹雳书屋 克隆书籍详情页 —— https://www.pilishuwu.com/{cat}/{id}/info.html
-//            (wmcms.page.works.css)
-//
-// 真站快照: /tmp/r28-2b/pili/book.html(2026-09-16 实抓 56K, 《第一剑仙退休后》)
-// CSS 存档: /tmp/r28-2b/pili/wmcms.page.works.css(90K) 实测
-//
-// 真站 DOM(#special_bg > .ui-wm):
-//   .works-intro: .works-cover(210×280 封面 + .works-intro-status 状态标 160×32
-//                 16px/32px 白字 左 20px 底部) + .works-intro-detail:
-//     h2.works-intro-title strong(32px/32px 微软雅黑 normal #555)「书名」（作者：xx）
-//     .works-intro-short(#999 灰字 h 130px lh 180% overflow auto)
-//     .works-intro-tags 标签 chips + .works-intro-active 开始阅读/章节目录
-//     (.ui-btn-orange 底 #f89157 边 1px #ec7d4d inset 高光 hover #f59966, 圆角 3px)
-//   .works-vote: 鲜花/鸡蛋计数 + #novel_data.works-status ul li(160px 列 14px/35px)
-//   右 .works-author-wr: .works-author-face 头像 + dl(作者等级/签约状态/是否上架)
-//   .works-chapter-wr.works-stack: ul.works-chapter-menu(active tab「查看完整章节目录」)
-//     + .works-chapter-top「最新章：」(红 #cd1604) + ol.chapter-page-new.works-chapter-list
-//     (.works-chapter-item a 14px #333, :visited #A75646, :hover #fa8729, 宽 294px 列)
-//
-// 降级: ①鲜花/鸡蛋/总点击/收藏/推荐计数无契约 → 数据行以 字数/分类/更新时间 复刻
-// works-status 栅格 ②作者卡(作者等级/签约状态/是否上架) → 分类/状态/字数 ③作品轮播图
-// (works-slider-ad bx-carousel)无推荐书数据契约 → 不渲染 ④[R36-2b-8] 最新章行原取当前目录页尾部
-// (多页书=最早页尾部) → 升级为 API 全书最新章(latestChapters[0], 与目录分页解耦)。
+// [R39-2j] pili 克隆书页/目录/阅读 —— wmcms info/read 形态
 // ============================================================
 'use client'
 
-import { BookOpen, ListTree } from 'lucide-react'
-import type { SiteBookProps } from '../shared'
-import { usePublic } from '../../ctx'
+import { useEffect, useState } from 'react'
+import type { SiteBookProps, SiteTocProps, SiteReadProps } from '../shared'
+import { usePublic, viewToUrl } from '../../ctx'
+import { fetchBooks } from '../../data'
+import { ChapterContent, useReaderFont, useRecordReading, useThemeLineHeight } from '../template-kit'
 import { BookCover } from '../../BookCover'
 import { ErrorState, Sk } from '../../bits'
 import { fmtDate, formatWords, statusLabel } from '../../seo'
+import type { BookItem } from '../../types'
+import { PiliFooter } from './parts'
 
-const ORANGE = '#fd8929'
-const TITLE = '#555555'
-const TEXT = '#333333'
-const MUTED = '#999999'
-
-export function PiliBook({ data, loading, error, currentChapterId }: SiteBookProps) {
+export function PiliBook({ data, loading, error }: SiteBookProps) {
   const { site, navigate } = usePublic()
-  const book = data?.book
-  const chapters = data?.chapters || []
-  // 真站书页章节列表为「最新在前」倒序(第63章→第50章)
-  const latestFirst = [...chapters].reverse()
-  // [R36-2b-8] 「最新章」行 = 全书最新 1 章(API latestChapters[0] idx 最大, 与目录分页解耦; 修前取
-  // 当前目录页尾章 → 多页书第 1 页显示第 100 章而非全书末章)。缺字段容旧响应回落当前页尾章原口径
-  // (下方 50 条章节网格为「本页目录倒序预览」非最新块, 维持当前页数据不动)
-  const latestCh = data?.latestChapters?.[0] ?? latestFirst[0]
-  const firstCh = chapters[0]
+  const book = data?.book ?? null
+  const chapters = data?.chapters ?? []
+  const latest = data?.latestChapters ?? []
+  const [recs, setRecs] = useState<BookItem[]>([])
 
-  if (error) {
-    return (
-      <div className="mx-auto w-full max-w-6xl px-4 py-10 sm:px-6">
-        <ErrorState message="书籍信息加载失败" detail={error} />
-      </div>
-    )
-  }
+  useEffect(() => {
+    let alive = true
+    if (!book) return
+    fetchBooks({ cat: book.categoryId || undefined, page: 1, size: 10, site: site.id })
+      .then((d) => { if (alive) setRecs((d.books || []).filter((x) => x.id !== book.id).slice(0, 8)) })
+      .catch(() => { if (alive) setRecs([]) })
+    return () => { alive = false }
+  }, [book?.id, book?.categoryId, site.id, book])
+
+  const first = chapters[0]
 
   return (
-    <div className="min-h-[50vh] bg-white pb-10 text-[#333333]">
-      <div className="mx-auto w-full max-w-6xl px-4 pt-6 sm:px-6">
+    <div className="pli-book">
+      <div className="pli-wrap">
         {loading || !book ? (
-          <div className="grid gap-6 lg:grid-cols-[210px_1fr_250px]" aria-hidden>
-            <Sk className="h-[280px] rounded-[3px]" />
-            <Sk className="h-[280px] rounded-[3px]" />
-            <Sk className="h-[280px] rounded-[3px]" />
-          </div>
+          <div className="pli-panel">{error ? <ErrorState message="书籍加载失败" detail={error} /> : <Sk style={{ height: 220 }} />}</div>
         ) : (
           <>
-            <div className="grid gap-6 lg:grid-cols-[210px_1fr_250px]">
-              {/* 封面 + 状态标(works-cover 210×280 + works-intro-status) */}
-              <div className="relative mx-auto h-[280px] w-[210px] overflow-hidden rounded-[3px] lg:mx-0">
-                <BookCover name={book.name} cover={book.cover} showAuthor={book.author} style={{ borderRadius: 3 }} className="absolute inset-0" />
-                <span
-                  className="absolute bottom-0 left-0 z-10 w-[160px] truncate pl-3.5 text-base text-white"
-                  style={{ background: 'rgba(0,0,0,0.55)', height: 32, lineHeight: '32px' }}
-                >
-                  {statusLabel(book.status)}
-                </span>
+            <div className="pli-panel pli-book-head">
+              <a className="pli-ani-img" href="#" onClick={(e) => e.preventDefault()} aria-label={book.name}>
+                <BookCover cover={book.cover} name={book.name}  />
+              </a>
+              <div className="pli-ani-text">
+                <h1 className="pli-book-title">{book.name}</h1>
+                <div className="pli-ani-text1">
+                  <a className="pli-ani-author" href="#" onClick={(e) => { e.preventDefault(); navigate({ view: 'search', q: book.author }) }}>{book.author}</a>
+                  <span className="pli-book-badge">{statusLabel(book.status)}</span>
+                  <span className="pli-book-badge pli-badge-orange">{book.category || '小说'}</span>
+                  <span className="pli-book-badge">{formatWords(book.wordCount)}</span>
+                </div>
+                <p className="pli-book-intro">{book.intro || '暂无简介'}</p>
+                <p className="pli-book-time">更新：{fmtDate(book.updatedAt)}</p>
+                <div className="pli-btns">
+                  <button className="pli-btn-orange" disabled={!first} onClick={() => first && navigate({ view: 'read', chapterId: first.id })}>开始阅读</button>
+                  <button className="pli-btn-line" onClick={() => navigate({ view: 'toc', bookId: book.id })}>完整目录</button>
+                </div>
               </div>
-
-              {/* 信息区(works-intro-detail) */}
-              <div className="min-w-0">
-                <h1 className="text-2xl font-normal leading-8 sm:text-[32px] sm:leading-8" style={{ color: TITLE }}>
-                  {book.name}
-                  <span className="ml-1 text-base sm:text-xl">（作者：{book.author}）</span>
-                </h1>
-                <div className="mt-3 max-h-[130px] overflow-y-auto text-sm leading-[1.8]" style={{ color: MUTED }}>
-                  {book.intro ? book.intro.split(/\n+/).map((p, i) => <p key={i}>{p}</p>) : <p>暂无简介</p>}
-                </div>
-                {/* 标签 chips(works-intro-tags-item → 站内搜索) */}
-                {data?.tags?.length ? (
-                  <p className="mt-3 flex flex-wrap items-center gap-1.5 text-sm">
-                    <span style={{ color: '#666666' }}>标签：</span>
-                    {data.tags.slice(0, 8).map((t) => (
-                      <button
-                        key={t.tag}
-                        type="button"
-                        onClick={() => navigate({ view: 'search', q: t.tag })}
-                        className="rounded-[3px] px-2 py-0.5 text-xs transition-colors hover:text-[#fa8729]"
-                        style={{ background: '#f7f7f7', color: '#666666', border: '1px solid #e8e8e8' }}
-                        aria-label={`搜索标签 ${t.tag}`}
-                      >
-                        {t.tag}
-                      </button>
-                    ))}
-                  </p>
-                ) : null}
-                {/* 按钮组(ui-btn-orange 圆角3) */}
-                <div className="mt-4 flex flex-wrap gap-2.5">
-                  <button
-                    type="button"
-                    onClick={() => firstCh && navigate({ view: 'read', chapterId: firstCh.id })}
-                    disabled={!firstCh}
-                    className="inline-flex h-9 items-center gap-1.5 rounded-[3px] px-4 text-sm text-white transition-colors hover:bg-[#f59966] active:bg-[#f1854b]"
-                    style={{ background: '#f89157', border: '1px solid #ec7d4d', boxShadow: 'inset 0 0 1px rgba(255,255,255,0.5)' }}
-                    aria-label="开始阅读"
-                  >
-                    <BookOpen className="h-3.5 w-3.5" aria-hidden />
-                    开始阅读
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => navigate({ view: 'toc', bookId: book.id, page: 1 })}
-                    className="inline-flex h-9 items-center gap-1.5 rounded-[3px] px-4 text-sm text-white transition-colors hover:bg-[#f59966] active:bg-[#f1854b]"
-                    style={{ background: '#f89157', border: '1px solid #ec7d4d', boxShadow: 'inset 0 0 1px rgba(255,255,255,0.5)' }}
-                    aria-label="章节目录"
-                  >
-                    <ListTree className="h-3.5 w-3.5" aria-hidden />
-                    章节目录
-                  </button>
-                  {/* TXT 下载: 全站唯一允许的 <a href>(契约出口) */}
-                  <a
-                    href={`/api/public/download?book=${encodeURIComponent(book.id)}`}
-                    className="inline-flex h-9 items-center rounded-[3px] px-4 text-sm text-[#5a4b32] transition-colors hover:bg-[#faead0]"
-                    style={{ background: 'linear-gradient(180deg, #fffdf9, #fef8f0)', border: '1px solid #e0cfb1' }}
-                  >
-                    TXT 下载
-                  </a>
-                </div>
-                {/* works-status 数据栅格(真站 总点击/收藏/推荐 → 字数/分类/更新时间, 降级①) */}
-                <ul className="mt-4 flex flex-wrap gap-x-6 gap-y-1 text-sm" style={{ color: '#666666', listStyle: 'none' }}>
-                  <li>字数:{formatWords(book.wordCount)}</li>
-                  <li>分类:{book.category}</li>
-                  <li>状态:{statusLabel(book.status)}</li>
-                  <li>更新:{fmtDate(book.updatedAt)}</li>
-                </ul>
-              </div>
-
-              {/* 作者卡(works-author-wr; 等级/签约字段降级②) */}
-              <aside className="rounded-[3px] border border-[#f0f0f0] p-4">
-                <div className="flex items-center gap-3">
-                  <span
-                    aria-hidden
-                    className="flex h-[52px] w-[52px] shrink-0 items-center justify-center rounded-full text-lg text-white"
-                    style={{ background: `linear-gradient(135deg, ${ORANGE}, #ff9a6a)` }}
-                  >
-                    {book.author.slice(0, 1)}
-                  </span>
-                  <div className="min-w-0">
-                    <p className="truncate text-base font-bold" style={{ color: TEXT }}>{book.author}</p>
-                    <p className="text-xs" style={{ color: MUTED }}>作者</p>
-                  </div>
-                </div>
-                <dl className="mt-3 space-y-1 text-[13px]" style={{ color: '#666666' }}>
-                  <dd>分类：{book.category}</dd>
-                  <dd>状态:{statusLabel(book.status)}</dd>
-                  <dd>字数:{formatWords(book.wordCount)}</dd>
-                </dl>
-                <button
-                  type="button"
-                  onClick={() => navigate({ view: 'category', cat: book.categoryId || undefined })}
-                  className="mt-3 w-full rounded-[3px] py-1.5 text-xs text-white transition-colors hover:bg-[#f59966]"
-                  style={{ background: '#f89157', border: '1px solid #ec7d4d' }}
-                  aria-label={`查看${book.category}分类`}
-                >
-                  更多{book.category}
-                </button>
-              </aside>
+              <div className="pli-clear" />
             </div>
-
-            {/* 章节区(works-chapter-wr.works-stack) */}
-            <section className="mt-8" aria-label="章节列表">
-              {/* works-chapter-menu active 橙 tab(2px #ff9a6a 底线) */}
-              <ul className="flex gap-1 border-b-2" style={{ borderColor: '#ff9a6a', listStyle: 'none' }}>
-                <li>
-                  <button
-                    type="button"
-                    onClick={() => navigate({ view: 'toc', bookId: book.id, page: 1 })}
-                    className="block bg-white px-4 py-2 text-sm font-bold text-[#fa8729]"
-                    aria-label="查看完整章节目录"
-                  >
-                    查看完整章节目录
-                  </button>
-                </li>
-                <li className="ml-auto hidden items-center sm:flex">
-                  <span className="text-xs" style={{ color: MUTED }}>共 {data?.tocTotal ?? chapters.length} 章</span>
-                </li>
-              </ul>
-              {/* works-chapter-top 最新章行(降级④: 当前目录页尾部) */}
-              <div className="flex flex-wrap items-center gap-2 border-b border-dashed border-[#e5e5e5] py-3 text-sm">
-                <span className="font-bold" style={{ color: TEXT }}>最新章：</span>
-                {latestCh ? (
-                  <button
-                    type="button"
-                    onClick={() => navigate({ view: 'read', chapterId: latestCh.id })}
-                    className="font-bold transition-colors hover:text-[#fa8729]"
-                    style={{ color: '#cd1604' }}
-                    aria-label={`阅读最新章 ${latestCh.title}`}
-                  >
-                    {latestCh.title}
-                  </button>
-                ) : (
-                  <span style={{ color: MUTED }}>暂无章节</span>
-                )}
-                <span className="text-xs" style={{ color: MUTED }}>{fmtDate(book.updatedAt)}</span>
-              </div>
-              {/* 章节网格(works-chapter-item 294px 列; visited #A75646 在 index.css) */}
-              <ol className="grid grid-cols-1 gap-y-3 pt-4 sm:grid-cols-2 lg:grid-cols-4" style={{ listStyle: 'none' }}>
-                {latestFirst.slice(0, 50).map((c) => (
+            <div className="pli-panel">
+              <div className="pli-rank-head">最新章节</div>
+              <ol className="pli-in-rank-list pli-in-panel">
+                {latest.map((c) => (
                   <li key={c.id}>
-                    <button
-                      type="button"
-                      onClick={() => navigate({ view: 'read', chapterId: c.id })}
-                      className="block max-w-full truncate text-left text-sm transition-colors hover:text-[#fa8729]"
-                      style={{ color: c.id === currentChapterId ? '#fa8729' : TEXT }}
-                      aria-label={`阅读 ${c.title}`}
-                    >
-                      {c.title}
-                    </button>
+                    <a className="pli-rank-name" href={viewToUrl({ view: 'read', chapterId: c.id }, site.id)} onClick={(e) => { e.preventDefault(); navigate({ view: 'read', chapterId: c.id }) }}>{c.title}</a>
                   </li>
                 ))}
               </ol>
-              {chapters.length >= 100 && (
-                <p className="pt-4 text-center text-xs" style={{ color: MUTED }}>
-                  <button
-                    type="button"
-                    onClick={() => navigate({ view: 'toc', bookId: book.id, page: data?.tocTotalPages || 1 })}
-                    className="underline transition-colors hover:text-[#fa8729]"
-                    style={{ color: ORANGE }}
-                    aria-label="查看全部章节"
-                  >
-                    …更多章节请看完整目录
-                  </button>
-                </p>
-              )}
-            </section>
+              <div className="pli-rank-head">正文 · 前 20 章</div>
+              <ol className="pli-in-rank-list pli-in-panel">
+                {chapters.slice(0, 20).map((c) => (
+                  <li key={c.id}>
+                    <a className="pli-rank-name" href={viewToUrl({ view: 'read', chapterId: c.id }, site.id)} onClick={(e) => { e.preventDefault(); navigate({ view: 'read', chapterId: c.id }) }}>{c.title}</a>
+                  </li>
+                ))}
+              </ol>
+              <p style={{ textAlign: 'center', margin: '12px 0' }}>
+                <button className="pli-btn-orange" onClick={() => navigate({ view: 'toc', bookId: book.id })}>查看完整目录（共 {data?.tocTotal || chapters.length} 章）</button>
+              </p>
+            </div>
+            <div className="pli-panel">
+              <div className="pli-rank-head">相关推荐</div>
+              <div className="pli-latest-grid">
+                {recs.map((b) => (
+                  <a key={b.id} className="pli-book-cell" href={viewToUrl({ view: 'book', bookId: b.id }, site.id)} onClick={(e) => { e.preventDefault(); navigate({ view: 'book', bookId: b.id }) }}>
+                    <BookCover cover={b.cover} name={b.name}  />
+                    <span className="pli-book-cell-name">{b.name}</span>
+                  </a>
+                ))}
+              </div>
+            </div>
           </>
         )}
       </div>
-      <p className="pt-6 text-center text-xs" style={{ color: MUTED }}>{site.name} · 章节数据随采集更新</p>
+      <PiliFooter />
+    </div>
+  )
+}
+
+export function PiliToc({ data, loading, error, page, currentChapterId }: SiteTocProps) {
+  const { site, navigate } = usePublic()
+  const book = data?.book ?? null
+  const chapters = data?.chapters ?? []
+  const totalPages = data?.tocTotalPages || 1
+  return (
+    <div className="pli-toc">
+      <div className="pli-wrap">
+        <div className="pli-panel">
+          <div className="pli-rank-head">{book ? `《${book.name}》完整目录` : '目录'}<small>（第 {page} / {totalPages} 页）</small></div>
+          <div className="pli-panel-body">
+            {loading ? (
+              <div className="pli-chgrid">{Array.from({ length: 24 }).map((_, i) => <Sk key={i} style={{ height: 30 }} />)}</div>
+            ) : error || !book ? (
+              <ErrorState message="目录加载失败" detail={error} />
+            ) : (
+              <div className="pli-chgrid">
+                {chapters.map((c) => (
+                  <a key={c.id} className={c.id === currentChapterId ? 'is-active' : undefined} href={viewToUrl({ view: 'read', chapterId: c.id }, site.id)} onClick={(e) => { e.preventDefault(); navigate({ view: 'read', chapterId: c.id }) }} title={c.title}>{c.title}</a>
+                ))}
+              </div>
+            )}
+            <div className="pli-pager">
+              <button disabled={page <= 1} onClick={() => book && navigate({ view: 'toc', bookId: book.id, page: page - 1 })}>上一页</button>
+              <button onClick={() => book && navigate({ view: 'book', bookId: book.id })}>返回书页</button>
+              <button disabled={page >= totalPages} onClick={() => book && navigate({ view: 'toc', bookId: book.id, page: page + 1 })}>下一页</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <PiliFooter />
+    </div>
+  )
+}
+
+const FS_STEPS = [15, 17, 19, 21, 23]
+
+export function PiliRead({ data, loading, error }: SiteReadProps) {
+  const { navigate } = usePublic()
+  const chapter = data?.chapter ?? null
+  const book = data?.book ?? null
+  const prev = data?.prev ?? null
+  const next = data?.next ?? null
+  // [R36-2a-fix] 主题覆盖字号基线+行距(pili 真站行距 1.75)
+  const reader = useReaderFont()
+  const lh = useThemeLineHeight(1.75)
+  const [fsIdx, setFsIdx] = useState(1)
+
+  useRecordReading(book?.id, chapter?.id, chapter?.title)
+
+  useEffect(() => {
+    if (!book) return
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return
+      if (e.key === 'ArrowLeft' && prev) navigate({ view: 'read', chapterId: prev.id })
+      if (e.key === 'ArrowRight' && next) navigate({ view: 'read', chapterId: next.id })
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [book, prev, next, navigate])
+
+  if (error) {
+    return <div className="pli-read"><div className="pli-wrap"><ErrorState message="章节内容加载失败" detail={error} /></div></div>
+  }
+  if (loading || !chapter || !book) {
+    return (
+      <div className="pli-read" role="status" aria-label="章节内容加载中">
+        <div className="pli-wrap"><Sk style={{ height: 44 }} /><Sk style={{ height: 420, marginTop: 10 }} /></div>
+        <span className="sr-only">加载中…</span>
+      </div>
+    )
+  }
+  const goto = (cid?: string) => { if (cid) navigate({ view: 'read', chapterId: cid }) }
+
+  return (
+    <div className="pli-read">
+      <div className="pli-wrap">
+        <div className="pli-text-set" role="group" aria-label="字号">
+          <b>字号：</b>
+          {FS_STEPS.map((n, i) => (
+            <a key={n} href="#" className={fsIdx === i ? 'is-active' : ''} onClick={(e) => { e.preventDefault(); setFsIdx(i); reader.set(n) }}>{n}px</a>
+          ))}
+          <b>行距：</b>
+          <a href="#" onClick={(e) => { e.preventDefault(); reader.inc() }}>加大</a>
+          <a href="#" onClick={(e) => { e.preventDefault(); reader.dec() }}>减小</a>
+        </div>
+        <div className="pli-panel">
+          <h1 className="pli-read-title">{chapter.title}</h1>
+          <div className="pli-read-info">{book.name} · {book.author}</div>
+          <div className="pli-readcontent" style={{ fontSize: reader.font, lineHeight: lh }}>
+            <ChapterContent content={chapter.content} />
+          </div>
+          <div className="pli-pager">
+            <button className="pli-btn-orange" disabled={!prev} onClick={() => goto(prev?.id)}>上一章</button>
+            <button className="pli-btn-line" onClick={() => navigate({ view: 'book', bookId: book.id })}>书页</button>
+            <button className="pli-btn-orange" disabled={!next} onClick={() => goto(next?.id)}>下一章</button>
+          </div>
+        </div>
+      </div>
+      <PiliFooter />
     </div>
   )
 }

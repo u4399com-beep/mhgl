@@ -1,100 +1,73 @@
 // ============================================================
-// [R28-2a] aijjxs 克隆章节阅读页 —— 复刻真站 /read/47/{bid}/{n}.html
-//   (快照 /tmp/r28-2a/aijjxs/aijjxs-chapter.html + skin/yellow/read.css 全量实抓实测;
-//    真站阅读器为「夜车」内核 + read-v3 暖羊皮纸皮肤, 与主站米黄皮不同色系)。
-//
-//   真站结构(类名注释对应真站; 版心 = .view_* 共用 width min(1080px, 100%-30px)):
-//     .view_top > .sk_gb 工具条面板(bg #fff8ec / 边 #e2d6c5 / radius 14 / padding 12):
-//       「背景」#skbglist 6 色板圆点 18px(.c1 #cde4ff 蓝色回忆 / .c2 #d8d8d8 灰色天空 /
-//        .c3 #cfe7d4 青山不老 / .c6 #f4ced6 粉红世家 / .c4 #f2e7ab 明黄清俊 / .c5 #f8f8f8 雪白世界)
-//       「字号」#fonts 5 档(.s 小/中/大/加大/极大: 边 #d8cab7 radius 8 #6f4f34;
-//        激活态 bg #fbe8ce 边 #d8a366 #80410f) — 本站以 useReaderFont 映射 set(14/17/20/22/24)
-//       「字体」下拉(默认/宋体/雅黑/楷体/黑体) + 字体颜色/双击滚屏 —— 无对应数据/交互面 → 不渲染
-//     .view_t 标题面板(边 #d9c4a6 / 渐变 #fffcf5→#f8eddd / radius 14 / 居中):
-//       h1「{书名}  {章节标题}」clamp(16px,2.1vw,22px); .view_intro(上边 dashed #d8c6af, 13px #75695b:
-//       「作者 · 分类 · 大小 · 日期」— 数据源无分类/日期 → 作者 · 字数 · 章序)
-//     .view_content 正文面板(边 #e2d6c5 / radius 16 / bg #fffcf6 72% / padding clamp(24px,4vw,40px)):
-//       #view_content_txt 23px / lh 1.76 / p 缩进 2.4em 段距 1.2em(p: 首段缩进 0)
-//     .view_page 翻页导航(16px lh 1.88 居中面板): 章节目录 | 首页 | 上一页 ← n → 下一页 | 尾页
-//       (真站为章内分页; 本站按章推进 → 上一章/下一章 + 章节目录)
-//     .view_tips 小提示(边 dashed #d8c6af 居中 13px; 真站含 ←/→ 键盘翻页提示 — 本站同款实现键盘翻章)
-//     .footer(渐变 #faefde→#f4e7d3) — PublicSite 站点页脚已统一渲染 → 不重复渲染
-//   body.read-v3 背景渐变 #efe6d8→#eadfcf(全局头部之下由本组件铺底)。
-//
-//   降级/推断说明:
-//   ① 真站背景换肤作用于全页(backcolor 写 cookie); 本站作用于正文/标题/翻页面板局部
-//   ② 真站「字体」下拉/字体颜色/双击滚屏无数据契约 → 不渲染
-//   ③ .view_intro 元信息「分类/日期」ChapterData 无对应字段 → 作者 · 字数 · 章序
-//   ④ 真站翻页为章内分页(本文共 238 页) → 契约按章推进, 等价映射上一章/下一章
+// [R39-2a] aijjxs 克隆章节阅读页 —— 快照 /tmp/r39-snap/aijjxs/read2.html(/read/47/57384/2.html 实抓) + css-read.css(13KB)
+//   真站结构(body.read-v3, 渐变底):
+//     div.view_top 工具条(.sk_gb 面板): 「背景」#skbglist 色板 .c.c1..c6 + 「字号」#fonts .s.s1..s5
+//       + 「字体」select#ffamily + 「字体颜色」#yanse #ys_menu(黑/红/绿/蓝/棕) + 「双击滚屏」提示
+//     div.view_t: h1「{书名}  {章节名}」 + .view_intro「作者 · 分类 · 大小 · 年月」
+//     div.view_content > div#view_content_txt > p 段落(text-indent 2.4em, 首段不缩进)
+//     div.view_page 上下章翻页(章尾)
+//   平台接入点: 键盘 ←/→ 翻章(真站 pageEvent 37/39) / useReaderFont 主题覆盖基线 /
+//     useThemeLineHeight(R36-2a-fix) / useRecordReading 阅读记忆
+//   色板(真站 css-read.css 实测): c1 #cde4ff c2 #d8d8d8 c3 #cfe7d4 c4 #f2e7ab c5 #f8f8f8 c6 #f4ced6;
+//     字号 .s 边 #d8cab7 圆角 8 字色 #6f4f34, 激活 #fbe8ce/#d8a366/#80410f; 颜色菜单 红 #8c1f19 绿 #2c6b33 蓝 #174f8d 棕 #6e4a2f 黑 #27231f
 // ============================================================
 'use client'
 
 import { useEffect, useState } from 'react'
-import type { CSSProperties } from 'react'
 import type { SiteReadProps } from '../shared'
 import { usePublic } from '../../ctx'
-import { ErrorState, Sk } from '../../bits'
-import { formatWords } from '../../seo'
 import { ChapterContent, useReaderFont, useRecordReading, useThemeLineHeight } from '../template-kit'
+import { ErrorState, Sk } from '../../bits'
 
-// [R28-2a-21] 真站 read.css :root 实测色值(阅读页专属暖羊皮纸色系, 硬编码)
-const R = {
-  bgTop: '#efe6d8',
-  bgBottom: '#eadfcf',
-  panel: '#fff8ec',
-  paper: '#fffcf6',
-  ink: '#27231f',
-  muted: '#75695b',
-  line: '#e2d6c5',
-  titleBorder: '#d9c4a6',
-  introLine: '#d8c6af',
-  link: '#6b3418',
-  linkHover: '#a85a2a',
-  footer1: '#faefde',
-  footer2: '#f4e7d3',
-  shadow: '0 10px 28px rgba(33, 21, 11, 0.1)',
-  pageMax: 1080,
-} as const
-
-/** [R28-2a-22] 真站 #skbglist 6 色板(名称/色值均为 read.css + 页面 title 属性实测) */
-const BG_SWATCHES: { name: string; color: string; cls: string }[] = [
-  { name: '蓝色回忆', color: '#cde4ff', cls: 'c1' },
-  { name: '灰色天空', color: '#d8d8d8', cls: 'c2' },
-  { name: '青山不老', color: '#cfe7d4', cls: 'c3' },
-  { name: '粉红世家', color: '#f4ced6', cls: 'c6' },
-  { name: '明黄清俊', color: '#f2e7ab', cls: 'c4' },
-  { name: '雪白世界', color: '#f8f8f8', cls: 'c5' },
+// 真站字号 5 档 → useReaderFont.set 映射(真站 fontsize(1..5): 小/中/大/加大/极大)
+const FS_STEPS = [14, 17, 20, 22, 24]
+// 真站背景色板(c1..c6)
+const BG_SWATCHES = [
+  { cls: 'c1', color: '#cde4ff' },
+  { cls: 'c2', color: '#d8d8d8' },
+  { cls: 'c3', color: '#cfe7d4' },
+  { cls: 'c4', color: '#f2e7ab' },
+  { cls: 'c5', color: '#f8f8f8' },
+  { cls: 'c6', color: '#f4ced6' },
 ]
-
-/** [R28-2a-23] 字号 5 档 → useReaderFont.set 映射(真站 fontsize(1..5): 小/中/大/加大/极大) */
-const FONT_STEPS: { label: string; px: number }[] = [
-  { label: '小', px: 14 },
-  { label: '中', px: 17 },
-  { label: '大', px: 20 },
-  { label: '加大', px: 22 },
-  { label: '极大', px: 24 },
+// 字体颜色菜单(真站 #ys_menu)
+const INK_MENU = [
+  { id: 'hei', label: '黑色', color: '#27231f' },
+  { id: 'red', label: '红色', color: '#8c1f19' },
+  { id: 'lv', label: '绿色', color: '#2c6b33' },
+  { id: 'blue', label: '蓝色', color: '#174f8d' },
+  { id: 'zong', label: '棕色', color: '#6e4a2f' },
+]
+const FONT_FAMILIES = [
+  { label: '默认', value: '' },
+  { label: '宋体', value: '"SimSun","Songti SC",serif' },
+  { label: '雅黑', value: '"Microsoft YaHei","PingFang SC",sans-serif' },
+  { label: '楷体', value: '"KaiTi","Kaiti SC",serif' },
+  { label: '黑体', value: '"SimHei","Heiti SC",sans-serif' },
 ]
 
 export function AijjxsRead({ data, loading, error }: SiteReadProps) {
-  const { navigate } = usePublic()
+  const { navigate, themeOverride } = usePublic()
   const chapter = data?.chapter ?? null
   const book = data?.book ?? null
   const prev = data?.prev ?? null
   const next = data?.next ?? null
+  // [R36-2a-fix] 主题覆盖字号基线 + 行距(admin 未编辑=17/1.76 零回归)
   const reader = useReaderFont()
-  // [R36-2a-fix-5] 主题覆盖行距(未编辑=1.76 零回归)
   const ajxLh = useThemeLineHeight(1.76)
-  // [R28-2a-24] 正文底色(真站 backcolor(1..6) 全页换肤; 本站作用于正文/翻页面板, 默认纸白)
-  const [bg, setBg] = useState<string>(R.paper)
+  // 真站工具条状态
+  const [bg, setBg] = useState('#f8f8f8')
+  const [ink, setInk] = useState('#27231f')
+  const [family, setFamily] = useState('')
+  const [fsIdx, setFsIdx] = useState(1)
 
-  // [R28-2a-25] 阅读位置/时长记忆(阅读页挂一次)
+  // [R39-2a] 阅读位置/时长记忆(平台接入点, 同 legacy)
   useRecordReading(book?.id, chapter?.id, chapter?.title)
 
-  // [R28-2a-26] 键盘 ←/→ 翻章(真站 pageEvent: key==37/39 location=prevpage/nextpage)
+  // 键盘 ←/→ 翻章(真站 pageEvent: key==37/39; 输入态守卫对齐通用 ReadView)
   useEffect(() => {
     if (!book) return
     const onKey = (e: KeyboardEvent) => {
-      // 输入框/文本域聚焦时不翻章(与通用 ReadView isEditableTarget 守卫对齐)
       const t = e.target as HTMLElement | null
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return
       if (e.key === 'ArrowLeft' && prev) navigate({ view: 'read', chapterId: prev.id })
@@ -104,158 +77,95 @@ export function AijjxsRead({ data, loading, error }: SiteReadProps) {
     return () => window.removeEventListener('keydown', onKey)
   }, [book, prev, next, navigate])
 
+  const pageMax = 'min(920px, calc(100% - 24px))'
+  const shellStyle = { background: 'linear-gradient(180deg, #f3efe7 0%, #faf6ec 100%)', minHeight: '60vh' } as const
+
   if (error) {
-    return (
-      <div className="ajx-read" style={{ minHeight: '60vh', padding: '18px 15px', background: `linear-gradient(180deg, ${R.bgTop} 0%, ${R.bgBottom} 100%)` }}>
-        <ErrorState message="章节内容加载失败" detail={error} />
-      </div>
-    )
+    return <div className="ajx-read" style={{ ...shellStyle, padding: '40px 15px' }}><ErrorState message="章节内容加载失败" detail={error} /></div>
   }
   if (loading || !chapter || !book) {
     return (
-      <div
-        className="ajx-read"
-        style={{ padding: '14px 15px 24px', background: `linear-gradient(180deg, ${R.bgTop} 0%, ${R.bgBottom} 100%)` }}
-        role="status"
-        aria-label="章节内容加载中"
-      >
-        <div className="mx-auto w-full" style={{ maxWidth: R.pageMax }}>
-          <Sk className="h-14 w-full" style={{ borderRadius: 14, background: 'rgba(255,248,236,0.9)' }} />
-          <Sk className="mt-2.5 h-16 w-full" style={{ borderRadius: 14, background: 'rgba(255,248,236,0.9)' }} />
-          <Sk className="mt-2.5 h-[420px] w-full" style={{ borderRadius: 16, background: 'rgba(255,252,246,0.9)' }} />
+      <div className="ajx-read" style={{ ...shellStyle, padding: '14px 15px 24px' }} role="status" aria-label="章节内容加载中">
+        <div style={{ maxWidth: 920, margin: '0 auto' }}>
+          <Sk style={{ height: 56, borderRadius: 14, marginBottom: 10 }} />
+          <Sk style={{ height: 64, borderRadius: 14, marginBottom: 10 }} />
+          <Sk style={{ height: 420, borderRadius: 16 }} />
           <span className="sr-only">加载中…</span>
         </div>
       </div>
     )
   }
 
-  const activeStep = FONT_STEPS.reduce((acc, s, i) => (reader.font >= s.px ? i : acc), 1)
-
-  // [R28-2a-27] 面板公共形态(read.css .view_* 共用 radius 13~16 + var(--shadow))
-  const panelBox: CSSProperties = {
-    marginTop: 10,
-    border: `1px solid ${R.line}`,
-    borderRadius: 14,
-    boxShadow: R.shadow,
-    background: bg,
-  }
+  const goto = (cid?: string) => { if (cid) navigate({ view: 'read', chapterId: cid }) }
 
   return (
-    <div
-      className="ajx-read"
-      style={{ minHeight: '60vh', padding: '14px 15px 24px', background: `linear-gradient(180deg, ${R.bgTop} 0%, ${R.bgBottom} 100%)`, color: R.ink, fontFamily: '"微软雅黑", Microsoft Yahei, simsun, arial, sans-serif' }}
-    >
-      <div className="mx-auto w-full" style={{ maxWidth: R.pageMax }}>
-        {/* .view_top > .sk_gb 工具条 */}
-        <div className="ajx-sk-gb" role="toolbar" aria-label="阅读设置" style={{ border: `1px solid ${R.line}`, borderRadius: 14, background: R.panel, padding: 12, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '10px 16px', boxShadow: R.shadow, marginTop: 10 }}>
-          <span className="ajx-duset" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 7, color: R.muted, fontSize: 14 }}>
-            <b style={{ fontWeight: 700 }}>背景</b>
-            <span id="skbglist" style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+    <div className="ajx-read" style={shellStyle}>
+      {/* 工具条 view_top */}
+      <div className="ajx-view-top" style={{ maxWidth: pageMax, margin: '10px auto 0' }}>
+        <div className="ajx-sk-gb">
+          <div className="ajx-duset">
+            <b>背景</b>
+            <span className="ajx-skbglist" role="group" aria-label="背景色">
               {BG_SWATCHES.map((s) => (
-                <button
+                <a
                   key={s.cls}
-                  type="button"
-                  title={s.name}
-                  aria-label={`背景 ${s.name}`}
-                  onClick={() => setBg(s.color)}
-                  className={`ajx-swatch${bg === s.color ? ' is-active' : ''}`}
-                  style={{ display: 'inline-flex', width: 18, height: 18, borderRadius: 999, border: '1px solid rgba(0,0,0,.25)', background: s.color, cursor: 'pointer', padding: 0 }}
+                  className={`ajx-c ${bg === s.color ? 'is-active' : ''}`}
+                  style={{ background: s.color }}
+                  href="#"
+                  onClick={(e) => { e.preventDefault(); setBg(s.color) }}
+                  aria-label={`背景 ${s.cls}`}
                 />
               ))}
             </span>
-          </span>
-          <span className="ajx-duset" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 7, color: R.muted, fontSize: 14 }}>
-            <b style={{ fontWeight: 700 }}>字号</b>
-            <span id="fonts" style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-              {FONT_STEPS.map((s, i) => (
-                <button
-                  key={s.label}
-                  type="button"
-                  onClick={() => reader.set(s.px)}
-                  className={`ajx-fs${reader.font === s.px ? ' is-active' : ''}`}
-                  aria-pressed={reader.font === s.px}
-                  style={{
-                    display: 'inline-block',
-                    padding: '1px 7px',
-                    border: `1px solid ${reader.font === s.px ? '#d8a366' : '#d8cab7'}`,
-                    borderRadius: 8,
-                    marginRight: 2,
-                    color: reader.font === s.px ? '#80410f' : '#6f4f34',
-                    background: reader.font === s.px ? '#fbe8ce' : '#fff',
-                    fontSize: 13,
-                    cursor: 'pointer',
-                  }}
-                  data-step={i}
-                >
-                  {s.label}
-                </button>
+            <b>字号</b>
+            <span className="ajx-fonts" role="group" aria-label="字号">
+              {FS_STEPS.map((n, i) => (
+                <a
+                  key={n}
+                  className={`ajx-s${fsIdx === i ? ' is-active' : ''}`}
+                  href="#"
+                  onClick={(e) => { e.preventDefault(); setFsIdx(i); reader.set(n) }}
+                >{['小', '中', '大', '加大', '极大'][i]}</a>
               ))}
             </span>
-            <button type="button" onClick={reader.dec} className="ajx-fs" aria-label="缩小字号" style={{ display: 'inline-block', padding: '1px 9px', border: '1px solid #d8cab7', borderRadius: 8, color: '#6f4f34', background: '#fff', fontSize: 13, cursor: 'pointer' }}>
-              A-
-            </button>
-            <button type="button" onClick={reader.inc} className="ajx-fs" aria-label="放大字号" style={{ display: 'inline-block', padding: '1px 9px', border: '1px solid #d8cab7', borderRadius: 8, color: '#6f4f34', background: '#fff', fontSize: 13, cursor: 'pointer' }}>
-              A+
-            </button>
-            <span aria-hidden style={{ color: R.muted, fontSize: 12 }}>
-              当前 {reader.font}px / 默认 {FONT_STEPS[activeStep]?.label ?? '中'}
+            <b>字体</b>
+            <select className="ajx-ffamily" value={family} onChange={(e) => setFamily(e.target.value)} aria-label="字体">
+              {FONT_FAMILIES.map((f) => <option key={f.label} value={f.value}>{f.label}</option>)}
+            </select>
+            <b>字体颜色</b>
+            <span className="ajx-ys" role="group" aria-label="字体颜色">
+              {INK_MENU.map((m) => (
+                <a key={m.id} className={ink === m.color ? 'is-active' : ''} style={{ color: m.color }} href="#" onClick={(e) => { e.preventDefault(); setInk(m.color) }}>{m.label}</a>
+              ))}
             </span>
-          </span>
-        </div>
-
-        {/* .view_t 标题面板 */}
-        <div
-          className="ajx-view-t"
-          style={{
-            marginTop: 10,
-            padding: '16px 13px 12px',
-            borderRadius: 14,
-            border: `1px solid ${R.titleBorder}`,
-            background: 'linear-gradient(180deg, #fffcf5, #f8eddd)',
-            boxShadow: R.shadow,
-            textAlign: 'center',
-          }}
-        >
-          <h1 style={{ margin: 0, fontSize: 'clamp(16px, 2.1vw, 22px)', lineHeight: 1.42, fontWeight: 700, letterSpacing: '0.02em', color: R.ink }}>
-            {book.name}{'\u3000'}{chapter.title}
-          </h1>
-          <div style={{ marginTop: 9, paddingTop: 9, borderTop: `1px dashed ${R.introLine}`, fontSize: 13, lineHeight: 1.82, color: R.muted }}>
-            {book.author} · {formatWords(chapter.wordCount)} · 第 {chapter.idx + 1} 章
+            <b>双击滚屏</b>
+            <span className="ajx-dushint">(再次双击停止滚屏)</span>
           </div>
         </div>
-
-        {/* .view_content 正文面板 */}
-        <div className="ajx-view-content" style={{ ...panelBox, borderRadius: 16, background: bg, padding: 'clamp(24px, 4vw, 40px)' }}>
-          <ChapterContent content={chapter.content} className="ajx-read-txt" style={{ fontSize: reader.font, lineHeight: ajxLh, letterSpacing: '0.01em', wordBreak: 'break-word' }} />
-        </div>
-
-        {/* .view_page 翻页导航(真站章内分页 → 等价按章推进, 降级声明④) */}
-        <div className="ajx-view-page" style={{ ...panelBox, borderRadius: 13, lineHeight: 1.88, fontSize: 16, textAlign: 'center', padding: '10px 9px' }}>
-          <button type="button" onClick={() => navigate({ view: 'toc', bookId: book.id })} className="ajx-rl" style={{ background: 'none', border: 0, padding: '0 6px', cursor: 'pointer', color: R.link, fontSize: 16 }}>
-            章节目录
-          </button>
-          {' | '}
-          <button type="button" disabled={!prev} onClick={() => prev && navigate({ view: 'read', chapterId: prev.id })} className="ajx-rl" style={{ background: 'none', border: 0, padding: '0 6px', cursor: prev ? 'pointer' : 'default', color: prev ? R.link : '#b7a893', fontSize: 16, opacity: prev ? 1 : 0.6 }}>
-            上一章
-          </button>
-          {' ← '}
-          <b style={{ color: R.ink }}>{chapter.idx + 1}</b>
-          {' → '}
-          <button type="button" disabled={!next} onClick={() => next && navigate({ view: 'read', chapterId: next.id })} className="ajx-rl" style={{ background: 'none', border: 0, padding: '0 6px', cursor: next ? 'pointer' : 'default', color: next ? R.link : '#b7a893', fontSize: 16, opacity: next ? 1 : 0.6 }}>
-            下一章
-          </button>
-        </div>
-
-        {/* .view_tips 小提示 */}
+      </div>
+      {/* 标题 view_t */}
+      <div className="ajx-view-t" style={{ maxWidth: pageMax, margin: '10px auto 0' }}>
+        <h1>{book.name}&nbsp;&nbsp;{chapter.title}</h1>
+        <div className="ajx-view-intro">{book.author} · {(book as { category?: string }).category || '小说'}</div>
+      </div>
+      {/* 正文 view_content */}
+      <div className="ajx-view-content" style={{ maxWidth: pageMax, margin: '10px auto 0' }}>
         <div
-          className="ajx-view-tips"
-          style={{ marginTop: 10, padding: '10px 9px', border: `1px dashed ${R.introLine}`, borderRadius: 13, textAlign: 'center', fontSize: 13, color: R.muted, lineHeight: 1.8 }}
+          id="view_content_txt"
+          className="ajx-read-txt"
+          style={{ fontSize: reader.font, lineHeight: ajxLh, color: ink, fontFamily: family || undefined, background: bg }}
         >
-          <b>小提示：</b>如您觉着本文好看，可以通过键盘上的方向键←或→快捷地打开上一章、下一章继续在线阅读。
-          也可通过书籍页的「电子书下载地址」下载 TXT 到您的看书设备，以获得更快更好的阅读体验！
+          <ChapterContent content={chapter.content} />
         </div>
       </div>
+      {/* 翻页 view_page(真站 上一页/目录/下一页 按钮组) */}
+      <div className="ajx-view-page" style={{ maxWidth: pageMax, margin: '10px auto 24px' }}>
+        <button className="ajx-rl" disabled={!prev} onClick={() => goto(prev?.id)}>上一章</button>
+        <button className="ajx-rl" onClick={() => navigate({ view: 'toc', bookId: book.id })}>目录</button>
+        <button className="ajx-rl" disabled={!next} onClick={() => goto(next?.id)}>下一章</button>
+      </div>
+      {/* 键盘提示(无障碍) */}
+      <p className="sr-only">{themeOverride ? '已应用主题阅读设置' : ''}</p>
     </div>
   )
 }
-

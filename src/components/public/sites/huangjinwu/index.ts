@@ -1,93 +1,103 @@
 // ============================================================
-// [R28-2d-8] huangjinwu(黄金屋) 模板集合出口 —— R28 八页型克隆(基础五 + 排行榜 + 搜索)
-// 站点: www.huangjinwu.org(现代蓝调卡片栅格, /static/default/style.css 实测)
-// 素材: /tmp/r28-2d/huangjinwu/ 2026-09-16 直连实抓(home/rank/rank-size/list/novel/
-//       chapter/search/dzss 七页 HTML + style.css 44KB 全量)
-// 页型覆盖: Home=实测 | Category=实测(/list) | Book=实测(/novel) | Toc=实测(书页目录区块
-//           独立成页, 真站无 /toc 路由) | Read=实测(/novel/{id}/{cid}) | Ranking=实测(/rank)
-//           | Fulltext=跳过(真站无全本/完本列表页; /dzss 为电子书独立内容形态, 契约无数据源)
-//           | Search=实测(/search?keyword=)
+// [R39-2h] huangjinwu(黄金屋 www.huangjinwu.org) 8 页型克隆模板集
+//   真站: 现代蓝系 CSS 变量设计(--secondary #2563eb/--card #fff/渐变底 #f5f8ff→#eef3fb);
+//   快照 /tmp/r39-snap/huangjinwu/(2026-09-18 直连实抓 home 47.3KB + style.css 44.5KB 全量)
+//   页型覆盖: H首页 C分类 B书 T目录 R章节 + Ran(/rank 实测) Ful(/list 书库) Sea(/search)
 // ============================================================
 import type { SiteTemplateSet } from '../shared'
-import { HjwHome } from './Home'
-import { HjwCategory } from './Category'
-import { HjwBook } from './Book'
-import { HuangjinwuToc } from './Toc'
-import { HuangjinwuRead } from './Read'
-import { HjwRanking } from './Ranking'
-import { HjwSearch } from './Search'
+import { HuangjinwuHome } from './Home'
+import { HuangjinwuCategory, HuangjinwuSearch, HuangjinwuFulltext, HuangjinwuRanking } from './pages'
+import { HuangjinwuBook, HuangjinwuToc, HuangjinwuRead } from './Book'
 
 export const huangjinwuTemplate: SiteTemplateSet = {
-  Home: HjwHome,
-  Category: HjwCategory,
-  Book: HjwBook,
+  Home: HuangjinwuHome,
+  Category: HuangjinwuCategory,
+  Book: HuangjinwuBook,
   Toc: HuangjinwuToc,
   Read: HuangjinwuRead,
-  Ranking: HjwRanking,
-  Search: HjwSearch,
-  // [R28-2d-8] 站点级克隆 CSS —— 伪类/媒体查询集中于此; 每条注明真站 style.css 规则出处
+  Ranking: HuangjinwuRanking,
+  Fulltext: HuangjinwuFulltext,
+  Search: HuangjinwuSearch,
   css: `
-/* [R28-2d-8] 基底: 真站 html{font-size:10px} rem 体系 → 组件内 px 直写; body 字色 --text-color:#1e293b */
-.clone-huangjinwu{color:#1e293b}
-/* [R28-2d-8] 真站 .page-title/.detail-section-title/.section-title 左竖条:
-   border-left:4px solid var(--secondary-color);padding-left:1.6rem(蓝竖条标题) */
-.clone-huangjinwu .hjw-title,.clone-huangjinwu .hjw-sectitle{border-left:4px solid #2563eb;border-radius:2px 0 0 2px;padding-left:16px}
-/* [R28-2d-8] 真站 .book-card:hover{border-color:color-mix(--secondary 45%,--border);
-   box-shadow:var(--shadow-hover);transform:translatey(-2px)} + .book-title 变蓝(color-mix 实测换算 #89aaee) */
-.clone-huangjinwu .hjw-card:hover{border-color:#89aaee;box-shadow:0 8px 24px rgba(37,99,235,0.14),0 2px 8px rgba(15,23,42,0.06);transform:translateY(-2px)}
-.clone-huangjinwu .hjw-card:hover .hjw-card-title{color:#2563eb}
-/* [R28-2d-8] 真站 .filter-tag{background:#f0f4fb;border:1px solid #dbe4f0;color:#1e293b;
-   transition:all .3s ease}; .filter-tag.active,.filter-tag:hover{background:#2563eb;color:#fff} */
-.clone-huangjinwu .hjw-chip{background-color:#f0f4fb;border:1px solid #dbe4f0;color:#1e293b;cursor:pointer;text-align:center}
-.clone-huangjinwu .hjw-chip:hover{background:#2563eb;border-color:#2563eb;color:#fff}
-.clone-huangjinwu .hjw-chip-active,.clone-huangjinwu .hjw-chip-active:hover{background:#2563eb;border-color:#2563eb;color:#fff}
-/* [R28-2d-8] 真站 .pagination-list .page-link{background:#fff;border:1.5px solid #dbe4f0;
-   padding:.8rem 2.4rem;transition:all .25s cubic-bezier(.4,0,.2,1)};
-   :hover{background:#2563eb;color:#fff;transform:translatey(-2px)}; :disabled{opacity:.5} */
-.clone-huangjinwu .hjw-pg{display:inline-block;background-color:#fff;border:1.5px solid #dbe4f0;color:#1e293b;cursor:pointer;font-size:14px;font-weight:500;padding:8px 20px;transition:all .25s cubic-bezier(0.4,0,0.2,1)}
-.clone-huangjinwu .hjw-pg:hover:not(:disabled){background:#2563eb;border-color:#2563eb;box-shadow:0 2px 8px rgba(37,99,235,0.28);color:#fff;transform:translateY(-2px)}
-/* [R28-2d-8] 真站 .btn-primary{background:#2563eb;box-shadow:0 2px 8px rgba(0,0,0,.1)};
-   :hover{background:#1d4ed8;transform:translatey(-1px)}; .btn-secondary{background:#fff;
-   border:1px solid #dbe4f0}; :hover{background:#e8f1ff;border-color:#2563eb;color:#2563eb;
-   transform:translatey(-1px)}(hjw-btn 二类共通 hover 过渡) */
-.clone-huangjinwu .hjw-btn{align-items:center;justify-content:center;line-height:1.5;transition:all .25s ease}
-.clone-huangjinwu .hjw-btn-primary{background:#2563eb;border:none;box-shadow:0 2px 8px rgba(0,0,0,0.1);color:#fff}
-.clone-huangjinwu .hjw-btn-primary:hover:not(:disabled){background:#1d4ed8;color:#fff;transform:translateY(-1px)}
-.clone-huangjinwu .hjw-btn-primary:disabled{cursor:not-allowed;opacity:.6}
-.clone-huangjinwu .hjw-btn-secondary{background-color:#fff;border:1px solid #dbe4f0;color:#1e293b}
-.clone-huangjinwu .hjw-btn-secondary:hover{background-color:#e8f1ff;border-color:#2563eb;color:#2563eb;transform:translateY(-1px)}
-/* [R28-2d-8] 真站 .detail-meta span:not(:last-child):after{1×16px #dbe4f0 竖线}(≥768 呈现) */
-@media (min-width:768px){
-  .clone-huangjinwu .hjw-meta-item{position:relative}
-  .clone-huangjinwu .hjw-meta-item:not(:last-child):after{content:"";position:absolute;right:0;top:50%;transform:translateY(-50%);width:1px;height:16px;background-color:#dbe4f0}
+/* ---- style.css :root 实测变量 ---- */
+.clone-huangjinwu .hjw-main{background:linear-gradient(180deg,#f5f8ff 0%,#eef3fb 100%);min-height:72vh;color:#1e293b;font-size:14.5px;line-height:1.65}
+.clone-huangjinwu .hjw-container{max-width:1080px;margin:0 auto;padding:16px 14px 30px}
+.clone-huangjinwu .hjw-clear{clear:both;height:0;overflow:hidden}
+/* header(真站 sidebar-header 形态: logo + 横向菜单) */
+.clone-huangjinwu .hjw-header{background:rgba(255,255,255,.92);backdrop-filter:blur(8px);border-bottom:1px solid #dbe4f0;padding:10px 4%;display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+.clone-huangjinwu .hjw-logo{font-size:19px;font-weight:800;color:#1d4ed8;text-decoration:none;display:flex;align-items:center;gap:6px}
+.clone-huangjinwu .hjw-logo-icon{font-size:20px}
+.clone-huangjinwu .hjw-navbar-menu{display:flex;flex-wrap:wrap;gap:2px}
+.clone-huangjinwu .hjw-navbar-menu a{padding:6px 12px;border-radius:8px;color:#1e293b;font-size:14px;text-decoration:none}
+.clone-huangjinwu .hjw-navbar-menu a:hover{background:#e8f1ff;color:#1d4ed8}
+/* 标题(真站 .page-title: 左 4px secondary 色条) */
+.clone-huangjinwu .hjw-page-title{border-left:4px solid #2563eb;border-radius:2px 0 0 2px;color:#1e293b;font-size:17px;font-weight:600;letter-spacing:-.02em;margin:0 0 16px;padding-left:13px}
+.clone-huangjinwu .hjw-title-sub{font-size:12px;color:#94a3b8;font-weight:400;margin-left:6px}
+/* 卡片(真站 .book-card: 白底 边 #dbe4f0 radius 10 shadow; hover 上浮) */
+.clone-huangjinwu .hjw-book-grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));margin-bottom:20px}
+.clone-huangjinwu .hjw-book-card{background:#fff;border:1px solid rgba(219,228,240,.85);border-radius:10px;box-shadow:0 1px 2px rgba(15,23,42,.04),0 4px 16px rgba(37,99,235,.06);display:flex;gap:10px;padding:12px;text-decoration:none;transition:border-color .25s ease,box-shadow .3s ease,transform .25s ease;color:inherit}
+.clone-huangjinwu .hjw-book-card:hover{border-color:#2563eb;box-shadow:0 8px 24px rgba(37,99,235,.14),0 2px 8px rgba(15,23,42,.06);transform:translateY(-2px)}
+.clone-huangjinwu .hjw-book-cover img{width:96px;height:128px;object-fit:cover;border-radius:6px;display:block}
+.clone-huangjinwu .hjw-book-info{min-width:0;flex:1}
+.clone-huangjinwu .hjw-book-title{font-size:15px;font-weight:700;color:#1e293b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.clone-huangjinwu .hjw-book-author{font-size:12.5px;color:#64748b;margin:3px 0}
+.clone-huangjinwu .hjw-book-desc{color:#64748b;font-size:13px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.5;min-height:2.55em;margin-bottom:8px}
+/* 徽章(真站 .book-badge: category 蓝底白字/status 浅底边/words) */
+.clone-huangjinwu .hjw-book-badges{display:flex;flex-wrap:wrap;gap:5px}
+.clone-huangjinwu .hjw-badge{display:inline-block;font-size:11.5px;border-radius:4px;padding:1px 7px}
+.clone-huangjinwu .hjw-badge-category{background:#2563eb;border:none;color:#fff}
+.clone-huangjinwu .hjw-badge-status{background-color:#e8f1ff;border:1px solid #dbe4f0;color:#1e293b}
+.clone-huangjinwu .hjw-badge-words{background:#fff;border:1px solid #dbe4f0;color:#64748b}
+/* 书页 hero */
+.clone-huangjinwu .hjw-book-hero{background:#fff;border:1px solid rgba(219,228,240,.85);border-radius:10px;box-shadow:0 4px 16px rgba(37,99,235,.06);display:flex;gap:16px;padding:16px}
+.clone-huangjinwu .hjw-book-hero-cover img{width:140px;height:188px;object-fit:cover;border-radius:8px}
+.clone-huangjinwu .hjw-book-hero-title{margin:0 0 6px;font-size:20px;color:#1e293b}
+.clone-huangjinwu .hjw-book-hero-desc{color:#64748b;font-size:13.5px;line-height:1.8;margin:8px 0}
+.clone-huangjinwu .hjw-book-time{color:#94a3b8;font-size:12.5px}
+.clone-huangjinwu .hjw-hero-actions{margin-top:12px}
+/* 章节列表(真站 .chapter-list: 双列格) */
+.clone-huangjinwu .hjw-chlist{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:4px}
+.clone-huangjinwu .hjw-chlist a{font-size:13.5px;color:#1e293b;padding:7px 10px;border-radius:6px;text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border:1px solid transparent}
+.clone-huangjinwu .hjw-chlist a:hover{background:#e8f1ff;color:#1d4ed8}
+.clone-huangjinwu .hjw-chlist a.is-active{border-color:#2563eb;color:#1d4ed8;background:#e8f1ff;font-weight:600}
+/* 按钮(真站 .btn-primary #2563eb hover #1d4ed8) */
+.clone-huangjinwu .hjw-btn-primary{border:none;border-radius:8px;background:#2563eb;color:#fff;padding:8px 20px;font-size:14px;cursor:pointer;margin-right:10px}
+.clone-huangjinwu .hjw-btn-primary:hover:not([disabled]){background:#1d4ed8}
+.clone-huangjinwu .hjw-btn-primary[disabled]{opacity:.5;cursor:not-allowed}
+.clone-huangjinwu .hjw-btn{border:1px solid #dbe4f0;border-radius:8px;background:#fff;color:#1e293b;padding:8px 20px;font-size:14px;cursor:pointer}
+.clone-huangjinwu .hjw-btn:hover:not([disabled]){border-color:#2563eb;color:#1d4ed8;background:#e8f1ff}
+.clone-huangjinwu .hjw-btn[disabled]{opacity:.45;cursor:not-allowed}
+/* 分页/榜 tab */
+.clone-huangjinwu .hjw-pager{text-align:center;padding:16px 0}
+.clone-huangjinwu .hjw-pager span{margin:0 10px;color:#94a3b8;font-size:13px}
+.clone-huangjinwu .hjw-tab{border:1px solid #dbe4f0;background:#fff;border-radius:16px;padding:3px 14px;margin-right:8px;font-size:13px;cursor:pointer;color:#64748b}
+.clone-huangjinwu .hjw-tab.is-active{background:#2563eb;border-color:#2563eb;color:#fff}
+/* 阅读卡(真站 --reader-bg #f8fafc/--reader-border #d8e3f0) */
+.clone-huangjinwu .hjw-read-card{background:#fff;border:1px solid #d8e3f0;border-radius:10px;padding:14px 16px 20px;box-shadow:0 4px 16px rgba(37,99,235,.06)}
+.clone-huangjinwu .hjw-text-set{padding:8px 0;font-size:13px;color:#64748b;border-bottom:1px solid #d8e3f0;margin-bottom:10px}
+.clone-huangjinwu .hjw-text-set b{font-weight:400;color:#94a3b8;margin:0 4px}
+.clone-huangjinwu .hjw-text-set a{border:1px solid #dbe4f0;border-radius:5px;padding:1px 8px;margin:0 2px;color:#64748b;text-decoration:none}
+.clone-huangjinwu .hjw-text-set a:hover{border-color:#2563eb;color:#1d4ed8;text-decoration:none}
+.clone-huangjinwu .hjw-text-set a.is-active{background:#2563eb;border-color:#2563eb;color:#fff}
+.clone-huangjinwu .hjw-read-title{margin:14px 0 4px;font-size:19px;color:#1e293b;text-align:center}
+.clone-huangjinwu .hjw-read-info{text-align:center;font-size:12.5px;color:#94a3b8;margin-bottom:12px}
+.clone-huangjinwu .hjw-readcontent{color:#1e293b;min-height:320px}
+.clone-huangjinwu .hjw-readcontent p{margin:0 0 1.1em;text-indent:2em}
+/* 页脚(真站 --footer-bg #e2eaf5) */
+.clone-huangjinwu .hjw-footer{background:#e2eaf5;color:#64748b;text-align:center;padding:16px 10px;font-size:13px;margin-top:20px}
+.clone-huangjinwu .hjw-footer p{margin:0}
+
+/* ================= 移动端(375px 无横向滚动) ================= */
+@media (max-width: 760px){
+  .clone-huangjinwu .hjw-book-grid{grid-template-columns:1fr 1fr;gap:10px}
+  .clone-huangjinwu .hjw-book-hero{flex-direction:column;align-items:center;text-align:center}
+  .clone-huangjinwu .hjw-chlist{grid-template-columns:1fr 1fr}
+  .clone-huangjinwu .hjw-navbar-menu{gap:0}
+  .clone-huangjinwu .hjw-navbar-menu a{padding:5px 8px;font-size:13px}
 }
-/* [R28-2d-8] 真站 .ranking-module-title:before{3×16px #2563eb 竖条;border-radius:6px} */
-.clone-huangjinwu .hjw-modtitle:before{content:"";display:inline-block;width:3px;height:16px;background:#2563eb;border-radius:6px;flex-shrink:0}
-/* [R28-2d-8] 真站 .ranking-item:hover{background-color:var(--hover-color)} */
-.clone-huangjinwu .hjw-ritem:hover{background-color:#e8f1ff}
-/* [R28-2d-8] 真站 .chapter-item a:visited{color:#2563eb}; .chapter-item:hover{background:#e8f1ff;
-   border-color:#2563eb}(交互钮等价 hover) */
-.clone-huangjinwu .hjw-chitem:hover{background-color:#e8f1ff;border-color:#2563eb !important}
-/* [R28-2d-8] 真站 .search-input:focus{border-color:#2563eb;box-shadow:0 0 0 3px
-   color-mix(in srgb,#2563eb 22%,transparent)} */
-.clone-huangjinwu .hjw-search-input:focus{border-color:#2563eb;box-shadow:0 0 0 3px rgba(37,99,235,0.22)}
-/* [R28-2d-8] 真站 .reader-content p{margin:0 auto 1.5em;max-width:800px;text-indent:2em;
-   letter-spacing:0.2em;text-align:justify;word-break:break-all;line-break:anywhere} */
-.clone-huangjinwu .hjw-reader .hjw-content p{margin:0 auto 1.5em;max-width:800px;text-indent:2em;word-break:break-all;letter-spacing:0.2em;text-align:justify}
-/* [R28-2d-8] 真站 .intro-toggle-btn:after{content:"\\25BC"} 展开钮(箭头已在组件内联) */
-.clone-huangjinwu .hjw-introbtn:hover{opacity:.8}
-/* [R28-2d-8] 真站 ≤768px: .chapter-list{grid-template-columns:repeat(2,1fr)} 由组件断点承担;
-   ≤480px: .reader-content{background-color:transparent;box-shadow:none;padding:0} */
-@media (max-width:480px){
-  .clone-huangjinwu .hjw-reader{background:transparent !important;box-shadow:none !important;border-color:transparent !important;padding:0}
+@media (max-width: 480px){
+  .clone-huangjinwu .hjw-chlist{grid-template-columns:1fr}
 }
-/* [R28-2d-8] 真站 ≤480px: .detail-actions .btn-primary{width:100%} +
-   .btn-secondary{width:calc(50% - .8rem)} */
-@media (max-width:480px){
-  .clone-huangjinwu .hjw-book-actions .hjw-btn-primary{width:100%}
-}
-/* [R28-2d-8] 真站 .detail-cover:hover{box-shadow:var(--shadow-hover)}(封面悬停深影) */
-.clone-huangjinwu .hjw-cover:hover{box-shadow:0 8px 24px rgba(37,99,235,0.14),0 2px 8px rgba(15,23,42,0.06)}
-/* [R28-2d-8] 真站 range 无专属样式(原生控件); accent-color 蓝为通用壳等价, 非真站规则(声明) */
+.clone-huangjinwu .hjw-container{overflow-x:hidden}
 `,
 }

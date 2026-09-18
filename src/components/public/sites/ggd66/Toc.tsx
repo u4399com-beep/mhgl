@@ -1,158 +1,133 @@
 // ============================================================
-// [R28-2c] ggd66(格格党) 目录页克隆 —— 基础五视图之 Toc
-// 真站快照(R28 复核): /tmp/r28-2c/ggd66/ggd66-book.html —— 真站无独立目录 URL
-// (书页内 #list-chapterAll「全部章节目录」即完整目录, JS「查看全部章节↓」整页展开)。
-// 按契约五页型要求, 将书页内目录块独立成页, 结构/样式逐条对齐真站实测:
-//
-// DOM 映射(ol.breadcrumb + dl.book.chapterlist#list-chapterAll):
-//   ├ ol.breadcrumb   首页 » 分类 » 书名 » 章节列表(active #666; 底 #cdf3eb/边 #ccc/圆角 4px)
-//   ├ .book 白卡      h2 《书名》全部章节目录 + 共 N 章(补计数, 真站无 → 增强)
-//   │                 + dd 章节 25% 网格(底边 1px dashed #ccc/py 8px/nowrap; 当前章 #f50 加粗高亮=增强态声明)
-//   └ .pages          分页(契约 100 章/页; 真站单页全量 JS 展开 → 差异声明)
+// [R39-2e] ggd66 克隆目录/阅读页 —— 快照 chapter.html(面包屑+.book.read#acontent+h1.pt10+readcontent)
+//   阅读页真站形态: .readcontent#rtext > p 段落 + 章尾翻页
 // ============================================================
 'use client'
 
-import type { SiteTocProps } from '../shared'
-import { usePublic } from '../../ctx'
+import { useEffect, useState } from 'react'
+import type { SiteTocProps, SiteReadProps } from '../shared'
+import { usePublic, viewToUrl } from '../../ctx'
+import { ChapterContent, useReaderFont, useRecordReading, useThemeLineHeight } from '../template-kit'
 import { ErrorState, Sk } from '../../bits'
-
-/** [R28-2c-16] 真站实测色值(ggd66-style.css) */
-const TEAL = '#56ccb5'
-const GREEN_LINK = '#00886d'
-const TEXT_BODY = '#888'
-const LINE = '#ccc'
-const CRUMB_BG = '#cdf3eb'
+import { GgdCrumbs, GgdFooter } from './parts'
 
 export function Ggd66Toc({ data, loading, error, page, currentChapterId }: SiteTocProps) {
-  const { navigate } = usePublic()
-
-  if (error) {
-    return (
-      <div className="mx-auto w-[90%] max-w-[1200px] py-10">
-        <ErrorState message="目录加载失败" detail={error} />
-      </div>
-    )
-  }
-
-  if (loading || !data) {
-    return (
-      <div className="mx-auto w-[90%] max-w-[1200px] pb-10" aria-label="目录加载中">
-        <Sk className="mb-2.5 h-9 w-1/2 rounded-[4px]" />
-        <div className="ggd-book rounded-[4px] border bg-white p-2.5" style={{ borderColor: LINE }}>
-          <Sk className="mb-3 h-5 w-1/3" />
-          <div className="grid grid-cols-1 gap-x-2 sm:grid-cols-2 lg:grid-cols-4" aria-hidden>
-            {Array.from({ length: 12 }).map((_, i) => (
-              <Sk key={i} className="mb-2 h-4" style={{ opacity: 1 - (i % 4) * 0.08 }} />
-            ))}
+  const { site, navigate } = usePublic()
+  const book = data?.book ?? null
+  const chapters = data?.chapters ?? []
+  const totalPages = data?.tocTotalPages || 1
+  return (
+    <div className="ggd-toc">
+      <div className="ggd-container">
+        <GgdCrumbs bookName={book ? `${book.name} 目录` : '目录'} />
+        <div className="ggd-content ggd-toc-body">
+          <h2>{book ? `《${book.name}》完整目录` : '目录'}</h2>
+          <div className="ggd-content-left ggd-chlist">
+            <ul className="ggd-toc-list">
+              {loading
+                ? Array.from({ length: 30 }).map((_, i) => <li key={i}><Sk style={{ height: 26 }} /></li>)
+                : error || !book
+                  ? <li><ErrorState message="目录加载失败" detail={error} /></li>
+                  : chapters.map((c) => (
+                    <li key={c.id} className={c.id === currentChapterId ? 'is-active' : undefined}>
+                      <a
+                        href={viewToUrl({ view: 'read', chapterId: c.id }, site.id)}
+                        onClick={(e) => { e.preventDefault(); navigate({ view: 'read', chapterId: c.id }) }}
+                        title={c.title}
+                      >{c.title}</a>
+                    </li>
+                  ))}
+            </ul>
           </div>
-          <span className="sr-only">加载中…</span>
+          <div className="ggd-clear" />
+          <dl className="ggd-pager">
+            <dd>
+              <button disabled={page <= 1} onClick={() => book && navigate({ view: 'toc', bookId: book.id, page: page - 1 })}>上一页</button>
+              <span>第 {page} / {totalPages} 页</span>
+              <button disabled={page >= totalPages} onClick={() => book && navigate({ view: 'toc', bookId: book.id, page: page + 1 })}>下一页</button>
+            </dd>
+          </dl>
         </div>
       </div>
+      <GgdFooter />
+    </div>
+  )
+}
+
+// 字号五档(家族标准)
+const FS_STEPS = [14, 16, 18, 20, 22]
+
+export function Ggd66Read({ data, loading, error }: SiteReadProps) {
+  const { navigate } = usePublic()
+  const chapter = data?.chapter ?? null
+  const book = data?.book ?? null
+  const prev = data?.prev ?? null
+  const next = data?.next ?? null
+  // [R36-2a-fix] 主题覆盖字号基线+行距(未编辑=16/1.9 零回归)
+  const reader = useReaderFont()
+  const lh = useThemeLineHeight(1.9)
+  const [fsIdx, setFsIdx] = useState(1)
+
+  useRecordReading(book?.id, chapter?.id, chapter?.title)
+
+  // 键盘 ←/→ 翻章(输入态守卫)
+  useEffect(() => {
+    if (!book) return
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return
+      if (e.key === 'ArrowLeft' && prev) navigate({ view: 'read', chapterId: prev.id })
+      if (e.key === 'ArrowRight' && next) navigate({ view: 'read', chapterId: next.id })
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [book, prev, next, navigate])
+
+  if (error) {
+    return <div className="ggd-read"><div className="ggd-container"><ErrorState message="章节内容加载失败" detail={error} /></div></div>
+  }
+  if (loading || !chapter || !book) {
+    return (
+      <div className="ggd-read" role="status" aria-label="章节内容加载中">
+        <div className="ggd-container">
+          <Sk style={{ height: 48 }} />
+          <Sk style={{ height: 420, marginTop: 10 }} />
+        </div>
+        <span className="sr-only">加载中…</span>
+      </div>
     )
   }
-
-  const { book, chapters, tocTotal, tocTotalPages } = data
-  const pg = 'ggd-pg m-[2px] inline-flex h-[35px] min-w-[35px] items-center justify-center rounded-[3px] border px-1 text-[14px]'
+  const goto = (cid?: string) => { if (cid) navigate({ view: 'read', chapterId: cid }) }
 
   return (
-    <div className="mx-auto w-[90%] max-w-[1200px] pb-10" style={{ color: TEXT_BODY }}>
-      {/* ============ ol.breadcrumb 面包屑 ============ */}
-      <nav aria-label="面包屑" className="ggd-crumb mb-2.5 rounded-[4px] border px-[15px] py-2 text-[14px]" style={{ borderColor: LINE, background: CRUMB_BG }}>
-        <ol className="flex flex-wrap items-center">
-          <li className="flex items-center">
-            <button type="button" onClick={() => navigate({ view: 'home' })} className="transition-colors hover:text-[#f50]" style={{ color: GREEN_LINK }} aria-label="前往首页">
-              首页
-            </button>
-            <span className="ggd-crumb-sep px-[5px]" style={{ color: '#666' }} aria-hidden>
-              »
-            </span>
-          </li>
-          <li className="flex items-center">
-            <button
-              type="button"
-              onClick={() => navigate({ view: 'category', cat: book.categoryId || undefined, page: 1 })}
-              className="max-w-[9em] truncate transition-colors hover:text-[#f50]"
-              style={{ color: GREEN_LINK }}
-              aria-label={`前往 ${book.category} 分类`}
-            >
-              {book.category || '小说'}
-            </button>
-            <span className="ggd-crumb-sep px-[5px]" style={{ color: '#666' }} aria-hidden>
-              »
-            </span>
-          </li>
-          <li className="flex items-center">
-            <button type="button" onClick={() => navigate({ view: 'book', bookId: book.id })} className="max-w-[12em] truncate transition-colors hover:text-[#f50]" style={{ color: GREEN_LINK }} aria-label={`返回《${book.name}》书页`}>
-              {book.name}
-            </button>
-            <span className="ggd-crumb-sep px-[5px]" style={{ color: '#666' }} aria-hidden>
-              »
-            </span>
-          </li>
-          <li>
-            <span style={{ color: '#666' }}>章节列表</span>
-          </li>
-        </ol>
-      </nav>
-
-      {/* ============ #list-chapterAll 全部章节目录(真站书页内目录块独立成页) ============ */}
-      <div className="ggd-book rounded-[4px] border bg-white px-2.5 pb-2.5 shadow-[0_1px_1px_rgba(0,0,0,0.05)]" style={{ borderColor: LINE }}>
-        <h2 className="ggd-h2">
-          《{book.name}》全部章节目录
-          <span className="ml-2 text-[13px] font-normal">共 {tocTotal} 章</span>
-        </h2>
-        <dl className="ggd-chapterlist mt-2.5 flex flex-wrap">
-          {chapters.map((c) => {
-            const cur = currentChapterId === c.id
-            return (
-              <dd key={c.id} className="w-full overflow-hidden whitespace-nowrap border-b border-dashed py-2 sm:w-1/2 lg:w-1/4">
-                <button
-                  type="button"
-                  onClick={() => navigate({ view: 'read', chapterId: c.id })}
-                  className="max-w-full truncate text-left transition-colors hover:text-[#f50]"
-                  style={{ color: cur ? '#f50' : GREEN_LINK, fontWeight: cur ? 700 : 400 }}
-                  aria-label={`阅读 ${c.title}`}
-                  aria-current={cur ? 'true' : undefined}
-                >
-                  {c.title}
-                </button>
-              </dd>
-            )
-          })}
-        </dl>
-        {/* .pages 分页(契约 100 章/页; 真站单页全量展开, 差异声明) */}
-        {tocTotalPages > 1 && (
-          <nav aria-label="目录分页" className="ggd-pages flex flex-wrap items-center justify-center gap-y-1 py-2.5 text-center">
-            {page > 1 && (
-              <button type="button" onClick={() => navigate({ view: 'toc', bookId: book.id, page: page - 1 })} className={pg} style={{ borderColor: LINE }} aria-label="上一页">
-                &lt;
-              </button>
-            )}
-            {Array.from({ length: Math.min(10, tocTotalPages) }, (_, i) => Math.max(1, Math.min(page - 4, tocTotalPages - 9)) + i).map((n) =>
-              n === page ? (
-                <strong key={n} className={pg} aria-current="page">
-                  {n}
-                </strong>
-              ) : (
-                <button key={n} type="button" onClick={() => navigate({ view: 'toc', bookId: book.id, page: n })} className={pg} style={{ borderColor: LINE }} aria-label={`第 ${n} 页`}>
-                  {n}
-                </button>
-              ),
-            )}
-            {page < tocTotalPages && (
-              <button type="button" onClick={() => navigate({ view: 'toc', bookId: book.id, page: page + 1 })} className={pg} style={{ borderColor: LINE }} aria-label="下一页">
-                &gt;
-              </button>
-            )}
-            {page < tocTotalPages && (
-              <button type="button" onClick={() => navigate({ view: 'toc', bookId: book.id, page: tocTotalPages })} className={pg} style={{ borderColor: TEAL }} aria-label="最后一页">
-                &gt;&gt;
-              </button>
-            )}
-          </nav>
-        )}
-        <div className="clear-both" />
+    <div className="ggd-read">
+      <div className="ggd-container">
+        <GgdCrumbs bookName={chapter.title} catName={book.name} />
+        <div className="ggd-book ggd-read-body">
+          {/* 字号工具条(家族标准形态) */}
+          <div className="ggd-text-set" role="group" aria-label="字号">
+            <b>字号：</b>
+            {FS_STEPS.map((n, i) => (
+              <a key={n} href="#" className={fsIdx === i ? 'is-active' : ''} onClick={(e) => { e.preventDefault(); setFsIdx(i); reader.set(n) }}>{n}px</a>
+            ))}
+            <b>行距：</b>
+            <a href="#" onClick={(e) => { e.preventDefault(); reader.inc() }}>加大</a>
+            <a href="#" onClick={(e) => { e.preventDefault(); reader.dec() }}>减小</a>
+          </div>
+          <h1 className="ggd-read-title">{chapter.title}</h1>
+          <div className="ggd-readcontent" style={{ fontSize: reader.font, lineHeight: lh }}>
+            <ChapterContent content={chapter.content} />
+          </div>
+          <dl className="ggd-pager ggd-read-nav">
+            <dd>
+              <button className="ggd-btn-info" disabled={!prev} onClick={() => goto(prev?.id)}>上一章</button>
+              <button className="ggd-btn-info" onClick={() => navigate({ view: 'book', bookId: book.id })}>返回书页</button>
+              <button className="ggd-btn-info" disabled={!next} onClick={() => goto(next?.id)}>下一章</button>
+            </dd>
+          </dl>
+        </div>
       </div>
+      <GgdFooter />
     </div>
   )
 }

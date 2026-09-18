@@ -15,6 +15,7 @@ import { fetchCategories } from './data'
 import { usePublic } from './ctx'
 import type { CategoryItem } from './types'
 import { HEADER_BOTTOM_BORDER, IMITATION_HEADERS } from './header/registry'
+import { AijjxsHeader } from './header/aijjxs'
 
 function useCategories() {
   const [cats, setCats] = useState<CategoryItem[]>([])
@@ -46,7 +47,7 @@ export function SiteHeader() {
   const { cats, pending } = useCategories()
   const style: SiteCloneId = v.headerStyle
 
-  const Branch = IMITATION_HEADERS[style] || IMITATION_HEADERS.aijjxs
+  const Branch = IMITATION_HEADERS[style] || AijjxsHeader // [R39-1] Partial 化: 未完成站回退首个完成站
   return (
     <header
       style={{
