@@ -16,6 +16,7 @@ import { KksHeader } from './kks101'
 import { PiliHeader } from './pili'
 import { ShipsayHeader } from './shipsay'
 import { TrxswHeader } from './trxsw'
+import { X33yqHeader } from './x33yq' // [R43-2] 第 12 主题: 33言情
 
 /** 仿站头部分支统一 props(分类数据由主组件 useCategories 单点拉取后下发) */
 export interface ImitationHeaderProps {
@@ -34,6 +35,7 @@ const IMITATION_HEADERS: Partial<Record<SiteCloneId, ComponentType<ImitationHead
   x2552: X2552Header, // [R39-2f] legacy 恢复挂载
   shipsay: ShipsayHeader, // [R39-2c] legacy 恢复挂载
   trxsw: TrxswHeader, // [R39-2c] legacy 恢复挂载
+  x33yq: X33yqHeader, // [R43-2] 重克隆挂载
 }
 
 /** 外层底边线特例(如 aijjxs 真站头部带 1px 边线) */

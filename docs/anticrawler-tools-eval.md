@@ -169,3 +169,39 @@
 - BrowserAct：browseract.com；腾讯云开发者 2026-07 / 知乎 2026-09 / CSDN 2026-05（AI Agent CLI 定位实证）。
 - aiohttp JA3 短板：CSDN 2021、腾讯云开发者 2021、cnblogs 2026-01（curl_cffi 对比文明确点名 requests/aiohttp 指纹缺陷）。
 - Dokobot：仅 github.com/dokobot org 页（AI persona/X 抓取），无成熟度证据。
+
+---
+
+## 七、[R43-1a] browser-use 增补评估（第 11 项，2026-09-19）
+
+### browser-use（browser-use/browser-use）— 评分 2 — **仅评估（弃，同 BrowserAct 定位）**
+- **定位与原理**：Python 的 **LLM 驱动浏览器自动化 agent**——把 Playwright 包成"给 AI 用的浏览器工具"（DOM 抽取为 text signature 供 LLM 决策、多 tab 管理、Agent 评分自我评估、MCP server 形态、Claude/Gemini/OpenAI 多模型接入），2025~2026 增长最快的 agent browsing 框架（GitHub 60K+ stars 量级，Cloudflare/Google Summer 等背景的商用化公司 browser-use Inc 托管）。
+- **反检测**：**零自身反检测**——传输/浏览器层完全复用其底层 Playwright（可配 camoufox/patchright 等，但那是上游件的功劳）。对反反爬没有独立贡献维度。
+- **与本系统对照**：本项目 fetcher 引擎链是**确定性规则引擎**（选择器+字段映射+可复现传输态），browser-use 的价值在"无规则的自然语言导航"——每一步抓取由 LLM 现场决策，成本（每页 LLM token）、延迟、不可复现性都与确定性采集根本不合。
+- **适用位（如未来引入）**：①"自然语言建规则"助手（LLM 探索站点→产出本系统 FieldRule JSON，人类审核后入库——产物是确定性规则，运行期无 LLM）；②规则全失败站点的**一次性人工辅助侦察**。二者皆是"规则生产工具"而非"采集传输引擎"。
+- **结论**：**弃（不进传输链）**。与 BrowserAct 同型：AI Agent 定位 ≠ 确定性规则引擎。登记为未来"自然语言建规则"候选（与 BrowserAct CLI 并列）。
+
+### R43 十一项总表（增量行）
+| 工具 | R43 结论 | 状态 |
+|---|---|---|
+| browser-use | 仅评估（弃传输链；未来 NL 建规则候选） | 本轮新增 |
+
+---
+
+## 八、[R43-1b] 集成落地状态复核（2026-09-19，全部实测）
+
+R27 规划的两项集成（curl-impersonate / trafilatura）+ scrapling 桥，在 R43 轮完成**最终落地与实测闭环**：
+
+| 项 | R27 时状态 | R43 实测状态 |
+|---|---|---|
+| scrapling 桥 venv | .venv 缺失（R40-1 遗留） | ✅ `uv venv + scrapling[fetchers]+trafilatura` 重建，`/health selfTestOk=true`（scrapling 0.4.15 / curl_cffi 0.16.3 / trafilatura 2.2.0） |
+| 桥 /fetch static（curl_cffi） | 未验证 | ✅ 经 /api/admin/rules/test 端到端实测：aijjxs toplist 200（15798B, 593ms）+ 80ge lastupdate 200（40493B, 420ms），桥日志实锤 |
+| 桥 /fetch stealthy（patchright） | 未验证 | ✅ example.com 200（chromium-1234 缓存复用，R42 补装生效） |
+| 桥 /extract（trafilatura） | 端点已写、依赖缺 | ✅ 实测 x33yq 书页 → title+正文 397 字提取成功 |
+| 桥 /impersonate（curl_cffi 档位） | 未验证 | 端点健康（capabilities.impersonate=true）；curl_cffi 档位白名单 chrome/edge/safari/firefox+版本号 |
+| bun 侧 curl-impersonate 二进制 | 已装（R27 轮） | ✅ `mini-services/scrapling-bridge/_bin/`（curl_chrome116/curl_safari17_0/curl-impersonate-chrome）；fetcher [R27-1b] 接线在位（FetchTlsProfile.impersonate + 档位解析 + 惰性探测） |
+| fetchMode 规则面 | 白名单在位 | ✅ RuleEditor「采集传输模式」4 档下拉在位（native / scrapling-static / scrapling-stealthy / scrapling-playwright），测试 API fetch 覆盖注入实测可用 |
+
+**引擎链终态**：native fetch → curl 链（可按 host 钉扎升级 impersonate 档）→ fetch-relay(:3011) → scrapling 桥(:3012, static/stealthy/playwright 三档+impersonate+extract) → Obscura 内部模块 → 裸 Playwright → cloak-browser(:3016)。规则侧适配面：`FetchConfig.fetchMode`（桥三档）+ `impersonate` host 画像档位 + `needsProxy/proxyCountries`（R42 代理池）——四者正交可组合。
+
+**运维注记**：桥重启方式 = `cd mini-services/scrapling-bridge && bun run dev`（package.json 自动优先 .venv/bin/python）；venv 重建命令见 /health 的 installHint。沙箱重启会灭 .venv（/home/z 持久、/tmp 与部分缓存不保证），重启后按 hint 重建即可。

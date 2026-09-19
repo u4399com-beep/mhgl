@@ -322,6 +322,7 @@ export type SiteCloneId =
   | 'ggd66'
   | 'shipsay'
   | 'trxsw' // [R25-4-1] 第 10 套: 同人小说网(杰奇 CMS 经典默认模板)
+  | 'x33yq' // [R43-2] 第 12 套: 33言情(520xs/笔趣阁近亲模板)
 
 /** 中文标签（后台预览/调试用） */
 export const READ_LAYOUT_LABEL: Record<ReadLayoutKind, string> = {
@@ -343,6 +344,7 @@ export const SITE_CLONE_LABEL: Record<SiteCloneId, string> = {
   ggd66: '格格党',
   shipsay: '船说CMS',
   trxsw: '同人小说', // [R25-4-1]
+  x33yq: '33言情', // [R43-2]
 }
 
 export interface ThemeDef {
@@ -802,6 +804,49 @@ export const THEMES: ThemeDef[] = [
       fontFamily: 'arial,"SimSun","Microsoft YaHei",sans-serif',
       cardShadow: 'none',
       headerStyle: 'trxsw',
+      headingDeco: 'bar',
+      buttonStyle: 'solid',
+      cardHover: 'none',
+      gradientText: false,
+    },
+  },
+  {
+    // ⑫ 33言情 www.x33yq.org — 520xs/笔趣阁近亲模板(/tpl/pc/css/common.css+style.css)实测:
+    //    body #E9FAFF 14px #555555 · 蓝导航 #88c6e5 圆角10 · 黄分类条 #FFF9D9 边 #FFCC33 ·
+    //    块边 2px #C3DFEA/#A6D3E8 · newscontent 底 #F7FBFD h2 底 #88C6E5 · 链接 #6F78A7 hover Red ·
+    //    搜索框边 #18c2c8 · 强调 #e12160(播放列表 txt/view-mode current) · 圆角 10px 全站基线。
+    //    结构依据: /tmp/r43-snap/ 7 页快照逐节复刻(headds/head/searchbar/lianxiindex/daohang/nav1/
+    //    hotcontent/novelslist.GARAN/newscontent/firendlink/footer)。
+    id: 'x33yq',
+    name: '33言情(克隆)',
+    desc: '仿 x33yq.org 33言情·520xs 言情模板·浅蓝纸面+蓝圆角导航+黄分类条+蓝边圆角板块',
+    layout: 'x33yq',
+    dark: false,
+    read: {
+      layout: 'classic', measure: 760, lineHeight: 2, fontBase: 18,
+      indent: true, justify: true, toolbar: 'inline', texture: 'none', chapterDeco: 'rule',
+    },
+    customCss: [
+      // [R43-2] 源站全局基线(common.css body/a + style.css L184 a:hover 实测)
+      `.clone-x33yq{font-size:14px;color:#555555;background-color:#E9FAFF}`,
+      `.clone-x33yq a{color:#6F78A7;text-decoration:none}`,
+      `.clone-x33yq a:hover{color:red;text-decoration:underline}`,
+    ].join('\n'),
+    preview: ['#E9FAFF', '#88C6E5', '#e12160'],
+    vars: {
+      bg: '#E9FAFF',
+      surface: '#FFFFFF',
+      surfaceAlt: '#FEF9EF',
+      text: '#555555',
+      textMuted: '#B3B3B3',
+      primary: '#88C6E5',
+      primaryText: '#FFFFFF',
+      accent: '#e12160',
+      border: '#A6D3E8',
+      radius: '0px',
+      fontFamily: '"Microsoft YaHei","SimSun",sans-serif',
+      cardShadow: 'none',
+      headerStyle: 'x33yq',
       headingDeco: 'bar',
       buttonStyle: 'solid',
       cardHover: 'none',

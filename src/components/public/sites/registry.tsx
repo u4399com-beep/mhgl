@@ -27,6 +27,7 @@ import { kks101Template } from './kks101'
 import { piliTemplate } from './pili'
 import { shipsayTemplate } from './shipsay'
 import { trxswTemplate } from './trxsw'
+import { x33yqTemplate } from './x33yq' // [R43-2] 第 12 主题: 33言情(520xs/笔趣阁近亲模板, 快照 /tmp/r43-snap/)
 
 const TEMPLATE_SETS: Partial<Record<string, SiteTemplateSet>> = {
   aijjxs: aijjxsTemplate, // [R39-2a] 9 文件重克隆(快照 /tmp/r39-snap/aijjxs/ 2026-09-18 直连实抓)
@@ -41,6 +42,7 @@ const TEMPLATE_SETS: Partial<Record<string, SiteTemplateSet>> = {
   // demo.shipsay.com 仅 ZAI 间歇可达。恢复 R28 轮基于真实抓取(Wayback 实测)的克隆成果, 来源已注明各文件头
   shipsay: shipsayTemplate,
   trxsw: trxswTemplate,
+  x33yq: x33yqTemplate, // [R43-2] 10 文件克隆(Footer 槽版, 页内零页脚)
 }
 
 /**
