@@ -1857,3 +1857,34 @@ export async function shutdownObscura(): Promise<void> {
   // 清除 shuttingDown 标志(收尾完成, 后续 ensureBrowser 重新拉起时不再被拦截)
   S.shuttingDown = false
 }
+
+/**
+ * [R48-1] 内存熔断急回收(fetcher 硬熔断触发时调用): 立即关闭全部**非 busy** 槽位的
+ * BrowserContext(每个 ctx 持独立进程内堆+CDP 会话+≥1 page, 是 heap 外 RSS 大户),
+ * 槽位本体保留在 S.slots(下次 withObscuraPage 取槽时 free.page.isClosed()=true 触发
+ * recreateSlot 按需重建)。与 shutdownObscura 的区别: 不杀浏览器实例/不动 proxyBrowsers/
+ * 不置 shuttingDown —— 目标是"一拍子释放可回收内存", 而非整个引擎停机(busy 槽位照常跑完)。
+ * 同时取消 5min 全空闲关停 timer(idleTimer), 下次请求 resetIdleTimer 自然重设。
+ * 返回值: 本次立即释放的 ctx 数(0=无可回收, 供调用方日志)。同步发起 close(异步落地),
+ * 全程吞错 —— 清理失败绝不能阻断熔断路径本身 */
+export function reclaimObscuraNow(): number {
+  let reclaimed = 0
+  try {
+    if (S.idleTimer) { clearTimeout(S.idleTimer); S.idleTimer = null }
+    const now = Date.now()
+    for (const slot of S.slots) {
+      if (slot.busy) continue
+      // 置 lastUsedAt 防 reclaimTimer 与本函数重复关同一 ctx(scheduleReclaim 只关
+      // now-lastUsedAt≥10min 的槽, 刚被本函数关过的槽 next tick 会因 lastUsedAt=now 跳过)
+      slot.lastUsedAt = now
+      try {
+        if (slot.page && !slot.page.isClosed()) slot.page.close().catch(() => {})
+      } catch { /* 静默 */ }
+      try {
+        slot.ctx.close().catch(() => {})
+        reclaimed++
+      } catch { /* 静默 */ }
+    }
+  } catch { /* S 状态异常时静默, 熔断路径不受影响 */ }
+  return reclaimed
+}

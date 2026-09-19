@@ -1206,7 +1206,7 @@ export class TaskRunner {
         let consecutiveEmptyPages = 0
         // [R36-2c-5] 发现阶段连续抓取失败熔断 —— 修前抓取失败页只计 errors 不熔断, 死站
         //  + 大 listEnd(上限 10 万页)配置会逐页硬敲到底(每页一次超时级请求+错误日志);
-        //  连续 20 页真失败(超时/HTTP 异常/连接拒绝; GlobalSemTimeout 引擎护栏豁免不计)
+        //  连续 20 页真失败(超时/HTTP 异常/连接拒绝; GlobalSemTimeout/MemoryHaltError[R48-1] 引擎护栏豁免不计)
         //  判定源站不可用, 提前终止翻页(已发现部分照常进入采集, 同 R22-f-4 空页熔断语义)
         const DISCOVERY_FAIL_CIRCUIT = 20
         let consecutivePageFails = 0
@@ -1282,8 +1282,12 @@ export class TaskRunner {
             //  等待超时是引擎侧拥塞而非源站故障 —— 与书籍页 catch 的 HostGateTimeout 既有豁免
             //  同口径不计 errors, 防多任务并行信号量打满时把健康任务的错误计数/熔断链喂脏。
             //  页面保持未抓取态, 重跑任务时发现循环自然重抓(可增量恢复)
-            if (e?.name === 'GlobalSemTimeout') {
-              await this.log(taskId, 'warn', `列表页 P${p} 引擎并发护栏等待超时(全局信号量), 页面保持未抓取; 稍后重跑可恢复`)
+            if (e?.name === 'GlobalSemTimeout' || e?.name === 'MemoryHaltError') {
+              // [R48-1] MemoryHaltError 同口径豁免: 内存硬熔断快速失败是引擎侧自保非源站故障,
+              //  不计 errors/不喂 DISCOVERY_FAIL_CIRCUIT 连败链, 页面保持未抓取态可增量恢复
+              await this.log(taskId, 'warn', e?.name === 'MemoryHaltError'
+                ? `列表页 P${p} 暂停(内存硬熔断), 页面保持未抓取; 熔断解除后重跑可恢复`
+                : `列表页 P${p} 引擎并发护栏等待超时(全局信号量), 页面保持未抓取; 稍后重跑可恢复`)
             } else {
               stats.errors++
               consecutivePageFails++ // [R36-2c-5]
@@ -1339,7 +1343,7 @@ export class TaskRunner {
       // ---------- [R46-2a-1] 两阶段流水线: 元数据并发池(书籍+目录全入库) → 正文合并批量采集 ----------
       // [R36-2c-4] 书籍级连续失败熔断计数(语义同章节级 consecutiveErrs): 严格连续 —— 任一
       //  非失败结局(ok/deferred 之外的正常返回/跳过已完结)即归零; 停止/换代/引擎护栏超时
-      //  (AbortError/HostGateTimeout/GlobalSemTimeout)不计入(引擎侧拥塞非源站故障)。
+      //  (AbortError/HostGateTimeout/GlobalSemTimeout/MemoryHaltError[R48-1])不计入(引擎侧拥塞非源站故障)。
       //  并发池语义: 计数为共享变量(worker 并发推进下"严格连续"弱化为"窗口内连续", 熔断保护面不缩)
       let consecutiveBookErrs = 0
       for (let batchStart = 0; batchStart < bookQueue.length; batchStart += META_BATCH_SIZE) {
@@ -1440,10 +1444,13 @@ export class TaskRunner {
               } else if (e?.name === 'AbortError' || e?.code === 'ABORT_ERR') {
                 // 修复(x-a): stop/换代(abortAll)造成的在途中止不再计入失败
                 await this.saveProgress(taskId, progress, stats)
-              } else if (e?.name === 'HostGateTimeout' || e?.name === 'GlobalSemTimeout') {
+              } else if (e?.name === 'HostGateTimeout' || e?.name === 'GlobalSemTimeout' || e?.name === 'MemoryHaltError') {
                 // bb-d/[R31-3-2]: 同站闸门槽满等待超时/全局信号量超时 —— 引擎侧拥塞非源站故障,
                 // 不计 errors, 书籍保持未完成态, 稍后增量重试可恢复
-                await this.log(taskId, 'warn', `书籍采集等待引擎并发护栏超时(${e?.name === 'GlobalSemTimeout' ? '全局信号量' : `host:${hostGateKeyOf(bookUrl) || '未知'}, 该站在飞已达上限`}): ${bookUrl}; 书籍保持未完成, 稍后增量重试可恢复`)
+                // [R48-1] MemoryHaltError 同口径豁免: 内存硬熔断快速失败亦属引擎侧自保
+                await this.log(taskId, 'warn', e?.name === 'MemoryHaltError'
+                  ? `书籍采集暂停(内存硬熔断): ${bookUrl}; 书籍保持未完成, 熔断解除后增量重试可恢复`
+                  : `书籍采集等待引擎并发护栏超时(${e?.name === 'GlobalSemTimeout' ? '全局信号量' : `host:${hostGateKeyOf(bookUrl) || '未知'}, 该站在飞已达上限`}): ${bookUrl}; 书籍保持未完成, 稍后增量重试可恢复`)
                 await this.saveProgress(taskId, progress, stats)
               } else {
                 stats.errors++
@@ -1626,10 +1633,13 @@ export class TaskRunner {
       // [R30-3-3] GlobalSemTimeout 同款豁免: fetchPage 入口全局并发信号量 30s 等待超时
       // (fetcher acquireGlobalSlot)也是引擎侧拥塞而非源站失败 —— 修前落 reportHostFailure
       // 喂连败降额链, 多任务并行信号量打满时把健康站点的 limit 一路降到 1(错误分类漂移)
+      // [R48-1] MemoryHaltError 加入豁免: 内存硬熔断触发时的快速失败与源站无关,
+      //  不落 reportHostFailure 喂连败降额链(否则熔断期间把健康站点 limit 一路打穿)
       if (
         e?.isFetchTimeout ||
         (e?.name !== 'AbortError' && e?.code !== 'ABORT_ERR' &&
-         e?.name !== 'HostCircuitOpen' && e?.name !== 'GlobalSemTimeout')
+         e?.name !== 'HostCircuitOpen' && e?.name !== 'GlobalSemTimeout' &&
+         e?.name !== 'MemoryHaltError')
       ) {
         // zz-b: HTTP 429 以抛错形态抵达(fetchHttp/curl/auto 升级链均保留 err.status)——
         // 同样走限流冷却而非降额链, 防止限流站点被误降并发后照旧硬敲。
@@ -2592,9 +2602,12 @@ export class TaskRunner {
                   await this.log(ctx.taskId, 'warn', `章节批量跳过: host 级熔断中(${hkey || '未知'}, 源站 403 连败长静默), 章节保持未采集; 熔断解除后增量重试可恢复`)
                 }
               }
-            } else if (e?.name === 'HostGateTimeout' || e?.name === 'GlobalSemTimeout') {
+            } else if (e?.name === 'HostGateTimeout' || e?.name === 'GlobalSemTimeout' || e?.name === 'MemoryHaltError') {
               // bb-d/[R30-3-3]: 引擎侧并发护栏(源站无关), 不计 errors/不计连败
-              await this.log(ctx.taskId, 'warn', `章节 ${q.title.slice(0, 60)} 引擎并发护栏等待超时(${e?.name === 'GlobalSemTimeout' ? '全局信号量' : `host:${hostGateKeyOf(q.url) || '未知'}`}), 章节保持未采集; 稍后增量重试可恢复`)
+              // [R48-1] MemoryHaltError 同口径豁免: 内存硬熔断期间章节快速跳过保持未采集
+              await this.log(ctx.taskId, 'warn', e?.name === 'MemoryHaltError'
+                ? `章节 ${q.title.slice(0, 60)} 暂停(内存硬熔断), 章节保持未采集; 熔断解除后增量重试可恢复`
+                : `章节 ${q.title.slice(0, 60)} 引擎并发护栏等待超时(${e?.name === 'GlobalSemTimeout' ? '全局信号量' : `host:${hostGateKeyOf(q.url) || '未知'}`}), 章节保持未采集; 稍后增量重试可恢复`)
             } else {
               stats.errors++
               consecutiveErrs++

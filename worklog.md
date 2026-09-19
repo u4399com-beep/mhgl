@@ -6398,3 +6398,22 @@ Stage Summary:
 - 主题: 修复分类稀薄系统性根因(导航/页签塌陷)+qb23 头图; 源站 HTML 快照复核澄清 3 站伪差异(避免改错)
 - 分类: 合并引擎+收敛 API 就绪(≤15 主分类+语义归一), 待采集数据丰富后自动生效
 - 遗留: ①wanben/wanbenxinshu.com 源站死亡 ②77shuku 死站(CN 池不可达) ③trxsw 整页布局仍 Wayback 杰奇版(建议下轮按已存快照全量重克隆) ④kks101 源站 CF 墙(克隆为 R41-C Wayback 版)
+---
+Task ID: R48
+Agent: Z.ai Code 主控
+Task: 采集流水线硬性内存熔断 + 内存感知自动降并发(用户指令: "现在就做这个加固")
+
+Work Log:
+- [R48-0 根因复盘] 上轮预览拉不起 = next-server 被 global_oom 杀死(dmesg 实录 anon-rss 2099004kB); 既有三层背压(R8-19 heapUsed 1.5G/R31-2b-4 RSS stop 2048+soft 1536)全是"sleep 窗口"式软背压, RSS 只涨不降时无限循环占槽等待, 且 2048 水位距实测 kill 线 2.1GB 贴脸 → 全程未兜住; 另发现 8 个 mini-services(3010~3017 cloak 代理)被误杀已全部拉起恢复
+- [R48-1 fetcher.ts] 新增硬熔断层: MemoryHaltError(export class, name 豁免语义同 GlobalSemTimeout); checkMemoryHalt() 在 fetchPage 准入路径(acquireGlobalSlot 之前, 未占槽零堆积)同步判定: RSS≥halt → 置 halted+立即 reclaimObscuraNow()+冷却窗口+throw 快速失败(设计取舍: throw 而非 sleep——等待=持槽继续堆积, 与 OOM 赛跑必输); dynConcurrencyLimit() 内存感知动态并发: soft~halt 线性收紧 cfgLimit 至 ≥1/4(下限 2), 挂 globalThis 防 HMR
+- [R48-1 obscura.ts] 新增 reclaimObscuraNow(): 立即关闭全部非 busy 槽位 ctx(槽位保留 recreateSlot 按需重建), 与 shutdownObscura 区别=不杀浏览器实例/不动 proxyBrowsers/不置 shuttingDown; 全程吞错不阻断熔断路径
+- [R48-1 runner.ts] 5 处豁免点接线 MemoryHaltError(列表页 catch/书籍页 catch/gateFetch hostgate 记账/章节 catch+2 处注释): 不计 errors/不喂连败链/不做 hostgate 降额, 章节与页面保持未采集可增量恢复
+- [R48-2 校准] 初版缺省 soft1024/halt1400 dev 模式误触发实录: Turbopack 按需编译+Prisma 把 next-server 稳态基线推到 1.7~1.8GB(非采集流量), 采集首请求即熔断且基线不回落→续冷却死循环饿死; 修法①缺省按实测校准 soft 1550/halt 1950/resume 1900(=halt-50, resume 必须高于 dev 稳态基线否则永远无法解除)/stop 2100(仅 halt 显式禁用时才可触达的兜底) ②续冷却加 MEM_HALT_RENEW_CAP=3 半开断路器(完成 3 次续期后强制放行 1 请求, 防基线不回落永久饿死; 放行后 RSS 仍≥halt 会重新熔断重新计数=低占空比推进而非停摆) ③降并发日志按档位变化打(挂 globalThis, 同档不刷屏)
+- [验证] 冒烟脚本 mock process.memoryUsage().rss 走 fetchPage 真实准入路径 7/7 PASS(T1 触发/T2 冷却快速失败/T3-T4 续期/T5 半开放行/T6 半开后仍超线重新熔断/T7 回落解除; SSRF 守卫在内存准入之后, 抛 SSRF blocked=通过熔断层); 修出 1 个真 bug: 触发分支漏 throw(首个触发请求漏网); lint 0 错, fetcher/obscura/runner tsc 干净
+- [真实链路实测] 重启 dev server 后浏览器触发 xjp 采集任务: 降并发 10→3(RSS=1962)→硬熔断触发(1962≥1950)→快速失败+在飞完成→RSS 刹车回落 1962→1894→1852→1827→稳态 1862(<resume 1900); 全程 server 存活零 OOM, 刹车距离设计目标达成; 任务在熔断窗口内正常跑完自结束
+
+Stage Summary:
+- 采集流水线内存护栏四层体系定型: soft 1550(软让路+降并发) < halt 1950(硬熔断: 快速失败+Obscura 急回收+30s 冷却+半开断路器) < stop 2100(sleep 窗口兜底) < kill 线 ~2.15GB; 全部 env 可调(FETCH_RSS_SOFT_MB/STOP_MB/PAUSE_MS/HALT_MB/RESUME_MB/HALT_COOLDOWN_MS/CONCURRENCY_AUTO)
+- dev 模式基线(~1.78GB)与采集增量预算(~370MB)的矛盾通过"resume 高于基线+半开断路器"双保险解决; 生产 build 基线低可用 env 收紧更严
+- 改动 3 文件(+210/-20): fetcher.ts(熔断层+动态并发)/obscura.ts(急回收)/runner.ts(豁免接线), 全带 [R48-*] 注释
+- 遗留: scripts/seed-rule-pilishuwu.ts 有既有 tsc 错误(duplicate function implementation, 非本轮引入); curl contentProxyUrl(3015) 连接失败已在 mini-services 全量拉起后恢复

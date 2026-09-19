@@ -8,7 +8,7 @@
 import iconv from 'iconv-lite'
 // [R33-2a-3] 增补 hasNestedQuantifier: extractToken 的 'regex:' 分支运行时安全闸(见彼处注)
 import { type FetchConfig, DEFAULT_FETCH_CONFIG, isValidMirrorHost, hasNestedQuantifier } from './types'
-import { obscuraFetch, checkObscuraAvailable, clickSelectorAnywhere, buildIdentityInitScript, applyUaCdpOverride, shutdownObscura } from './obscura'
+import { obscuraFetch, checkObscuraAvailable, clickSelectorAnywhere, buildIdentityInitScript, applyUaCdpOverride, shutdownObscura, reclaimObscuraNow } from './obscura'
 // [R9-e-4] 增强: 请求节奏画像上报 —— hostgate 无内部依赖(无循环风险); 缺省开关关闭时
 // 上报函数为 no-op, 既有行为零变化
 // [R28-4-E1] 增强: reportHostForbidden —— host 级长静默熔断(403 连败≥5 → 5~15min 停手),
@@ -754,28 +754,151 @@ globalForOom.__novelOomBackpressure_v1 = oomBackpressure
 // 动机 —— heapUsed 拦不住 heap 外内存(Turbopack dev 基线/Prisma 引擎/native buffer 都不计入
 // heapUsed), R31-1 实录 4 次 next-server OOM kill(anon-rss 2.12~2.67GB)时 heapUsed 远未到
 // 1.5GB 阈值, 既有背压全程未触发。两档:
-//  高水位 FETCH_RSS_STOP_MB(缺省 2048, 下限 256): 暂停新请求窗口 FETCH_RSS_PAUSE_MS
-//   (缺省 8000, 钳 [500,60000]), 协调机制复用 R8-19 同款(第一发现者睡满窗口并置标志,
-//   并发请求等窗口结束不重复睡);
-//  低水位 FETCH_RSS_SOFT_MB(缺省 1536): 对新发起请求概率性让路 —— 让路概率随持续压力
-//   递增(25%→90% 封顶), 让路 sleep 幅度随压力翻倍(30ms→480ms 封顶)±25% 抖动, 收紧引擎
-//   有效并发(让路发生在 acquireGlobalSlot 之后, 持槽等待天然减少新请求准入, 与 pathJitter
-//   同点位同语义)。软阈值高于硬阈值的退化配置下软档自然不可达(hard 优先), 无需额外钳制。
+//  高水位 FETCH_RSS_STOP_MB(缺省 2100[R48-2: 需高于 halt, 仅 halt 被显式禁用时才可触达
+//  的兜底], 下限 256): 暂停新请求窗口 FETCH_RSS_PAUSE_MS(缺省 8000, 钳 [500,60000]),
+//  协调机制复用 R8-19 同款(第一发现者睡满窗口并置标志, 并发请求等窗口结束不重复睡);
+//  低水位 FETCH_RSS_SOFT_MB(缺省 1550[R48-2: 适配 dev 基线 ~1.7GB, 基线上方才开始降]):
+//   对新发起请求概率性让路 —— 让路概率随持续压力递增(25%→90% 封顶), 让路 sleep 幅度随压力
+//   翻倍(30ms→480ms 封顶)±25% 抖动, 收紧引擎有效并发(让路发生在 acquireGlobalSlot 之后,
+//   持槽等待天然减少新请求准入, 与 pathJitter 同点位同语义)。
+// [R48-1→R48-2 校准实录] 初版缺省 soft1024/halt1400 在 dev 模式下误触发: Turbopack 按需
+//  编译缓存 + Prisma 引擎把 next-server 稳态基线推到 1.7~1.8GB(非采集流量贡献), 采集首请求
+//  即熔断且基线不回落 → 续冷却死循环饿死采集。R48-2 按实测校准: halt 1900(dev 基线上方
+//  150MB, 距实测 kill 线 2.1GB 留 200MB 刹车距离——历史 OOM 从 1.7 涨到 2.1 过程中快速失败
+//  +Obscura 回收可刹住), resume 1700, soft 1550; 生产 build 基线低得多, 可用 env 收紧更严。
+// [R48-1] 硬性内存熔断层(在上述软背压之上, 全部水位从低到高):
+//  soft(1550 软让路+降并发) < halt(1900 硬熔断) < stop(2100 兜底窗口) < 实测 kill 线(≈2100+)
+//  halt 触发 = 快速失败(throw MemoryHaltError) + 立即回收 Obscura 空闲 ctx + 冷却窗口;
+//  旧 stop 的 sleep 窗口在 RSS 只涨不降时会无限循环占槽等待, R46 实测未能兜住 OOM,
+//  故 halt 层选择"新请求立即失败让 runner 跳过(章节保持未采集, 增量重试可恢复)"。
 interface MemoryBackpressureWindow { active: boolean; until: number }
 const globalForRssBp = globalThis as unknown as {
   __novelRssBackpressure_v1?: MemoryBackpressureWindow
   __novelRssSoftStreak_v1?: { streak: number }
+  __novelMemHalt_v1?: MemHaltState
+  __novelMemHaltCfgLogged_v1?: boolean
+  __novelMemDeLimit_v1?: number
 }
 const rssBackpressure: MemoryBackpressureWindow = globalForRssBp.__novelRssBackpressure_v1 ?? { active: false, until: 0 }
 globalForRssBp.__novelRssBackpressure_v1 = rssBackpressure
 const rssSoftStreak = globalForRssBp.__novelRssSoftStreak_v1 ?? { streak: 0 }
 globalForRssBp.__novelRssSoftStreak_v1 = rssSoftStreak
 
-const RSS_STOP_MB = Math.max(256, Number(process.env.FETCH_RSS_STOP_MB) || 2048)
-const RSS_SOFT_MB = Math.max(128, Number(process.env.FETCH_RSS_SOFT_MB) || 1536)
+const RSS_STOP_MB = Math.max(256, Number(process.env.FETCH_RSS_STOP_MB) || 2100)
+const RSS_SOFT_MB = Math.max(128, Number(process.env.FETCH_RSS_SOFT_MB) || 1550)
 const RSS_PAUSE_MS = Math.min(60_000, Math.max(500, Number(process.env.FETCH_RSS_PAUSE_MS) || 8_000))
 const RSS_STOP_BYTES = RSS_STOP_MB * 1024 * 1024
 const RSS_SOFT_BYTES = RSS_SOFT_MB * 1024 * 1024
+
+// ---------- [R48-1] 硬性内存熔断 ----------
+/** 熔断状态(挂 globalThis 防 dev HMR 多实例): halted=熔断中; until=冷却截止; trips=历史触发次数;
+ *  renews=本轮连续续冷却次数(≥3 强制解除=半开断路器, 防基线不回落时永久饿死采集) */
+interface MemHaltState { halted: boolean; until: number; trips: number; renews: number }
+const memHalt: MemHaltState = globalForRssBp.__novelMemHalt_v1 ?? { halted: false, until: 0, trips: 0, renews: 0 }
+globalForRssBp.__novelMemHalt_v1 = memHalt
+const MEM_HALT_RENEW_CAP = 3
+
+// FETCH_RSS_HALT_MB: 硬熔断线(缺省 1950; 显式 ≤0 = 禁用熔断回落旧 stop 层; 显式正值下限 512)
+// 缺省依据: [R48-2] dev 模式 Turbopack 稳态基线 ~1.78GB, 距实测 kill 线 2.15GB 只有 ~370MB
+// 采集增量预算 → halt 1950(kill 下 200MB 刹车距离), resume 1900(= halt-50, 必须高于基线
+// 否则熔断后基线不回落永远无法解除); 生产 build 基线低得多, 可用 env 收紧更严
+const rawHaltMb = Number(process.env.FETCH_RSS_HALT_MB)
+const RSS_HALT_MB = rawHaltMb === undefined || Number.isNaN(rawHaltMb) || rawHaltMb === 0
+  ? 1950
+  : (rawHaltMb < 0 ? 0 : Math.max(512, rawHaltMb))
+// 恢复水位(滞回防抖): RSS 回落到该线以下才解除熔断, 缺省 = halt-50(=1900), 钳 ≤ halt-32;
+// 滞回带窄(50MB)是有意的: resume 必须高于 dev 稳态基线, 否则熔断永远无法解除
+const RSS_RESUME_MB = RSS_HALT_MB > 0
+  ? Math.max(256, Math.min(RSS_HALT_MB - 32, Number(process.env.FETCH_RSS_RESUME_MB) || (RSS_HALT_MB - 50)))
+  : 0
+// 熔断冷却窗口: 触发后至少停采该时长, 缺省 30s, 钳 [5s, 5min]
+const RSS_HALT_COOLDOWN_MS = Math.min(300_000, Math.max(5_000, Number(process.env.FETCH_RSS_HALT_COOLDOWN_MS) || 30_000))
+// 内存感知自动降并发开关(缺省启用): soft~halt 区间线性收紧有效并发至 ≥1/4(下限 2)
+const CONCURRENCY_AUTO = process.env.FETCH_CONCURRENCY_AUTO !== '0' && process.env.FETCH_CONCURRENCY_AUTO !== 'false'
+const RSS_HALT_BYTES = RSS_HALT_MB * 1024 * 1024
+const RSS_RESUME_BYTES = RSS_RESUME_MB * 1024 * 1024
+
+/** [R48-1] 内存熔断错误: 引擎侧自保行为非源站故障 —— runner 各 catch 按 name 豁免
+ *  (与 GlobalSemTimeout/HostGateTimeout 同口径, 不计 errors/不喂连败链, 章节保持未采集) */
+export class MemoryHaltError extends Error {
+  constructor(rssMb: number, haltMb: number, cooldownRemainMs: number) {
+    super(
+      `MemoryHalt: RSS=${Math.round(rssMb)}MB ≥ 熔断线${haltMb}MB, ` +
+      `采集引擎停${Math.max(1, Math.ceil(cooldownRemainMs / 1000))}s(内存硬熔断, 内容保持未采集, 稍后增量重试可恢复)`,
+    )
+    this.name = 'MemoryHaltError'
+  }
+}
+
+/** [R48-1] 硬熔断检查(fetchPage 在获取全局槽位前调用, 同步快速失败):
+ *  - 未熔断且 RSS ≥ halt → 置 halted + 立即回收 Obscura 空闲 ctx + 起 30s 冷却 + throw
+ *  - 冷却期内(或续冷却窗口内) → 直接 throw(不再打日志, 防每请求刷屏)
+ *  - 冷却期满且 RSS ≥ resume → 续冷却(打一条节流 warn) + throw
+ *  - 冷却期满且 RSS < resume → 解除熔断(打一条 warn) + 放行
+ *  设计取舍: 用 throw 而非 sleep 等待 —— 等待=持槽占位继续堆积, RSS 只涨不降时与 OOM 赛跑必输 */
+function checkMemoryHalt(rssBytes: number): void {
+  if (RSS_HALT_MB <= 0) return
+  const rssMb = rssBytes / 1048576
+  if (memHalt.halted) {
+    const remain = memHalt.until - Date.now()
+    if (remain > 0) throw new MemoryHaltError(rssMb, RSS_HALT_MB, remain)
+    // 冷却期满: RSS 回落到恢复水位以下才解除; 仍在 resume~halt 间则续冷却(滞回防抖)
+    if (rssBytes >= RSS_RESUME_BYTES) {
+      // [R48-2] 半开断路器: 完成 3 次续冷却后强制解除 —— 用户把 halt 配到基线以下时纯
+      //  滞回会永久饿死采集; 宁冒再触发风险也不无限停摆(放行后 RSS 若仍≥halt 会重新
+      //  熔断重新计数, 采集以低占空比推进而非完全停摆)
+      if (memHalt.renews >= MEM_HALT_RENEW_CAP) {
+        memHalt.halted = false
+        memHalt.renews = 0
+        console.warn(`[fetcher] ⚠️ 内存熔断半开放行(连续续冷却${MEM_HALT_RENEW_CAP}次 RSS 仍=${Math.round(rssMb)}MB≥恢复水位${RSS_RESUME_MB}MB), 允许采集试探性恢复(若真涨至熔断线将再次停采)`)
+        return
+      }
+      memHalt.until = Date.now() + RSS_HALT_COOLDOWN_MS
+      memHalt.renews++
+      // 续期日志直接打(续期间隔=冷却窗口≥5s, 天然不刷屏)
+      console.warn(`[fetcher] ⛔ 内存熔断续期(RSS=${Math.round(rssMb)}MB 仍≥恢复水位${RSS_RESUME_MB}MB), 再停 ${Math.round(RSS_HALT_COOLDOWN_MS / 1000)}s(累计熔断${memHalt.trips}次, 连续续期${memHalt.renews}/${MEM_HALT_RENEW_CAP})`)
+      throw new MemoryHaltError(rssMb, RSS_HALT_MB, RSS_HALT_COOLDOWN_MS)
+    }
+    memHalt.halted = false
+    memHalt.renews = 0
+    console.warn(`[fetcher] ✅ 内存熔断解除(RSS=${Math.round(rssMb)}MB ≤ 恢复水位${RSS_RESUME_MB}MB), 恢复采集(历史熔断${memHalt.trips}次)`)
+    return
+  }
+  if (rssBytes >= RSS_HALT_BYTES) {
+    memHalt.halted = true
+    memHalt.trips++
+    memHalt.renews = 0
+    memHalt.until = Date.now() + RSS_HALT_COOLDOWN_MS
+    let reclaimed = 0
+    try { reclaimed = reclaimObscuraNow() } catch { /* 清理失败不阻断熔断路径 */ }
+    console.warn(
+      `[fetcher] ⛔ 内存硬熔断触发(RSS=${Math.round(rssMb)}MB ≥ 熔断线${RSS_HALT_MB}MB), ` +
+      `已回收 Obscura 空闲 ctx ${reclaimed} 个, 停采 ${Math.round(RSS_HALT_COOLDOWN_MS / 1000)}s` +
+      `(RSS≤${RSS_RESUME_MB}MB 才恢复); 在途请求继续完成, 新请求快速失败`,
+    )
+    // 触发请求自身同样快速失败(置标志后不 throw 会让首个触发请求漏网继续跑)
+    throw new MemoryHaltError(rssMb, RSS_HALT_MB, RSS_HALT_COOLDOWN_MS)
+  }
+}
+
+/** [R48-1] 内存感知动态并发上限: soft 以下满额; soft~halt 线性收紧至 ≥1/4(下限 2);
+ *  halt 以上由 checkMemoryHalt 抛错(到不了这里的计算)。仅收紧新准入, 已持有槽位不收回 */
+function dynConcurrencyLimit(rssBytes: number, cfgLimit: number): number {
+  if (!CONCURRENCY_AUTO || cfgLimit <= 2 || RSS_HALT_MB <= 0) return cfgLimit
+  if (rssBytes <= RSS_SOFT_BYTES) return cfgLimit
+  const t = Math.min(1, Math.max(0, (rssBytes - RSS_SOFT_BYTES) / (RSS_HALT_BYTES - RSS_SOFT_BYTES)))
+  const floorLimit = Math.max(2, Math.ceil(cfgLimit / 4))
+  return Math.max(floorLimit, Math.round(cfgLimit - (cfgLimit - floorLimit) * t))
+}
+
+// [R48-1] 配置摘要一次性日志(模块首次加载打印, globalThis 去重防 HMR 重复刷)
+if (!globalForRssBp.__novelMemHaltCfgLogged_v1) {
+  globalForRssBp.__novelMemHaltCfgLogged_v1 = true
+  console.log(
+    `[fetcher] 内存护栏配置: 软让路${RSS_SOFT_MB}MB → 硬熔断${RSS_HALT_MB > 0 ? `${RSS_HALT_MB}MB(恢复${RSS_RESUME_MB}MB, 冷却${Math.round(RSS_HALT_COOLDOWN_MS / 1000)}s)` : '禁用'} ` +
+    `→ 暂停窗口${RSS_STOP_MB}MB | 自动降并发${CONCURRENCY_AUTO ? '开' : '关'}(FETCH_CONCURRENCY_AUTO 可调)`,
+  )
+}
 
 /** RSS 低水位软让路(仅 fetchPage 调用): rss≤低水位重置连击并直通; 超低水位按连击概率性
  *  sleep(持有全局信号量槽位 → 有效并发收紧)。幅度有界 ≤600ms, 远低于 GlobalSemTimeout 30s,
@@ -4323,7 +4446,30 @@ export async function fetchPage(url: string, cfgOverride?: Partial<FetchConfig>)
     // 让"被 SSRF 拒绝/内存压力等待/镜像组重试"全路径都计入全局在飞计数(同 hostGate
     // 口径, 保证信号量与在飞计数器一致)。release 必须在 finally, 否则异常路径会泄漏槽位。
     // 钳制 limit [1, 50](sanitizeFetchConfig 同口径, 兜底防脏值)
-    const globalLimit = Math.max(1, Math.min(50, cfg.globalConcurrency ?? 10))
+    const cfgLimit = Math.max(1, Math.min(50, cfg.globalConcurrency ?? 10))
+    // [R48-1] 内存感知准入(获取槽位前, 未占槽零堆积): ① 按 RSS 动态收紧有效并发
+    // (soft~halt 线性降档); ② RSS ≥ 熔断线直接 throw MemoryHaltError 快速失败 ——
+    // runner 按 e.name==='MemoryHaltError' 豁免(与 GlobalSemTimeout 同口径: 引擎侧自保
+    // 非源站故障, 内容保持未采集, 增量重试可恢复)。memoryUsage 失败容忍: 退回配置并发
+    let globalLimit = cfgLimit
+    try {
+      const rssNow = process.memoryUsage().rss
+      globalLimit = dynConcurrencyLimit(rssNow, cfgLimit)
+      if (globalLimit < cfgLimit) {
+        // [R48-2] 降并发日志按档位变化打(挂 globalThis): 同档持续压力不刷屏, 档位回落也通报
+        const lastLimit = globalForRssBp.__novelMemDeLimit_v1
+        if (lastLimit === undefined || lastLimit !== globalLimit) {
+          globalForRssBp.__novelMemDeLimit_v1 = globalLimit
+          console.warn(`[fetcher] 内存压力降并发: RSS=${Math.round(rssNow / 1048576)}MB, 全局有效并发 ${cfgLimit}→${globalLimit}`)
+        }
+      } else if (globalForRssBp.__novelMemDeLimit_v1 !== undefined) {
+        globalForRssBp.__novelMemDeLimit_v1 = undefined // 恢复满额, 重置档位记忆
+      }
+      checkMemoryHalt(rssNow)
+    } catch (e) {
+      // 熔断错误必须上抛(整条 fetchPage 快速失败); 其余 memoryUsage 异常容忍直通
+      if ((e as Error)?.name === 'MemoryHaltError') throw e
+    }
     await acquireGlobalSlot(globalLimit)
     try {
       // feat-cloak-anticrawler G: 路径抖动 —— 跨"不同 URL path"切换时插入 100~500ms 随机延迟
