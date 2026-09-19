@@ -188,6 +188,14 @@ export interface FetchConfig {
    *  实测以 node 运行)fetch 静默忽略 proxy → 代理尝试直接走 curl 链(-x 全形态);
    *  裸 Playwright per-context 全形态/Obscura 路径不支持(配置代理时自动改走裸 Playwright) */
   proxyUrl?: string
+  /** [R42-1] 免费代理池自动匹配开关: true 且未显式配 proxyUrl 时, 任务启动前(runner.controlInner
+   *  start 分支)从 FreeProxy 表按 proxyCountries/协议/健康分自动挑选代理, 写回任务
+   *  fetchConfig.proxyUrl(持久化) → 既有 pickProxyFor 轮换机制原样接管; 启动时池空则日志告警
+   *  并直连降级(不阻断启动)。运行时 buildFetch 另有 60s TTL 内存快照兜底(proxy-pool.getCachedProxyPoolSnapshot) */
+  needsProxy?: boolean
+  /** [R42-1] needsProxy 匹配的期望出口国别(ISO 3166-1 alpha-2, 逗号分隔, 如 "US,HK";
+   *  空=不限国别)。sanitize 白名单只收 2 字母大写国家码, 至多 10 个 */
+  proxyCountries?: string
   /** 镜像域名自动故障切换(dd-b): 逗号分隔域名列表(可选带端口), 顺序=优先级, 如
    *  "apibi.cc,apiqu.cc,apige.cc"。语义: URL 自身 host + 本列表全部视为同一镜像组,
    *  请求失败且错误为网络层/超时/403/5xx 时按组序重写 host 重试(从下一镜像起, 至多组大小次);
@@ -655,6 +663,14 @@ export function sanitizeFetchConfig(v: unknown): Partial<FetchConfig> {
     // 白名单枚举同款接受; 运行时粘滞状态只在 fetcher.ts 进程内, 不透传规则 JSON
     r.proxyRotationStrategy === 'sticky-host'
   ) out.proxyRotationStrategy = r.proxyRotationStrategy
+  // [R42-1] 免费代理池自动匹配白名单: needsProxy 仅接受显式 true(缺省/脏值不开启, 零回归);
+  // proxyCountries 逐个 2 字母大写国家码校验去重上限 10, 全部非法则整字段丢弃(口径对齐 proxyUrl)
+  if (r.needsProxy === true) out.needsProxy = true
+  const proxyCountriesRaw = safeStr(r.proxyCountries, 100)
+  if (proxyCountriesRaw !== undefined) {
+    const cc = [...new Set(proxyCountriesRaw.split(',').map((s) => s.trim().toUpperCase()).filter((s) => /^[A-Z]{2}$/.test(s)))]
+    if (cc.length) out.proxyCountries = cc.join(',')
+  }
   // feat-round-8: Feature B1 — 请求抖动 0~30000ms 钳制(超过 30s 抖动已是离谱配置,
   // 上限防止误填 60000 当分钟值跑; 钳到 30s 仍允许极端慢站手工配)
   const jitterMs = safeNum(r.jitterMs, 0, 30_000)

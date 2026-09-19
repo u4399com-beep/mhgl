@@ -27,6 +27,8 @@ import {
   BOOK_ID_PLACEHOLDER,
 } from '@/lib/book-ids'
 import { nextBookNum, withBookNumRetry } from '@/lib/pseudostatic-server'
+// [R42-1] 免费代理池: 启动前按 needsProxy/proxyCountries 匹配 + buildFetch 同步兜底 + 保鲜循环懒激活
+import { pickProxiesForRule, getCachedProxyPoolSnapshot, ensurePoolAutoLoop } from './proxy-pool'
 
 // feat-cloak-anticrawler B/E: 启动时加载持久化 cookie jar + 注册 SIGTERM 优雅关闭 hook
 // (cookieJar 持久化 / Obscura 关闭 / 等在飞 / exit)。模块加载即触发, 保证 fetcher 模块
@@ -751,7 +753,8 @@ export class TaskRunner {
   }
 
   private async controlInner(taskId: string, action: ControlAction): Promise<{ ok: boolean; message: string }> {
-    const task = await db.task.findUnique({ where: { id: taskId } })
+    // [R42-1-1] include rule.config: start 分支的 needsProxy 自动匹配需读规则 fetch 段
+    const task = await db.task.findUnique({ where: { id: taskId }, include: { rule: { select: { config: true } } } })
     if (!task) return { ok: false, message: '任务不存在' }
     const rt = this.runtimes.get(taskId) || {
       paused: false,
@@ -808,6 +811,31 @@ export class TaskRunner {
         // 插入新条目后检查是否超 200, 超过则驱逐最旧的已终态条目(running===false 的 epoch/cooldown)
         this.pruneRuntimesIfNeeded()
         await this.serializeStatusWrite(taskId, 'running')
+        // [R42-1-2] 免费代理池自动匹配(needsProxy): 规则/任务标记 needsProxy 且未显式配
+        //  proxyUrl 时, 启动前从 FreeProxy 表按 国别/协议/健康分 挑选代理写回任务
+        //  fetchConfig.proxyUrl(持久化, 下次启动重选 → 死池自动换新); 池空则告警直连降级
+        //  (不阻断启动)。懒激活代理池自动保鲜循环(60s 心跳按 Setting 周期 harvest+check)
+        try {
+          ensurePoolAutoLoop()
+          const ruleFetch = parseRuleConfig(task.rule?.config || '{}').fetch || {} as Partial<FetchConfig>
+          const startOverride = parseFetchOverride(task.fetchConfig)
+          const startMerged = { ...ruleFetch, ...startOverride }
+          if (startMerged.needsProxy === true && !startMerged.proxyUrl) {
+            const ccLabel = startMerged.proxyCountries ? `(国别:${startMerged.proxyCountries})` : ''
+            const picked = await pickProxiesForRule({ proxyCountries: startMerged.proxyCountries })
+            if (picked) {
+              await db.task.update({
+                where: { id: taskId },
+                data: { fetchConfig: JSON.stringify({ ...startOverride, proxyUrl: picked }) },
+              })
+              await this.log(taskId, 'success', `🔗 代理池自动匹配 ${picked.split(',').length} 条出口代理${ccLabel} → 任务 fetchConfig.proxyUrl`)
+            } else {
+              await this.log(taskId, 'warn', `⚠ needsProxy 已开启但代理池暂无可用代理${ccLabel}, 直连降级启动; 可到「代理池」页抓取+验证后再重启`)
+            }
+          }
+        } catch (e) {
+          await this.log(taskId, 'warn', `代理池匹配异常(直连降级): ${(e as Error)?.message?.slice(0, 140)}`).catch(() => {})
+        }
         // [R34-2a-5] 模式文案三元扩映射: single/range 既有文案不变, bookIds 显示 书号×N(N=去重后书号数);
         //  unknown 值防御性回退原样显示(与前端 taskModeLabel 同口径)
         // [R35-2a-5] bookIds 范围形式(bookIdFrom/bookIdTo 均非空)优先显示 书号范围{from}-{to};
@@ -1297,7 +1325,7 @@ export class TaskRunner {
         const rule = cfg.rule
 
         // [R31-5-1] P1-1(审计 OOM 报告) 生命周期论证: 列表字段条目的全部消费点在 crawlOneBook
-        //  内(形参 bookFields → 书名/简介/作者/分类兑底, crawlOneBook 头部 :1407-1419), 值在调用前已捕获到局部
+        //  内(形参 bookFields → 书名/简介/作者/分类兜底, crawlOneBook 头部 :1407-1419), 值在调用前已捕获到局部
         //  变量(对象引用), 此刻从 Map 删除条目不影响本次调用(引用链由实参维持); bookQueue
         //  同轮去重(Array.from(new Set))保证同 URL 不会二次入队, 删除后无任何后续读者。
         //  修前条目滞留至 executeTask 结束: 50万书 × ~300B(intro 未截断) ≈ 150MB/任务
@@ -1599,7 +1627,7 @@ export class TaskRunner {
     }
     await this.log(taskId, 'info', `书籍页: ${bookUrl} (引擎:${bookRes.engine}, ${bookRes.html.length}字节)`)
     const parsed = parseBook(bookRes.html, bookUrl, rule.book)
-    // ll-c2: 字段兑底链 detail解析 → 列表页字段(detail端点空数据时不丢书名) → URL片段 → 未知
+    // ll-c2: 字段兜底链 detail解析 → 列表页字段(detail端点空数据时不丢书名) → URL片段 → 未知
     // R9-d-4: URL 片段兜底必须容错 —— bookUrl 可能来自备份导入/手工录入的非法 sourceUrl
     // (restore 路径不校验 URL 格式), new URL('垃圾串') 直接抛 TypeError 使本书采集中断;
     // 解析失败时跳过该兜底(落到"未知书名"), 不中断采集链
@@ -2717,6 +2745,13 @@ function buildFetch(rule: RuleConfig, override: Partial<FetchConfig>): Partial<F
   if (!merged.proxyUrl) {
     const envPool = (process.env.FETCH_DEFAULT_PROXY_URL || '').trim()
     if (envPool) merged.proxyUrl = envPool
+    // [R42-1-3] needsProxy 内存快照兜底(proxy-pool.getCachedProxyPoolSnapshot, 60s TTL):
+    //  启动注入后代理中途全灭, 或启动时池空但此刻池已补充 → 最近一次池匹配结果同步顶上,
+    //  不查库(mergedFetch 在每批 loadConfig 重建, 快照随保鲜循环自然刷新); 无快照直连降级
+    if (!merged.proxyUrl && merged.needsProxy === true) {
+      const snap = getCachedProxyPoolSnapshot(merged.proxyCountries || '')
+      if (snap) merged.proxyUrl = snap
+    }
   }
   return merged
 }

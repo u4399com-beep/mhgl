@@ -227,6 +227,42 @@ model Setting {
   value String @default("{}")
 }
 
+// ==================== [R42-1] 免费代理池 ====================
+// 自动抓取全网免费代理(harvester 多源) + 并发验证(validator) + 规则启动前匹配(selector)。
+// 消费链: 采集规则/任务 fetchConfig.needsProxy=true 且未显式配 proxyUrl 时, runner 启动前
+// 从本表按 国别/协议/健康分 挑选代理写入任务 fetchConfig.proxyUrl → 既有 pickProxyFor
+// 轮换机制原样接管(http/curl/browser/scrapling 四链全兼容, 零引擎改动)。
+model FreeProxy {
+  id            String    @id @default(cuid())
+  // 存储归一: https→http, socks5h→socks5(与 fetcher scheme 白名单 http/https/socks5(h)/socks4(a) 同口径)
+  protocol      String
+  host          String
+  port          Int
+  // transparent | anonymous | elite | ""(未知; 来源标注或 ip-api anonymity 字段)
+  anonymity     String    @default("")
+  country       String    @default("") // ISO 3166-1 alpha-2 出口国别(US/CN/HK...)
+  countryName   String    @default("")
+  exitIp        String    @default("") // 验证时出口 IP(ip-api query; 判断代理是否匿名)
+  latencyMs     Int?
+  alive         Boolean   @default(false)
+  successCount  Int       @default(0)
+  failCount     Int       @default(0)
+  // 0~100 健康分(成功 +15 封顶 / 失败 ×0.3 衰减; pickProxiesForRule 降序消费)
+  healthScore   Int       @default(0)
+  lastError     String    @default("")
+  source        String    @default("") // 首次收录来源源 ID
+  lastCheckedAt DateTime?
+  lastSuccessAt DateTime?
+  lastUsedAt    DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([protocol, host, port])
+  @@index([alive, healthScore])
+  @@index([country, alive])
+  @@index([lastCheckedAt])
+}
+
 // ==================== [R27-2] PSEO 关键词落地页 ====================
 // 搜索下拉词/模板词 → SEO 落地页, 路径 /p/{slug}.html(伪静态 catch-all 分支)。
 // 注意: Prisma 基本类型不能用数组 → matchedBookIds 存 JSON 字符串(参照 BookTag 多值先例)。

@@ -6258,3 +6258,25 @@ Stage Summary:
 - 10/10 站主题页脚完成「源站 1:1 仿制」并经模板集 Footer 槽挂载: 8 站真站素材(6 实拍对比+2 CF 盾按素材) + 3 站 Wayback 版(x2552/shipsay/trxsw), aijjxs 截图对比发现左对齐差异并修复复验; 双页脚全站清零
 - 77shuku/trxsw 克隆与规则: 代理凭据缺失(免费池全灭+7 通道实证), 主题维持既有版本; 两站采集规则已落库(enabled=false)等操作员填 proxyUrl(美国→trxsw/大陆→77shuku)后试采校准
 - OOM 处置后 dev server 健康(Ready 2.6s, 孤儿任务自动 interrupted); 遗留: 3 interrupted 任务待用户续采; scrapling .venv 依赖仍缺(R38 决策项)
+
+---
+Task ID: R42（主控全程直办）
+Agent: Z.ai Code 主控
+Task: 1、免费代理池功能（自动抓取网上免费代理 + 需代理规则启动前自动匹配采集）；2、修复采集报错 Playwright chromium_headless_shell 缺失
+
+Work Log:
+- [R42-2] Playwright 修复: 项目 playwright 1.62.1 需要 chromium_headless_shell-1234 而缓存仅有 1200/1243 → `npx playwright install chromium` 主项目+cloak-browser 双装到位(chromium-1234 + headless_shell-1234, Chrome Headless Shell 151.0.7922.34); 运行时即时生效无需重启 dev
+- [R42-1a] Prisma schema 新增 FreeProxy 表(protocol/host/port/anonymity/country/exitIp/latencyMs/alive/健康分/成败计数/source/时间戳, @@unique(protocol,host,port)+3 索引), db:push 36ms 完成
+- [R42-1b] 新建 src/lib/crawl/proxy-pool.ts(~660 行): ①harvester 17 源(thespeedx/monosans/proxyscrape/proxifly/mmpx12/roosterkid/geonode/proxyspace, 4 种行格式解析器+协议归一 https→http/socks5h→socks5+host:port 严格校验) → 实测 11578 条入库 2.8s(15/17 源有产出); ②validator curl -x 子进程并发验证(execFile+ip-api 出口 IP/国别回显, 16 并发, 成功+15 封顶/失败×0.3 衰减+匿名度推定 exitIp===host→transparent) → 实测 14% 存活率; ③selector pickProxiesForRule(国别/协议/健康分过滤+两段降级 minScore 40→0 实测校准: 稀缺国别 CN 存活本就少, 交给 fetcher 失败冷却兜底); ④ensurePoolAutoLoop 自动保鲜循环(60s 心跳读 Setting('proxyPool'), 默认 30min 周期 harvest+check, globalThis 防 HMR 重复挂载, unref)
+- [R42-1c] types.ts: FetchConfig 新增 needsProxy/proxyCountries(注释+sanitizeFetchConfig 白名单: needsProxy 仅显式 true, proxyCountries 2 字母国家码去重≤10); runner.ts 四处: controlInner include rule.config + start 分支启动前自动匹配(挑代理写回 task.fetchConfig.proxyUrl 持久化+成功/告警日志+异常直连降级不阻断) + buildFetch 同步兜底(getCachedProxyPoolSnapshot 60s TTL 内存快照) + ensurePoolAutoLoop 懒激活
+- [R42-1d] API 5 路由(/api/admin/proxy-pool: GET 列表+统计+作业态+Setting / PATCH 设置 / DELETE 清空; /harvest /check /test-target fire-and-forget; /prune) + 后台 UI ProxyPoolSection(4 统计卡+国别分布徽章+作业状态行+5 操作钮+自动保鲜 Switch+定向测试面板+筛选排序分页表格 max-h-96 自定义滚动条+用法说明) + AdminApp 接线(Network 图标 NAV+SectionKey+renderSection)
+- [R42-1e] 实测闭环: harvest 11578 条 → check 三批(250/800/1500) 179-249 存活(GB 92 主导/US 11/CN 4) → **突破: 120.232.115.170:17981(广东移动出口) 对 trxsw.com HTTP 200**, 推翻"仅美国 IP 可达"假设(trxsw 拒香港数据中心 IP, 大陆出口可达; google=000 反证其大陆归属); 手动批量 40 条对照测(google vs trxsw) 定位 2 条 CN 可达代理
+- [R42-2-trxsw] 采集规则落库 cmu877nad0a4ln66h26avh2fi"唐人小说网 (trxsw.com)·代理池采集"(enabled=true): 杰奇家族标准实抓校准(/sort/{cat}/{page}/ 列表+div[id=alistbox] 条目+h1.f21h/.box_intro 书页+#list dl dd 目录(补 tocLink=.btopt a 修 0 章问题)+#content 正文); fetch.needsProxy=true+proxyCountries=CN; 单本任务实测: 代理注入 4 条→书籍+封面入库→3287 章目录解析→正文采集 running(~1.1 章/s, 内容质量抽查干净); 77shuku 占位规则 cmu87mi0m05son6c3cjddjp6w(enabled=false, needsProxy+CN, 源站死站待复活)
+- 质量门: lint 0/0(修 3 处 no-useless-escape+字符类)+tsc 0 错(修 createMany skipDuplicates SQLite 不支持→findMany 预过滤+循环引用类型); dev OOM 崩溃一次(tsc 大内存期, 恢复重启); agent-browser E2E(登录→代理池 tab→统计/按钮/表格/定向测试 CN→trxsw 2×HTTP 200 实时渲染)+chrome 清杀
+
+Stage Summary:
+- 交付: 免费代理池全链路(抓取→验证→匹配→保鲜→UI 管理) + fetchConfig.needsProxy/proxyCountries 规则联动 + playwright 1234 修复 + trxsw 采集规则实抓可用 + 77shuku 占位规则
+- 实测推翻假设: trxsw 非美国 IP 专属——大陆移动出口可达(香港直连仍被拒), 77shuku 免费池 CN 代理仍不可达(维持死站判定)
+- 池内现状: 13883 条(自动循环持续补充), 存活 249, CN 4 条(2 条实测可达 trxsw)
+- 运行中: trxsw 单本采集任务 cmu877z8t0a4nn66hh0hpm1rc(3287 章约 50 分钟采完, **动 dev 前先核实此任务态**)
+- 遗留 R43: trxsw 前台主题 Wayback 版→真站版升级(真站 5 页 HTML 素材已抓存 /tmp/trxsw_*.html) + 77shuku 主题克隆(源站仍不可达) + proxifly/geonode 两源 0 产出待排查(限流)

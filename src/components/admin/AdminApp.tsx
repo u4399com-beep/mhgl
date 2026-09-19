@@ -21,6 +21,7 @@ import {
   ListChecks,
   LogOut,
   MessageSquare,
+  Network,
   Palette,
   Settings,
   ShieldAlert,
@@ -42,6 +43,7 @@ import { FeedbackSection } from './FeedbackSection'
 import { BackupSection } from './BackupSection'
 import { SeoAuditSection } from './SeoAuditSection'
 import { SeoTplSection } from './SeoTplSection' // [R24-4] 自动 SEO/TDK 模板区块
+import { ProxyPoolSection } from './ProxyPoolSection' // [R42-1] 免费代理池区块
 
 type SectionKey =
   | 'dashboard'
@@ -59,11 +61,13 @@ type SectionKey =
   | 'backup'
   | 'seo-audit'
   | 'seo-templates'
+  | 'proxy-pool'
 
 const NAV: { key: SectionKey; label: string; icon: typeof LayoutDashboard }[] = [
   { key: 'dashboard', label: '仪表盘', icon: LayoutDashboard },
   { key: 'rules', label: '采集规则', icon: FileCode2 },
   { key: 'tasks', label: '采集任务', icon: ListChecks },
+  { key: 'proxy-pool', label: '代理池', icon: Network },
   { key: 'books', label: '书籍管理', icon: BookMarked },
   { key: 'categories', label: '分类管理', icon: FolderTree },
   { key: 'sites', label: '站群系统', icon: Globe },
@@ -109,6 +113,8 @@ export default function AdminApp({ onPreviewSite }: { onPreviewSite?: (themeId?:
         return <RulesSection />
       case 'tasks':
         return <TasksSection onNavigate={(s) => setSection(s as SectionKey)} />
+      case 'proxy-pool':
+        return <ProxyPoolSection />
       case 'books':
         return <BooksSection onGoDownload={goDownload} />
       case 'categories':
