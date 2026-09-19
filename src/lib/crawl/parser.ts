@@ -728,7 +728,13 @@ function pickNextHref(
           const v = nextRule.attr === 'text' || nextRule.attr === 'html' || !nextRule.attr
             ? ($(el).attr('href') || $(el).text() || '')
             : ($(el).attr(nextRule.attr) || '')
-          if (v) raws.push(v)
+          // [R45-1] 规则型候选同样过 applyTransform: nextLink 配 replaceFrom/replaceTo 时
+          // (如 xjp 目录页 onclick="location.href='/txt/bqoj/list-2.html'" 剥壳取相对路径,
+          // 或 html正文做清洗), 修前 transform 从未生效 —— 原始 onclick 串被当 URL 走
+          // resolveWithBase 拼成垃圾地址, 翻页第一跳即断只采到第一页。extractField 末尾
+          // 统一 applyTransform(含 ReDoS 三道闸), 本处对齐同一变换口径
+          const t = v ? applyTransform(v, nextRule) : ''
+          if (t) raws.push(t)
         }
       }
     } else {
