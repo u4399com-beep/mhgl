@@ -3,8 +3,8 @@
 //   源站结构: #conn > #hotcontent > .l > #alist > h3「{分类}小说列表」+ #alistbox ×20(每页) +
 //     .pic 封面 115×160 + .info(.title《书名》+ 作者 / .sys 最新更新：xx / .intro 简介 / .yuedu 开始阅读)
 //     + #pagelink.pagelink(首页/页码/下一页/尾页)
-//   降级声明: 源站 stylelist.css 未在素材内 → 列表卡样式按 common/style.css 实测同族值组合(见 index.ts);
-//     「加入书架」为源站登录交互不克隆, 仅保留功能性「开始阅读」; 分页以强元素呈现当前页。
+//   [R43-2v] 复核轮: stylelist.css 已实抓, 分页条实测为 .articlepage 灰底 #f9f9f9 40px 形态;
+//     列表卡/分页条样式均按实测对齐(见 index.ts); 「加入书架」为源站登录交互不克隆, 仅保留功能性「开始阅读」。
 // ============================================================
 'use client'
 
@@ -49,7 +49,7 @@ export function X33yqAlistRows({ books, loading, error, empty }: { books: BookIt
               <span>作者：{b.author}</span>
             </div>
             <div className="xq-sys">最新更新：{b.latestChapter || '暂无章节'}</div>
-            <div className="xq-intro-list">{(b.intro || '暂无简介').slice(0, 66)}</div>
+            <div className="xq-intro-list">{(b.intro || '暂无简介').slice(0, 88)}</div>
             <div className="xq-yuedu">
               <a href={link(b)} onClick={(e) => { e.preventDefault(); go(b) }}>开始阅读</a>
             </div>
@@ -62,11 +62,11 @@ export function X33yqAlistRows({ books, loading, error, empty }: { books: BookIt
   )
 }
 
-/** 分页条(源站 .pages > #pagelink.pagelink: 首页/页码/下一页/尾页, 当前页为 strong) */
+/** 分页条(源站 .articlepage > #pagelink.pagelink: 首页/页码/下一页/尾页, 当前页为 strong; 灰底 40px 实测形态) */
 export function X33yqPageLink({ page, totalPages, onPage }: { page: number; totalPages: number; onPage: (p: number) => void }) {
   const nums = pageWindow(page, totalPages)
   return (
-    <div className="xq-pages">
+    <div className="xq-articlepage">
       <div className="xq-pagelink" role="navigation" aria-label="分页">
         <a href="#" onClick={(e) => { e.preventDefault(); onPage(1) }}>首页</a>
         {nums.map((p) => (

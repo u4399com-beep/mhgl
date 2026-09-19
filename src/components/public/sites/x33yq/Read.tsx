@@ -4,10 +4,15 @@
 //     (ul.tools: li.theme 主题模式 7 色板 + li.size 字体大小 -/18/+ + li.reset 恢复默认;
 //      ul.links: 作者) + .zhangjieming(h1 章节名 + .bottem1 投票/上一章/目录/下一章/书签)
 //     + #content 段落正文 + p.bottem 尾部翻页
-//   平台接入: useReaderFont(字号增减, 源站默认 18) / useThemeLineHeight / useRecordReading / 键盘 ←/→ 翻章
-//   降级声明: 源站 read.css 未在素材内 → 工具条/正文样式按 common/style.css 实测同族值组合;
-//     主题色板 7 色取自源站实测底色族(#FFFFFF/#555555/#FEF9EF/#FFF9D9/#E9FAFF/#F7FBFD/#E1ECED);
-//     投推荐票/加入书签为源站登录交互不克隆。
+//   平台接入: useReaderFont(字号增减) / useThemeLineHeight / useRecordReading / 键盘 ←/→ 翻章
+//   [R43-2v] 复核轮: read.css + common.js 已实抓, 全量按实测对齐:
+//     ① 主题色板真实值(read.css .night/.pink/.yellow/.blue/.green/.gray): body/center/ink 三层
+//        day=站点默认(#E9FAFF/白/#333) night=#222/#111/#999 pink=#fff5f8/#f5e4e4/#7f333d
+//        yellow=#f2e8c8/#ddcda1 blue=#dfecf0/#cedce0 green=#e3efe3/#d0e2d0 gray=#e0e0e0/#cfcfcf
+//     ② 色板锚为 18×18 白底阴影方块, 激活态画 #fe4e30 对勾(源站无底色)
+//     ③ 字号基线 24(common.js size() 默认 24, 页内静态 18 为陈旧标记), 步长 ±2, 范围 10-50
+//     ④ 正文 95% 宽 24px 字距 0.2em 行高 150%; 上下章链墨绿 #085308 纯文本; 恢复默认绿钮 #0d8f72
+//     ⑤ 投推荐票/加入书签为源站登录交互不克隆, 以「返回书页」功能性替代
 // ============================================================
 'use client'
 
@@ -17,15 +22,15 @@ import { usePublic } from '../../ctx'
 import { ChapterContent, useReaderFont, useRecordReading, useThemeFontBase, useThemeLineHeight } from '../template-kit'
 import { ErrorState, Sk } from '../../bits'
 
-// 主题色板(源站 li.theme 7 色板形态; 色值取自源站实测底色族, read.css 缺失 → 近似映射)
-const BG_PRESETS: Array<{ key: string; label: string; bg: string; ink: string }> = [
-  { key: 'day', label: '日光', bg: '#FFFFFF', ink: '#555555' },
-  { key: 'night', label: '夜间', bg: '#555555', ink: '#E9FAFF' },
-  { key: 'pink', label: '粉红', bg: '#FEF9EF', ink: '#555555' },
-  { key: 'yellow', label: '护眼', bg: '#FFF9D9', ink: '#555555' },
-  { key: 'blue', label: '淡蓝', bg: '#E9FAFF', ink: '#555555' },
-  { key: 'green', label: '淡绿', bg: '#F7FBFD', ink: '#555555' },
-  { key: 'gray', label: '灰色', bg: '#E1ECED', ink: '#555555' },
+// 主题色板(read.css .night/.pink/.yellow/.blue/.green/.gray 实测: body 底/center 底/正文墨色三层)
+const BG_PRESETS: Array<{ key: string; label: string; body: string; center: string; ink: string }> = [
+  { key: 'day', label: '日光', body: '#E9FAFF', center: '#FFFFFF', ink: '#333333' },
+  { key: 'night', label: '夜间', body: '#222222', center: '#111111', ink: '#999999' },
+  { key: 'pink', label: '粉红', body: '#fff5f8', center: '#f5e4e4', ink: '#7f333d' },
+  { key: 'yellow', label: '护眼', body: '#f2e8c8', center: '#ddcda1', ink: '#333333' },
+  { key: 'blue', label: '淡蓝', body: '#dfecf0', center: '#cedce0', ink: '#333333' },
+  { key: 'green', label: '淡绿', body: '#e3efe3', center: '#d0e2d0', ink: '#333333' },
+  { key: 'gray', label: '灰色', body: '#e0e0e0', center: '#cfcfcf', ink: '#333333' },
 ]
 
 export function X33yqRead({ data, loading, error }: SiteReadProps) {
@@ -34,11 +39,15 @@ export function X33yqRead({ data, loading, error }: SiteReadProps) {
   const book = data?.book ?? null
   const prev = data?.prev ?? null
   const next = data?.next ?? null
-  // [R43-2] 主题覆盖字号基线(源站 #fontsize 默认 18)+行距; 字号增减走通用 localStorage 键
-  const base = useThemeFontBase(18)
-  const reader = useReaderFont(14, 26)
-  const lh = useThemeLineHeight(2)
+  // [R43-2v] 主题覆盖字号基线(common.js size() 默认 24)+行距(read.css #content 行高 150%);
+  //   字号增减走通用 localStorage 键, 步长 ±2 范围 10-50 对齐源站
+  const base = useThemeFontBase(24)
+  const reader = useReaderFont(10, 50)
+  const lh = useThemeLineHeight(1.5)
   const [bg, setBg] = useState(BG_PRESETS[0])
+  const inc = () => reader.set(Math.min(50, reader.font + 2))
+  const dec = () => reader.set(Math.max(10, reader.font - 2))
+  const reset = () => { reader.set(base); setBg(BG_PRESETS[0]) }
 
   useRecordReading(book?.id, chapter?.id, chapter?.title)
 
@@ -61,8 +70,8 @@ export function X33yqRead({ data, loading, error }: SiteReadProps) {
   if (loading || !chapter || !book) {
     return (
       <div className="xq-read" role="status" aria-label="章节内容加载中">
-        <Sk style={{ height: 48, maxWidth: 974, margin: '10px auto', borderRadius: 0 }} />
-        <Sk style={{ height: 420, maxWidth: 974, margin: '10px auto', borderRadius: 0 }} />
+        <Sk style={{ height: 48, maxWidth: 980, margin: '10px auto', borderRadius: 0 }} />
+        <Sk style={{ height: 420, maxWidth: 980, margin: '10px auto', borderRadius: 0 }} />
         <span className="sr-only">加载中…</span>
       </div>
     )
@@ -71,15 +80,18 @@ export function X33yqRead({ data, loading, error }: SiteReadProps) {
   const goto = (cid?: string) => { if (cid) navigate({ view: 'read', chapterId: cid }) }
 
   return (
-    <div className="xq-read">
+    <div
+      className={bg.key === 'night' ? 'xq-read xq-night' : 'xq-read'}
+      style={{ backgroundColor: bg.body }}
+    >
       <div className="xq-content-read">
-        <div className="xq-box-con">
-          {/* 面包屑(源站 .con_top: 站名 &gt; 分类 &gt; 书名 &gt; 章节名) */}
+        <div className="xq-box-con" style={{ backgroundColor: bg.center }}>
+          {/* 面包屑(源站 .con_top: 站名 > 分类 > 书名 > 章节名; JSX 字符串内用字面 ' > ') */}
           <div className="xq-con-top">
             <a href="#" onClick={(e) => { e.preventDefault(); navigate({ view: 'home' }) }}>33言情</a>
-            {' &gt; '}
+            {' > '}
             <a href="#" onClick={(e) => { e.preventDefault(); navigate({ view: 'book', bookId: book.id }) }}>{book.name}</a>
-            {' &gt; '}{chapter.title}
+            {' > '}{chapter.title}
           </div>
           {/* 工具条(源站 .toolbar: 主题模式/字体大小/恢复默认 + 作者) */}
           <div className="xq-toolbar">
@@ -90,8 +102,7 @@ export function X33yqRead({ data, loading, error }: SiteReadProps) {
                   <button
                     key={p.key}
                     type="button"
-                    className="xq-swatch"
-                    style={{ backgroundColor: p.bg }}
+                    className={bg.key === p.key ? 'xq-swatch on' : 'xq-swatch'}
                     title={p.label}
                     aria-label={`主题模式：${p.label}`}
                     aria-pressed={bg.key === p.key}
@@ -101,16 +112,15 @@ export function X33yqRead({ data, loading, error }: SiteReadProps) {
               </li>
               <li className="xq-size">
                 <p>字体大小：</p>
-                <button type="button" className="xq-size-btn" aria-label="减小字号" onClick={reader.dec}>-</button>
+                <button type="button" className="xq-size-btn" aria-label="减小字号" onClick={dec}>-</button>
                 <p id="xq-fontsize">{reader.font}</p>
-                <button type="button" className="xq-size-btn" aria-label="增大字号" onClick={reader.inc}>+</button>
+                <button type="button" className="xq-size-btn" aria-label="增大字号" onClick={inc}>+</button>
               </li>
               <li className="xq-reset">
                 <button
                   type="button"
-                  className="xq-size-btn"
-                  style={{ width: 'auto', padding: '0 8px' }}
-                  onClick={() => { reader.set(base); setBg(BG_PRESETS[0]) }}
+                  className="xq-reset-btn"
+                  onClick={reset}
                 >恢复默认</button>
               </li>
             </ul>
@@ -129,13 +139,13 @@ export function X33yqRead({ data, loading, error }: SiteReadProps) {
               <a href="#" onClick={(e) => { e.preventDefault(); goto(next?.id) }} aria-disabled={!next}>下一章</a>
             </div>
           </div>
-          <div id="xq-content" style={{ backgroundColor: bg.bg, color: bg.ink }}>
+          <div id="xq-content" style={{ color: bg.ink }}>
             <div style={{ fontSize: reader.font, lineHeight: lh }}>
               <ChapterContent content={chapter.content} />
             </div>
           </div>
-          {/* 尾部翻页(源站 p.bottem) */}
-          <div className="xq-bottem1" style={{ paddingBottom: 14 }}>
+          {/* 尾部翻页(源站 p.bottem: 上虚线界) */}
+          <div className="xq-bottem1 xq-bottem-b">
             <a href="#" onClick={(e) => { e.preventDefault(); goto(prev?.id) }} aria-disabled={!prev}>上一章</a>
             <a href="#" onClick={(e) => { e.preventDefault(); navigate({ view: 'toc', bookId: book.id }) }}>章节目录</a>
             <a href="#" onClick={(e) => { e.preventDefault(); navigate({ view: 'book', bookId: book.id }) }}>返回书页</a>

@@ -3,8 +3,9 @@
 //   源站结构(笔趣阁家族目录形态): .box_con > .con_top 面包屑 + #sidebar(.sidebartitle「妹纸们都在看：」
 //     + .sidebarlist 26 条书链) + #maininfo(a>#fmimg 封面 + #info(h1 书名/作者/类别/动作/更新/最新连载)
 //     + #intro 声明行+.introtxt 简介) + 第二 .box_con > #list > dl(dt 卷名 / dd 章节三列) + #footer
-//   降级声明: 源站 list.css 未在素材内 → 目录/侧栏样式按 common/style.css 实测同族值组合(见 index.ts);
-//     页内 #footer 为书名 SEO 文案, 克隆统一走模板级 Footer 槽(页内不内嵌页脚)。
+//   [R43-2v] 复核轮: list.css 已实抓, 侧栏右浮 264 左虚线界 / maininfo 左浮 700 / fmimg 150×200 #E1ECED 底 /
+//     info h1 28px 黑体 / 章节格 dd 33% #ccc 虚线界缩进 10px 链 #444 均按实测对齐(见 index.ts);
+//     源站目录无分页(全量单页), 平台分页与「返回书页/开始阅读」动作盒为功能性补充。
 // ============================================================
 'use client'
 
@@ -33,7 +34,7 @@ export function X33yqToc({ data, loading, error, page, currentChapterId }: SiteT
         {/* 书信息块(源站首 .box_con: 面包屑 + 侧栏 + maininfo) */}
         <div className="xq-box-con">
           <div className="xq-con-top">
-            <a href="#" onClick={(e) => { e.preventDefault(); navigate({ view: 'home' }) }}>{site.name}</a>
+            <a href="#" onClick={(e) => { e.preventDefault(); navigate({ view: 'home' }) }}>首页</a>
             {' > '}
             <a href="#" onClick={(e) => { e.preventDefault(); if (book) navigate({ view: 'category', cat: book.categoryId || undefined }) }}>{book?.category || '小说'}</a>
             {' > '}

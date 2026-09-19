@@ -6323,3 +6323,25 @@ Stage Summary:
 - 池内现状: 15041 条(自动循环持续), 存活 326; CN 出口可达站再+1(x33yq), 与 trxsw 共用 CN 代理配方
 - 运行中: 33言情单本试采 cmu8ae6bs000gn6fxxyguya0f(745 章约 30-40 分钟采完, 动 dev 前先核实此任务态)
 - 遗留: ①aijjxs toplist 规则测试 count=0(t_6 页变体选择器待校准, TestPanel 可视化调试可定位) ②77shuku 仍死站(免费 CN 池不可达) ③桥 venv 沙箱重启后需按 /health installHint 重建(运维注记已写档)
+---
+Task ID: R43-2v（主控）
+Agent: Z.ai Code 主控
+Task: dev server 抢救 + x33yq 主题克隆回源站对比校准（用户指令：「dev server 挂了。主题模板克隆再去源站对比一下。」）
+
+Work Log:
+- [R43-2v-0] dev 抢救与根因: 3000 无监听+僵尸 bun 进程 → 重启后实测**两度静默死亡**(日志无异常/无新 OOM 记录) → 定位根因=后台启动未按文档括号子壳模式 `( setsid bun run dev ... & )`, 后台任务留作持久 shell 子进程被会话清理回收; 改用文档模式后 dev+桥稳定存活(45s+ 验证/全程未再死); instrumentation 孤儿恢复 8/8 → interrupted(无幽灵任务); 另核实 dmesg 存在**更早一次真实 OOM 击杀 next-server**(RSS 2.5GB, 采集任务+chrome 并存期), 已在验证期避免重载并行
+- [R43-2v-1] 桥复活: scrapling-bridge(3012) 进程未拉起 → venv 完好仅重启 → /health selfTestOk=true(scrapling 0.4.15/curl_cffi 0.16.3/trafilatura 2.2.0)
+- [R43-2v-2] 源站素材补齐: CN 代理 120.232.115.170:17981(池内 6 条 CN 存活最优 177ms) 抓到**上轮缺失的 3 个页型 CSS**: stylelist.css 22.7K(分类/排行) + list.css 6.5K(目录) + read.css 8.4K(阅读) + common.js(字号/主题 JS 逻辑), /tmp/r43-snap/ 达 7 页 HTML+5 CSS+1 JS 全量
+- [R43-2v-3] CSS 级逐条对齐(主改动 index.ts): ①#alist h3 30px/14px→实测 40px/20px/#333 ②alistbox 50% 虚线→实测 460px 实线 #ddd+5px 内距+margin 5 0 5 5 ③pic 117 边框白底→实测 125 内容盒+图 115×160 衬 5px #eee+hover #5187c3 ④info 改 float 330×150 ⑤title 25px→35/30+#eee 下界 ⑥sys #555→#C42205 红 ⑦intro 66px 缩进→80px 无缩进 ⑧yuedu 青边钮→实测灰底 #F3F3F3 圆角(源 ##88C6E5 双井号非法值边框解析丢弃)且 a 为 inline(行盒 28 收 30 容器不撑高) ⑨分页改实测 .articlepage 灰底 #f9f9f9 40px(#ccc 页码/#333 当前页), .pages 蓝盒去圆角仅留 Toc 动作盒 ⑩Toc: box_con #C3DFEA→#88C6E5、con_top 35→40px/16px 字、**sidebar 左浮→右浮 264 左虚线界**、maininfo 右浮→左浮 700 上限 470、fmimg 120 边框→150 #E1ECED 底 12 边距图 150×200、info h1 24→28px 黑体 44 行高、p 25px 行左浮 500 宽、introtxt 680 宽 50 高 ellipsis、list 2px 内距 dt 98% 非粗 dd 33% #ccc 虚线缩进 10px 链 #444 15px ⑪Read: content_read 980、**工具条重写**(灰底 #f7f7f7 50 高白钮/色板 18×18 白底阴影+激活 #fe4e30 对勾/字号钮 #e3e3e3/恢复默认绿钮 #0d8f72 hover #4aa994/links 右浮 #999 分隔)、zhangjieming 25/35 黑体+虚线界、**上下章链按钮态→墨绿 #085308 纯文本**(底部块加 .bottem 上虚线界)、**正文 18px 行高 2→24px 字距 0.2em 行高 150% 段距 20** ⑫7 色板全部换实测值(day #E9FAFF/night #222+#111+#999/pink #fff5f8+#f5e4e4+#7f333d/yellow #f2e8c8+#ddcda1/blue #dfecf0+#cedce0/green #e3efe3+#d0e2d0/gray #e0e0e0+#cfcfcf)挂根节点三层(body/box/content)+夜间联动(.xq-night 工具条 #444) ⑬列表区链色 #333(stylelist A 覆盖) ⑭移动端: alistbox/info/toolbar/maininfo 640-980 自适配规则重写
+- [R43-2v-4] 组件修: Category 分页改 xq-articlepage 形态+简介截断 66→88 字; Ranking h3 加「榜·共N本」→源站裸榜名; Toc 面包屑站名→「首页」; Read 面包屑字面 &gt;→'>'
+- [R43-2v-5] 字号基线: common.js 实锤默认 24/步长 ±2/范围 10-50(页内静态 18 为陈旧标记) → themes.ts read.fontBase 18→24/lineHeight 2→1.5 + Setting.theme_overrides 落 x33yq read{fontBase:24,lineHeight:1.5}(admin 覆盖是平台权威基线机制; 直写 localStorage 种子方案被 template-kit 挂载写回抢先, 弃); Read.tsx useReaderFont(10,50)+±2 步长
+- [R43-2v-6] 实测踩坑两枚: ①**Tailwind preflight 全局 border-box** vs 源站 content-box: alistbox 460 被压成内容 450 → info 浮动下坠叠堆(卡高 331) → 显式 content-box 还原(总 470, 125+330=455≤460 双列恢复, 卡高 181) ②inline-block vs inline 的行盒高度差(38 vs 30)致按钮越界
+- [R43-2v-7] 源站同条件比对法: 快照+真实 CSS 本地重建渲染(python http.server)与克隆页同浏览器同视口截图/量测 —— 源站 alistbox 470×185/yuedu 底 181 vs 克隆 470×181/底 180, 双列/红 sys/灰钮/无缩进全部一致
+- [R43-2v-8] 验证: 语法门 6/6 PASS+css 花括号 272/272 平衡; E2E 全页型(home/book/toc/read/category/ranking)桌面渲染正常; 375px 五页型 scrollWidth=375 零横滚(色板切换 pink/night 实测三层挂色正确+对勾切位); 字号 24 基线+面包屑修复实证; lint 0/0 + tsc 0 错(主控串行); chrome/http.server/临时脚本清理
+- [R43-2v-9] 运维注记: ①dev/桥/mini-service 启动一律用括号子壳模式 `( setsid ... & )`, 直启后台任务会被会话回收(本轮 dev 两度静默死亡根因) ②沙箱总内存 4G, next dev 编译+chrome 并存近 OOM 线, 验证期避免采集任务/多页并行 ③theme_overrides 60s TTL 缓存, 直写 DB 后需等缓存过期
+
+Stage Summary:
+- 产出: x33yq 主题克隆**逐条对齐源站实测 CSS**(补抓 stylelist/list/read.css 三件+common.js), 分类/排行/目录/阅读四页型从"同族近似"升级为"实锤复刻"; 色板/字号/工具条/正文排版/列表卡全按真值; 两枚浏览器兼容性踩坑(Tailwind border-box/inline 行盒)留档
+- 服务态: dev 3000 稳定(括号子壳模式)+桥 3012 selfTestOk; 代理池 CN 存活 6 条; 8 条 interrupted 任务待 UI 手动恢复(33言情试采 cmu8ae6bs000gn6fxxyguya0f 可续采)
+- 质量: lint 0/0 + tsc 0 错 + 375px 五页型零横滚 + 源站同条件量测比对通过
+- 遗留: ①77shuku 仍死站 ②aijjxs toplist count=0(解析侧) ③克隆卡高 181 vs 源 185 差 4px(rounding 级, 可忽略) ④readStoredFontSize 平台存储校验 14-24 与源站 10-50 范围差异(零回归约束保留平台口径)

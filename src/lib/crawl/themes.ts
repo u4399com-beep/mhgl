@@ -823,7 +823,8 @@ export const THEMES: ThemeDef[] = [
     layout: 'x33yq',
     dark: false,
     read: {
-      layout: 'classic', measure: 760, lineHeight: 2, fontBase: 18,
+      // [R43-2v] 复核轮按 read.css/common.js 实测校正: 基线字号 24(size() 默认) 行高 150%
+      layout: 'classic', measure: 760, lineHeight: 1.5, fontBase: 24,
       indent: true, justify: true, toolbar: 'inline', texture: 'none', chapterDeco: 'rule',
     },
     customCss: [

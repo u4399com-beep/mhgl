@@ -4,9 +4,9 @@
 //   home.html 64KB / sort1.html 56KB / top.html 68KB / book.html 15.6KB / toc.html 75.9KB /
 //   read.html 11.6KB / history.html 4.3KB / common.css 7.5KB / style.css 26KB
 //   页型覆盖: H首页 C分类 B书 T目录 R章节 Ran排行 Ful全本 Sea搜索 + Footer 槽(R41 范式, 页内零页脚)
-//   CSS 纪律: 全部值取自 common.css/style.css 实测; 源站 sort/top/toc/read 四页另有 stylelist.css/
-//   list.css/read.css 未在素材内 → 其规则以 common/style.css 实测同族值组合并已在近段注释声明;
-//   规则全挂 .clone-x33yq 作用域; 375px 零横滚(980/974/968/958 等定宽 → max-width+width:100%+box-sizing)。
+//   CSS 纪律: 全部值取自源站实测 CSS —— common.css/style.css/stylelist.css/list.css/read.css 五件
+//   [R43-2v] 复核轮已通过 CN 代理补齐 stylelist/list/read.css 并逐条对齐(分类/排行/目录/阅读页);
+//   规则全挂 .clone-x33yq 作用域; 375px 零横滚(980/976/974/968/958 等定宽 → max-width+width:100%+box-sizing)。
 // ============================================================
 import type { SiteTemplateSet } from '../shared'
 import { X33yqHome } from './Home'
@@ -79,6 +79,10 @@ export const x33yqTemplate: SiteTemplateSet = {
 .clone-x33yq #xq-hotcontent{padding-top:10px}
 .clone-x33yq #xq-hotcontent:after{content:'';display:block;clear:both}
 .clone-x33yq #xq-hotcontent .xq-l{border:2px solid #C3DFEA;padding:0 0 10px;float:left;width:974px;max-width:100%;overflow:hidden;background:#FEF9EF;border-radius:10px;box-sizing:border-box}
+/* [R43-2v] 分类/排行页 .l 实测(stylelist.css L572: 边 #A6D3E8 宽 980) —— 首页仍 974/#C3DFEA(style.css L213) */
+.clone-x33yq .xq-cat #xq-hotcontent .xq-l,.clone-x33yq .xq-ranking #xq-hotcontent .xq-l{border-color:#A6D3E8;width:980px}
+/* [R43-2v] stylelist.css A{#333} 列表区链色覆盖(common.css 全局 #6F78A7 之上) */
+.clone-x33yq .xq-alist a{color:#333333}
 .clone-x33yq #xq-hotcontent .xq-item{width:310px;float:left;padding:10px 0 0 10px;box-sizing:border-box}
 .clone-x33yq #xq-hotcontent .xq-item .xq-image{float:left;width:122px;cursor:pointer;border:0;background:none;padding:0}
 .clone-x33yq #xq-hotcontent .xq-item dl{padding:0 5px 0 0;float:right;width:170px;margin:0}
@@ -117,29 +121,43 @@ export const x33yqTemplate: SiteTemplateSet = {
 .clone-x33yq #xq-newscontent .xq-nc-r li .s2{color:#B3B3B3;overflow:hidden;width:160px}
 .clone-x33yq #xq-newscontent .xq-nc-r li .s5{float:right;text-align:right}
 .clone-x33yq #xq-newscontent h2{margin:0;overflow:hidden;padding:0 0 0 10px;background-color:#88C6E5;height:30px;line-height:30px;font-size:14px;font-weight:bold;border-bottom:solid 1px #DDDDDD}
-/* ---- 列表页(sort1/top: #conn > #hotcontent > .l > #alist; 源站 stylelist.css 未在素材内 →
-     h3 沿用 #newscontent h2 实测蓝条形态, alistbox 卡以实测值组合) ---- */
 .clone-x33yq #xq-conn{padding-top:10px}
-.clone-x33yq .xq-alist-h3{margin:0;overflow:hidden;padding:0 0 0 10px;background-color:#88C6E5;height:30px;line-height:30px;font-size:14px;font-weight:bold;border-bottom:solid 1px #DDDDDD}
-.clone-x33yq .xq-alist-body{padding:10px}
+/* [R43-2v] 以下列表卡段按 stylelist.css 实测对齐(#alist h3 40px/20px、#alistbox 460 双列、
+   pic 125 衬 #eee 底、info 330×150、sys #c42205、intro 80px、yuedu 灰底圆角钮) */
+.clone-x33yq .xq-alist-h3{margin:0;overflow:hidden;padding:0 10px;background-color:#88C6E5;height:40px;line-height:40px;font-size:20px;font-weight:bold;color:#333333;border-bottom:solid 1px #DDDDDD}
+.clone-x33yq .xq-alist-body{padding:0 0 10px}
 .clone-x33yq .xq-alist-body:after{content:'';display:block;clear:both}
-.clone-x33yq .xq-alistbox{float:left;width:50%;padding:10px;box-sizing:border-box;border-bottom:1px dashed #DDDDDD}
-.clone-x33yq .xq-alistbox .xq-pic{float:left;width:117px;padding:1px;border:1px solid #DDDDDD;background-color:#fff;box-sizing:border-box;cursor:pointer}
-.clone-x33yq .xq-alistbox .xq-info{margin-left:127px;min-height:160px}
-.clone-x33yq .xq-alistbox .xq-title{height:25px;line-height:25px;overflow:hidden;font-weight:bold}
-.clone-x33yq .xq-alistbox .xq-title span{float:right;font-weight:normal;color:#B3B3B3}
-.clone-x33yq .xq-alistbox .xq-sys{line-height:22px;font-size:13px;color:#555555;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-.clone-x33yq .xq-alistbox .xq-intro-list{color:#666666;line-height:22px;height:66px;overflow:hidden;text-indent:2em;font-size:13px}
-.clone-x33yq .xq-alistbox .xq-yuedu{height:30px;padding-top:4px}
+/* [R43-2v] 实测 content-box: 460 为内容宽(总 470), pic 125 + info 330 = 455 ≤ 460 才能同行双列;
+   Tailwind preflight 全局 border-box → 此处显式还原 content-box(实测踩坑: border-box 内容仅 450 → info 下坠叠堆) */
+.clone-x33yq .xq-alistbox{float:left;width:460px;padding:5px;margin:5px 0 5px 5px;border-bottom:1px solid #DDDDDD;box-sizing:content-box}
+.clone-x33yq .xq-alistbox .xq-pic{float:left;width:125px;padding:0;border:0;background:transparent;cursor:pointer;box-sizing:border-box}
+.clone-x33yq .xq-alistbox .xq-pic>div{width:115px;height:160px;padding:5px;background-color:#EEEEEE;box-sizing:content-box}
+.clone-x33yq .xq-alistbox .xq-pic:hover>div{background-color:#5187C3}
+.clone-x33yq .xq-alistbox .xq-info{float:left;width:330px;height:150px;box-sizing:border-box}
+.clone-x33yq .xq-alistbox .xq-title{height:35px;line-height:30px;margin:0 10px;overflow:hidden;border-bottom:1px solid #EEEEEE}
+.clone-x33yq .xq-alistbox .xq-title span{float:right;font-weight:normal;text-align:right}
+.clone-x33yq .xq-alistbox .xq-sys{height:20px;line-height:20px;margin:0 10px;color:#C42205;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.clone-x33yq .xq-alistbox .xq-sys a{color:#C42205}
+.clone-x33yq .xq-alistbox .xq-intro-list{margin:5px 10px;height:80px;overflow:hidden;word-wrap:break-word}
+.clone-x33yq .xq-alistbox .xq-yuedu{margin:0 10px;height:30px}
 /* 章节块链(.play-list a 实测: 385×28 边 #C3DFEA 底 #E1ECED hover 白字 #88C6E5) */
-.clone-x33yq .xq-alistbox .xq-yuedu a{display:inline-block;height:24px;line-height:22px;padding:0 10px;border:1px solid #C3DFEA;background-color:#E1ECED;color:#6F78A7;margin:0 6px 0 0}
-.clone-x33yq .xq-alistbox .xq-yuedu a:hover{color:#fff;border-color:#88C6E5;background:#88C6E5;text-decoration:none}
+/* [R43-2v] 源站 a 为默认 inline: 行盒 28px 收进 30px 容器不撑高(垂直 padding 仅绘制不参与布局 → 卡高 185 不越界) */
+.clone-x33yq .xq-alistbox .xq-yuedu a{line-height:28px;padding:5px 8px;border:0;border-radius:10px;background-color:#F3F3F3;margin:0 6px 0 0}
+.clone-x33yq .xq-alistbox .xq-yuedu a:hover{text-decoration:underline}
 /* ---- 分页(style.css .pages 964 2px #A6D3E8 圆角10; .pagelink 居中 a/em/strong 边 #e5e5e5 白底
      padding5; a:hover 边 #88C6E5 底 #F4FBFF) ---- */
-.clone-x33yq .xq-pages{width:964px;max-width:100%;border:2px solid #A6D3E8;padding:5px;margin:5px auto 0;border-radius:10px;box-sizing:border-box}
+/* [R43-2v] Toc 页动作盒(list.css .pages 实测: 无圆角) */
+.clone-x33yq .xq-pages{width:964px;max-width:100%;border:2px solid #A6D3E8;padding:5px;margin:5px auto 0;box-sizing:border-box}
 .clone-x33yq .xq-pagelink{text-align:center;padding:5px;line-height:29px}
 .clone-x33yq .xq-pagelink a,.clone-x33yq .xq-pagelink strong,.clone-x33yq .xq-pagelink em{font-style:normal;border:1px solid #e5e5e5;background:#FFF;padding:5px;margin-left:2px}
 .clone-x33yq .xq-pagelink a:hover{border:1px solid #88C6E5;background:#F4FBFF}
+/* [R43-2v] 分类/排行分页条实测(stylelist.css .articlepage L322: 灰底 #f9f9f9 40px, 页码 #ccc 边 3/10 内距,
+   当前页 strong #333 边 5/10 内距) —— Toc 页分页同为平台件, 统一灰条形态 */
+.clone-x33yq .xq-articlepage{border:1px solid #DDDDDD;background:#F9F9F9;height:40px;line-height:40px;margin:5px 0;padding:0 20px;overflow:hidden}
+.clone-x33yq .xq-articlepage .xq-pagelink{text-align:left;padding:0;line-height:40px}
+.clone-x33yq .xq-articlepage .xq-pagelink a{display:inline-block;border:1px solid #CCCCCC;background:#F9F9F9;color:#333333;padding:3px 10px;margin:5px;line-height:22px}
+.clone-x33yq .xq-articlepage .xq-pagelink a:hover{border:1px solid #333333;background:#F9F9F9;color:#333333;text-decoration:none}
+.clone-x33yq .xq-articlepage .xq-pagelink strong{display:inline-block;border:1px solid #333333;background:#F9F9F9;color:#333333;padding:5px 10px;margin:5px;line-height:22px;font-weight:bold}
 /* ---- 书页(style.css .ui-box 2px #C3DFEA #E9FAFF 圆角10; .bread-crumb-nav 2px #C3DFEA #FEF9EF;
      .ui_bg6 687 左浮; .wudu-bar 253 右浮 左界 #C3DFEA 底 #E9FAFF; .box_info ml165; .f21h simHei 30px;
      .intro #666 lh22 缩进2em 高166; .option 上界 #C3DFEA; .txtopt a 80×27; 按钮实测 ui-button
@@ -210,49 +228,70 @@ export const x33yqTemplate: SiteTemplateSet = {
 /* ---- 目录页(toc: .box_con/.con_top 家族形态, 值取实测同族: 盒 974 2px #C3DFEA 白底圆角10;
      con_top #E1ECED 35px 下界 #A6D3E8; #sidebar 250 + #maininfo 右浮; #list dt 底 #C3DFEA 居中
      dd 三列 虚线下界 #DDD; 当前章 #e12160) ---- */
-.clone-x33yq .xq-box-con{background:#fff;border:2px solid #C3DFEA;border-radius:10px;margin:10px auto 0;width:974px;max-width:100%;box-sizing:border-box;overflow:hidden}
+/* [R43-2v] 目录/阅读蓝盒实测(list.css .box_con L4: 边 #88C6E5 宽 976) */
+.clone-x33yq .xq-box-con{background:#fff;border:2px solid #88C6E5;border-radius:10px;margin:10px auto 0;width:976px;max-width:100%;box-sizing:border-box;overflow:hidden}
 .clone-x33yq .xq-box-con:after{content:'';display:block;clear:both}
-.clone-x33yq .xq-con-top{background:#E1ECED;border-bottom:1px solid #A6D3E8;color:#808080;height:35px;line-height:35px;padding:0 10px;font-size:14px;overflow:hidden}
-.clone-x33yq .xq-con-top a{color:#808080}
-.clone-x33yq #xq-sidebar{float:left;width:250px;box-sizing:border-box;padding:10px}
-.clone-x33yq .xq-sidebartitle{font-weight:bold;height:25px;line-height:25px;border-bottom:1px solid #A6D3E8;background:#F6F8FE;padding-left:5px;overflow:hidden}
-.clone-x33yq .xq-sidebarlist{padding:8px 0 0;line-height:24px}
-.clone-x33yq .xq-sidebarlist a{display:inline-block;margin-right:10px;font-size:13px;color:#6F78A7}
-.clone-x33yq #xq-maininfo{float:right;width:706px;box-sizing:border-box;padding:0 12px 12px 0}
-.clone-x33yq #xq-fmimg{float:left;width:120px;padding:4px;border:1px solid #C3DFEA;background:#FFFFFF;box-sizing:border-box;margin:10px 12px 0 0;cursor:pointer}
-.clone-x33yq #xq-info h1{font-size:24px;line-height:32px;margin:6px 0;font-weight:bold}
-.clone-x33yq #xq-info p{margin:4px 0;color:#555555;font-size:13px}
+/* [R43-2v] 面包屑条实测(list.css .con_top L11/read.css L21: 40px 高 字 16px 下界 #88C6E5, 链色走全局) */
+.clone-x33yq .xq-con-top{background:#E1ECED;border-bottom:1px solid #88C6E5;height:40px;line-height:40px;padding:0 10px;font-size:16px;overflow:hidden}
+/* [R43-2v] 目录页左右栏实测(list.css): #sidebar 右浮 264 左虚线界 / #maininfo 左浮 700 上限 470;
+   #fmimg #E1ECED 底 150 宽 12 边距(图 150×200 无边) / #info 210 高 字 15 h1 28px 黑体 44 行高 行 25px 左浮 500 宽 */
+.clone-x33yq #xq-sidebar{float:right;width:264px;box-sizing:border-box;border-left:1px dashed #88C6E5;text-align:left}
+.clone-x33yq .xq-sidebartitle{font-weight:bold;font-size:15px;line-height:150%;padding:2px 0 0 10px;white-space:nowrap;text-overflow:ellipsis;overflow:hidden}
+.clone-x33yq .xq-sidebarlist{padding:0 0 0 20px;margin-bottom:5px;overflow:hidden}
+.clone-x33yq .xq-sidebarlist:after{content:'';display:block;clear:both}
+.clone-x33yq .xq-sidebarlist a{float:left;width:49.5%;line-height:200%;white-space:nowrap;text-overflow:ellipsis;overflow:hidden}
+.clone-x33yq #xq-maininfo{float:left;width:700px;max-width:100%;max-height:470px;box-sizing:border-box;overflow:hidden}
+.clone-x33yq #xq-fmimg{float:left;width:150px;padding:0;border:0;background:#E1ECED;margin:12px;cursor:pointer;box-sizing:border-box}
+.clone-x33yq #xq-fmimg>div{width:150px;height:200px}
+.clone-x33yq #xq-info{padding:0 10px;margin:10px;font-size:15px;height:210px;max-height:210px;overflow:hidden}
+.clone-x33yq #xq-info h1{font-size:28px;font-family:SimHei,'黑体',sans-serif;font-weight:bold;height:44px;line-height:44px;margin:0;padding:1px;overflow:hidden}
+.clone-x33yq #xq-info p{height:25px;line-height:25px;padding-top:2px;float:left;width:500px;max-width:100%;margin:0;color:#555555;font-size:15px;overflow:hidden;box-sizing:border-box}
 .clone-x33yq #xq-info p a{color:#6F78A7;margin-right:4px}
-.clone-x33yq #xq-intro{margin:8px 0;padding:10px;border-top:1px dashed #C3DFEA;color:#666666;font-size:13px;line-height:22px;overflow:hidden}
+/* [R43-2v] 声明/简介实测(list.css #intro L120: 上虚线界 字 15 行高 180%; .introtxt 680 宽 50 高 ellipsis 无缩进) */
+.clone-x33yq #xq-intro{margin:0;padding:10px;border-top:1px dashed #88C6E5;width:100%;line-height:180%;font-size:15px;overflow:hidden;box-sizing:border-box}
 .clone-x33yq #xq-intro p{margin:0}
-.clone-x33yq .xq-introtxt{text-indent:2em}
-.clone-x33yq #xq-list{padding:10px}
+.clone-x33yq .xq-introtxt{width:680px;max-width:100%;color:#666666;height:50px;line-height:26px;overflow:hidden;text-overflow:ellipsis;padding-bottom:10px}
+/* [R43-2v] 章节格实测(list.css #list L130: 2px 内距; dt #C3DFEA 98% 居中非粗; dd 33% 25 高 200% 行高
+   #CCC 虚线界 缩进 10px; 链 #444444 字 15px) */
+.clone-x33yq #xq-list{padding:2px}
 .clone-x33yq #xq-list:after{content:'';display:block;clear:both}
 .clone-x33yq #xq-list dl{margin:0}
-.clone-x33yq #xq-list dt{background:#C3DFEA;font-size:14px;font-weight:bold;line-height:28px;padding:5px 10px;margin:0 0 5px;text-align:center}
-.clone-x33yq #xq-list dd{float:left;width:33.3%;height:30px;line-height:30px;overflow:hidden;margin:0;font-size:13px;padding-left:6px;box-sizing:border-box;border-bottom:1px dashed #DDDDDD}
-.clone-x33yq #xq-list dd a{color:#6F78A7}
+.clone-x33yq #xq-list dt{background:#C3DFEA;font-size:14px;line-height:28px;padding:5px 10px;margin:0 0 5px;width:98%;text-align:center;float:left;box-sizing:border-box}
+.clone-x33yq #xq-list dd{float:left;width:33%;height:25px;line-height:200%;overflow:hidden;margin:0 0 5px;text-indent:10px;box-sizing:border-box;border-bottom:1px dashed #CCCCCC}
+.clone-x33yq #xq-list dd a{color:#444444;font-size:15px}
 .clone-x33yq #xq-list dd.xq-ch-active a{color:#e12160;font-weight:bold}
-/* ---- 阅读页(read.css 未在素材内 → 家族形态+实测值组合: 盒 974; 工具条 #FEF9EF 边 #C3DFEA
-     圆角10; 正文默认 18px(源站 #fontsize 18)行高2; 章题居中 24px) ---- */
-.clone-x33yq .xq-content-read{width:974px;max-width:100%;margin:10px auto 0;box-sizing:border-box}
-.clone-x33yq .xq-toolbar{border:1px solid #C3DFEA;background:#FEF9EF;border-radius:10px;margin:0 0 8px;padding:6px 10px;overflow:hidden}
-.clone-x33yq .xq-toolbar ul.xq-tools{list-style:none;margin:0;padding:0}
-.clone-x33yq .xq-toolbar ul.xq-tools:after{content:'';display:block;clear:both}
-.clone-x33yq .xq-tools li{float:left;margin-right:16px;line-height:24px;font-size:13px;color:#555555}
-.clone-x33yq .xq-tools li p{display:inline;margin:0}
-.clone-x33yq .xq-tools #xq-fontsize{display:inline-block;min-width:22px;text-align:center;font-weight:bold;color:#555555;margin:0}
-.clone-x33yq .xq-tools .xq-swatch{display:inline-block;width:16px;height:16px;border:1px solid #DDDDDD;margin:0 3px;vertical-align:middle;cursor:pointer;padding:0}
-.clone-x33yq .xq-tools .xq-size-btn{display:inline-block;width:20px;height:20px;line-height:18px;text-align:center;border:1px solid #C3DFEA;background-color:#E1ECED;color:#6F78A7;cursor:pointer;margin:0 4px;padding:0;font-family:inherit}
-.clone-x33yq .xq-links{float:right;font-size:13px;color:#555555;line-height:24px;text-align:right}
-.clone-x33yq .xq-links p{margin:0}
-.clone-x33yq .xq-zhangjieming h1{font-size:24px;line-height:34px;text-align:center;margin:10px 0;color:#555555}
-/* 翻页链(.play-list a 实测同款块链) */
-.clone-x33yq .xq-bottem1{text-align:center;padding:4px 0}
-.clone-x33yq .xq-bottem1 a{display:inline-block;height:24px;line-height:22px;padding:0 10px;border:1px solid #C3DFEA;background-color:#E1ECED;color:#6F78A7;margin:0 4px}
-.clone-x33yq .xq-bottem1 a:hover{color:#fff;border-color:#88C6E5;background:#88C6E5;text-decoration:none}
-.clone-x33yq #xq-content{padding:10px;font-size:18px;line-height:2;color:#555555;overflow:hidden;min-height:320px}
-.clone-x33yq #xq-content p{margin:0 0 10px;text-indent:2em}
+/* ---- [R43-2v] 阅读页全部按 read.css/common.js 实测对齐: 外宽 980; 工具条灰底 #f7f7f7 50 高白钮;
+     色板 18×18 白底阴影(激活对勾 #fe4e30); 字号钮 #e3e3e3; 恢复默认绿钮 #0d8f72; 章题 25/35 黑体;
+     正文 95% 宽 24px 字距 0.2em 行高 150% 段距 20; 上下章链墨绿 #085308 纯文本; 主题色板挂根节点 ---- */
+.clone-x33yq .xq-content-read{width:980px;max-width:100%;margin:0 auto;box-sizing:border-box}
+.clone-x33yq .xq-toolbar{position:relative;height:50px;border:1px solid #D8D8D8;background-color:#F7F7F7;overflow:hidden}
+.clone-x33yq .xq-toolbar ul.xq-tools{list-style:none;margin:0;padding:0;position:absolute;top:9px;left:15px;height:30px;line-height:20px}
+.clone-x33yq .xq-tools li{float:left;margin-right:10px;padding:0 5px;background-color:#FFFFFF;border:1px solid #D8D8D8;border-radius:3px;font-size:13px;color:#333333}
+.clone-x33yq .xq-tools li p{float:left;margin:5px;line-height:20px}
+.clone-x33yq .xq-tools #xq-fontsize{min-width:22px;text-align:center}
+.clone-x33yq .xq-tools .xq-swatch{float:left;display:block;width:18px;height:18px;line-height:18px;margin:6px;border-radius:2px;position:relative;background-color:#FFFFFF;border:0;box-shadow:0 0 2px 1px rgba(0,0,0,0.2);cursor:pointer;padding:0;font-family:inherit}
+.clone-x33yq .xq-tools .xq-swatch.on:after{content:'';position:absolute;top:3px;left:2px;width:12px;height:6px;border-left:2px solid #FE4E30;border-bottom:2px solid #FE4E30;transform:rotate(-45deg)}
+.clone-x33yq .xq-tools .xq-size-btn{float:left;display:block;width:18px;height:18px;line-height:15px;margin:6px;border-radius:2px;background-color:#E3E3E3;color:#333333;font-size:15px;text-align:center;cursor:pointer;border:0;padding:0;font-family:inherit}
+.clone-x33yq .xq-tools li.xq-reset{padding:5px 15px;background-color:#0D8F72;border-color:#0D8F72;color:#FFFFFF;cursor:pointer}
+.clone-x33yq .xq-tools li.xq-reset:hover{background-color:#4AA994}
+.clone-x33yq .xq-tools .xq-reset-btn{display:block;border:0;background:transparent;color:#FFFFFF;font-size:13px;line-height:18px;cursor:pointer;padding:0;font-family:inherit}
+.clone-x33yq .xq-links{position:absolute;top:15px;right:15px;line-height:20px;font-size:13px;color:#555555;text-align:right}
+.clone-x33yq .xq-links p{display:inline;margin:0}
+.clone-x33yq .xq-links p+p{margin-left:5px;padding-left:8px;border-left:1px solid #999999}
+.clone-x33yq .xq-zhangjieming{border-bottom:1px dashed #88C6E5;line-height:30px}
+.clone-x33yq .xq-zhangjieming h1{font-family:SimHei,'黑体',sans-serif;font-size:25px;line-height:35px;text-align:center;padding:10px 0 0;margin:0;color:#333333}
+/* 上下章链实测(read.css .bottem/.bottem1: 墨绿 #085308 纯文本链 0 10 边距; 底部块 .bottem 上虚线界) */
+.clone-x33yq .xq-bottem1{text-align:center;margin:5px 0;padding:4px 0}
+.clone-x33yq .xq-bottem1 a{font-size:14px;color:#085308;margin:0 10px}
+.clone-x33yq .xq-bottem1 a:hover{text-decoration:underline}
+.clone-x33yq .xq-bottem-b{border-top:1px dashed #88C6E5;margin:5px 15px;padding:10px;clear:both}
+.clone-x33yq #xq-content{margin:25px auto;width:95%;word-wrap:break-word;line-height:150%;font-size:24px;letter-spacing:0.2em;color:#333333;overflow:hidden;min-height:320px}
+.clone-x33yq #xq-content p{line-height:150%;margin:0 0 20px;text-align:left;text-indent:2em}
+/* [R43-2v] 夜间模式联动(read.css .night: 顶条/工具条 #444 链 #ddd) —— 其余色板由组件内联挂根节点 */
+.clone-x33yq .xq-night .xq-toolbar{background-color:#444444;border-color:#444444}
+.clone-x33yq .xq-night .xq-con-top{color:#DDDDDD}
+.clone-x33yq .xq-night .xq-con-top a{color:#DDDDDD}
+.clone-x33yq .xq-night .xq-bottem1 a{color:#DDDDDD}
 /* ---- 搜索/完本列表块(style.css .novelslistss: 968 2px #C8D4E1 圆角10; h2 底 #F6F8FE 下界 #DDD;
      行 s1 10% s2 30% s3 30% s4 #B3B3B3 15% 右 s5 #B3B3B3 右浮) ---- */
 .clone-x33yq .xq-novelslistss{margin:5px auto;border:2px solid #C8D4E1;width:968px;max-width:100%;padding:3px;overflow:hidden;border-radius:10px;box-sizing:border-box}
@@ -285,7 +324,7 @@ export const x33yqTemplate: SiteTemplateSet = {
 .clone-x33yq #xq-hotcontent .xq-item .xq-image>div{border:1px solid #DDDDDD;background-color:#fff}
 /* ================= 移动端(375px 无横向滚动; 源站为定宽 PC 模板无响应式 → 克隆纪律自适配) ================= */
 @media (max-width: 980px){
-  .clone-x33yq #xq-main,.clone-x33yq .xq-headds-con,.clone-x33yq .xq-head,.clone-x33yq .xq-daohang,.clone-x33yq .xq-nav1,.clone-x33yq .xq-novelslist,.clone-x33yq .xq-GARAN,.clone-x33yq .xq-footer,.clone-x33yq .xq-pages,.clone-x33yq .xq-place,.clone-x33yq .xq-box-con,.clone-x33yq .xq-content-read,.clone-x33yq .xq-MessageDiv,.clone-x33yq .xq-novelslistss{width:100%;box-sizing:border-box}
+  .clone-x33yq #xq-main,.clone-x33yq .xq-headds-con,.clone-x33yq .xq-head,.clone-x33yq .xq-daohang,.clone-x33yq .xq-nav1,.clone-x33yq .xq-novelslist,.clone-x33yq .xq-GARAN,.clone-x33yq .xq-footer,.clone-x33yq .xq-pages,.clone-x33yq .xq-articlepage,.clone-x33yq .xq-place,.clone-x33yq .xq-box-con,.clone-x33yq .xq-content-read,.clone-x33yq .xq-MessageDiv,.clone-x33yq .xq-novelslistss{width:100%;box-sizing:border-box}
   .clone-x33yq .xq-daohang,.clone-x33yq .xq-nav1{height:auto;min-height:40px}
   .clone-x33yq .xq-head{height:auto;overflow:hidden;padding:6px 8px}
   .clone-x33yq .xq-head-logo{float:left;width:auto;max-width:38%;height:auto}
@@ -303,7 +342,15 @@ export const x33yqTemplate: SiteTemplateSet = {
   .clone-x33yq .xq-wudu-bar{width:100%;float:none;border-left:0;border-top:1px solid #C3DFEA}
   .clone-x33yq #xq-like-focus .xq-img-list li{width:33.33%}
   .clone-x33yq #xq-sidebar{display:none}
-  .clone-x33yq #xq-maininfo{width:100%;float:none;padding:0 12px 12px}
+  .clone-x33yq #xq-maininfo{width:100%;float:none;max-height:none;overflow:visible;padding:0 12px 12px}
+  .clone-x33yq #xq-fmimg{float:none;margin:12px auto 0;display:block}
+  .clone-x33yq #xq-info{height:auto;max-height:none}
+  .clone-x33yq #xq-info p{width:100%;float:none}
+  .clone-x33yq .xq-articlepage{height:auto;min-height:40px;line-height:34px;padding:2px 10px}
+  .clone-x33yq .xq-toolbar{height:auto;overflow:visible;padding:6px 8px}
+  .clone-x33yq .xq-toolbar ul.xq-tools{position:static}
+  .clone-x33yq .xq-toolbar ul.xq-tools:after{content:'';display:block;clear:both}
+  .clone-x33yq .xq-toolbar .xq-links{position:static;text-align:left;padding:4px 5px}
   .clone-x33yq .xq-play-list-box,.clone-x33yq .xq-play-content{width:100%}
 }
 @media (max-width: 640px){
@@ -311,7 +358,9 @@ export const x33yqTemplate: SiteTemplateSet = {
   .clone-x33yq .xq-nav1 ul li a{padding:3px 5px;font-size:13px}
   .clone-x33yq #xq-hotcontent .xq-item{width:100%}
   .clone-x33yq .xq-GARAN .xq-top{width:100%}
-  .clone-x33yq .xq-alistbox{width:100%}
+  .clone-x33yq .xq-alistbox{width:100%;box-sizing:border-box;max-width:100%;margin-left:0}
+  .clone-x33yq .xq-alistbox .xq-info{width:auto;max-width:calc(100% - 132px);height:auto}
+  .clone-x33yq .xq-introtxt{height:auto;min-height:50px}
   .clone-x33yq #xq-like-focus .xq-img-list li{width:50%}
   .clone-x33yq #xq-list dd{width:50%}
   .clone-x33yq #xq-newscontent .xq-nc-l li .s3,.clone-x33yq #xq-newscontent .xq-nc-l li .s4{display:none}

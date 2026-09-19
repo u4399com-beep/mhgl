@@ -40,7 +40,7 @@ export function X33yqRanking({ boards, active, onBoard, loading, error }: SiteRa
         <div id="xq-hotcontent">
           <div className="xq-l">
             <div className="xq-alist">
-              <h3 className="xq-alist-h3">{cur ? `${RANK_TAB[cur.key] || cur.label}榜 · 共 ${cur.total} 本` : '榜单'}</h3>
+              <h3 className="xq-alist-h3">{cur ? (RANK_TAB[cur.key] || cur.label) : '榜单'}</h3>
               {error ? (
                 <div className="xq-alist-body"><ErrorState message="榜单加载失败" detail={error} /></div>
               ) : (
