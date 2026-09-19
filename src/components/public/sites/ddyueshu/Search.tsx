@@ -8,7 +8,6 @@
 import type { SiteSearchProps } from '../shared'
 import { usePublic, viewToUrl } from '../../ctx'
 import { ErrorState, Sk } from '../../bits'
-import { DdyFooter } from './parts'
 import type { BookItem } from '../../types'
 
 function DdyListRows({ books, loading, error, empty }: { books: BookItem[]; loading: boolean; error: string; empty: string }) {
@@ -57,7 +56,6 @@ export function DdyueshuSearch({ q, data, loading, error }: SiteSearchProps) {
           </div>
         </div>
       </div>
-      <DdyFooter />
     </div>
   )
 }

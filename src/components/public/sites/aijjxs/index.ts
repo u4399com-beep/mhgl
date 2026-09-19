@@ -10,6 +10,10 @@
 //   / read.html(/read/57384/ 章节列表) / read2.html(/read/47/57384/2.html 正文页 27.7KB)
 //   + css-0-style.css(39.7KB) / css-1-Common.css(18.9KB) / css-read.css(read.css 13.0KB) 三份真站样式全量。
 //
+//   [R41-A] 页脚: 源站 footer.foot 1:1 仿制迁至 Footer.tsx(AijjxsFooter, /tmp/r41-snap/aijjxs.com.html 尾部实抓),
+//   经 index.ts Footer 槽由 PublicSite CloneFooter 统一渲染; 各页型内嵌的旧 parts.tsx 页脚已同步摘除,
+//   旧 parts.tsx 仅含页脚组件 → 文件随之删除。
+//
 //   css 字段: [R40-a] 补齐全量布局 CSS(R39 轮仅写了 hover/伪类/媒体查询导致整页裸文本流)。
 //   全部以 .clone-aijjxs 作用域开头(PublicSite 以 <style data-template-clone-css> 注入, 禁止全局污染);
 //   色值/字号/间距一律取真站 style.css :root 与具体类实测值, 每条规则行注释标注出处;
@@ -24,6 +28,7 @@ import { AijjxsToc } from './Toc'
 import { AijjxsRead } from './Read'
 import { AijjxsFulltext } from './Fulltext'
 import { AijjxsSearch } from './Search'
+import { AijjxsFooter } from './Footer'
 
 export const aijjxsTemplate: SiteTemplateSet = {
   Home: AijjxsHome,
@@ -33,6 +38,8 @@ export const aijjxsTemplate: SiteTemplateSet = {
   Read: AijjxsRead,
   Fulltext: AijjxsFulltext,
   Search: AijjxsSearch,
+  // [R41-A] 源站 1:1 仿制页脚(PublicSite CloneFooter 渲染, 替换通用 SiteFooter)
+  Footer: AijjxsFooter,
   css: `
 /* ================= [R40-a] 基线(真站 style.css body/:root 实测) ================= */
 /* 真站 body: line-height 1.7 + padding-top 58px 补偿 fixed 顶导航(680 断点 54px, 见媒体查询) */
@@ -241,8 +248,12 @@ export const aijjxsTemplate: SiteTemplateSet = {
 .clone-aijjxs .ajx-dl-read:hover{background:linear-gradient(135deg,#0f766e,#0b5f58)!important;box-shadow:0 12px 20px rgba(15,118,110,.28);color:#fff}
 .clone-aijjxs .ajx-dl-toc:hover{background:linear-gradient(135deg,#c94a20,#9e350f)!important;box-shadow:0 12px 20px rgba(184,70,29,.3);color:#fff}
 
-/* ================= 页脚(真站 .foot: margin-top 24; 其余盒模型由组件内联承载) ================= */
-.clone-aijjxs .ajx-ft{margin-top:24px}
+/* ================= 页脚(真站 .foot: margin-top 24 + padding-top 12 + 上边框 --line + 13px --muted 实测;
+   版心随 .wrap 1220 居中, 左右 14 同 .wrap padding) [R41-A]
+   [R41-主-2] E2E 截图对比修正: 源站页脚左对齐(源站 .foot 无 text-align 居中), 链接色继承全局 a=--brand-dark #115e59 ================= */
+.clone-aijjxs .ajx-ft{margin-top:24px;padding-top:12px;border-top:1px solid #e5dccd;font-size:13px;color:#6b7280;text-align:left;max-width:1220px;width:100%;box-sizing:border-box;margin-left:auto;margin-right:auto;padding-left:14px;padding-right:14px}
+.clone-aijjxs .ajx-ft a{color:#115e59}
+.clone-aijjxs .ajx-ft a:hover{text-decoration:underline}
 
 /* ================= 移动端(真站断点 980/900/680/640/560; 560 仅签到栅格无对应类, 375px 无横向滚动) ================= */
 @media (max-width: 980px){

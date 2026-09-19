@@ -28,6 +28,11 @@ import { CategoryView } from './CategoryView'
 import { HistoryView } from './HistoryView'
 // [R27-5b-H2] 克隆模板注册表(theme.id → SiteTemplateSet): 五视图分发 + css 注入单一出处
 import { getTemplateSet } from './sites/registry'
+// [R41-2] 克隆页脚: 模板集命中且声明 Footer 时优先渲染源站仿制页脚(缺省通用 SiteFooter)
+const CloneFooter = ({ tplSet }: { tplSet: ReturnType<typeof getTemplateSet> }) => {
+  const TF = tplSet?.Footer
+  return TF ? <TF /> : <SiteFooter />
+}
 // [R27-5b-H2] 目录视图壳: renderView 补齐 ctx 已承认的 view='toc' 分支(修深链软死链)
 import { TocView } from './TocView'
 // [R28-0] 扩展页型视图壳: 排行榜/全本完本
@@ -333,7 +338,8 @@ export default function PublicSite({
         <div className="relative flex w-full flex-1 flex-col">
           <SiteHeader />
           <main className="w-full flex-1">{renderView()}</main>
-          <SiteFooter />
+          {/* [R41-2] 页脚优先走克隆模板的源站仿制 Footer, 未接入站点回落通用 SiteFooter */}
+          <CloneFooter tplSet={tplSet} />
         </div>
 
         {embedMode && (

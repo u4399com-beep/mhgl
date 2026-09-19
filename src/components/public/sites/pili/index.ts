@@ -8,6 +8,7 @@ import type { SiteTemplateSet } from '../shared'
 import { PiliHome } from './Home'
 import { PiliCategory, PiliSearch, PiliFulltext, PiliRanking } from './pages'
 import { PiliBook, PiliToc, PiliRead } from './Book'
+import { PiliFooter } from './Footer' // [R41-C-3] 源站 1:1 仿制页脚(wmcms mod-footer 族, 橙底 #f69057)
 
 export const piliTemplate: SiteTemplateSet = {
   Home: PiliHome,
@@ -18,6 +19,8 @@ export const piliTemplate: SiteTemplateSet = {
   Ranking: PiliRanking,
   Fulltext: PiliFulltext,
   Search: PiliSearch,
+  // [R41-C-3] 页脚挂载: 原页内旧版 PiliFooter(parts.tsx 深棕底, R39 近似件)已删除, 全站唯一页脚走本挂载
+  Footer: PiliFooter,
   css: `
 /* ---- wmcms.global.css + main-header-*.css 实测色值: #fd8929 主橙/#f65400 深橙/#7d360f 棕/#fa8729 hover ---- */
 .clone-pili .pli-wrap{width:1200px;max-width:100%;margin:0 auto;padding:0 0 20px}
@@ -129,9 +132,7 @@ export const piliTemplate: SiteTemplateSet = {
 .clone-pili .pli-read-info{text-align:center;font-size:12.5px;color:#999;margin-bottom:12px}
 .clone-pili .pli-readcontent{color:#444;min-height:320px;padding:0 14px}
 .clone-pili .pli-readcontent p{margin:0 0 1.1em;text-indent:2em}
-/* 页脚(真站 wmcms 深棕底) */
-.clone-pili .pli-footer{margin-top:20px;background:#7d360f;color:#fbe4bb;text-align:center;padding:16px 10px;font-size:13px}
-.clone-pili .pli-footer p{margin:0}
+/* [R41-C-3] 旧页内页脚 .pli-footer 深棕底规则随组件删除; 新页脚(Footer.tsx)为源站橙底 #f69057 全 inline style, 无站点 CSS 需求 */
 
 /* ================= 移动端(375px 无横向滚动) ================= */
 @media (max-width: 1220px){

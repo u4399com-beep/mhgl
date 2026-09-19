@@ -7,7 +7,6 @@
 import type { SiteTocProps } from '../shared'
 import { usePublic, viewToUrl } from '../../ctx'
 import { ErrorState, Sk } from '../../bits'
-import { DdyFooter } from './parts'
 
 export function DdyueshuToc({ data, loading, error, page, currentChapterId }: SiteTocProps) {
   const { site, navigate } = usePublic()
@@ -52,7 +51,6 @@ export function DdyueshuToc({ data, loading, error, page, currentChapterId }: Si
           </dl>
         </div>
       </div>
-      <DdyFooter />
     </div>
   )
 }

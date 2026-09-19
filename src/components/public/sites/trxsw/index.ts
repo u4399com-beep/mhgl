@@ -38,6 +38,7 @@ import { TrxswRead } from './Read'
 import { TrxswRanking } from './Ranking'
 import { TrxswFulltext } from './Fulltext'
 import { TrxswSearch } from './Search'
+import { TrxswFooter } from './Footer' // [R41-C-9] Wayback 版源站仿制页脚(杰奇默认模板 .footer 版权组, #f5f5f5 底)
 
 export const trxswTemplate: SiteTemplateSet = {
   Home: TrxswHome,
@@ -48,6 +49,8 @@ export const trxswTemplate: SiteTemplateSet = {
   Ranking: TrxswRanking,
   Fulltext: TrxswFulltext,
   Search: TrxswSearch,
+  // [R41-C-9] 页脚挂载(通用 SiteFooter 退位)
+  Footer: TrxswFooter,
   // [R28-2g-6] 站点级克隆 CSS —— 伪类/媒体查询集中于此; 逐条注明出处(家族标准级)
   css: `
 /* [R28-2g-6] 杰奇家族 body{font:14px arial,"SimSun";color:#333;background:#fff} — 主题 vars 已对齐, 此处兜底 */

@@ -8,7 +8,6 @@ import type { SiteCategoryProps, SiteSearchProps, SiteFulltextProps, SiteRanking
 import { usePublic, viewToUrl } from '../../ctx'
 import { ErrorState, Sk } from '../../bits'
 import type { BookItem } from '../../types'
-import { GgdFooter } from './parts'
 
 function Rows({ books, loading, error, empty }: { books: BookItem[]; loading: boolean; error: string; empty: string }) {
   const { site, navigate } = usePublic()
@@ -53,7 +52,6 @@ export function Ggd66Category({ data, loading, error, catName, cat, page }: Site
           </dd>
         </dl>
       </div>
-      <GgdFooter />
     </div>
   )
 }
@@ -67,7 +65,6 @@ export function Ggd66Search({ q, data, loading, error }: SiteSearchProps) {
           <Rows books={data?.books || []} loading={loading} error={error} empty="未找到相关书籍" />
         </div>
       </div>
-      <GgdFooter />
     </div>
   )
 }
@@ -91,7 +88,6 @@ export function Ggd66Fulltext({ data, loading, error, page }: SiteFulltextProps)
           </dd>
         </dl>
       </div>
-      <GgdFooter />
     </div>
   )
 }
@@ -110,7 +106,6 @@ export function Ggd66Ranking({ boards, active, onBoard, loading, error }: SiteRa
           <Rows books={board?.books || []} loading={loading} error={error} empty="榜单暂无数据" />
         </div>
       </div>
-      <GgdFooter />
     </div>
   )
 }

@@ -8,11 +8,9 @@ import type { SiteFulltextProps } from '../shared'
 import { usePublic, viewToUrl } from '../../ctx'
 import { ErrorState, Sk } from '../../bits'
 import { formatWords } from '../../seo'
-import { AijjxsFooter } from './parts'
 
 export function AijjxsFulltext({ data, loading, error, page }: SiteFulltextProps) {
-  const { site, navigate, theme } = usePublic()
-  const C = theme.vars
+  const { site, navigate } = usePublic()
   const books = data?.books || []
   const total = data?.total || 0
   const totalPages = Math.max(1, Math.ceil(total / 24))
@@ -83,7 +81,6 @@ export function AijjxsFulltext({ data, loading, error, page }: SiteFulltextProps
           </article>
         </aside>
       </main>
-      <AijjxsFooter v={C} />
     </div>
   )
 }

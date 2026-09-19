@@ -16,7 +16,6 @@ import { usePublic, viewToUrl } from '../../ctx'
 import { BookCover } from '../../BookCover'
 import { ErrorState, Sk } from '../../bits'
 import type { BookItem } from '../../types'
-import { QbFooter } from './parts'
 
 function QbCard({ b }: { b: BookItem }) {
   const { site, navigate } = usePublic()
@@ -82,7 +81,6 @@ export function Qb23Home({ books, loading }: SiteHomeProps) {
         <QbSection title="热门榜单" books={hot} loading={loading} count={6} />
         <QbSection title="最新上架" books={books} loading={loading} count={12} />
       </div>
-      <QbFooter />
     </main>
   )
 }

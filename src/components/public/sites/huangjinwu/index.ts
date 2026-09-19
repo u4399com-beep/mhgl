@@ -8,6 +8,7 @@ import type { SiteTemplateSet } from '../shared'
 import { HuangjinwuHome } from './Home'
 import { HuangjinwuCategory, HuangjinwuSearch, HuangjinwuFulltext, HuangjinwuRanking } from './pages'
 import { HuangjinwuBook, HuangjinwuToc, HuangjinwuRead } from './Book'
+import { HuangjinwuFooter } from './Footer'
 
 export const huangjinwuTemplate: SiteTemplateSet = {
   Home: HuangjinwuHome,
@@ -18,6 +19,8 @@ export const huangjinwuTemplate: SiteTemplateSet = {
   Ranking: HuangjinwuRanking,
   Fulltext: HuangjinwuFulltext,
   Search: HuangjinwuSearch,
+  // [R41-B-2] 克隆页脚: 源站 .footers 1:1 仿制(组件+样式见 ./Footer.tsx 与下方 [R41-B-2] css 段)
+  Footer: HuangjinwuFooter,
   css: `
 /* ---- style.css :root 实测变量 ---- */
 .clone-huangjinwu .hjw-main{background:linear-gradient(180deg,#f5f8ff 0%,#eef3fb 100%);min-height:72vh;color:#1e293b;font-size:14.5px;line-height:1.65}
@@ -114,5 +117,19 @@ export const huangjinwuTemplate: SiteTemplateSet = {
   .clone-huangjinwu .hjw-chlist{grid-template-columns:1fr}
 }
 .clone-huangjinwu .hjw-container{overflow-x:hidden}
+
+/* ================= [R41-B-2] 克隆页脚(源站 .footers 1:1, /tmp/r41-css/huangjinwu.css 实抓) =================
+   .footers{background:var(--footer-bg #e2eaf5);border-top:1px solid color-mix(in srgb,#dbe4f0 70%,transparent)
+   →rgba(219,228,240,.7);font-size:1.4rem=14px(html 10px);line-height:1.7;padding:2.8rem=28px 0;
+   color:var(--text-light #64748b);text-align:center}; .footers .sitemap{display:inline-flex;gap:2px};
+   链接色取源站全局 a var(--primary-color #0f172a)/a:hover var(--secondary-color #2563eb);
+   .hjw-fsec-in=源站 .container{max-width:1180px;padding:0 1.6rem=16px}; 源站 *{margin:0} 重置与本应用
+   Tailwind preflight 同为 p 归零, 无需补写; 源站 margin-top:-1.6rem 省略(本地页脚由外壳 flex 置底);
+   .hjw-fmap 补 flex-wrap(源站无——375 以下窄屏防溢出的无害适配, ≥375 单行居中与源站一致) */
+.clone-huangjinwu .hjw-fsec{background:#e2eaf5;border-top:1px solid rgba(219,228,240,.7);color:#64748b;text-align:center;font-size:14px;line-height:1.7;padding:28px 0}
+.clone-huangjinwu .hjw-fsec .hjw-fsec-in{max-width:1180px;margin:0 auto;padding:0 16px}
+.clone-huangjinwu .hjw-fsec .hjw-fmap{display:inline-flex;flex-wrap:wrap;justify-content:center;gap:2px;margin:0}
+.clone-huangjinwu .hjw-fsec .hjw-fmap a{color:#0f172a;text-decoration:none;transition:color .3s ease}
+.clone-huangjinwu .hjw-fsec .hjw-fmap a:hover{color:#2563eb}
 `,
 }

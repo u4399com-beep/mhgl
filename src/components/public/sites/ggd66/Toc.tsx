@@ -9,7 +9,7 @@ import type { SiteTocProps, SiteReadProps } from '../shared'
 import { usePublic, viewToUrl } from '../../ctx'
 import { ChapterContent, useReaderFont, useRecordReading, useThemeLineHeight } from '../template-kit'
 import { ErrorState, Sk } from '../../bits'
-import { GgdCrumbs, GgdFooter } from './parts'
+import { GgdCrumbs } from './parts'
 
 export function Ggd66Toc({ data, loading, error, page, currentChapterId }: SiteTocProps) {
   const { site, navigate } = usePublic()
@@ -49,7 +49,6 @@ export function Ggd66Toc({ data, loading, error, page, currentChapterId }: SiteT
           </dl>
         </div>
       </div>
-      <GgdFooter />
     </div>
   )
 }
@@ -127,7 +126,6 @@ export function Ggd66Read({ data, loading, error }: SiteReadProps) {
           </dl>
         </div>
       </div>
-      <GgdFooter />
     </div>
   )
 }

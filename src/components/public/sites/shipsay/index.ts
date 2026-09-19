@@ -33,6 +33,7 @@ import { ShipsayRead } from './Read'
 import { ShipsayRanking } from './Ranking'
 import { ShipsayFulltext } from './Fulltext'
 import { ShipsaySearch } from './Search'
+import { ShipsayFooter } from './Footer' // [R41-C-7] Wayback 版源站仿制页脚(红条 #bf2c24 居中版权, R24 直测色值)
 
 export const shipsayTemplate: SiteTemplateSet = {
   Home: ShipsayHome,
@@ -43,6 +44,8 @@ export const shipsayTemplate: SiteTemplateSet = {
   Ranking: ShipsayRanking,
   Fulltext: ShipsayFulltext,
   Search: ShipsaySearch,
+  // [R41-C-7] 页脚挂载(通用 SiteFooter 退位)
+  Footer: ShipsayFooter,
   // [R28-2e-9] 站点级克隆 CSS —— 伪类/媒体查询集中于此; 逐条注明真站规则出处
   css: `
 /* [R28-2e-9] 真站 body{background:#f4f4f4;color:#666;font-size:14px}(R24 直测; theme vars.bg=#fbfbfb 差一档, 以组件底色铺满为准) */

@@ -8,7 +8,6 @@ import type { SiteTocProps, SiteReadProps } from '../shared'
 import { usePublic, viewToUrl } from '../../ctx'
 import { ChapterContent, useReaderFont, useRecordReading, useThemeLineHeight } from '../template-kit'
 import { ErrorState, Sk } from '../../bits'
-import { QbFooter } from './parts'
 
 export function Qb23Toc({ data, loading, error, page, currentChapterId }: SiteTocProps) {
   const { site, navigate } = usePublic()
@@ -46,7 +45,6 @@ export function Qb23Toc({ data, loading, error, page, currentChapterId }: SiteTo
           </div>
         </div>
       </div>
-      <QbFooter />
     </main>
   )
 }
@@ -118,7 +116,6 @@ export function Qb23Read({ data, loading, error }: SiteReadProps) {
           </div>
         </div>
       </div>
-      <QbFooter />
     </main>
   )
 }

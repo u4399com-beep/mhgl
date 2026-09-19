@@ -14,7 +14,6 @@ import { usePublic, viewToUrl } from '../../ctx'
 import { ErrorState, Sk } from '../../bits'
 import { BookCover } from '../../BookCover'
 import type { BookItem } from '../../types'
-import { GgdFooter } from './parts'
 
 function RankList({ books, loading, title }: { books: BookItem[]; loading: boolean; title: string }) {
   const { site, navigate } = usePublic()
@@ -77,7 +76,6 @@ export function Ggd66Home({ books, loading }: SiteHomeProps) {
           <div className="ggd-clear" />
         </div>
       </div>
-      <GgdFooter />
     </div>
   )
 }

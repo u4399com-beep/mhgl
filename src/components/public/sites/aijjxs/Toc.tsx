@@ -11,11 +11,9 @@ import type { SiteTocProps } from '../shared'
 import { usePublic, viewToUrl } from '../../ctx'
 import { ErrorState, Sk } from '../../bits'
 import { formatWords } from '../../seo'
-import { AijjxsFooter } from './parts'
 
 export function AijjxsToc({ data, loading, error, page, currentChapterId }: SiteTocProps) {
-  const { site, navigate, theme } = usePublic()
-  const C = theme.vars
+  const { site, navigate } = usePublic()
   const book = data?.book ?? null
   const chapters = data?.chapters ?? []
   const totalPages = data?.tocTotalPages || 1
@@ -64,7 +62,6 @@ export function AijjxsToc({ data, loading, error, page, currentChapterId }: Site
           </div>
         </article>
       </div>
-      <AijjxsFooter v={C} />
     </div>
   )
 }

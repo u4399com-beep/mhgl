@@ -12,7 +12,6 @@ import { BookCover } from '../../BookCover'
 import { ErrorState, Sk } from '../../bits'
 import { fmtDate, formatWords, statusLabel } from '../../seo'
 import type { BookItem } from '../../types'
-import { QbFooter } from './parts'
 
 export function Qb23Book({ data, loading, error }: SiteBookProps) {
   const { site, navigate } = usePublic()
@@ -112,7 +111,6 @@ export function Qb23Book({ data, loading, error }: SiteBookProps) {
           </div>
         </div>
       </div>
-      <QbFooter />
     </main>
   )
 }

@@ -22,15 +22,13 @@ import { BookCover } from '../../BookCover'
 import { ErrorState, Sk, bookNavProps } from '../../bits'
 import { fmtDate, statusLabel } from '../../seo'
 import type { BookItem } from '../../types'
-import { AijjxsFooter } from './parts'
 
 function kb(n?: number | null): string {
   return `${Math.max(1, Math.round((n || 0) / 1024))} KB`
 }
 
 export function AijjxsBook({ data, loading, error }: SiteBookProps) {
-  const { site, navigate, theme } = usePublic()
-  const C = theme.vars
+  const { site, navigate } = usePublic()
   const book = data?.book ?? null
   const catId = book?.categoryId || ''
   const catName = book?.category || ''
@@ -136,7 +134,6 @@ export function AijjxsBook({ data, loading, error }: SiteBookProps) {
           </article>
         </aside>
       </main>
-      <AijjxsFooter v={C} />
     </div>
   )
 }

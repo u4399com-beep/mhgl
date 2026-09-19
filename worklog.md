@@ -6190,3 +6190,71 @@ Stage Summary:
 - 10 主题截图对比审查全覆盖, 4 agent 并行修复 7 主题(aijjxs 重症根治+ddyueshu/qb23/kks101/pili/ggd66/huangjinwu 增量), legacy 3 站(shipsay/trxsw/x2552)视觉完好零改动; 质量门 lint 0/0+tsc 0; E2E 22 截图+375px 全绿
 - 77shuku/trxsw 代理路径定论: 平台机制全就绪(规则 proxyUrl/桥 per-request proxy/curl-impersonate 二进制在位), 待用户提供国内+美国代理凭据即可补克隆第 11 站+校准 trxsw; scrapling 桥 .venv 依赖缺失仍待操作员决策
 - 沙箱重启代价留档: DB 清空(34 规则基线灭失待重建)+采集任务 interrupted 等用户续采; dev.log OOM 教训: 采集任务运行期叠加浏览器/构建内存高危(RSS 水位 2GB 背压挡不住 2.8GB 峰值)
+
+---
+Task ID: R41-B
+Agent: general-purpose
+Task: 页脚克隆实施(huangjinwu / kks101 / qb23)——源站页脚 1:1 仿制组件+模板集挂载
+
+Work Log:
+- [R41-B-0] 前置: 读 /home/z/r41-tmp/footer-spec.md 全文+worklog 末 200 行(R40 十站修复史对齐); 素材复核 /tmp/r41-snap/(huangjinwu.org.html 57.3K/101kks.com.html 43K/23qb.net.html 49.4K)+/tmp/r41-css/(huangjinwu.css 44.6K/kks101-main.css 60.2K/qb23.css 125.9K) 逐规则复核页脚段; 确认架构: shared.ts SiteTemplateSet.Footer 可选字段+PublicSite.tsx CloneFooter(tplSet.Footer 优先/回落 SiteFooter)已就绪, 本任务零触碰
+- [R41-B-1..2] huangjinwu: 新建 Footer.tsx(HuangjinwuFooter, 无 props, usePublic 取 site/navigate)+index.ts 挂 Footer+css 段追加 5 规则(.hjw-fsec 系, 全 .clone-huangjinwu 作用域)。源站实测: .footers{background:var(--footer-bg #e2eaf5);border-top:1px solid color-mix(#dbe4f0 70%,transparent)→rgba(219,228,240,.7);font-size:1.4rem;line-height:1.7;padding:2.8rem 0;color:var(--text-light #64748b);居中}+.footers .sitemap{inline-flex;gap:2px}; html{font-size:10px} 实证→1.4rem=14px/2.8rem=28px; .hjw-fsec-in=源站 .container(max-width 1180/padding 0 1.6rem=16px)防 375 贴边; 链接色取源站全局 a #0f172a/hover #2563eb; sitemap 6 链接按规格映射(小说→category/标签→keyword/电子书→fulltext/相关小说·作者·相关电子书→home), 竖线保持裸文本节点(inline-flex 下与 a 同为 flex 项 gap 2px 与源站同构); margin-top:-1.6rem 按规格省略(本地外壳 flex 置底); 文案逐字节对齐快照(含「Copyright ©2026黄金屋」无空格原样)
+- [R41-B-3..4] kks101: 新建 Footer.tsx(Kks101Footer)+index.ts 挂载+css 段追加 4 规则(.kks-fsec 系)。源站实测: .foot{居中/白底/padding 20px 0}+.foot a{inline-block/padding 0 10px/line-height 200%}+.foot p{padding 10px 0/#888/12px}; 链接色取源站全局 a #666/hover #06c(transition .3s 同源); 6 导航链接按规格映射(排行榜→ranking/最新更新→home/書單推薦→category/熱門書評→ranking/全部小說→category/熱門標籤→keyword), 链接间渲染空格以 {' '} 保真; Copyright 行「Powered by  © 101看書（https://101kks.com）」双空格+全角括号逐字节保留+源站末尾空 <a> 原样复刻; 友情連結行: 101看書 为真实外链走 safeHref('https://101kks.com') 白名单(target _blank+noopener, title 属性保留), Cookies Policy/DMCA 源站路径无克隆视图→navigate home 保视觉(规格口径), 竖线以 {'| '} 复刻源站渲染形态(竖线紧贴前链接+后随折叠空格); .kks-clear 复用既有类承载源站 <div class=clear>
+- [R41-B-5..6] qb23: 新建 Footer.tsx(Qb23Footer)+index.ts 挂载+css 段追加 6 规则+1 媒体查询(.qb-fsec 系)。源站实测: #footer{#f3f5f7 底/12px/rgba(0,0,0,.51)/padding 10px 20px/居中/relative}+::after 顶 1px #eaedf1 scaleY(.5)(源站 .border-top,#footer::after 组规则); .sitemap .space-line-bold{inline-block/1×8px/margin 0 5px}底色取基类 #c2c6d0+border-radius 5px; ≤559px #footer/.sitemap 10px 媒体查询复刻; 链接色取源站全局 a #282828/hover #ff2a14; logo img(高 10px)按规格省略; RSS/Google/Bing 保链接视觉 navigate home(克隆无 RSS 资源, safeHref 相对路径放行会 404 故走站内导航); 「铅笔小说」字面(规格引文口径)
+- 验证: Bun.Transpiler transformSync 语法门 6 文件(3 tsx+3 index.ts)全 PASS; css 模板串裸 `${` 零出现; 花括号 hjw 82/82 kks 169/169 qb 92/92 平衡; 新类 hjw-fsec/kks-fsec/qb-fsec 全库唯一零碰撞(旧 HjwFooter/KksFooter/QbFooter 的 hjw-footer/kks-foot/qb-footer 类名刻意避开); 页脚文案逐字节比对快照 16 串全 OK; 未跑 lint/tsc(留主控)/未重启 dev server/未装包/DB 零触碰/git 本轨仅 6 文件(3 新建+3 编辑)
+
+Stage Summary:
+- 3 站克隆页脚挂载完成: huangjinwu(.footers 蓝灰浅底 #e2eaf5 居中: sitemap 6 链接竖线分隔+转码声明+Copyright ©2026黄金屋)、kks101(.foot 白底居中繁体: 6 导航行+Copyright 2023 Powered by  © 101看書（https://101kks.com）+友情連結 101看書|Cookies Policy|DMCA)、qb23(#footer 浅灰 #f3f5f7 12px: RSS|Google|Bing 竖条分隔+铅笔小说, ::after 顶部 1px #eaedf1 半像素线)
+- 决策与偏离记录: ①kks101 源站 .black .foot{background:#242729} 暗色变体未实现——本应用 themes.ts 无 dark:true 主题实例, 变体永不触发(留档) ②qb23 源站 .pd60{padding-bottom:65px!important}(固定右栏让位)与 >1239px .sitemap{float:right} 未复刻, 从规格引文口径(居中页脚) ③qb23 源站无 p 重置(UA 默认 margin 1em 0)而本应用 Tailwind preflight 归零→显式还原 1em 0 保间距一致; hjw/kks101 源站 *{margin:0} 与 preflight 同为归零无需补写 ④huangjinwu .hjw-fmap 补 flex-wrap(源站无, <320px 防溢出的无害适配, ≥375 单行居中与源站一致) ⑤qb23 RSS 链接与 kks101 Cookies Policy/DMCA 均站内导航化(规格授权口径)
+- 给主控的提示: ①各站页面组件内旧版程序化页脚(parts.tsx 的 HjwFooter/KksFooter/QbFooter 等)仍在页尾渲染, 接入克隆 Footer 后会双页脚, 建议主控统一收口删除(本任务纪律未触碰 parts/pages) ②huangjinwu 旧 css 段 .hjw-footer 与 R40-d-2 的 main flex 置底规则共存无冲突, 收口时可一并清理 ③E2E: ?theme=huangjinwu / kks101 / qb23 页尾应见上述三形态, 375px 零横滚
+
+---
+Task ID: R41-A
+Agent: general-purpose
+Task: 页脚克隆实施(aijjxs / ddyueshu / ggd66)——源站页脚 1:1 仿制组件+模板集挂载
+
+Work Log:
+- [R41-A-0] 前置: 读 /home/z/r41-tmp/footer-spec.md 全文+worklog 末段(R40 十站修复史对齐); 素材复核 /tmp/r41-snap/(aijjxs.com.html 57.8K/ddyueshu.cc.html GBK 25.9K/ggd66.com.html 24.6K)+/tmp/r41-css/(aijjxs-main.css/ddyueshu.css/ggd66.css) 逐规则复核页脚段; ddyueshu 快照经 iconv GBK 解码比对, .footer_cont 三行文案与 /tmp/r41-snap/ddyueshu-bqg.js footer() document.writeln 实证一致; 确认架构: shared.ts Footer?: ComponentType+PublicSite.tsx CloneFooter 已就绪, 零触碰
+- [R41-A-1] aijjxs: 新建 Footer.tsx(AijjxsFooter, 无 props, usePublic 取 site/navigate)+index.ts 挂 Footer+css 段 .ajx-ft 规则按源站 .foot 实测补全(margin-top 24/padding-top 12/上边框 #e5dccd/13px/#6b7280/居中, 版心随 .wrap 1220 居中+左右 14)。源站结构逐字节对齐快照: 6 导航链接行(「 · 」分隔)+Copyright © 久久小说下载网 All Rights Reserved+免责声明行(均 footer.foot 内 <br/> 分行); 6 链接为站内无实义入口→navigate home(写法仿 Home.tsx: href=viewToUrl({view:'home'},site.id)+onClick preventDefault)
+- [R41-A-2] ddyueshu: 新建 Footer.tsx(DdyueshuFooter)+index.ts 挂 Footer+css 段重写页脚区 7 规则(#ddy-footer 旧近似版替换, 全 .clone-ddyueshu 作用域, 逐条注明 biquge.css 出处)。结构: #firendlink 友链条(1px #DDD 边/22px 行高/949px→max-width+width:100% box-sizing:border-box 无横滚)+3 条真实外链(wap/app/主站, safeHref 白名单+target _blank+noopener noreferrer)+（相关网站）尾注; .footer(980px→max-width 居中)内 .footer_link 空友链占位=2px #88C6E5 蓝横线(92%/25px/5px)+.footer_cont 三行(#B2B2B2/20px/88% margin 0 auto 承源站 p reset margin:auto; 粤ICP 行尾空格以 {'… '} 保真); 字号 12px/字色 #555 承源站 body 基线
+- [R41-A-3] ggd66: 新建 Footer.tsx(Ggd66Footer)+index.ts 挂 Footer+css 段页脚区补全(.ggd-footer 加 box-shadow 0 -1px 1px #56ccb5; p 改 margin 0 auto+width 90% max 1200px(75pc)承源站 .footer p+p reset margin:auto; 新增 .ggd-ft-tuijian 友链标签行 90%/1200 居中 #888/15px/150%; @767→95% @347→98% 两档媒体查询复刻源站三档宽)。结构: .content.tuijian 友链标签行(源站空列表仅「友情链接：」)+.footer 绿底 #56ccb5 白字居中 14px 两行 p; hidden-xs 语义按规格用 Tailwind hidden sm:block(移动端仅剩纯色带=真站形态); R40-d-1 的 margin-top:auto 置底机制保持
+- [R41-A-4] 页内页脚摘除(防双页脚): 三站页面组件原各内嵌旧版页脚(aijjxs 6 页 AijjxsFooter v={C} from parts.tsx/ddyueshu 5 页 DdyFooter/ggd66 8 处 GgdFooter), 接入模板级 Footer 后若不摘除每页将渲染双页脚 → 三站页内挂载点全部摘除(aijjxs 6 文件顺删 theme/C 死绑定, ddyueshu 5 文件, ggd66 4 文件 8 处); aijjxs/ddyueshu 的 parts.tsx 仅含旧页脚组件→整文件删除(全库 rg 实证零其他 importer), ggd66 parts.tsx 保留面包屑 GgdBreadcrumb/GgdCrumbs 仅削 GgdFooter; 全部改动限本任务 3 站目录内
+- 验证: Bun.Transpiler transformSync 语法门 22 文件(3 Footer+3 index+16 页面/parts)全 PASS; 全库 rg 实证 AijjxsFooter/DdyFooter/GgdFooter 旧引用零残留+新 Footer 挂载各 1 处; 未跑 lint/tsc(留主控)/未重启 dev server/未装包/DB 零触碰
+
+Stage Summary:
+- 3 站克隆页脚挂载完成: aijjxs(.foot 米黄纸面上边框分隔居中: 6 导航链接·分隔+Copyright 久久小说下载网+免责声明)、ddyueshu(biquge 家族: #firendlink 友链条 3 真外链+#footer 蓝横线+三行灰字版权 粤ICP备8888888号)、ggd66(绿底 #56ccb5 白字居中: 友链标签行+两行版权, 移动端纯色带)
+- 决策与偏离记录: ①页内旧页脚摘除系规格未列出的必要步骤(不做必双页脚), 与同轮 pili agent 同口径(R41-B 三站未摘, 留主控统一收口时对齐) ②ddyueshu #firendlink 文案按规格逐字节采用(手机小说/每日阅读APP/每日阅读app下载地址/（相关网站）/「友情链接：」), 但 /tmp/r41-snap/ddyueshu.cc.html 实抓实为「友情连接：顶点小说/顶点小说APP/顶点小说app官网下载/(邮箱见顶端)」(ASCII 括号), 两版本并存系源站分时段/分地域内容差异, 主控如需切回实抓版仅改 FRIEND_LINKS 常量+尾注一行 ③firendlink 用 box-sizing:border-box(源站 content-box 949+9+2), 因 width:100%+padding 左 9 在 375px 会溢出, 无横滚纪律优先 ④ggd66 hidden-xs→hidden sm:block 按规格(R41 规格明示), 源站断点实为 767px(≈Tailwind md), 640-767px 区间与真站有差 ⑤aijjxs Copyright 行为字面硬编码(非 site.name 动态), 承规格逐字节口径(x2552/shipsay/trxsw 动态口径不适用活站克隆)
+- 给主控的提示: ①R41-B(huangjinwu/kks101/qb23)页内旧页脚未摘, 若采纳本轨口径需同法处理其 3 站页内挂载点, 否则那 3 站会双页脚 ②E2E: ?theme=aijjxs/ddyueshu/ggd66 页尾应见上述三形态且无双页脚; 375px 三站零横滚(firendlink/.footer 均 max-width+width:100%)
+---
+Task ID: R41-C
+Agent: general-purpose(主控代记——agent 返回时 context deadline 超时, 但 4 站代码产出已全部落盘且经主控复核质量良好)
+Task: 页脚克隆实施(pili / x2552 / shipsay / trxsw)
+
+Work Log:
+- pili: 新建 Footer.tsx(PiliFooter, wmcms mod-footer 族: #f69057 橙底+34px 顶距+64px 主区+白字居中单行免责; 精灵图装饰条→白色细条纹近似并注明降级声明)+index.ts 挂载; 页内旧版 PiliFooter(parts.tsx)已摘除删除
+- x2552/shipsay/trxsw: 各新建 Footer.tsx(Wayback 版, 真站不可达; 文件头注明素材出处=R28 考据+R39 themes.ts 继承色值): x2552 黑冰 #F2F2F2/2px #cfcfcf/12px 灰; shipsay 红条 #bf2c24/#fbfbfb; trxsw 杰奇标准 #f5f5f5/#e5e5e5/#999 两行; 站名均 usePublic 动态, 3 站 index.ts 挂载
+
+Stage Summary:
+- 4 站克隆页脚挂载完成且主控 E2E 复核通过(pili/x2552/shipsay/trxsw 本地截图形态正确, 375px OK); 素材级出处注释齐全
+---
+Task ID: R41-主
+Agent: Z.ai 主控
+Task: R41 全局——①页脚专项: 所有主题页脚与源站对比修复 ②77shuku(大陆代理)/trxsw(美国代理)访问+克隆+采集规则
+
+Work Log:
+- [R41-主-0] 代理资源盘点: env/.env/DB(Setting/Rule)/本地端口扫描全零凭据; 出口=香港阿里云 47.57.242.119; /home/z/TODO 为 R40 旧清单
+- [R41-主-1] 两站七通道全灭实测: 系统curl/relay(3011)/cloak(3016)真浏览器/免费US代理1463(活性预筛后 20 活)→trxsw 0 通/免费CN代理204(0 活)→77shuku 0 通/ZAI-JINA page_reader(trxsw=HTTP/2 framing layer error 与系统 curl 同签名, 77shuku=goto timeout)/web.archive.org 沙箱超时 → 终审: 无住宅级代理凭据两站素材本环境不可获取, 维持既有主题(trxsw Wayback 版; 77shuku 无模板走通用壳)
+- [R41-主-2] 页脚素材重抓(/tmp/r41-snap 10 站 HTML + /tmp/r41-css 8 份 CSS): 直抓 6 站 200(aijjxs/ddyueshu GBK/ggd66/huangjinwu/101kks/23qb)+cloak 抓 pili(233KB); x2552/shipsay cloak 失败; ddyueshu footer() 文案从 /images/bqg.js 实抓(笔趣阁 2015+粤ICP备8888888号); 各站 footer 结构+CSS 规则逐条提取成规格 /home/z/r41-tmp/footer-spec.md
+- [R41-主-3] 架构: shared.ts SiteTemplateSet 加可选 Footer?: ComponentType + PublicSite.tsx CloneFooter(tplSet.Footer 优先/回落通用 SiteFooter); registry 零改动
+- [R41-主-4] 3 agent 并行实施(R41-A: aijjxs/ddyueshu/ggd66 页内旧页脚同步摘除+parts.tsx 删除; R41-B: huangjinwu/kks101/qb23; R41-C: pili/x2552/shipsay/trxsw 超时代码已落盘): 10 站 Footer 组件全挂载
+- [R41-主-5] 双页脚收口: B 组 3 站页内旧页脚(HjwFooter/KksFooter/QbFooter 12+ 渲染点)主控批量摘除(sed 删渲染行+import), 3 站 parts.tsx 整删(仅含页脚); 全库 grep 零残留
+- [R41-主-6] ddyueshu 友链文案切回 GBK 解码实抓版: 「友情连接：顶点小说/顶点小说APP/顶点小说app官网下载 (邮箱见顶端)」(规格初稿「手机小说/每日阅读APP」系未解码误读)
+- [R41-主-7] E2E 截图对比(agent-browser 1280×800 本地 vs 源站): aijjxs 源站左对齐+#115e59 链接色→修 CSS(text-align:left+.ajx-ft a 色)复验通过; ddyueshu/ggd66/huangjinwu/qb23 实拍一致; kks101/pili 源站 Cloudflare 盾拦浏览器(按 HTML+CSS 素材对齐, 本地形态与素材一致); x2552/shipsay/trxsw Wayback 版形态正确
+- [R41-主-8] OOM 事故处置(R40 同款): next-server 2.2GB 僵死+3000 无监听+fetcher 高水位循环日志(06:37 停更); pkill 僵死树→setsid 重启→instrumentation 自动孤儿任务恢复 3/3 running→interrupted
+- [R41-主-9] 采集规则落库(prisma 种子脚本用毕即删): 「同人小说网 (trxsw.com)·杰奇家族标准·待美国代理校准」(杰奇标准选择器, R28 Wayback 考据; fetch.proxyUrl 空+启用说明)+「七七藏书 qishuku 占位骨架·待大陆代理实测校准」(零素材 body 兜底占位); 均 enabled=false; 沙箱总规则 3
+- [R41-主-10] 质量门: bun run lint 0/0 + bunx tsc --noEmit 0 错(主控串行); 375px 无横滚抽查 aijjxs/ddyueshu/pili/trxsw 全 OK
+
+Stage Summary:
+- 10/10 站主题页脚完成「源站 1:1 仿制」并经模板集 Footer 槽挂载: 8 站真站素材(6 实拍对比+2 CF 盾按素材) + 3 站 Wayback 版(x2552/shipsay/trxsw), aijjxs 截图对比发现左对齐差异并修复复验; 双页脚全站清零
+- 77shuku/trxsw 克隆与规则: 代理凭据缺失(免费池全灭+7 通道实证), 主题维持既有版本; 两站采集规则已落库(enabled=false)等操作员填 proxyUrl(美国→trxsw/大陆→77shuku)后试采校准
+- OOM 处置后 dev server 健康(Ready 2.6s, 孤儿任务自动 interrupted); 遗留: 3 interrupted 任务待用户续采; scrapling .venv 依赖仍缺(R38 决策项)

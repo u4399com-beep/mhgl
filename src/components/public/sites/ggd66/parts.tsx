@@ -1,5 +1,6 @@
 // ============================================================
-// [R39-2e] ggd66 共享小件 —— 面包屑(.breadcrumb: #cdf3eb 底 #ccc 边 圆角) + 页脚(#56ccb5)
+// [R39-2e] ggd66 共享小件 —— 面包屑(.breadcrumb: #cdf3eb 底 #ccc 边 圆角)
+//   [R41-A] 页脚已迁至 Footer.tsx(Ggd66Footer, 源站 1:1 仿制), 本件不再含页脚。
 // ============================================================
 'use client'
 
@@ -16,15 +17,6 @@ export function GgdBreadcrumb({ items }: { items: Array<{ label: string; onClick
         </li>
       ))}
     </ol>
-  )
-}
-
-export function GgdFooter() {
-  const { site } = usePublic()
-  return (
-    <footer className="ggd-footer">
-      <p>{site.name} · 小说免费阅读 · 内容均系网友上传, 如有侵权请联系删除</p>
-    </footer>
   )
 }
 

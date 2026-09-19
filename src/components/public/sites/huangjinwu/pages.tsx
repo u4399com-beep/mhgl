@@ -7,7 +7,6 @@ import type { SiteCategoryProps, SiteSearchProps, SiteFulltextProps, SiteRanking
 import { usePublic } from '../../ctx'
 import { ErrorState, Sk } from '../../bits'
 import type { BookItem } from '../../types'
-import { HjwFooter } from './parts'
 import { HjwCard } from './Home'
 
 function Grid({ books, loading, error, empty }: { books: BookItem[]; loading: boolean; error: string; empty: string }) {
@@ -39,7 +38,6 @@ export function HuangjinwuCategory({ data, loading, error, catName, cat, page }:
           </div>
         </div>
       </div>
-      <HjwFooter />
     </div>
   )
 }
@@ -53,7 +51,6 @@ export function HuangjinwuSearch({ q, data, loading, error }: SiteSearchProps) {
           <Grid books={data?.books || []} loading={loading} error={error} empty="未找到相关书籍" />
         </div>
       </div>
-      <HjwFooter />
     </div>
   )
 }
@@ -75,7 +72,6 @@ export function HuangjinwuFulltext({ data, loading, error, page }: SiteFulltextP
           </div>
         </div>
       </div>
-      <HjwFooter />
     </div>
   )
 }
@@ -94,7 +90,6 @@ export function HuangjinwuRanking({ boards, active, onBoard, loading, error }: S
           <Grid books={board?.books || []} loading={loading} error={error} empty="榜单暂无数据" />
         </div>
       </div>
-      <HjwFooter />
     </div>
   )
 }

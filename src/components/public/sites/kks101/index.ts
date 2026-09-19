@@ -8,6 +8,7 @@ import type { SiteTemplateSet } from '../shared'
 import { Kks101Home } from './Home'
 import { Kks101Category, Kks101Search, Kks101Fulltext, Kks101Ranking } from './pages'
 import { Kks101Book, Kks101Toc, Kks101Read } from './Book'
+import { Kks101Footer } from './Footer'
 
 export const kks101Template: SiteTemplateSet = {
   Home: Kks101Home,
@@ -18,6 +19,8 @@ export const kks101Template: SiteTemplateSet = {
   Ranking: Kks101Ranking,
   Fulltext: Kks101Fulltext,
   Search: Kks101Search,
+  // [R41-B-4] 克隆页脚: 源站 .foot 1:1 仿制(组件+样式见 ./Footer.tsx 与下方 [R41-B-4] css 段)
+  Footer: Kks101Footer,
   css: `
 /* ---- style.css 实测主色: #1f6cb2 蓝 / 边 #eee / 字 #333 #666 #818a91 ---- */
 .clone-kks101 .kks-main{background:#f5f6f7;min-height:72vh;color:#333;font-size:14.5px}
@@ -217,5 +220,15 @@ export const kks101Template: SiteTemplateSet = {
 }
 /* 375px 无横滚兜底 */
 .clone-kks101 .kks-container{overflow-x:hidden}
+
+/* ================= [R41-B-4] 克隆页脚(源站 .foot 1:1, /tmp/r41-css/kks101-main.css 实抓) =================
+   .foot{text-align:center;background:#fff;padding:20px 0}; .foot a{display:inline-block;
+   padding:0 10px;line-height:200%}; .foot p{padding:10px 0;color:#888;font-size:12px};
+   链接色取源站全局 a #666 / a:hover #06c; 源站 *{margin:0} 重置与本应用 Tailwind preflight 同为
+   p 归零, 无需补写; 源站 .black .foot{background:#242729} 暗色变体未实现——本应用主题表无 dark 实例 */
+.clone-kks101 .kks-fsec{background:#fff;text-align:center;padding:20px 0}
+.clone-kks101 .kks-fsec a{display:inline-block;padding:0 10px;line-height:200%;color:#666;text-decoration:none;transition:color .3s ease}
+.clone-kks101 .kks-fsec a:hover{color:#06c}
+.clone-kks101 .kks-fsec p{padding:10px 0;color:#888;font-size:12px}
 `,
 }

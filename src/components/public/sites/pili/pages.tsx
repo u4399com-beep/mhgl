@@ -1,5 +1,7 @@
 // ============================================================
 // [R39-2j] pili 克隆分类/搜索/全本/排行 —— wmcms 列表形态(in-rank 行 + 封面格)
+// [R41-C-2] 页内旧版 PiliFooter(parts.tsx 深棕底)已移除 → 全站唯一页脚为全局克隆页脚
+//   (./Footer.tsx 源站 1:1 橙底件, 经 index.ts Footer 挂载, PublicSite CloneFooter 出口)
 // ============================================================
 'use client'
 
@@ -8,7 +10,6 @@ import { usePublic, viewToUrl } from '../../ctx'
 import { ErrorState, Sk } from '../../bits'
 import { BookCover } from '../../BookCover'
 import type { BookItem } from '../../types'
-import { PiliFooter } from './parts'
 
 function RankRows({ books, loading, error, empty }: { books: BookItem[]; loading: boolean; error: string; empty: string }) {
   const { site, navigate } = usePublic()
@@ -50,7 +51,6 @@ export function PiliCategory({ data, loading, error, catName, cat, page }: SiteC
           </div>
         </div>
       </div>
-      <PiliFooter />
     </div>
   )
 }
@@ -66,7 +66,6 @@ export function PiliSearch({ q, data, loading, error }: SiteSearchProps) {
           </div>
         </div>
       </div>
-      <PiliFooter />
     </div>
   )
 }
@@ -99,7 +98,6 @@ export function PiliFulltext({ data, loading, error, page }: SiteFulltextProps) 
           </div>
         </div>
       </div>
-      <PiliFooter />
     </div>
   )
 }
@@ -120,7 +118,6 @@ export function PiliRanking({ boards, active, onBoard, loading, error }: SiteRan
           </div>
         </div>
       </div>
-      <PiliFooter />
     </div>
   )
 }

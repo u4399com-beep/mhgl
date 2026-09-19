@@ -112,6 +112,8 @@ export interface SiteSearchProps {
  * 每站模板集合(registry.tsx 按 theme.id 索引消费)。
  * css: 站点级克隆 CSS —— PublicSite 在 .clone-{id} 作用域下统一注入;
  *      其中所有选择器必须以 .clone-{id} 开头, 禁止全局污染。
+ * Footer: [R41-2] 站点克隆页脚 —— 源站页脚 1:1 仿制(逐站结构/文案/配色对齐真站快照);
+ *      缺省走通用 SiteFooter(未接入克隆页脚的站点)。
  */
 export interface SiteTemplateSet {
   Home: ComponentType<SiteHomeProps>
@@ -125,5 +127,7 @@ export interface SiteTemplateSet {
   Fulltext?: ComponentType<SiteFulltextProps>
   /** [R28-0] 搜索结果页(真站有搜索页才实现; 缺省走 SearchView 通用兜底) */
   Search?: ComponentType<SiteSearchProps>
+  /** [R41-2] 克隆页脚(真站页脚 1:1 仿制; 缺省走通用 SiteFooter) */
+  Footer?: ComponentType
   css?: string
 }

@@ -8,7 +8,6 @@ import { usePublic, viewToUrl } from '../../ctx'
 import { ErrorState, Sk } from '../../bits'
 import { BookCover } from '../../BookCover'
 import type { BookItem } from '../../types'
-import { QbFooter } from './parts'
 
 function QbRowCard({ b }: { b: BookItem }) {
   const { site, navigate } = usePublic()
@@ -63,7 +62,6 @@ export function Qb23Category({ data, loading, error, catName, cat, page }: SiteC
           </div>
         </div>
       </div>
-      <QbFooter />
     </main>
   )
 }
@@ -81,7 +79,6 @@ export function Qb23Search({ q, data, loading, error }: SiteSearchProps) {
           </div>
         </div>
       </div>
-      <QbFooter />
     </main>
   )
 }
@@ -107,7 +104,6 @@ export function Qb23Fulltext({ data, loading, error, page }: SiteFulltextProps) 
           </div>
         </div>
       </div>
-      <QbFooter />
     </main>
   )
 }
@@ -130,7 +126,6 @@ export function Qb23Ranking({ boards, active, onBoard, loading, error }: SiteRan
           </div>
         </div>
       </div>
-      <QbFooter />
     </main>
   )
 }

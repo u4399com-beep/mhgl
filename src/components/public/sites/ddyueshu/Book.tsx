@@ -16,7 +16,6 @@ import { BookCover } from '../../BookCover'
 import { ErrorState, Sk } from '../../bits'
 import { fmtDate } from '../../seo'
 import type { BookItem } from '../../types'
-import { DdyFooter } from './parts'
 
 export function DdyueshuBook({ data, loading, error }: SiteBookProps) {
   const { site, navigate } = usePublic()
@@ -108,7 +107,6 @@ export function DdyueshuBook({ data, loading, error }: SiteBookProps) {
           )}
         </div>
       </div>
-      <DdyFooter />
     </div>
   )
 }

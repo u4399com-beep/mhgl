@@ -9,7 +9,6 @@ import { ErrorState, Sk } from '../../bits'
 import { BookCover } from '../../BookCover'
 import { formatWords } from '../../seo'
 import type { BookItem } from '../../types'
-import { KksFooter } from './parts'
 
 function Box({ books, loading, error, empty, withRank }: { books: BookItem[]; loading: boolean; error: string; empty: string; withRank?: boolean }) {
   const { site, navigate } = usePublic()
@@ -71,7 +70,6 @@ export function Kks101Category({ data, loading, error, catName, cat, page }: Sit
           <Pager page={page} totalPages={totalPages} onPrev={() => navigate({ view: 'category', cat, page: page - 1 })} onNext={() => navigate({ view: 'category', cat, page: page + 1 })} />
         </div>
       </div>
-      <KksFooter />
     </div>
   )
 }
@@ -85,7 +83,6 @@ export function Kks101Search({ q, data, loading, error }: SiteSearchProps) {
           <Box books={data?.books || []} loading={loading} error={error} empty="未找到相關書籍" />
         </div>
       </div>
-      <KksFooter />
     </div>
   )
 }
@@ -103,7 +100,6 @@ export function Kks101Fulltext({ data, loading, error, page }: SiteFulltextProps
           <Pager page={page} totalPages={totalPages} onPrev={() => navigate({ view: 'fulltext', page: page - 1 })} onNext={() => navigate({ view: 'fulltext', page: page + 1 })} />
         </div>
       </div>
-      <KksFooter />
     </div>
   )
 }
@@ -122,7 +118,6 @@ export function Kks101Ranking({ boards, active, onBoard, loading, error }: SiteR
           <Box books={board?.books || []} loading={loading} error={error} empty="榜單暫無數據" withRank />
         </div>
       </div>
-      <KksFooter />
     </div>
   )
 }

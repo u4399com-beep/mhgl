@@ -15,7 +15,6 @@ import { BookCover } from '../../BookCover'
 import { ErrorState, Sk } from '../../bits'
 import { formatWords } from '../../seo'
 import type { BookItem } from '../../types'
-import { KksFooter } from './parts'
 
 function KksBookCard({ b, rank }: { b: BookItem; rank?: number }) {
   const { site, navigate } = usePublic()
@@ -127,7 +126,6 @@ export function Kks101Home({ books, loading }: SiteHomeProps) {
           </div>
         </div>
       </div>
-      <KksFooter />
     </div>
   )
 }

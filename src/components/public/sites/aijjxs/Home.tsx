@@ -20,11 +20,9 @@ import { BookCover } from '../../BookCover'
 import { ErrorState, Sk } from '../../bits'
 import { formatWords } from '../../seo'
 import type { BookItem } from '../../types'
-import { AijjxsFooter } from './parts'
 
 export function AijjxsHome({ books, loading }: SiteHomeProps) {
-  const { site, navigate, theme } = usePublic()
-  const C = theme.vars
+  const { site, navigate } = usePublic()
 
   // 真站榜单(站方数据不可得) → books 切片近似: 点击榜=words 排序 top10; 一周热榜=top10 移除头条
   const rankClick = useMemo(() => [...books].sort((a, b) => (b.wordCount || 0) - (a.wordCount || 0)).slice(0, 10), [books])
@@ -152,7 +150,6 @@ export function AijjxsHome({ books, loading }: SiteHomeProps) {
           <div className="ajx-kpi-item"><div className="ajx-kpi-num">{site.name}</div><div className="ajx-kpi-txt">全站免费开放</div></div>
         </div>
       </section>
-      <AijjxsFooter v={C} />
     </div>
   )
 }

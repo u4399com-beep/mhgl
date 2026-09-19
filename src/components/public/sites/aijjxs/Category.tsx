@@ -10,11 +10,9 @@ import type { SiteCategoryProps } from '../shared'
 import { usePublic, viewToUrl } from '../../ctx'
 import { ErrorState, Sk } from '../../bits'
 import type { BookItem } from '../../types'
-import { AijjxsFooter } from './parts'
 
 export function AijjxsCategory({ data, loading, error, catName, cat, page }: SiteCategoryProps) {
-  const { site, navigate, theme } = usePublic()
-  const C = theme.vars
+  const { site, navigate } = usePublic()
 
   const books = data?.books || []
   const total = data?.total || 0
@@ -88,7 +86,6 @@ export function AijjxsCategory({ data, loading, error, catName, cat, page }: Sit
           </article>
         </aside>
       </main>
-      <AijjxsFooter v={C} />
     </div>
   )
 }

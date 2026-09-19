@@ -17,7 +17,6 @@ import { BookCover } from '../../BookCover'
 import { ErrorState, Sk } from '../../bits'
 import { fmtDate } from '../../seo'
 import type { BookItem, CategoryItem } from '../../types'
-import { DdyFooter } from './parts'
 
 // [R40-b-1] 分类块结构对照真站校正: 真站 novelslist = 每盒 3 个分类列(h2 分类名 + top 封面卡 +
 //   ul 12 条「书名/作者」), 非每分类一盒; 空分类列不渲染(修「空灰盒」), 盒内全空则整盒跳过
@@ -157,7 +156,6 @@ export function DdyueshuHome({ books, loading }: SiteHomeProps) {
           </div>
         )}
       </div>
-      <DdyFooter />
     </div>
   )
 }

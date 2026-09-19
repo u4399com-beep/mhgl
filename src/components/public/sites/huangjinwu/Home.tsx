@@ -13,7 +13,6 @@ import { BookCover } from '../../BookCover'
 import { formatWords } from '../../seo'
 import { statusLabel } from '../../seo'
 import type { BookItem } from '../../types'
-import { HjwFooter } from './parts'
 
 export function HjwCard({ b, showDesc = true }: { b: BookItem; showDesc?: boolean }) {
   const { site, navigate } = usePublic()
@@ -71,7 +70,6 @@ export function HuangjinwuHome({ books, loading }: SiteHomeProps) {
           )}
         </div>
       </div>
-      <HjwFooter />
     </div>
   )
 }

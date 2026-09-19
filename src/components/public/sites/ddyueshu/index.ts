@@ -3,6 +3,9 @@
 //   真站: biquge 经典模板(GBK), 980px 版心; 快照 /tmp/r39-snap/ddyueshu/(2026-09-18 直连实抓
 //   home.v2 26KB / book.v2 87.8KB 雪中悍刀行 / paihangbang 13.7KB + biquge.css 全量)
 //   页型覆盖: H首页 C分类 B书 T目录 R章节 + Ran排行(/paihangbang/ 快照 8 榜块, R39-2a agent 实测) Ful全部小说(/xiaoshuodaquan/) Sea搜索(家族标准 GET /modules/article/search.php)
+//   [R41-A] 页脚: 源站 #firendlink+.footer 1:1 仿制迁至 Footer.tsx(DdyueshuFooter, /tmp/r41-snap/ddyueshu.cc.html 尾部
+//   + /images/bqg.js footer() 实抓), 经 index.ts Footer 槽由 PublicSite CloneFooter 统一渲染;
+//   各页型内嵌的旧 parts.tsx 页脚(DdyFooter 近似版)已同步摘除, 旧 parts.tsx 仅含页脚 → 文件随之删除。
 // ============================================================
 import type { SiteTemplateSet } from '../shared'
 import { DdyueshuHome } from './Home'
@@ -13,6 +16,7 @@ import { DdyueshuRead } from './Read'
 import { DdyueshuSearch } from './Search'
 import { DdyueshuRanking } from './Ranking'
 import { DdyueshuFulltext } from './Fulltext'
+import { DdyueshuFooter } from './Footer'
 
 export const ddyueshuTemplate: SiteTemplateSet = {
   Home: DdyueshuHome,
@@ -23,6 +27,8 @@ export const ddyueshuTemplate: SiteTemplateSet = {
   Ranking: DdyueshuRanking,
   Fulltext: DdyueshuFulltext,
   Search: DdyueshuSearch,
+  // [R41-A] 源站 1:1 仿制页脚(PublicSite CloneFooter 渲染, 替换通用 SiteFooter)
+  Footer: DdyueshuFooter,
   css: `
 /* ---- biquge.css 家族实测色值 ---- */
 /* 版心(真站 #main 980px 居中) */
@@ -150,8 +156,18 @@ export const ddyueshuTemplate: SiteTemplateSet = {
 .clone-ddyueshu .ddy-ch-content{padding:6px 10px;font-size:16px;color:#333;min-height:320px}
 .clone-ddyueshu .ddy-page-nav dd{text-align:center;margin-top:14px}
 .clone-ddyueshu .ddy-page-nav button{border:1px solid #A6D3E8;background:#fff;border-radius:3px;padding:6px 20px;margin:0 8px;cursor:pointer;font-size:14px;color:#555}
-/* 页脚(真站 #footer 980 居中 10px) */
-.clone-ddyueshu #ddy-footer{overflow:hidden;text-align:center;width:980px;margin:10px auto auto;padding:10px 0 20px;color:#999;font-size:12px;line-height:2}
+/* 页脚(真站 biquge.css 页脚区逐条实测; 949/980 定宽 → max-width+width:100% 无横滚适配) [R41-A] */
+/* 源站 #firendlink: 1px #DDD 边 22px 行高 949px 居中 padding 9 0 0 9; 字号/字色承真站 body 12px/#555 基线 */
+.clone-ddyueshu .ddy-firendlink{border:1px solid #DDD;line-height:22px;font-size:12px;color:#555;max-width:949px;width:100%;box-sizing:border-box;margin:10px auto;padding:9px 0 9px 9px}
+/* 源站 #firendlink a: #548161 行内块右距 9(全局 a 无下划线, hover 下划线承真站 a:hover) */
+.clone-ddyueshu .ddy-firendlink a{color:#548161;display:inline-block;margin:0 9px 0 0;text-decoration:none}
+.clone-ddyueshu .ddy-firendlink a:hover{text-decoration:underline}
+/* 源站 #footer,.footer: 溢出藏+文字居中 980px 居中上距 10; 字号承真站 body 12px */
+.clone-ddyueshu #ddy-footer{overflow:hidden;text-align:center;font-size:12px;max-width:980px;width:100%;margin:10px auto auto}
+/* 源站 .footer_link: 友链空列表占位 → 2px #88C6E5 蓝色横线(92% 宽 5px 上下距 25px 高) */
+.clone-ddyueshu .ddy-footer-link{border-bottom:2px solid #88C6E5;height:25px;line-height:25px;overflow:hidden;width:92%;margin:5px auto}
+/* 源站 .footer_cont p: #B2B2B2 20px 行高 88% 宽(源站 p 全局 reset margin:auto → 盒居中) */
+.clone-ddyueshu .ddy-footer-cont p{color:#B2B2B2;line-height:20px;width:88%;margin:0 auto}
 
 /* ================= 移动端(375px 无横向滚动; biquge 家族断点 980 单列化) ================= */
 @media (max-width: 980px){

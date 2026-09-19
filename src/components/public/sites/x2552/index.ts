@@ -14,6 +14,7 @@ import { X2552Read } from './Read'
 import { X2552Ranking } from './Ranking'
 import { X2552Fulltext } from './Fulltext'
 import { X2552Search } from './Search'
+import { X2552Footer } from './Footer' // [R41-C-5] Wayback 版源站仿制页脚(杰奇家族 .footer 版权组, 黑冰配色)
 
 /** [R28-2d-x11] 站点级克隆 CSS(黑冰模板; 逐条注明真站 style.css 规则出处) */
 const css = `
@@ -45,5 +46,7 @@ export const x2552Template: SiteTemplateSet = {
   Ranking: X2552Ranking,
   Fulltext: X2552Fulltext,
   Search: X2552Search,
+  // [R41-C-5] 页脚挂载(通用 SiteFooter 退位)
+  Footer: X2552Footer,
   css,
 }

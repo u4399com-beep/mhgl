@@ -16,7 +16,7 @@ import { BookCover } from '../../BookCover'
 import { ErrorState, Sk } from '../../bits'
 import { fmtDate, formatWords, statusLabel } from '../../seo'
 import type { BookItem } from '../../types'
-import { GgdCrumbs, GgdFooter } from './parts'
+import { GgdCrumbs } from './parts'
 
 export function Ggd66Book({ data, loading, error }: SiteBookProps) {
   const { site, navigate } = usePublic()
@@ -121,7 +121,6 @@ export function Ggd66Book({ data, loading, error }: SiteBookProps) {
           </>
         )}
       </div>
-      <GgdFooter />
     </div>
   )
 }

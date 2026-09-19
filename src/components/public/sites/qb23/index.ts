@@ -9,6 +9,7 @@ import { Qb23Home } from './Home'
 import { Qb23Category, Qb23Search, Qb23Fulltext, Qb23Ranking } from './pages'
 import { Qb23Book } from './Book'
 import { Qb23Toc, Qb23Read } from './Toc'
+import { Qb23Footer } from './Footer'
 
 export const qb23Template: SiteTemplateSet = {
   Home: Qb23Home,
@@ -19,6 +20,8 @@ export const qb23Template: SiteTemplateSet = {
   Ranking: Qb23Ranking,
   Fulltext: Qb23Fulltext,
   Search: Qb23Search,
+  // [R41-B-6] 克隆页脚: 源站 #footer 1:1 仿制(组件+样式见 ./Footer.tsx 与下方 [R41-B-6] css 段)
+  Footer: Qb23Footer,
   css: `
 /* ---- mxone style.css 实测主色: #ff2a14 主红 / 渐变 #ff9800→#ff2a14 / 暗底 #282828 / 边灰 #eaedf1 ---- */
 .clone-qb23 .qb-wrapper{max-width:1200px;margin:0 auto;padding:0 10px}
@@ -117,5 +120,24 @@ export const qb23Template: SiteTemplateSet = {
   .clone-qb23 .qb-chgrid{grid-template-columns:1fr 1fr}
 }
 .clone-qb23 .qb-content,.clone-qb23 .qb-read-box{overflow-x:hidden}
+
+/* ================= [R41-B-6] 克隆页脚(源站 #footer 1:1, /tmp/r41-css/qb23.css 实抓) =================
+   #footer{background:#f3f5f7;font-size:12px;color:rgba(0,0,0,.51);padding:10px 20px;
+   text-align:center;position:relative} + ::after 顶 1px #eaedf1 scaleY(.5) 细线(源站
+   .border-top,#footer::after 组规则); 链接色取源站全局 a #282828 / a:hover #ff2a14;
+   .sitemap .space-line-bold{float:none;display:inline-block;width:1px;margin:0 5px;height:8px}
+   底色取基类 .space-line-bold #c2c6d0 + 基类 border-radius:5px; ≤559px #footer/.sitemap 10px;
+   源站无 p 重置(UA 默认 margin 1em 0)而本应用 Tailwind preflight 归零 → 显式还原 1em 0 保间距一致;
+   源站 .pd60{padding-bottom:65px!important}(为固定右栏让位)与 >1239px .sitemap{float:right}
+   未复刻——规格引文口径为居中页脚 */
+.clone-qb23 .qb-fsec{position:relative;background:#f3f5f7;color:rgba(0,0,0,.51);font-size:12px;padding:10px 20px;text-align:center}
+.clone-qb23 .qb-fsec::after{content:' ';position:absolute;left:0;top:0;width:100%;height:1px;background-color:#eaedf1;transform:scaleY(.5)}
+.clone-qb23 .qb-fsec p{margin:1em 0}
+.clone-qb23 .qb-fsec a{color:#282828;text-decoration:none}
+.clone-qb23 .qb-fsec a:hover{color:#ff2a14}
+.clone-qb23 .qb-fsec .qb-fsep{display:inline-block;width:1px;height:8px;margin:0 5px;border-radius:5px;background:#c2c6d0}
+@media (max-width: 559px){
+  .clone-qb23 .qb-fsec{font-size:10px}
+}
 `,
 }

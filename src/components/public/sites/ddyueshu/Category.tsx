@@ -9,7 +9,6 @@ import type { SiteCategoryProps } from '../shared'
 import { usePublic, viewToUrl } from '../../ctx'
 import { ErrorState, Sk } from '../../bits'
 import type { BookItem } from '../../types'
-import { DdyFooter } from './parts'
 
 export function DdyueshuCategory({ data, loading, error, catName, cat, page }: SiteCategoryProps) {
   const { site, navigate } = usePublic()
@@ -59,7 +58,6 @@ export function DdyueshuCategory({ data, loading, error, catName, cat, page }: S
           </div>
         </div>
       </div>
-      <DdyFooter />
     </div>
   )
 }

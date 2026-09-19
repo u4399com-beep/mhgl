@@ -12,7 +12,6 @@ import { BookCover } from '../../BookCover'
 import { ErrorState, Sk } from '../../bits'
 import { fmtDate, formatWords, statusLabel } from '../../seo'
 import type { BookItem } from '../../types'
-import { HjwFooter } from './parts'
 
 export function HuangjinwuBook({ data, loading, error }: SiteBookProps) {
   const { site, navigate } = usePublic()
@@ -89,7 +88,6 @@ export function HuangjinwuBook({ data, loading, error }: SiteBookProps) {
           )}
         </div>
       </div>
-      <HjwFooter />
     </div>
   )
 }
@@ -122,7 +120,6 @@ export function HuangjinwuToc({ data, loading, error, page, currentChapterId }: 
           </div>
         </div>
       </div>
-      <HjwFooter />
     </div>
   )
 }
@@ -192,7 +189,6 @@ export function HuangjinwuRead({ data, loading, error }: SiteReadProps) {
           </div>
         </div>
       </div>
-      <HjwFooter />
       <span className="sr-only">{themeOverride ? '已应用主题阅读设置' : ''}</span>
     </div>
   )

@@ -8,11 +8,9 @@ import type { SiteSearchProps } from '../shared'
 import { usePublic, viewToUrl } from '../../ctx'
 import { ErrorState, Sk } from '../../bits'
 import { formatWords } from '../../seo'
-import { AijjxsFooter } from './parts'
 
 export function AijjxsSearch({ q, data, loading, error }: SiteSearchProps) {
-  const { site, navigate, theme } = usePublic()
-  const C = theme.vars
+  const { site, navigate } = usePublic()
   const books = data?.books || []
   const tags = data?.relatedTags || []
 
@@ -76,7 +74,6 @@ export function AijjxsSearch({ q, data, loading, error }: SiteSearchProps) {
           </article>
         </aside>
       </main>
-      <AijjxsFooter v={C} />
     </div>
   )
 }

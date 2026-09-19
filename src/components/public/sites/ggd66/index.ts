@@ -4,12 +4,16 @@
 //   (2026-09-18 直连实抓: home 18.4KB / sort 10.3KB / quanben 10.2KB / book 12.8KB /
 //    chapter 12.1KB + style.css 11.5KB gb2312 全量)
 //   页型覆盖: H首页 C分类 B书 T目录 R章节 + Ran(家族榜形态) Ful全本(/quanben/sort/ 实测) Sea(/search/ 实测)
+//   [R41-A] 页脚: 源站 .footer 绿底版权块 1:1 仿制迁至 Footer.tsx(Ggd66Footer, /tmp/r41-snap/ggd66.com.html 尾部实抓),
+//   经 index.ts Footer 槽由 PublicSite CloneFooter 统一渲染; 各页型内嵌的旧 parts.tsx 页脚
+//   (GgdFooter 近似版)已同步摘除(parts.tsx 仍保留面包屑 GgdBreadcrumb/GgdCrumbs)。
 // ============================================================
 import type { SiteTemplateSet } from '../shared'
 import { Ggd66Home } from './Home'
 import { Ggd66Category, Ggd66Search, Ggd66Fulltext, Ggd66Ranking } from './pages'
 import { Ggd66Book } from './Book'
 import { Ggd66Toc, Ggd66Read } from './Toc'
+import { Ggd66Footer } from './Footer'
 
 export const ggd66Template: SiteTemplateSet = {
   Home: Ggd66Home,
@@ -20,6 +24,8 @@ export const ggd66Template: SiteTemplateSet = {
   Ranking: Ggd66Ranking,
   Fulltext: Ggd66Fulltext,
   Search: Ggd66Search,
+  // [R41-A] 源站 1:1 仿制页脚(PublicSite CloneFooter 渲染, 替换通用 SiteFooter)
+  Footer: Ggd66Footer,
   css: `
 /* ---- style.css(gb2312) 实测色值 ---- */
 .clone-ggd66 .ggd-container{width:90%;max-width:1200px;margin:0 auto}
@@ -105,10 +111,14 @@ export const ggd66Template: SiteTemplateSet = {
 .clone-ggd66 .ggd-read-title{text-align:center;font-size:20px;color:#333;margin:10px 0}
 .clone-ggd66 .ggd-readcontent{color:#444;min-height:320px}
 .clone-ggd66 .ggd-readcontent p{margin:0 0 1em;text-indent:2em}
-/* 页脚(真站 .footer #56ccb5 10px padding 白字居中; 真站页脚无上边距, 紧贴内容流末尾)
-   [R40-d-1] margin-top:auto 配合页型根撑满 main 将页脚推到视口底(内容满屏时 auto=0, 与真站零间距一致) */
-.clone-ggd66 .ggd-footer{padding:10px 0;background-color:#56ccb5;color:#fff;text-align:center;font-size:14px;margin-top:auto}
-.clone-ggd66 .ggd-footer p{margin:0}
+/* 页脚(真站 .footer: #56ccb5 底 + box-shadow 0 -1px 1px #56ccb5 + 10px padding 白字居中 14px; 真站页脚无上边距, 紧贴内容流末尾)
+   [R40-d-1] margin-top:auto 置底机制保持(内容满屏时 auto=0, 与真站零间距一致); [R41-A] 页脚迁至模板级 Footer.tsx */
+.clone-ggd66 .ggd-footer{padding:10px 0;background-color:#56ccb5;box-shadow:0 -1px 1px #56ccb5;color:#fff;text-align:center;font-size:14px;margin-top:auto}
+/* 源站 .footer p: 90% 宽 max 75pc(=1200px), p 全局 reset margin:auto → 盒居中 [R41-A] */
+.clone-ggd66 .ggd-footer p{margin:0 auto;width:90%;max-width:1200px}
+/* 源站 .content.tuijian 友链标签行(空列表仅「友情链接：」; 容器承 .container 90%/75pc 版心 + .content margin 10 0,
+   body #888/15px/150% 基线; hidden-xs 移动端隐藏由组件 Tailwind hidden sm:block 承载) [R41-A] */
+.clone-ggd66 .ggd-ft-tuijian{clear:both;margin:10px auto;width:90%;max-width:1200px;color:#888;font-size:15px;line-height:150%}
 
 /* [R40-d-1] 页脚上方异常空白带根因修复: main 为平台 flex-1 撑满视口剩余高度, 而克隆页脚随内容流
    停在内容尾 → 书量少内容不足一屏时, 页脚色带与站点页脚之间露出大片空白(截图像素实证: 色带
@@ -131,6 +141,13 @@ export const ggd66Template: SiteTemplateSet = {
 @media (max-width: 640px){
   .clone-ggd66 .ggd-chlist ul li{width:100%!important}
   .clone-ggd66 .ggd-bookcover{float:none;text-align:center;margin-bottom:8px}
+}
+/* 源站 .footer p 响应式三档宽(@767→95% / @347→98%, ggd66.css 实抓) [R41-A] */
+@media (max-width: 767px){
+  .clone-ggd66 .ggd-footer p{width:95%}
+}
+@media (max-width: 347px){
+  .clone-ggd66 .ggd-footer p{width:98%}
 }
 .clone-ggd66 .ggd-home,.clone-ggd66 .ggd-cat,.clone-ggd66 .ggd-book,.clone-ggd66 .ggd-toc,.clone-ggd66 .ggd-read,.clone-ggd66 .ggd-search,.clone-ggd66 .ggd-ranking,.clone-ggd66 .ggd-full{overflow-x:hidden}
 `,

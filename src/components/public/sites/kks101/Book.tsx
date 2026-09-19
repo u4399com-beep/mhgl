@@ -12,7 +12,6 @@ import { BookCover } from '../../BookCover'
 import { ErrorState, Sk } from '../../bits'
 import { fmtDate, formatWords, statusLabel } from '../../seo'
 import type { BookItem } from '../../types'
-import { KksFooter } from './parts'
 
 export function Kks101Book({ data, loading, error }: SiteBookProps) {
   const { site, navigate } = usePublic()
@@ -88,7 +87,6 @@ export function Kks101Book({ data, loading, error }: SiteBookProps) {
           )}
         </div>
       </div>
-      <KksFooter />
     </div>
   )
 }
@@ -121,7 +119,6 @@ export function Kks101Toc({ data, loading, error, page, currentChapterId }: Site
           </div>
         </div>
       </div>
-      <KksFooter />
     </div>
   )
 }
@@ -191,7 +188,6 @@ export function Kks101Read({ data, loading, error }: SiteReadProps) {
           </div>
         </div>
       </div>
-      <KksFooter />
     </div>
   )
 }

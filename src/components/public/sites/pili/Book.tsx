@@ -1,5 +1,7 @@
 // ============================================================
 // [R39-2j] pili 克隆书页/目录/阅读 —— wmcms info/read 形态
+// [R41-C-2] 页内旧版 PiliFooter(parts.tsx 深棕底)已移除 → 全站唯一页脚为全局克隆页脚
+//   (./Footer.tsx 源站 1:1 橙底件, 经 index.ts Footer 挂载, PublicSite CloneFooter 出口)
 // ============================================================
 'use client'
 
@@ -12,7 +14,6 @@ import { BookCover } from '../../BookCover'
 import { ErrorState, Sk } from '../../bits'
 import { fmtDate, formatWords, statusLabel } from '../../seo'
 import type { BookItem } from '../../types'
-import { PiliFooter } from './parts'
 
 export function PiliBook({ data, loading, error }: SiteBookProps) {
   const { site, navigate } = usePublic()
@@ -95,7 +96,6 @@ export function PiliBook({ data, loading, error }: SiteBookProps) {
           </>
         )}
       </div>
-      <PiliFooter />
     </div>
   )
 }
@@ -130,7 +130,6 @@ export function PiliToc({ data, loading, error, page, currentChapterId }: SiteTo
           </div>
         </div>
       </div>
-      <PiliFooter />
     </div>
   )
 }
@@ -200,7 +199,6 @@ export function PiliRead({ data, loading, error }: SiteReadProps) {
           </div>
         </div>
       </div>
-      <PiliFooter />
     </div>
   )
 }

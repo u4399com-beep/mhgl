@@ -4,6 +4,8 @@
 //     mod-ani-img 封面 + text1 书名/作者 + text2 浏览量+开始阅读章节链接) +
 //     排行榜区(mod-tab 日榜/周榜 tab + ol.in-rank-list 双列: no-orange 前3橙徽/no-gray 灰徽)
 //   降级: 「浏览量107916」真站计数 → 契约无浏览量, 以字数近似展示(推断级)
+// [R41-C-2] 页内旧版 PiliFooter(parts.tsx 深棕底)已移除 → 全站唯一页脚为全局克隆页脚
+//   (./Footer.tsx 源站 1:1 橙底件, 经 index.ts Footer 挂载, PublicSite CloneFooter 出口)
 // ============================================================
 'use client'
 
@@ -14,7 +16,6 @@ import { BookCover } from '../../BookCover'
 import { ErrorState, Sk } from '../../bits'
 import { formatWords } from '../../seo'
 import type { BookItem } from '../../types'
-import { PiliFooter } from './parts'
 
 export function PiliHome({ books, loading }: SiteHomeProps) {
   const { site, navigate } = usePublic()
@@ -120,7 +121,6 @@ export function PiliHome({ books, loading }: SiteHomeProps) {
           </div>
         </div>
       </div>
-      <PiliFooter />
     </div>
   )
 }
