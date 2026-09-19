@@ -6345,3 +6345,36 @@ Stage Summary:
 - 服务态: dev 3000 稳定(括号子壳模式)+桥 3012 selfTestOk; 代理池 CN 存活 6 条; 8 条 interrupted 任务待 UI 手动恢复(33言情试采 cmu8ae6bs000gn6fxxyguya0f 可续采)
 - 质量: lint 0/0 + tsc 0 错 + 375px 五页型零横滚 + 源站同条件量测比对通过
 - 遗留: ①77shuku 仍死站 ②aijjxs toplist count=0(解析侧) ③克隆卡高 181 vs 源 185 差 4px(rounding 级, 可忽略) ④readStoredFontSize 平台存储校验 14-24 与源站 10-50 范围差异(零回归约束保留平台口径)
+---
+Task ID: R45+R46-0（主控勘察）
+Agent: Z.ai Code 主控
+Task: R45 xjp目录翻页修复(补记) + R46 八条指令勘察与分工
+
+Work Log:
+- [R45-1] xjp 目录只采第一页根因: parser.ts pickNextHref css 分支提取 onclick 原始值后【未应用 nextRule.replaceFrom/replaceTo】, "location.href='/txt/bqoj/list-2.html'" 被当 URL 走 resolveWithBase 拼成垃圾地址, 翻页第一跳即断。修复: 规则型候选统一过 applyTransform(与 extractField 同口径, 含 ReDoS 三道闸)。验证: 直连 parseToc 2页100章→7页681章; 后台 /api/admin/rules/test 端到端 681/681 章 PASS(DB 存量规则引擎层生效)
+- [R45-2] dev server "挂"根因链: dmesg 实锤 OOM killer 杀 next-server(RSS 2.13GB, 4GB 沙箱) —— 第三轮 OOM; playwright chromium_headless_shell-1234 已补装(R42-2 闭环); xjp-proxy(3015) 健康正常
+- [R46-0] R46 勘察: ①上轮"僵尸任务"疑点实为任务在新进程真实续采(TaskLog 13:30:48 仍在新建书籍), 已 API stop; ②next dev 空载基线 RSS≈1.8GB(Next16 编译器固有), 采集增量→2.1GB+ 触 OOM, 内存治理交 2a; ③remote 已切 mhgl.git(远端可达); ④FETCH_RSS_STOP_MB=1200 已生效但暂停仅节流不回收驻留
+- [R46-分工] 2a=采集引擎(runner/parser/fetcher/hostgate/obscura/builtin-rules: 并发流水线+内存治理+全规则分页审计+反反爬+逐行抓bug); 2b=主题前端(themes.ts/components/app: 全主题回源站校准,页脚优先); 2c=分类/精简/代理池(sorter/cleaner/smart/api/lib: 分类同类合并+代码精简+代理池审计补全); 主控=质检+git推送+协调
+
+Stage Summary:
+- R45 闭环: xjp 目录翻页全量修复(引擎层通用 bug, 全规则受益); R42-2 playwright 1234 闭环; R44-1 OOM 根因定案(dev 基线1.8G+采集增量>4G 上限)
+- R46 就绪: 三 agent 分工已定(文件所有权互斥), 待并行启动; R46-8 推送 mhgl.git 由主控在质检后收口
+---
+Task ID: R46-2b
+Agent: frontend-styling-expert
+Task: 全主题回源站对比校准(页脚优先) —— 11 主题中跳过 x33yq(R43-2v 已精校), 其余 10 主题逐一回源站实抓对比
+
+Work Log:
+- [R46-2b-0] 前置: 读 worklog 末 300 行(R39-R46 主题重建/页脚克隆史对齐, 页脚第一靶点=R41-1 用户报「页脚与源站不一样」); 主题清单 11 套(themes.ts THEMES/SiteCloneId), 访问机制=/?view=home&theme={id}(app/page.tsx searchParams 透传); 页脚架构=shared.ts SiteTemplateSet.Footer 槽 + PublicSite CloneFooter(tplSet.Footer 优先/回落 SiteFooter), 根容器 min-h-screen flex flex-col + main flex-1(sticky footer 语义在位)
+- [R46-2b-1] 源站可达性探测(每站≤2 UA, 快照存 /tmp/r46-theme/): 直连 200×6=aijjxs/23qb/ggd66/huangjinwu/101kks/ddyueshu(GBK 解码); pili 403(CF)→cloak 3016 standard 实抓 233KB ✓; trxsw 直连 000→代理池 CN 代理 120.232.115.57:17981 HTTP 200 实抓 69.9KB+33yq.css 20KB ✓; x2552/shipsay 双 UA 000+Wayback API 无响应 → 源站不可达(维持 R41-C Wayback 克隆版, 本轮仅代码级复核); 8 份源站 footer CSS 全量抓取(style.css/biquge.css+46yq 等)
+- [R46-2b-2] 页脚逐字节对比(10 主题): aijjxs ✓(6 链接·分隔+Copyright+免责, .foot 24/12/#e5dccd/13px/#6b7280 全对齐, 左对齐维持); ddyueshu ✓(bqg.js footer() 三行逐字节一致+粤ICP, #firendlink/#footer 全规则实测一致); ggd66 ✓(友链标签行+绿底 #56ccb5 两行, Copyright 2026 与源站同步); huangjinwu ✓(sitemap 6 链接|分隔+转码声明+©2026黄金屋); kks101 ✓(6 导航+Copyright 2023 Powered by  © 101看書+空<a>+友情連結行); qb23 ✓(RSS|Google|Bing+铅笔小说, #f3f5f7/rgba(0,0,0,.51)/::after #eaedf1 全对齐); pili ✓(mod-footer 族 #f69057/34px/64px/白字 22px, 文案逐字节); x2552/shipsay ✓(Wayback 版按考据档, 源死不可复核); **trxsw ✗ 重症**(见 R46-2b-3)
+- [R46-2b-3] trxsw 重校准(真站重大变更实证): 真站已由 2019「同人小说网」(杰奇默认模板, Wayback 克隆底本)品牌升级+换模板为「唐人小说网」(tpl/default/style/33yq.css=520xs 家族与 x33yq 同族; headds/head/daohang/nav1/hotcontent/GARAN/firendlink 结构实锤) → ①Footer.tsx 重写: 真站文案「唐人小说网所有免费小说阅读网络小说为转载作品…」+「Copyright © 唐人小说网 苏ICP备2024118507号-1」(beian.miit.gov.cn 真实外链 safeHref 白名单), CSS 33yq.css 实测(.footer 980 居中无底色/.footer_cont p #302b35 lh20, 弃旧 #f5f5f5/#999 推定值) ②Home.tsx #firendlink 重写: 真站形态 h2「友情链接：」+a 列表, CSS 实测(972+2px #a6d3e8 圆角10 #fff 底+h2 30px #daedf5 底条+a ml5 hover #f60; 弃旧 border-t 通用形态与「友情连接：」Wayback 文案) ③themes.ts: name/label 同人→唐人 + desc/注释更新 + vars.bg #ffffff→#e9faff(body 实测)/text #333→#555 + customCss a #333/hover #C00→#6f78a7/下划线 + .site-footer 回落壳同步 ④index.ts css 字段同步(全局链接色/body 基线/页脚段/友链段/≤640 窄屏); 布局骨架(ywtop/nav 深蓝渐变)仍为 Wayback 杰奇版 → 全量重克隆留后续轮(真站快照已存 /tmp/r46-theme/)
+- [R46-2b-4] qb23 增量校准(实抓 style.css 125.8KB 复核): ①基线 .sitemap{float:right}(>1239px 桌面态 sitemap 行靠右)补齐(R41-B 曾按居中省略), ≤1239px 媒体查询 float:none 复位 ②#friendlink 友链区块补齐(源站首页 main 后/footer 前: wrapper.hidden-xs>content>h2「友情链接：」空列表标签行; padding 15px 0+::after 顶 1px #eaedf1 半像素线全宽+h2 14px 700; hidden-xs→hidden sm:block R41 口径, 版心 .qb-friendlink-in=qb-wrapper 同款几何; 书页实证无此块→仅 Home 挂载); .pd60 维持不复刻(固定右栏让位, 无对应机制)
+- [R46-2b-5] 验证: Bun.Transpiler 语法门 6 文件 PASS+css 花括号 trxsw 26/26 qb23 106/106 平衡; agent-browser 实测(1280+375): trxsw 页脚 DOM=真站结构逐节点(文案/ICP 链接), computed bg rgba(0,0,0,0)/字 #302b35/宽 980 ✓, 注入式验证 .trx-firendlink computed(2px #a6d3e8/圆角10/#fff/#daedf5 30px/#6f78a7/ml5) ✓, qb23 页脚 #f3f5f7+sitemap float:right ✓+友链 h2 14px+::after #eaedf1 ✓; 375px 全 10 主题 scrollWidth=375 零横滚(trxsw/qb23 修改后+其余 8 主题回归); dev.log 尾部零错误(API 全 200); git 本轨仅 6 文件(qb23×2+trxsw×3+themes.ts), 并行 agent 在途件(proxy-pool/smart/worklog)零触碰; chrome 用毕 pkill 清杀+内存复核
+- [R46-2b-6] sticky footer 语义复核: PublicSite 根 min-h-screen flex flex-col+main flex-1+CloneFooter 恒在 main 后 → 短页贴底/长页自然推下; ggd66/huangjinwu 的页型根 flex:1 0 auto+footer margin-top:auto 机制(R40-d)未受本轮影响
+
+Stage Summary:
+- 10/10 主题回源站对比完成(8 站实抓素材: 6 直连+pili cloak+trxsw CN 代理; x2552/shipsay 源死维持 Wayback 版): 页脚级 8 主题逐字节一致零修复, trxsw 重症修复(真站品牌升级+换模板 33yq 家族→页脚/友链条/站名/全局链接色/body 底色 5 项对齐真站实测), qb23 增量补齐(sitemap 桌面 float:right+首页 #friendlink 区块)
+- 产出快照存档 /tmp/r46-theme/(10 站 home HTML+8 份 CSS+bqg.js, 重启自清); 修改 6 文件全带 [R46-2b-N] 注释: trxsw/{Footer,Home,index}+qb23/{Home,index}+themes.ts(+123/-66)
+- 验证: 语法门+花括号平衡+agent-browser 双视口 computed style 实测+375px 全主题零横滚+dev.log 零错误; 未跑 lint/tsc(留主控)/未重启 dev/未装包/DB 零触碰
+- 遗留: ①trxsw 主题布局骨架(ywtop/nav/hotcontent 等整页)仍为 2019 Wayback 杰奇版, 真站已切 33yq 家族模板 → 建议后续轮按 /tmp/r46-theme/trxsw-* 快照全量重克隆(可大量参照 x33yq 已校准实现) ②qb23 .pd60/源站 logo img(高 10px)维持不复刻(无对应资产/机制) ③77shuku 仍死站无主题

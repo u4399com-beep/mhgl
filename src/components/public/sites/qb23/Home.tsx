@@ -75,12 +75,23 @@ function QbSection({ title, books, loading, count }: { title: string; books: Boo
 export function Qb23Home({ books, loading }: SiteHomeProps) {
   const hot = useMemo(() => [...books].sort((a, b) => (b.wordCount || 0) - (a.wordCount || 0)), [books])
   return (
-    <main className="qb-wrapper">
-      <div className="qb-content">
-        <QbSection title="今日推荐" books={books} loading={loading} count={12} />
-        <QbSection title="热门榜单" books={hot} loading={loading} count={6} />
-        <QbSection title="最新上架" books={books} loading={loading} count={12} />
+    <>
+      <main className="qb-wrapper">
+        <div className="qb-content">
+          <QbSection title="今日推荐" books={books} loading={loading} count={12} />
+          <QbSection title="热门榜单" books={hot} loading={loading} count={6} />
+          <QbSection title="最新上架" books={books} loading={loading} count={12} />
+        </div>
+      </main>
+      {/* [R46-2b-4] #friendlink 友链区块: 源站首页 main 之后/footer 之前(wrapper.hidden-xs >
+          .content > h2「友情链接：」, 空列表仅标签行) —— 样式见 index.ts .qb-friendlink 段
+          (实测 padding 15px 0 + ::after 顶 1px #eaedf1 半像素线全宽 + h2 14px 700); hidden-xs
+          语义 → hidden sm:block(R41 口径); 版心 .qb-friendlink-in 取 .qb-wrapper 同款几何 */}
+      <div className="qb-friendlink hidden sm:block">
+        <div className="qb-friendlink-in">
+          <h2>友情链接：</h2>
+        </div>
       </div>
-    </main>
+    </>
   )
 }

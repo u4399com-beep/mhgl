@@ -105,7 +105,17 @@ function parseSourceBody(src: ProxySource, body: string): ParsedProxy[] {
     }
 
     if (src.kind === 'proxifly') {
-      // "protocol host:port Country CountryCode anonymity"
+      // [R46-2c-2] 源格式漂移适配: 2026 实测该源已改为每行 "protocol://host:port"(旧空格分隔
+      //  元数据形态已不再输出); 两种形态都容 —— 新形态优先, 旧行(含空格)走旧分支保历史兼容
+      const scheme = /^(?:(https?|socks5h?|socks4a?):\/\/)([\w.-]+):(\d{1,5})$/.exec(raw)
+      if (scheme) {
+        const protocol = normalizeProtocol(scheme[1])
+        const host = scheme[2]
+        const port = Number(scheme[3])
+        if (protocol && isValidHostPort(host, port)) out.push({ protocol, host, port })
+        continue
+      }
+      // 旧形态: "protocol host:port Country CountryCode anonymity"
       const parts = raw.split(/\s+/)
       if (parts.length < 2) continue
       const protocol = normalizeProtocol(parts[0])
@@ -133,16 +143,20 @@ function parseSourceBody(src: ProxySource, body: string): ParsedProxy[] {
     }
 
     // geonode JSON
-    // { data: [{ ip, port, protocol: ['http'] | ['socks5'], ... }] }
+    // { data: [{ ip, port, protocols: ['http']|['socks5'], anonymityLevel, country, ... }] }
+    // [R46-2c-2] 字段名漂移适配: 实测 API 已改用 protocols(数组)/anonymityLevel/country ——
+    //  旧字段 protocol/anonymity 恒 undefined → 全部 skip(该源静默零产出); 旧字段名兼容保留
     try {
-      const json = JSON.parse(body) as { data?: Array<{ ip?: string; port?: number | string; protocol?: string[]; anonymity?: number | string }> }
+      const json = JSON.parse(body) as { data?: Array<{ ip?: string; port?: number | string; protocol?: string[]; protocols?: string[]; anonymity?: number | string; anonymityLevel?: string; country?: string }> }
       for (const it of json.data || []) {
         if (!it || typeof it.ip !== 'string') continue
         const port = Number(it.port)
-        const protoRaw = Array.isArray(it.protocol) ? it.protocol[0] : ''
-        const protocol = normalizeProtocol(protoRaw)
+        const protos = [...(Array.isArray(it.protocols) ? it.protocols : []), ...(Array.isArray(it.protocol) ? it.protocol : [])]
+        const protocol = protos.map((p) => normalizeProtocol(String(p || ''))).find((p): p is 'http' | 'socks5' | 'socks4' => p !== null) || null
         if (!protocol || !isValidHostPort(it.ip, port)) continue
-        out.push({ protocol, host: it.ip, port, anonymity: it.anonymity != null ? String(it.anonymity) : undefined })
+        const anon = it.anonymityLevel != null ? String(it.anonymityLevel) : it.anonymity != null ? String(it.anonymity) : undefined
+        const cc = (it.country || '').toUpperCase()
+        out.push({ protocol, host: it.ip, port, anonymity: anon, country: /^[A-Z]{2}$/.test(cc) ? cc : undefined })
       }
       return out // JSON 整体解析, 不逐行
     } catch {
@@ -578,11 +592,21 @@ export async function testProxiesAgainstTarget(opts: { url: string; countries?: 
 
 // ---------------- 清理 / 统计 ----------------
 
-/** 清理死代理: alive=false 且失败≥2 且 3 天未成功的条目 */
+/** 清理死代理: [R46-2c-2] 口径扩展 —— 修前要求 failCount≥2, 只失败 1 次的死行永不淘汰
+ *  (实测堆积 458 行); 改为「死亡且近 3 天无成功且近 3 天未复验」即淘汰(复验在途的保留,
+ *  源站仍在发布的话 harvest 会重新收录), 原快删通道(failCount≥2 不看 lastCheckedAt)保留 */
 export async function pruneDeadProxies(): Promise<number> {
   const cutoff = new Date(Date.now() - 3 * 24 * 3600 * 1000)
   const r = await db.freeProxy.deleteMany({
-    where: { alive: false, failCount: { gte: 2 }, OR: [{ lastSuccessAt: null }, { lastSuccessAt: { lt: cutoff } }] },
+    where: {
+      alive: false,
+      OR: [
+        // 原口径: 复败≥2 且 3 天无成功(不看 lastCheckedAt, 快删复死亡行)
+        { failCount: { gte: 2 }, OR: [{ lastSuccessAt: null }, { lastSuccessAt: { lt: cutoff } }] },
+        // 扩展口径: 只败 1 次但已 3 天未复验且 3 天无成功(修前永不淘汰的堆积行)
+        { lastCheckedAt: { lt: cutoff }, OR: [{ lastSuccessAt: null }, { lastSuccessAt: { lt: cutoff } }] },
+      ],
+    },
   })
   return r.count
 }
@@ -665,6 +689,9 @@ async function autoTick(): Promise<void> {
       const cr = await checkProxies({ mode: 'unchecked', limit: setting.checkBatch })
       st.lastCheck = cr
     }
+    // [R46-2c-2] 自动淘汰接线(审计补缺): 修前 autoTick 只采不删, 死行无限堆积(实测 11k 总量
+    //  存活 77); 每轮 tick 顺手跑一次 prune(单条 deleteMany, 开销可忽略), 池子自我瘦身
+    await pruneDeadProxies().catch(() => {})
   } catch (e) {
     st.lastError = `autoTick: ${String((e as Error)?.message || e).slice(0, 200)}`
   } finally {

@@ -274,19 +274,19 @@ export function TrxswHome({ books, loading }: SiteHomeProps) {
         </aside>
       </div>
 
-      {/* ============ #firendlink 友情连接(safeHref 白名单出口, 空则整块不渲染) ============ */}
+      {/* ============ #firendlink 友情链接(safeHref 白名单出口, 空则整块不渲染) ============
+          [R46-2b-2] 真站 2026-09-19 实抓(/tmp/r46-theme/trxsw-home.html): <div id="firendlink">
+          <h2>友情链接：</h2><a…>×N</div> —— 样式走 index.ts .trx-firendlink 段(33yq.css 实测:
+          2px #a6d3e8 边/圆角 10/#fff 底/h2 #daedf5 底条; 旧版 border-t+裸 span 通用形态弃用);
+          文案「友情链接：」按真站 h2 逐字节(旧版「友情连接：」系 Wayback 期文案) */}
       {links.length > 0 && (
-        <div id="firendlink" className="tx-links mt-3 border-t pt-2" style={{ borderColor: C.border }}>
-          <p className="m-0 flex flex-wrap gap-x-3 gap-y-1 py-2">
-            <span className="text-[13px]" style={{ color: C.text }}>
-              友情连接：
-            </span>
-            {links.map((l) => (
-              <a key={l.id} href={safeHref(l.url)} className="text-[13px] hover:underline" style={{ color: C.gray }} rel="noopener noreferrer" target="_blank">
-                {l.name}
-              </a>
-            ))}
-          </p>
+        <div id="firendlink" className="trx-firendlink">
+          <h2>友情链接：</h2>
+          {links.map((l) => (
+            <a key={l.id} href={safeHref(l.url)} rel="noopener noreferrer" target="_blank">
+              {l.name}
+            </a>
+          ))}
         </div>
       )}
     </div>

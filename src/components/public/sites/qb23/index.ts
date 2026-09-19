@@ -136,8 +136,26 @@ export const qb23Template: SiteTemplateSet = {
 .clone-qb23 .qb-fsec a{color:#282828;text-decoration:none}
 .clone-qb23 .qb-fsec a:hover{color:#ff2a14}
 .clone-qb23 .qb-fsec .qb-fsep{display:inline-block;width:1px;height:8px;margin:0 5px;border-radius:5px;background:#c2c6d0}
+/* [R46-2b-4] 源站基线 .sitemap{font-size:12px;float:right}(qb23 style.css L4581, >1239px 桌面态
+   sitemap 行靠右、站名行居中), ≤1239px 媒体查询 .sitemap{float:none} 复位居中 —— R41-B 曾按
+   居中口径省略, 本轮回源站校准补齐; .pd60{padding-bottom:65px!important}(固定右栏让位)维持不复刻 */
+.clone-qb23 .qb-fmap{float:right}
+/* [R46-2b-4] #friendlink 友链区块(源站首页 main 之后/footer 之前: wrapper.hidden-xs > .content >
+   h2 友情链接：; 空列表仅标签行) —— 实测 #friendlink{position:relative;padding:15px 0;
+   word-break:break-all} + 组规则 ::after 顶 1px #eaedf1 scaleY(.5) + h2{14px 700 inline-block};
+   hidden-xs 语义 → hidden sm:block(R41 口径, 640-767px 区间与真站 bootstrap 768 断点有差) */
+.clone-qb23 .qb-friendlink{position:relative;padding:15px 0;word-break:break-all}
+.clone-qb23 .qb-friendlink::after{content:' ';position:absolute;left:0;top:0;width:100%;height:1px;background-color:#eaedf1;transform:scaleY(.5)}
+.clone-qb23 .qb-friendlink h2{margin:0;font-size:14px;font-weight:700;display:inline-block}
+/* [R46-2b-4] 友链区块版心: .qb-wrapper 同款几何(max-width 1200/padding 0 10px), 全宽细线内居中内容 */
+.clone-qb23 .qb-friendlink-in{max-width:1200px;margin:0 auto;padding:0 10px}
+@media (max-width: 1239px){
+  .clone-qb23 .qb-fmap{float:none}
+}
 @media (max-width: 559px){
   .clone-qb23 .qb-fsec{font-size:10px}
+  .clone-qb23 .qb-friendlink{padding:10px 0}
+  .clone-qb23 .qb-friendlink h2{font-size:12px}
 }
 `,
 }

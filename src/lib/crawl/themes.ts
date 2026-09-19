@@ -343,7 +343,7 @@ export const SITE_CLONE_LABEL: Record<SiteCloneId, string> = {
   huangjinwu: '黄金屋',
   ggd66: '格格党',
   shipsay: '船说CMS',
-  trxsw: '同人小说', // [R25-4-1]
+  trxsw: '唐人小说', // [R46-2b-3] 真站 2026 实抓: 品牌已由「同人小说」升级为「唐人小说网」
   x33yq: '33言情', // [R43-2]
 }
 
@@ -763,18 +763,16 @@ export const THEMES: ThemeDef[] = [
     },
   },
   {
-    // ⑩ 同人小说网 www.trxsw.com — 杰奇 CMS(jieqi)经典默认模板, GBK 编码(展示层已由 fetcher 解码)。
-    //    结构依据: 真站 2019-10-19 Wayback 完整 DOM 快照(/tmp/r25/trxsw-wb.html)逐节复刻
-    //    (ywtop 顶条/head 文字 logo+搜索框/nav 分类条×12/novelslist 2 行×3 板块[top 图文头条
-    //    67×82 封面+书名/作者/简介 + li «书名 /作者»]/#newscontent .l 最近更新 s1~s5 + .r 小说推荐/
-    //    #firendlink 友链/.footer)。真站 b.css 无存档(css 快照全为 Wayback 错误页),
-    //    配色按杰奇 CMS 默认模板家族公认规范还原: body 白底 #fff 宋体/arial 12~14px 系 ·
-    //    .ywtop 浅灰 #f5f5f5 细底边 · logo 红棕 #C00 粗体大字 · .nav 深蓝渐变 #1C5087→#1F5FA9
-    //    白字 · 链接 #333 / hover #C00 红 · h2 浅色渐变底+左竖条+下边线 · li 36px 行高点线 #ccc ·
-    //    .footer #f5f5f5 居中灰字。
+    // ⑩ 唐人小说网 www.trxsw.com — [R46-2b-3] 真站重校准: 2026-09-19 CN 代理实抓(/tmp/r46-theme/
+    //    trxsw-home.html + 33yq.css)实证真站已由 2019「同人小说网」(杰奇默认模板, 本主题克隆底本)
+    //    品牌升级+换模板为「唐人小说网」(tpl/default/style/33yq.css = 520xs 家族, 与 x33yq 同族):
+    //    body #e9faff #555 14px Arial/YaHei · a #6f78a7 hover 下划线 · 页脚无底色 #302b35 字 ·
+    //    #firendlink 2px #a6d3e8 圆角10 h2 #daedf5 条 · 苏ICP备2024118507号-1(beian.miit.gov.cn 外链)。
+    //    本轮对齐项: 站名/页脚/友链条/链接色/底色; 布局骨架(ywtop/nav 深蓝渐变等)仍为 Wayback
+    //    杰奇家族版, 全量重克隆留待后续轮(真站快照已存档)。结构依据(原): 2019-10-19 Wayback DOM。
     id: 'trxsw',
-    name: '同人小说(克隆)',
-    desc: '仿 trxsw.com 同人小说网·杰奇CMS经典默认模板·白底红棕logo+深蓝渐变导航(b.css 无存档, 配色按杰奇默认模板规范还原)',
+    name: '唐人小说(克隆)',
+    desc: '仿 trxsw.com 唐人小说网(原同人小说网, 2026 实抓重校准)·页脚/友链/配色按真站 33yq.css 实测; 布局骨架为杰奇默认模板 Wayback 复刻',
     layout: 'trxsw',
     dark: false,
     read: {
@@ -782,19 +780,20 @@ export const THEMES: ThemeDef[] = [
       indent: true, justify: true, toolbar: 'inline', texture: 'none', chapterDeco: 'rule',
     },
     customCss: [
-      // [R25-4-1] 杰奇默认模板细节(组件粒度难还原处): 链接 #333 / hover #C00 红 · 页脚浅灰居中灰字
+      // [R46-2b-3] 链接色校准: 33yq.css 实测 a{color:#6f78a7} a:hover{text-decoration:underline}
+      //   (旧 #333/hover #C00 系 2019 杰奇家族推定); 页脚回落壳同步真站无底色 #302b35 字
       `.clone-trxsw{font-size:14px}`,
-      `.clone-trxsw a{color:#333;text-decoration:none}`,
-      `.clone-trxsw a:hover{color:#C00}`,
-      `.clone-trxsw .site-footer{background:#f5f5f5;border-top:1px solid #e5e5e5;color:#999}`,
-      `.clone-trxsw .site-footer a{color:#666}`,
+      `.clone-trxsw a{color:#6f78a7;text-decoration:none}`,
+      `.clone-trxsw a:hover{text-decoration:underline}`,
+      `.clone-trxsw .site-footer{background:transparent;color:#302b35}`,
+      `.clone-trxsw .site-footer a{color:#6f78a7}`,
     ].join('\n'),
-    preview: ['#ffffff', '#1C5087', '#C00'],
+    preview: ['#e9faff', '#1C5087', '#C00'],
     vars: {
-      bg: '#ffffff',
+      bg: '#e9faff', // [R46-2b-3] 33yq.css body{background-color:#e9faff} 实测(旧 #ffffff 系家族推定)
       surface: '#ffffff',
       surfaceAlt: '#f5f5f5',
-      text: '#333333',
+      text: '#555555', // [R46-2b-3] body{color:#555} 实测(旧 #333 系家族推定)
       textMuted: '#999999',
       primary: '#1C5087',
       primaryText: '#ffffff',

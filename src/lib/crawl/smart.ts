@@ -11,6 +11,8 @@ import { db } from '@/lib/db'
 // - 都市 ' urb '→'urban' + 增 '七零'/'八零'/'九零'(年代文); 军事 ' war '→'war' ——
 //   带空格词按 R9-a-17 原样匹配永不命中真实简介(死关键词), R22-c-2 词界方案下不再需要
 // - 新增耽美行(置于轻小说之前: 与'校园'打平时耽美优先)
+// [R46-2c-1] 分类同类合并(R46-3): 灵异行并入悬疑(主流小说站"悬疑灵异"同段惯例, 如起点/
+//   纵横/晋江分类页), 主分类收敛到 15 个 —— 词表行数即主分类白名单, MAX_MAIN_CATEGORIES 恒等约束
 const CATEGORY_KEYWORDS: [string, string[]][] = [
   ['玄幻', ['玄幻', '修罗', '斗气', '魔法学院', '异界', '大陆', '废材', '神帝', '武魂', '神祇', '神国']],
   ['奇幻', ['奇幻', '史诗', '骑士', '法师', '精灵', '龙族', '矮人', '魔兽']],
@@ -22,13 +24,123 @@ const CATEGORY_KEYWORDS: [string, string[]][] = [
   ['军事', ['军事', '抗战', 'war', '士兵', '特种兵', '战场', '部队', '军官']],
   ['游戏', ['游戏', '网游', '电竞', '副本', '升级', '系统', '玩家', '战队', '开黑']],
   ['科幻', ['科幻', '星际', '末世', '丧尸', '机甲', '飞船', '外星', '末日', 'AI', '人工智能', '虫族']],
-  ['悬疑', ['悬疑', '推理', '侦探', '凶案', '犯罪', '谜团', '刑警', '法医', '命案']],
-  ['灵异', ['灵异', '鬼', '阴阳', '风水', '盗墓', '僵尸', '驱魔', '诡异']],
+  ['悬疑', ['悬疑', '推理', '侦探', '凶案', '犯罪', '谜团', '刑警', '法医', '命案', '灵异', '鬼', '阴阳', '风水', '盗墓', '僵尸', '驱魔', '诡异']],
   ['体育', ['体育', '足球', '篮球', '奥运', '冠军', '教练', '联赛']],
   ['耽美', ['耽美', '纯爱', '原耽', '主受', '攻受']],
   ['轻小说', ['轻小说', '萌妹', '校园', '社团', '二次元', '青梅', '学妹', '学姐']],
   ['现实', ['现实', '职场', '创业', '商战', '生活', '家庭', '医生', '教师']],
 ]
+
+// [R46-2c-1] 主分类白名单(≤15)与兜底分类名 —— consolidateCategories/smartCategory/
+//   canonicalizeCategoryName 三者的单一真值源
+export const MAX_MAIN_CATEGORIES = 15
+export const CANONICAL_CATEGORIES: string[] = CATEGORY_KEYWORDS.map(([name]) => name)
+const CANON_SET = new Set(CANONICAL_CATEGORIES)
+export const FALLBACK_CATEGORY = '其他'
+
+// [R46-2c-1] 源站分类名 → 主分类 精确映射表(键一律小写): 覆盖笔趣阁系/起点系/晋江系/
+//   纵横/17K/番茄/七猫/杰奇(x33yq)等常见小说站词表。命中即归一, 不再新建碎片分类。
+//   组合分类("A B")按首词归(玄幻奇幻→玄幻/历史军事→历史/军事历史→军事)
+const EXACT_CANON_MAP: Record<string, string> = {
+  // 玄幻
+  '玄幻小说': '玄幻', '东方玄幻': '玄幻', '异世大陆': '玄幻', '玄幻奇幻': '玄幻', '奇幻玄幻': '玄幻',
+  '高武': '玄幻', '王朝争霸': '玄幻', '玄幻魔法': '玄幻', '玄幻言情': '玄幻', '转世重生': '玄幻',
+  // 奇幻
+  '奇幻小说': '奇幻', '西方奇幻': '奇幻', '剑与魔法': '奇幻', '西幻': '奇幻', '魔幻': '奇幻',
+  '史诗奇幻': '奇幻', '奇幻修真': '奇幻', '领主种田': '奇幻', '黑暗幻想': '奇幻',
+  // 武侠
+  '武侠小说': '武侠', '武侠仙侠': '武侠', '传统武侠': '武侠', '新武侠': '武侠', '国术无双': '武侠',
+  '快意恩仇': '武侠', '仙侠武侠': '武侠', '武侠同人': '武侠',
+  // 仙侠
+  '仙侠小说': '仙侠', '修真': '仙侠', '修真小说': '仙侠', '修仙': '仙侠', '古典仙侠': '仙侠',
+  '现代修真': '仙侠', '幻想修仙': '仙侠', '洪荒': '仙侠', '凡人流': '仙侠', '仙侠奇缘': '仙侠',
+  '幻想修真': '仙侠', '修真仙侠': '仙侠',
+  // 都市
+  '都市小说': '都市', '都市生活': '都市', '都市言情': '都市', '现代都市': '都市', '都市异能': '都市',
+  '异能超能': '都市', '官场': '都市', '官商': '都市', '娱乐明星': '都市', '娱乐': '都市',
+  '重生都市': '都市', '都市日常': '都市', '都市职场': '都市', '都市频道': '都市', '合租': '都市',
+  // 言情
+  '言情小说': '言情', '现代言情': '言情', '古代言情': '言情', '浪漫青春': '言情', '青春': '言情',
+  '青春校园': '言情', '青春文学': '言情', '古言': '言情', '现言': '言情', '宫斗': '言情',
+  '宅斗': '言情', '豪门世家': '言情', '婚恋情缘': '言情', '女生小说': '言情', '女生频道': '言情',
+  '女频': '言情', '女频小说': '言情', '快穿': '言情', '穿越言情': '言情', '总裁豪门': '言情',
+  '甜宠': '言情', '古代情缘': '言情', '婚恋': '言情', '言情频道': '言情', '言情小说网': '言情',
+  // 历史
+  '历史小说': '历史', '架空历史': '历史', '历史传记': '历史', '秦汉三国': '历史', '两晋隋唐': '历史',
+  '上古先秦': '历史', '宋元明清': '历史', '外国历史': '历史', '穿越': '历史', '穿越小说': '历史',
+  '穿越时空': '历史', '架空': '历史', '架空穿越': '历史', '历史军事': '历史', '历史频道': '历史',
+  // 军事
+  '军事小说': '军事', '军旅': '军事', '军旅生涯': '军事', '军旅生活': '军事', '抗战': '军事',
+  '抗战烽火': '军事', '谍战': '军事', '谍战特工': '军事', '特工': '军事', '战争': '军事',
+  '战争幻想': '军事', '军事战争': '军事', '军事历史': '军事',
+  // 游戏
+  '游戏小说': '游戏', '网游': '游戏', '网游小说': '游戏', '虚拟网游': '游戏', '电子竞技': '游戏',
+  '电竞': '游戏', '电竞小说': '游戏', '游戏异界': '游戏', '游戏系统': '游戏', '游戏情缘': '游戏',
+  '网游竞技': '游戏', '游戏异世': '游戏', '游戏频道': '游戏',
+  // 科幻
+  '科幻小说': '科幻', '科幻空间': '科幻', '末世': '科幻', '末世危机': '科幻', '星际': '科幻',
+  '星际文明': '科幻', '未来世界': '科幻', '时空穿梭': '科幻', '赛博朋克': '科幻', '机甲': '科幻',
+  '超级科技': '科幻', '进化变异': '科幻', '科幻末世': '科幻', '末世科幻': '科幻',
+  // 悬疑(含灵异, [R46-2c-1] 合并)
+  '悬疑小说': '悬疑', '灵异': '悬疑', '灵异小说': '悬疑', '悬疑灵异': '悬疑', '灵异悬疑': '悬疑',
+  '推理': '悬疑', '推理悬疑': '悬疑', '悬疑推理': '悬疑', '侦探': '悬疑', '侦探推理': '悬疑',
+  '恐怖': '悬疑', '惊悚': '悬疑', '恐怖惊悚': '悬疑', '惊悚恐怖': '悬疑', '盗墓': '悬疑',
+  '盗墓探险': '悬疑', '诡秘': '悬疑', '诡秘悬疑': '悬疑', '探险': '悬疑', '民间传说': '悬疑',
+  // 体育
+  '体育小说': '体育', '体育竞技': '体育', '竞技': '体育', '篮球': '体育', '篮球运动': '体育',
+  '足球': '体育', '足球运动': '体育', '棋牌': '体育', '其他竞技': '体育',
+  // 耽美
+  '耽美小说': '耽美', '纯爱': '耽美', '原耽': '耽美', '原创耽美': '耽美', '衍生耽美': '耽美',
+  'bl': '耽美', 'bl小说': '耽美', '主受': '耽美',
+  // 轻小说
+  '二次元': '轻小说', '同人': '轻小说', '衍生同人': '轻小说', '同人衍生': '轻小说', '动漫': '轻小说',
+  '日轻': '轻小说', '原生幻想': '轻小说', '吐槽': '轻小说', '宅系': '轻小说', '爆笑': '轻小说',
+  // 现实
+  '现实小说': '现实', '现实百态': '现实', '现实主义': '现实', '社会': '现实', '社会小说': '现实',
+  '家庭': '现实', '家庭伦理': '现实', '情感': '现实', '职场': '现实', '职场小说': '现实',
+  '商战': '现实', '财经': '现实', '乡土': '现实', '乡土小说': '现实',
+  // 归「其他」: 源站导航/运营位噪声分类(不建为真实内容分类)
+  '其他': '其他', '小说': '其他', '全本': '其他', '完本': '其他', '全本小说': '其他', '完本小说': '其他',
+  '推荐': '其他', '排行榜': '其他', '新书': '其他', '精品': '其他', '热门': '其他', '免费': '其他',
+  '综合': '其他', '综合小说': '其他', '杂谈': '其他', '本站精选': '其他', '网友转载': '其他',
+}
+
+/** [R46-2c-1] 源站分类名 → 主分类语义归一(同类合并核心工具):
+ *  ① 剥书名号/引号/括号包裹与首尾空白 → ② 主分类恒等/精确映射表(EXACT_CANON_MAP) →
+ *  ③ 循环剥离通用前后缀(女生/男生/女频/男频前缀, 小说/文学/频道/大全等尾巴)再查表 →
+ *  ④ 包含关系回退(源名含某主分类名 → 该主分类, 取最长命中/同长按词表序)。
+ *  无法归一返回 null(调用方决定保留或落「其他」)。纯函数, 供 smartCategory /
+ *  consolidateCategories / 采集链路(runner 接线点建议)共用 */
+export function canonicalizeCategoryName(raw: string): string | null {
+  const s0 = (raw || '').trim()
+  if (!s0) return null
+  // 剥包裹符(书名号/引号/全半角括号)与内部空白
+  let s = s0.replace(/^[\s《「『【\[(（]+/, '').replace(/[\s》」』】\])）]+$/, '').replace(/\s+/g, '')
+  if (!s) return null
+  const lookup = (v: string): string | null => {
+    if (CANON_SET.has(v)) return v
+    return EXACT_CANON_MAP[v.toLowerCase()] ?? null
+  }
+  const direct = lookup(s)
+  if (direct) return direct
+  // 通用前后缀循环剥离(≤3 轮防"女生小说频道"类多层叠加)
+  const GENDER_PREFIX_RE = /^(?:女生|男生|女频|男频)/
+  const GENERIC_TAIL_RE = /(?:免费小说|小说网|文学网|免费阅读|小说|文学|频道|专区|大全|书库|分类|作品|排行榜|推荐|网)$/
+  for (let i = 0; i < 3; i++) {
+    const next = s.replace(GENDER_PREFIX_RE, '').replace(GENERIC_TAIL_RE, '')
+    if (!next || next === s) break
+    s = next
+    const hit = lookup(s)
+    if (hit) return hit
+  }
+  // 包含关系回退: "都市生活"含"都市"/"悬疑灵异"含"悬疑"。取最长命中(同长取词表序前者,
+  // 保证确定性); 排除"其他"自包含
+  let best: string | null = null
+  for (const c of CANONICAL_CATEGORIES) {
+    if (s.includes(c) && (best === null || c.length > best.length)) best = c
+  }
+  return best
+}
 
 /**
  * [R22-c-2] 分类匹配文本归一化: 全角拉丁/标点(FF01-FF5E)→半角、全角空格→半角空格、
@@ -74,11 +186,17 @@ function matchCategoryByText(text: string, existingCategories?: string[]): strin
 }
 
 /** LLM 智能分类(后端专用) */
+// [R46-2c-1] 分类同类合并改造(修前碎片化根因): 源站分类原文在「来源命中失败/智能分类关闭」
+//  时被 runner 原样 upsert 成新分类, 每站一套词表 → 分类表无限膨胀。改造后:
+//  ① 源分类先过 canonicalizeCategoryName 语义归一(映射表/前后缀/包含关系) → 只落主分类;
+//  ② 归一失败但原文已是库内分类(操作员自建/存量) → 原样保留不误伤;
+//  ③ 全链路落空但源站确实给了分类 → 「其他」兜底(FALLBACK_CATEGORY), 不再新建碎片分类;
+//  ④ 无源分类 → null(维持既有"无分类可归"语义, 不硬塞「其他」)
 export async function smartCategory(
   bookName: string,
   intro: string,
   sourceCategory?: string
-): Promise<{ category: string | null; method: 'source' | 'keyword' | 'llm' | 'none' }> {
+): Promise<{ category: string | null; method: 'source' | 'keyword' | 'llm' | 'fallback' | 'none' }> {
   const cats = await db.category.findMany({ orderBy: { sortOrder: 'asc' } }).catch((e: unknown) => {
     // [R9-a-18] 修复: findMany 异常(DB 瞬断/SQLite busy)原先直接上抛 → 采集流水线把整本书
     // 计为失败。智能分类是锦上添花, 异常时退化空分类表(关键词匹配/LLM 兑底照常, 仅丢
@@ -87,12 +205,15 @@ export async function smartCategory(
     return [] as Array<{ name: string }>
   })
   const names = cats.map((c) => c.name)
+  const nameSet = new Set(names)
 
-  // 1. 来源站点自带分类
-  if (sourceCategory) {
-    const sc = sourceCategory.trim()
-    const hit = names.find((n) => n === sc || sc.includes(n) || n.includes(sc.slice(0, 2)))
-    if (hit) return { category: hit, method: 'source' }
+  // 1. 来源站点自带分类(先语义归一再消费)
+  const sc = sourceCategory?.trim() || ''
+  if (sc) {
+    const canon = canonicalizeCategoryName(sc)
+    if (canon) return { category: canon, method: 'source' }
+    // 归一失败但已是库内分类: 操作员自建/存量分类原样保留(收敛只走 consolidateCategories)
+    if (nameSet.has(sc)) return { category: sc, method: 'source' }
   }
 
   // 2. 关键词规则
@@ -123,6 +244,9 @@ export async function smartCategory(
   } catch (e: any) {
     console.warn('[smart] llm category failed:', e?.message?.slice(0, 80))
   }
+  // 4. [R46-2c-1] 终兜底: 源站确实提供了分类但全程(归一/词表/LLM)未命中 → 归入「其他」,
+  //  修前该场景把源分类原文 upsert 成新分类(碎片化主入口); 无源分类维持 null 不硬塞
+  if (sc) return { category: FALLBACK_CATEGORY, method: 'fallback' }
   return { category: null, method: 'none' }
 }
 
@@ -206,4 +330,103 @@ export function smartCompleteDetect(input: {
     if (r !== 'unknown') return { status: r, reason: '书名标注' }
   }
   return { status: 'unknown', reason: '无法判断' }
+}
+
+// ---------------- [R46-2c-1] 存量碎片分类收敛 ----------------
+
+export interface ConsolidateResult {
+  /** true=仅预览不落库 */
+  dryRun: boolean
+  /** 收敛前/后分类总数 */
+  before: number
+  after: number
+  /** 无变化分类(主分类自身/不可归一但有书的自建分类) */
+  kept: string[]
+  /** 合并明细: from=被并入的碎片分类, to=主分类, books=迁移书籍数 */
+  merges: Array<{ from: string; to: string; books: number }>
+  /** 收敛过程中新建的主分类 */
+  created: string[]
+  /** 删除的空分类(碎片空壳/不可归一空壳) */
+  deleted: string[]
+}
+
+/**
+ * [R46-2c-1] 存量碎片分类一次性收敛(同类合并):
+ *  - 可归一(canonicalizeCategoryName 命中)且有书 → 迁移书籍到主分类后删除碎片分类;
+ *  - 可归一但空壳(0 书) → 直接删除;
+ *  - 不可归一但有书 → 保守保留(操作员自建分类不误伤, dryRun 可先预览);
+ *  - 不可归一且空壳 → 删除(纯导航噪声)。
+ * 消费方: POST /api/admin/categories/consolidate(API) 与一次性收敛脚本(采集期后按需执行)。
+ * 与在途采集的并发安全: 书籍迁移用 updateMany(原子), 分类删除在迁移之后; 并发窗口内
+ * smartCategory 重建同名碎片分类时只会得到 0 书空壳, 不丢数据(下次收敛再清)。
+ */
+export async function consolidateCategories(opts?: { dryRun?: boolean }): Promise<ConsolidateResult> {
+  const dryRun = opts?.dryRun === true
+  const cats = await db.category.findMany({
+    orderBy: { sortOrder: 'asc' },
+    include: { _count: { select: { books: true } } },
+  })
+  const result: ConsolidateResult = {
+    dryRun,
+    before: cats.length,
+    after: cats.length,
+    kept: [],
+    merges: [],
+    created: [],
+    deleted: [],
+  }
+  if (!cats.length) return result
+
+  const nameToId = new Map(cats.map((c) => [c.name, c.id] as const))
+
+  // 目标规划: 每个分类 → { target(可空), books }
+  type Plan = { id: string; name: string; books: number; target: string | null; isSelf: boolean }
+  const plans: Plan[] = cats.map((c) => {
+    const t = canonicalizeCategoryName(c.name)
+    return { id: c.id, name: c.name, books: c._count.books, target: t, isSelf: t === c.name }
+  })
+
+  // 需要确保存在的主分类目标: 有书可迁 且 目标≠自身 且 库内暂无同名分类
+  const needCreate = new Set<string>()
+  for (const p of plans) {
+    if (p.target && !p.isSelf && p.books > 0 && !nameToId.has(p.target)) needCreate.add(p.target)
+  }
+  // 新建主分类(sortOrder=词表序; 「其他」恒排最后)
+  for (const name of needCreate) {
+    const sortOrder = CANONICAL_CATEGORIES.indexOf(name) >= 0
+      ? CANONICAL_CATEGORIES.indexOf(name)
+      : CANONICAL_CATEGORIES.length
+    if (!dryRun) {
+      await db.category.upsert({ where: { name }, create: { name, sortOrder }, update: {} })
+    }
+    result.created.push(name)
+  }
+
+  // 执行迁移 + 删除
+  for (const p of plans) {
+    if (p.isSelf) { result.kept.push(p.name); continue }
+    if (!p.target) {
+      // 不可归一: 有书保守保留, 空壳删除
+      if (p.books > 0) result.kept.push(p.name)
+      else {
+        if (!dryRun) await db.category.delete({ where: { id: p.id } }).catch(() => {})
+        result.deleted.push(p.name)
+      }
+      continue
+    }
+    if (p.books > 0) {
+      if (!dryRun) {
+        const target = await db.category.findUnique({ where: { name: p.target }, select: { id: true } })
+        if (target) {
+          await db.book.updateMany({ where: { categoryId: p.id }, data: { categoryId: target.id } })
+        }
+      }
+      result.merges.push({ from: p.name, to: p.target, books: p.books })
+    }
+    if (!dryRun) await db.category.delete({ where: { id: p.id } }).catch(() => {})
+    result.deleted.push(p.name)
+  }
+
+  result.after = result.before - result.deleted.length + (dryRun ? 0 : result.created.length)
+  return result
 }

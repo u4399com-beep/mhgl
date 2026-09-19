@@ -146,6 +146,53 @@ const CIRCUIT_ERROR_LIMIT = 20
  *  站点级故障 2~3 轮内即熔断交由 autoRefresh 自愈 */
 const BOOK_CIRCUIT_ERROR_LIMIT = 20
 
+// ================== [R46-2a-1] 两阶段流水线(R46-2 用户指令) ==================
+// 用户指令: "先采集书籍+目录名把所有数据支持起来再去批量采集章节内容"。
+// 原 crawlOneBook(书籍页→目录→章节入库→正文批次全流程单书内串行, 范围任务逐本硬采)拆为:
+//  - crawlOneBookMeta: 书籍页+封面+建书+目录+章节记录入库(重排阶段A~E), 产出 BookCrawlCtx(正文队列+落库上下文);
+//    queue 为空(无新章/增量末章未变/跨源去重跳过)时直接收尾返回 'ok', 有新章返回 'deferred'+ctx
+//  - crawlBookContentsBatch: 接收【多本书】ctx, 合并章节队列跨书批量并发采正文(既有 threads/interval/
+//    hostgate/熔断/暂停停止/断点语义逐项保留), 逐书收尾
+// executeTask 书循环改为: 书级并发池跑 meta(并发度 BOOK_META_CONCURRENCY, 环境变量 CRAWL_BOOK_CONCURRENCY
+// 缺省 2 上限 4) → 批内 ctx 合并跑正文 → 下一批。批次大小 META_BATCH_SIZE(CRAWL_META_BATCH, 缺省 10)
+// 钳内存(ctx 队列不跨批累积)。语义保留: 完结跳过/连载增量检查/跨源去重/智能分类完结/书籍级+章节级熔断/
+// 在线调参/epoch 漂移让位。进度语义: booksDone 仍在书收尾时 +1; contentDone/contentTotal 变为批内跨书累计。
+/** 两阶段流水线: 元数据段(crawlOneBookMeta)产出、正文段(crawlBookContentsBatch)消费的跨段上下文 */
+interface BookCrawlCtx {
+  taskId: string
+  bookUrl: string
+  bookId: string
+  bookName: string
+  rule: RuleConfig
+  taskCfg: { id: string; ruleId: string; recrawlMode: string; storageMode: string; smartCategory: boolean; smartComplete: boolean; autoSuggest: boolean }
+  /** 待采正文章节队列(阶段A~E 重排后构建) */
+  queue: { chId?: string; title: string; url: string; volume: string; idx: number }[]
+  idMap: Map<string, string>
+  tocUrlRef: string
+  tocItems: TocItem[]
+  fetchCfg: Partial<FetchConfig>
+  contentFetchCfg: Partial<FetchConfig>
+  isFull: boolean
+  detectedStatus: 'completed' | 'ongoing' | 'unknown'
+  /** 正文段成功采完的章数(逐章累加), 完成日志与收尾统计用 */
+  doneCount: number
+}
+
+/** [R46-2a-1] 书级并发上限(元数据阶段书籍页/目录页并发度): 4GB 沙箱 + hostgate 同站闸门
+ *  已限同站并发, 书级 2 并发主要削"多本书顺序等待"的长尾; 上限 4 防内存(existChapters
+ *  每书最多 5 万行 ≈10MB)与请求面失控。环境变量 CRAWL_BOOK_CONCURRENCY 可调 */
+const BOOK_META_CONCURRENCY = (() => {
+  const n = Number(process.env.CRAWL_BOOK_CONCURRENCY)
+  return Number.isFinite(n) && n >= 1 && n <= 4 ? Math.floor(n) : 2
+})()
+/** [R46-2a-1] meta 批大小: 每批先并发跑 N 本的书籍页+目录(前台即刻可见), 再合并批内全部
+ *  章节队列跑正文批次, 完毕才进入下一批 —— "两阶段"在批粒度成立且 ctx/queue 内存有界。
+ *  环境变量 CRAWL_META_BATCH 可调(下限=并发数, 上限 50) */
+const META_BATCH_SIZE = (() => {
+  const n = Number(process.env.CRAWL_META_BATCH)
+  return Number.isFinite(n) && n >= BOOK_META_CONCURRENCY && n <= 50 ? Math.floor(n) : Math.max(10, BOOK_META_CONCURRENCY * 5)
+})()
+
 // ---------- [R28-4-E3] trafilatura 正文提取兜底(FETCH_EXTRACT_FALLBACK=1 缺省关) ----------
 /** 场景: 规则失效/站点改版/低质模板站时 parseContent 产出极短正文(confidence 低), 章节以
  *  近 0 字入库。开关开启后, plainLen<200 且 confidence<0.3 的章节把原始 HTML POST 给
@@ -1289,127 +1336,146 @@ export class TaskRunner {
       progress.phase = 'book'
       await this.saveProgress(taskId, progress, stats)
 
-      // ---------- 逐本采集 ----------
+      // ---------- [R46-2a-1] 两阶段流水线: 元数据并发池(书籍+目录全入库) → 正文合并批量采集 ----------
       // [R36-2c-4] 书籍级连续失败熔断计数(语义同章节级 consecutiveErrs): 严格连续 —— 任一
-      //  非失败结局(ok/blocked 之外的正常返回/跳过已完结)即归零; 停止/换代/引擎护栏超时
-      //  (AbortError/HostGateTimeout/GlobalSemTimeout)不计入(引擎侧拥塞非源站故障)
+      //  非失败结局(ok/deferred 之外的正常返回/跳过已完结)即归零; 停止/换代/引擎护栏超时
+      //  (AbortError/HostGateTimeout/GlobalSemTimeout)不计入(引擎侧拥塞非源站故障)。
+      //  并发池语义: 计数为共享变量(worker 并发推进下"严格连续"弱化为"窗口内连续", 熔断保护面不缩)
       let consecutiveBookErrs = 0
-      for (let bi = 0; bi < bookQueue.length; bi++) {
-        const bookUrl = bookQueue[bi]
+      for (let batchStart = 0; batchStart < bookQueue.length; batchStart += META_BATCH_SIZE) {
         if (rt.stopped || isStale()) break
         while (rt.paused && !rt.stopped && !isStale()) await sleep(600)
         if (rt.stopped || isStale()) break
 
-        // feat-contentproxy-resume + feat-combo-theme-incremental: 已完结书籍整体跳过
-        // —— 仅 status==='completed' 的书才会进 rt.completedBookUrls(完结书不会再有新章节);
-        // 连载中(status==='ongoing')的书在 rt.ongoingBookUrls 中, 不整体跳过, 走 crawlOneBook
-        // 的增量检查逻辑(抓目录→对比末章→无新章跳过/有新章增量采)。recrawlMode==='full' 启动时
-        // 两 Set 已被清空, 此分支不触发(完全覆盖重采语义保留)
-        if (rt.completedBookUrls.has(bookUrl)) {
-          progress.booksDone++
-          consecutiveBookErrs = 0 // [R36-2c-4] 跳过非失败, 连败计数归零
-          progress.currentBook = bookUrl
-          progress.phaseNote = `跳过已完结 (${bi + 1}/${bookQueue.length})`
-          await this.log(taskId, 'info', `跳过已完结: ${bookUrl}`)
-          // [R31-5-1] P1-1: 本分支不走 crawlOneBook, 列表字段永远无消费点 —— 不删则该书的
-          //  {name,author,intro,category} 条目滞留到 executeTask 结束(逐书累积)。此书本轮
-          //  已跳过, bookQueue 同轮去重不会再次入队, 删除无后续读者
-          listFields.delete(bookUrl)
-          await this.saveProgress(taskId, progress, stats)
-          continue
+        const batchSlice = bookQueue.slice(batchStart, batchStart + META_BATCH_SIZE)
+        const deferredCtxs: BookCrawlCtx[] = []
+        progress.phase = 'book'
+        progress.phaseNote = `元数据阶段(书籍+目录): 第 ${Math.floor(batchStart / META_BATCH_SIZE) + 1} 批 ${batchSlice.length} 本(总进度 ${batchStart + batchSlice.length}/${bookQueue.length})`
+        await this.saveProgress(taskId, progress, stats)
+
+        // ===== 阶段1: 书级并发池跑 crawlOneBookMeta(书籍页+封面+建书+目录+章节记录) =====
+        const metaPtr = { i: 0 }
+        // 熔断在并发 worker 内不能直接 throw(Promise.all 会立即 reject, 其余 worker 的在途
+        // 请求与收尾写库将与 executeTask 的 error 终态写竞态) —— 改为设置共享中止标志, 待
+        // 全部 worker 自然退出后再上抛(与原串行 throw 的"executeTask catch 接管"终点一致)
+        const metaAbort: { circuit: boolean; err: Error | null } = { circuit: false, err: null }
+        const metaWorker = async () => {
+          while (true) {
+            if (rt.stopped || isStale() || metaAbort.circuit) return
+            while (rt.paused && !rt.stopped && rt.epoch === myEpoch) await sleep(600)
+            if (rt.stopped || rt.epoch !== myEpoch || metaAbort.circuit) return
+            const bi = metaPtr.i++
+            if (bi >= batchSlice.length) return
+            const bookUrl = batchSlice[bi]
+
+            // feat-contentproxy-resume + feat-combo-theme-incremental: 已完结书籍整体跳过
+            // —— 仅 status==='completed' 的书才会进 rt.completedBookUrls(完结书不会再有新章节);
+            // 连载中(status==='ongoing')的书在 rt.ongoingBookUrls 中, 不整体跳过, 走 crawlOneBookMeta
+            // 的增量检查逻辑(抓目录→对比末章→无新章跳过/有新章增量采)。recrawlMode==='full' 启动时
+            // 两 Set 已被清空, 此分支不触发(完全覆盖重采语义保留)
+            if (rt.completedBookUrls.has(bookUrl)) {
+              progress.booksDone++
+              consecutiveBookErrs = 0 // [R36-2c-4] 跳过非失败, 连败计数归零
+              progress.currentBook = bookUrl
+              progress.phaseNote = `跳过已完结 (${bi + 1}/${bookQueue.length})`
+              await this.log(taskId, 'info', `跳过已完结: ${bookUrl}`)
+              // [R31-5-1] P1-1: 本分支不走 crawlOneBookMeta, 列表字段永远无消费点
+              listFields.delete(bookUrl)
+              await this.saveProgress(taskId, progress, stats)
+              continue
+            }
+
+            // 每本书重新读配置(支持在线调整)
+            cfg = await this.loadConfig(taskId)
+            if (!cfg) return
+            const rule = cfg.rule
+
+            // [R31-5-1] P1-1(审计 OOM 报告) 生命周期论证: 列表字段条目的全部消费点在 crawlOneBookMeta
+            //  内(形参 bookFields → 书名/简介/作者/分类兜底), 值在调用前已捕获到局部
+            //  变量(对象引用), 此刻从 Map 删除条目不影响本次调用(引用链由实参维持); bookQueue
+            //  同轮去重(Array.from(new Set))保证同 URL 不会二次入队, 删除后无任何后续读者。
+            const bookFields = listFields.get(bookUrl)
+            listFields.delete(bookUrl)
+
+            try {
+              progress.currentBook = bookUrl
+              progress.phaseNote = `元数据采集 (${bi + 1}/${bookQueue.length})`
+              await this.saveProgress(taskId, progress, stats)
+
+              const { result: bookResult, ctx: bookCtx } = await this.crawlOneBookMeta(
+                taskId, bookUrl, rule, cfg.fetchOverride, cfg.task, rt, myEpoch, progress, stats, cfg.threads, cfg.interval, bookFields
+              )
+              if (bookResult === 'blocked' || bookResult === 'empty-toc') {
+                // 跳过的书也计入已完成, 防 booksDone/booksTotal 进度条永远到不了头
+                progress.booksDone++
+                // [R36-2c-4] 拦截壳页计入书籍连败(请求成功但被反爬拦截, 与章节拦截同风险面);
+                //  empty-toc 可能是合法空书(书号模式撞无效书号/无章节书), 不计入
+                if (bookResult === 'blocked') consecutiveBookErrs++
+                else consecutiveBookErrs = 0
+              }
+              // [R36-2c-4] 采集成功(含 deferred: 元数据就绪待正文)归零连败
+              if (bookResult === 'ok' || bookResult === 'deferred') {
+                consecutiveBookErrs = 0
+              }
+              // feat-combo-theme-incremental: 状态分流由 crawlOneBookMeta/finishBookOk 内部完成;
+              // 'deferred' 书籍的 ctx 收集到本批正文池, 阶段2 统一跨书批量采
+              if (bookResult === 'deferred' && bookCtx) {
+                deferredCtxs.push(bookCtx)
+              }
+            } catch (e: any) {
+              if (isStale()) {
+                // jj-d: 本轮已被新一轮 start 取代(epoch 漂移) —— 进度/计数权归新循环, 旧循环
+                // 在此只吞异常
+              } else if (e?.isCircuitBreak) {
+                // tt-c: 熔断 —— 并发池不立即 throw(见 metaAbort 注), 记标志待全 worker 退出后上抛
+                metaAbort.circuit = true
+                metaAbort.err = e
+                return
+              } else if (e?.isFetchTimeout) {
+                // ee-d: 书籍页级 fetch 超时 —— 计失败+可见日志, 书籍保持未完成态, 稍后增量重试可恢复
+                stats.errors++
+                consecutiveBookErrs++ // [R36-2c-4]
+                await this.log(taskId, 'error', `书籍抓取超时(源站在 timeout 内未响应, 书籍保持未完成): ${bookUrl.slice(0, 120)}`)
+                await this.saveProgress(taskId, progress, stats)
+              } else if (e?.name === 'AbortError' || e?.code === 'ABORT_ERR') {
+                // 修复(x-a): stop/换代(abortAll)造成的在途中止不再计入失败
+                await this.saveProgress(taskId, progress, stats)
+              } else if (e?.name === 'HostGateTimeout' || e?.name === 'GlobalSemTimeout') {
+                // bb-d/[R31-3-2]: 同站闸门槽满等待超时/全局信号量超时 —— 引擎侧拥塞非源站故障,
+                // 不计 errors, 书籍保持未完成态, 稍后增量重试可恢复
+                await this.log(taskId, 'warn', `书籍采集等待引擎并发护栏超时(${e?.name === 'GlobalSemTimeout' ? '全局信号量' : `host:${hostGateKeyOf(bookUrl) || '未知'}, 该站在飞已达上限`}): ${bookUrl}; 书籍保持未完成, 稍后增量重试可恢复`)
+                await this.saveProgress(taskId, progress, stats)
+              } else {
+                stats.errors++
+                consecutiveBookErrs++ // [R36-2c-4]
+                await this.log(taskId, 'error', `书籍采集失败 ${bookUrl}: ${e?.message}`)
+                await this.saveProgress(taskId, progress, stats)
+              }
+            }
+            // [R36-2c-4] 书籍级连续失败熔断检查(每本末) —— 达阈值记标志停取新书
+            if (consecutiveBookErrs >= BOOK_CIRCUIT_ERROR_LIMIT && !metaAbort.circuit) {
+              rt.circuitTrippedAt = Date.now()
+              await this.log(taskId, 'error', `🔴 熔断中止: 连续 ${consecutiveBookErrs} 本书采集失败(源站超时/抓取异常/拦截), 停止继续请求以保护站点与出口 IP; autoRefresh 任务将按计划自动重试; 60s 冷却期内手动重启将被拒绝`)
+              await this.saveProgress(taskId, progress, stats)
+              metaAbort.circuit = true
+              metaAbort.err = new Error(`连续 ${consecutiveBookErrs} 本书采集失败, 触发书籍级连续错误熔断(阈值 ${BOOK_CIRCUIT_ERROR_LIMIT})`)
+              ;(metaAbort.err as { isCircuitBreak?: boolean }).isCircuitBreak = true
+              return
+            }
+            await sleepGap(cfg.interval(), rt, myEpoch)
+          }
         }
+        await Promise.all(Array.from({ length: Math.min(BOOK_META_CONCURRENCY, batchSlice.length) }, () => metaWorker()))
+        // [R46-2a-1] 全 worker 退出后统一上抛熔断(终点与原串行 throw 一致: executeTask catch 转 error 终态)
+        if (metaAbort.circuit && metaAbort.err) throw metaAbort.err
 
-        // 每本书重新读配置(支持在线调整)
-        cfg = await this.loadConfig(taskId)
-        if (!cfg) break
-        const rule = cfg.rule
-
-        // [R31-5-1] P1-1(审计 OOM 报告) 生命周期论证: 列表字段条目的全部消费点在 crawlOneBook
-        //  内(形参 bookFields → 书名/简介/作者/分类兜底, crawlOneBook 头部 :1407-1419), 值在调用前已捕获到局部
-        //  变量(对象引用), 此刻从 Map 删除条目不影响本次调用(引用链由实参维持); bookQueue
-        //  同轮去重(Array.from(new Set))保证同 URL 不会二次入队, 删除后无任何后续读者。
-        //  修前条目滞留至 executeTask 结束: 50万书 × ~300B(intro 未截断) ≈ 150MB/任务
-        const bookFields = listFields.get(bookUrl)
-        listFields.delete(bookUrl)
-
-        try {
-          progress.currentBook = bookUrl
-          progress.phaseNote = `采集书籍 (${bi + 1}/${bookQueue.length})`
-          await this.saveProgress(taskId, progress, stats)
-
-          const bookResult = await this.crawlOneBook(
-            taskId, bookUrl, rule, cfg.fetchOverride, cfg.task, rt, myEpoch, progress, stats, cfg.threads, cfg.interval, bookFields
-          )
-          // Bug 26: 删除 'paused-return' 死分支 —— grep crawlOneBook 全路径返回值仅
-          // 'stopped'/'blocked'/'empty-toc'/'ok', 从不返回 'paused-return'(暂停由外层循环
-          // waitIfPaused/sleepGap 检查点接管, 本书直接 return 'stopped' 或继续走正文批次)
-          if (bookResult === 'blocked' || bookResult === 'empty-toc') {
-            // 跳过的书也计入已完成, 防 booksDone/booksTotal 进度条永远到不了头
-            progress.booksDone++
-            // [R36-2c-4] 拦截壳页计入书籍连败(请求成功但被反爬拦截, 与章节拦截同风险面);
-            //  empty-toc 可能是合法空书(书号模式撞无效书号/无章节书), 不计入
-            if (bookResult === 'blocked') consecutiveBookErrs++
-            else consecutiveBookErrs = 0
-          }
-          // [R36-2c-4] 采集成功归零连败
-          if (bookResult === 'ok') {
-            consecutiveBookErrs = 0
-          }
-          // feat-combo-theme-incremental: 状态分流由 crawlOneBook 内部完成 ——
-          // detectedStatus==='completed' 时 crawlOneBook 已将 bookUrl 加入 rt.completedBookUrls;
-          // detectedStatus==='ongoing'/'unknown' 时加入 rt.ongoingBookUrls + 记录末章 URL。
-          // 'blocked'/'empty-toc'/'stopped' 不入任何集合(章节保持未采态, 本进程后续增量轮
-          // 可补; 范围任务【重启】后的重访受 discovered 跳过语义约束 —— R18-c 已知边界留档)。
-          // 本处仅触发
-          // saveProgress 把 Set/Map 落库, 不再硬塞 completedBookUrls(避免连载书被误判完结整体跳过)
-          if (bookResult === 'ok') {
-            await this.saveProgress(taskId, progress, stats)
-          }
-        } catch (e: any) {
-          if (isStale()) {
-            // jj-d: 本轮已被新一轮 start 取代(epoch 漂移) —— 进度/计数权归新循环, 旧循环
-            // 在此只吞异常; 修前旧循环在途抓取抛错仍 saveProgress, 新一轮刚写入的进度被旧对象回滚
-          } else if (e?.isCircuitBreak) {
-            // tt-c: 熔断错误上抛到任务级 —— 多书任务同样立即终止(同站其余书籍必然同样失败,
-            // 逐书硬敲无意义), 由外层 catch 统一转 error 终态 + autoRefresh 重排自愈
-            throw e
-          } else if (e?.isFetchTimeout) {
-            // ee-d: 书籍页级 fetch 超时 —— 计失败+可见日志(与列表页路径口径一致),
-            // 书籍保持未完成态, 稍后增量重试可恢复
-            stats.errors++
-            consecutiveBookErrs++ // [R36-2c-4]
-            await this.log(taskId, 'error', `书籍抓取超时(源站在 timeout 内未响应, 书籍保持未完成): ${bookUrl.slice(0, 120)}`)
-            await this.saveProgress(taskId, progress, stats)
-          } else if (e?.name === 'AbortError' || e?.code === 'ABORT_ERR') {
-            // 修复(x-a): stop/换代(abortAll)造成的在途中止不再计入失败 —— 原先点一次停止
-            // 批量刷"书籍采集失败:抓取已中止(signal)"错误日志+errors 虚高; 中止语义由
-            // 任务状态机接管, 章节保持 fetched=false 语义不变, 下次增量照常优先重采
-            await this.saveProgress(taskId, progress, stats)
-          } else if (e?.name === 'HostGateTimeout' || e?.name === 'GlobalSemTimeout') {
-            // bb-d: 同站闸门槽满等待超时(hostGate 限流保护, 非源站故障) — 与中止同口径
-            // 不计 errors, 书籍保持未完成态, 稍后增量重试可恢复
-            // [R31-3-2] GlobalSemTimeout 同款豁免(R30-3b 遗留①): 全局信号量 30s 等待超时同为
-            //  引擎侧拥塞, 与章节 catch(:2122 附近)既有双豁免对齐, 修前落 else 计 errors 喂脏熔断链
-            await this.log(taskId, 'warn', `书籍采集等待引擎并发护栏超时(${e?.name === 'GlobalSemTimeout' ? '全局信号量' : `host:${hostGateKeyOf(bookUrl) || '未知'}, 该站在飞已达上限`}): ${bookUrl}; 书籍保持未完成, 稍后增量重试可恢复`)
-            await this.saveProgress(taskId, progress, stats)
-          } else {
-            stats.errors++
-            consecutiveBookErrs++ // [R36-2c-4]
-            await this.log(taskId, 'error', `书籍采集失败 ${bookUrl}: ${e?.message}`)
-            await this.saveProgress(taskId, progress, stats)
-          }
+        // ===== 阶段2: 批内 deferred ctx 合并, 跨书批量并发采正文 =====
+        // (任务被删时 loadConfig 恒 null → cfg 可能已为 null, 不再有能力采正文, 直接终止本批)
+        if (deferredCtxs.length > 0 && cfg && !rt.stopped && !isStale()) {
+          await this.log(taskId, 'info', `📦 批次正文阶段: 本批 ${deferredCtxs.length} 本书元数据已入库, 开始批量采集章节内容(${deferredCtxs.reduce((s, c) => s + c.queue.length, 0)} 章)`)
+          const contentResult = await this.crawlBookContentsBatch(deferredCtxs, rt, myEpoch, progress, stats, cfg.threads, cfg.interval)
+          if (contentResult === 'stopped') break
         }
-        // [R36-2c-4] 书籍级连续失败熔断检查(每本末, 语义同章节熔断) —— 达阈值即中止:
-        //  防死站/全站拦截时按 bookQueue 逐本硬敲到底(范围模式 10 万本/书号模式 2000 本)
-        if (consecutiveBookErrs >= BOOK_CIRCUIT_ERROR_LIMIT) {
-          rt.circuitTrippedAt = Date.now()
-          await this.log(taskId, 'error', `🔴 熔断中止: 连续 ${consecutiveBookErrs} 本书采集失败(源站超时/抓取异常/拦截), 停止继续请求以保护站点与出口 IP; autoRefresh 任务将按计划自动重试; 60s 冷却期内手动重启将被拒绝`)
-          await this.saveProgress(taskId, progress, stats)
-          const bookCbErr = new Error(`连续 ${consecutiveBookErrs} 本书采集失败, 触发书籍级连续错误熔断(阈值 ${BOOK_CIRCUIT_ERROR_LIMIT})`)
-          ;(bookCbErr as any).isCircuitBreak = true
-          throw bookCbErr
-        }
-        await sleepGap(cfg.interval(), rt, myEpoch)
       }
 
       // ---------- 结束 ----------
@@ -1585,8 +1651,11 @@ export class TaskRunner {
     }
   }
 
-  // ================== 单本书采集 ==================
-  private async crawlOneBook(
+  // ================== 单本书采集 · 元数据段 [R46-2a-1] ==================
+  /** 元数据段: 书籍页→封面→建书→目录→章节记录入库(A~E 重排)。
+   *  返回 result: 'stopped'(停止/漂移) | 'blocked'(拦截壳页) | 'empty-toc'(空目录) |
+   *  'ok'(无正文待采, 已收尾) | 'deferred'(有正文待采, ctx 携带跨段上下文) */
+  private async crawlOneBookMeta(
     taskId: string,
     bookUrl: string,
     rule: RuleConfig,
@@ -1599,7 +1668,7 @@ export class TaskRunner {
     nextThreads: () => number,
     nextInterval: () => number,
     listFields?: { name?: string; author?: string; intro?: string; category?: string }
-  ): Promise<string> {
+  ): Promise<{ result: 'stopped' | 'blocked' | 'empty-toc' | 'ok' | 'deferred'; ctx?: BookCrawlCtx }> {
     // jj-d: myEpoch 改由调用方(executeTask)传入 —— 修前在此重新捕获 rt.epoch, stop→start
     // 恰落在 executeTask 捕获点与本函数调用点之间的 await 窗口(loadConfig/saveProgress,
     // 数毫秒)时, 旧循环会绑定【新一轮】epoch 而永不检出漂移, 双循环并发采集同一任务,
@@ -1611,7 +1680,7 @@ export class TaskRunner {
 
     // ---------- 1. 书籍信息页 ----------
     await waitIfPaused()
-    if (rt.stopped || rt.epoch !== myEpoch) return 'stopped'
+    if (rt.stopped || rt.epoch !== myEpoch) return { result: 'stopped' }
     // ab-b: 书籍页同为采集目标站请求, 同款传当次随机 interval 作同 host 准入最小间隔
     // (逐次重新取值, 在线调参语义与章节批次/列表页一致; 关闭 zz-b 遗留"不传=0 瞬时解除节流"缺口)
     const bookRes = await this.gateFetch(taskId, bookUrl, { ...buildFetch(rule, fetchOverride) }, { minGapMs: nextInterval() })
@@ -1623,7 +1692,7 @@ export class TaskRunner {
     if (bookBlocked) {
       stats.errors++
       await this.log(taskId, 'error', `书籍页疑似被拦截(验证码/JS挑战), 跳过本书: ${bookUrl}`)
-      return 'blocked'
+      return { result: 'blocked' }
     }
     await this.log(taskId, 'info', `书籍页: ${bookUrl} (引擎:${bookRes.engine}, ${bookRes.html.length}字节)`)
     const parsed = parseBook(bookRes.html, bookUrl, rule.book)
@@ -1785,7 +1854,7 @@ export class TaskRunner {
 
     // ---------- 4. 目录页(预留分页 + 乱序重排 + 去重) ----------
     await waitIfPaused()
-    if (rt.stopped || rt.epoch !== myEpoch) return 'stopped'
+    if (rt.stopped || rt.epoch !== myEpoch) return { result: 'stopped' }
     const fetchCfgBase = buildFetch(rule, fetchOverride)
     // ff-b②: Referer 链伪造(规则 fetch.refererChain=true 时生效) —— 目录/章节请求携带
     // 书籍页 URL 作 Referer(真实"上一级页面"同链路语义, 很多站校验 Referer 同域/同链路);
@@ -1883,7 +1952,7 @@ export class TaskRunner {
 
     // 检查点: extractToc 内含多次 fetchPage(tocLink/翻页, 可达数十秒), 暂停/停止/新轮启动要及时生效
     await waitIfPaused()
-    if (rt.stopped || rt.epoch !== myEpoch) return 'stopped'
+    if (rt.stopped || rt.epoch !== myEpoch) return { result: 'stopped' }
 
     // 反反爬增强: HTTP 引擎拿到的书籍页对 AJAX 目录站(ixdzs/101kks 系)只含部分章节甚至为空,
     // 且页面本身不触发拦截特征 → auto 链路不会自动切浏览器; browser 引擎规则也可能因瞬时
@@ -1908,11 +1977,11 @@ export class TaskRunner {
     }
     // 检查点: 浏览器重取同为长操作(渲染+稳定采样可达 40s+), 采纳结果/入库前再查一次
     await waitIfPaused()
-    if (rt.stopped || rt.epoch !== myEpoch) return 'stopped'
+    if (rt.stopped || rt.epoch !== myEpoch) return { result: 'stopped' }
 
     if (tocItems.length === 0) {
       await this.log(taskId, 'error', `《${bookName}》目录为空, 跳过正文采集`)
-      return 'empty-toc'
+      return { result: 'empty-toc' }
     }
 
     // 最终完结判定(目录末章)
@@ -1948,7 +2017,7 @@ export class TaskRunner {
         this.shuntBookStatus(rt, bookUrl, detectedStatus, currentLastChapterUrl)
         progress.booksDone++
         await this.saveProgress(taskId, progress, stats)
-        return 'ok'
+        return { result: 'ok' }
       }
       // 末章 URL 不同 → 有新章节, 继续走下方增量采集(existUrlMap 自动跳过已采过的)
       if (currentLastChapterUrl) {
@@ -1985,7 +2054,7 @@ export class TaskRunner {
         this.shuntBookStatus(rt, bookUrl, detectedStatus, tocItems[tocItems.length - 1]?.url)
         progress.booksDone++
         await this.saveProgress(taskId, progress, stats)
-        return 'ok'
+        return { result: 'ok' }
       }
       // 本源章数更多 → 增量合并新章, 继续走下方章节入库流程(existUrlMap 跳过既有章)
       await this.log(
@@ -2087,7 +2156,7 @@ export class TaskRunner {
     //  用户点"停止"信号需在每个阶段入口尽快生效, 避免无响应窗口; 若已停止则记日志并直接 return。
     if (rt.stopped || rt.epoch !== myEpoch) {
       await this.log(taskId, 'info', '阶段A: 任务已停止, 中止章节重排').catch(() => {})
-      return 'stopped'
+      return { result: 'stopped' }
     }
     for (let mi = 0; mi < moves.length; mi++) {
       // Bug 5: 阶段A .catch 改为 swallowExpectedDb —— 仅放行 P2025(记录已删)/P2002(瞬态撞位),
@@ -2107,7 +2176,7 @@ export class TaskRunner {
     // R5-9/R5-10: 阶段B 入口 stop/epoch 检查(同阶段A)
     if (rt.stopped || rt.epoch !== myEpoch) {
       await this.log(taskId, 'info', '阶段B: 任务已停止, 中止章节重排').catch(() => {})
-      return 'stopped'
+      return { result: 'stopped' }
     }
     for (const c of existChapters) {
       if (movedIds.has(c.id)) continue
@@ -2125,7 +2194,7 @@ export class TaskRunner {
     // R5-9/R5-10: 阶段C 入口 stop/epoch 检查(万章级 creates 循环可达分钟级)
     if (rt.stopped || rt.epoch !== myEpoch) {
       await this.log(taskId, 'info', '阶段C: 任务已停止, 中止章节重排').catch(() => {})
-      return 'stopped'
+      return { result: 'stopped' }
     }
     for (const q of creates) {
       try {
@@ -2161,7 +2230,7 @@ export class TaskRunner {
     // R5-9/R5-10: 阶段D 入口 stop/epoch 检查(同阶段A/B/C)
     if (rt.stopped || rt.epoch !== myEpoch) {
       await this.log(taskId, 'info', '阶段D: 任务已停止, 中止章节重排').catch(() => {})
-      return 'stopped'
+      return { result: 'stopped' }
     }
     for (const mv of moves) {
       // Bug 5: 阶段D .catch 改为 swallowExpectedDb(同阶段A/B口径)
@@ -2180,7 +2249,7 @@ export class TaskRunner {
     // R5-9/R5-10: 阶段E 入口 stop/epoch 检查(避免停止后仍跑 deleteMany)
     if (rt.stopped || rt.epoch !== myEpoch) {
       await this.log(taskId, 'info', '阶段E: 任务已停止, 跳过尾部陈旧章清理').catch(() => {})
-      return 'stopped'
+      return { result: 'stopped' }
     }
     const currentUrls = tocItems.map((it) => it.url).filter(Boolean)
     if (currentUrls.length > 0) {
@@ -2204,270 +2273,31 @@ export class TaskRunner {
       }
     }
 
-    progress.phase = 'content'
-    progress.tocTotal = tocItems.length
-    progress.contentDone = 0
-    progress.contentTotal = queue.length
-    progress.currentBook = bookName
-    progress.phaseNote = `正文采集: ${bookName} (${queue.length}章待采)`
-    await this.saveProgress(taskId, progress, stats)
-    await this.log(taskId, 'info', `正文队列: ${queue.length}/${tocItems.length} 章需要采集 (${isFull ? '完全覆盖' : '增量更新'})`)
-
-    // ---------- 多线程批次采集 ----------
-    let done = 0
-    // tt-c: 任务级连续错误熔断 —— 连续真实章节失败(源站超时/抓取异常, 不含无链接/HostGate限流/停止中止)
-    // 达阈值即中止本书后续请求: 防止站点改版/被反爬拦截时引擎无休止硬敲(烧站点+烧出口IP),
-    // 同时把任务推向 error 终态(autoRefresh 任务会按计划自动重试, 站点恢复后自愈)
-    // [R22-f-1]: live 状态读失败节流标志(仅状态翻转时打一条, 防 DB 长故障期每 2s 一条刷屏)
-    let liveReadFailed = false
-    let consecutiveErrs = 0
-    while (queue.length > 0) {
-      if (rt.stopped || rt.epoch !== myEpoch) break
-      while (rt.paused && !rt.stopped && rt.epoch === myEpoch) await sleep(600)
-      if (rt.stopped || rt.epoch !== myEpoch) break
-
-      // 在线调参即时生效: 每批次实时读任务行(原来用书首快照, 大部头中途调线程/间隔要等下一本书才生效)
-      let threads = nextThreads()
-      let interval = nextInterval()
-      // Bug 19: DB 读取独立 try/catch —— 修前 findUnique 抛错时被外层 catch 吞, 顺带走到
-      // queue.splice 处理一个批次(无法确认任务非暂停即推进采集, 与"暂停不处理批次"语义冲突)。
-      // [R22-f-1](Med) 修复 Bug 19 修复自身引入的静默死锁: 旧实现读取失败时置 rt.paused=true
-      //  再 continue, 但下一轮迭代先经过循环顶部暂停等待(同 rt.paused 门控) —— 该标志仅有
-      //  两个复位点: control('start') 恢复(需操作员介入)与本函数 live 读取成功后的清除,
-      //  而后者在暂停等待让路前永不可达 → 一次瞬时 DB 故障(SQLite busy/连接抖动)即令批次
-      //  循环在暂停等待处永久阻塞且无任何后续日志(ghost sweeper 也因 isRunning()===true
-      //  不回收, DB 又是 running) —— 注释承诺的"60s 循环周期内自愈"实际不成立。修后:
-      //  不触碰 rt.paused(操作员暂停/恢复内存信号不被污染), 有界退避 2s 后重读; 期间不
-      //  splice 批次(保留 Bug 19 的"无法确认非暂停就不推进采集"语义), 停止/暂停/换代在
-      //  sleepGap 内照常即时生效, DB 恢复后 2s 内自动续采
-      let live
-      try {
-        live = await db.task.findUnique({
-          where: { id: taskId },
-          select: { threadMin: true, threadMax: true, intervalMin: true, intervalMax: true, status: true },
-        })
-      } catch {
-        // DB 读取失败: 跳过本批次不推进采集(不确认非暂停就不处理), 有界退避后重试
-        if (!liveReadFailed) {
-          liveReadFailed = true
-          await this.log(taskId, 'warn', '任务状态读取失败(DB 故障), 批次推进挂起(2s 退避重试, DB 恢复后自动续采)').catch(() => {})
-        }
-        await sleepGap(2000, rt, myEpoch)
-        continue
-      }
-      if (liveReadFailed) liveReadFailed = false
-      if (live) {
-        // DB 状态守卫: 外部把任务改 paused/stopped(recoverOnBoot/管理操作)时, 内存循环同步停下,
-        // 防止"内存运行中/DB已暂停"的僵尸状态各自为政
-        if (live.status === 'stopped') { rt.stopped = true; rt.paused = false; break }
-        if (live.status === 'paused') {
-          if (!rt.paused) {
-            rt.paused = true
-            await this.log(taskId, 'warn', '检测到任务状态为暂停, 批次循环挂起(点击继续可恢复)')
-          }
-          continue
-        }
-        // [R22-f-1] 兜底复位内存暂停标志: [R22-f-1] 后 rt.paused 不再由 DB 读取失败置位,
-        // 只可能来自外部 DB 暂停同步(上方 live.status==='paused' 分支, 该分支 continue 不会
-        // 走到这里)或恰在本轮迭代间隙落地的操作员暂停(微秒窗口) —— 读到非暂停态即复位,
-        // 竞态代价最多多推进一个批次, 下一轮 live 守卫立即重新同步
-        if (rt.paused) rt.paused = false
-        threads = randInt(clampMin(live.threadMin, live.threadMax), live.threadMax)
-        interval = randInt(clampMin(live.intervalMin, live.intervalMax), live.intervalMax)
-      }
-      const batch = shuffleBatch(queue.splice(0, threads)) // [R36-2c-8] 批内顺序随机化(缺省关)
-      progress.lastThread = threads
-      progress.lastInterval = interval
-      await this.log(taskId, 'info', `⚙ 线程批次: ${threads} 线程 × ${batch.length} 章`)
-
-      await Promise.all(
-        batch.map(async (q) => {
-          try {
-            // 无URL章节(纯标题项/javascript:链接被 absolutize 置空): 无法抓取,
-            // 保持未采集状态即可 —— 原实现照样 fetchPage('') 每批报 "Obscura: 无效 URL" 噪音错误
-            if (!q.url) {
-              stats.errors++
-              await this.log(taskId, 'warn', `章节无有效链接, 跳过: ${q.title.slice(0, 60)}`)
-              done++
-              progress.contentDone = done
-              return
-            }
-            // ff-b② 接线补全(gg-d): 章节请求同样携带 refererUrl=bookUrl —— 原先用
-            // buildFetch(rule, fetchOverride) 原面, refererChain:true 时章节(数量最大的
-            // 请求面)Referer 回退站点 origin, "目录/章节请求全链路"存档口径只有目录生效
-            // (修前实证 verify-gg-d-referer-chain A3b); fetchCfg 未启用链时 === 原面(零回归)
-            // zz-b: 当批随机间隔既作批次间 sleepGap 又作同 host 准入最小间隔 —— 同批多章
-            // 请求同一 host 时按 minGapMs 排队节奏出门(在线调参改 intervalMin/Max 立即生效:
-            // 本批 interval 变量已被上方 live 读取覆盖), 不再背靠背轰出去
-            //
-            // feat-round-8: B1 — 请求抖动随机化(per-chapter ±20% 抖动 + 可选 jitterMs)
-            // 每章独立计算 minGapMs: base * (0.8 + random*0.4) ∈ [80%, 120%] base;
-            // 若 cfg.fetch.jitterMs > 0, 额外叠加 0~jitterMs 随机抖动。同批多章并行时
-            // 每章节奏独立不规则, 击败简单 rate-pattern 检测(固定 interval 配置下也变化)。
-            // 该抖动 IN ADDITION TO hostGate 的 minGapMs 闸门(hostGate 实际执行 jitteredMinGap)
-            //
-            // feat-cloak-anticrawler J: 章节请求 Referer 强制使用 tocUrlRef(目录页 URL)而非
-            // bookUrl(书籍页) —— 真实浏览器从目录页点击进入章节, Referer 应是目录页不是书籍页。
-            // tocUrlRef 已在 extractToc 调用后赋值(tocLink URL / baseUrl / 嗅探到的目录 URL);
-            // 即使 refererChain 关闭, 章节请求也强制注入 refererUrl=tocUrlRef + refererChain=true
-            // (buildHeaders 只在 refererChain=true 时使用 refererUrl 作 Referer, 故此处需强制置 true
-            // 让"章节内容请求始终携带 TOC 页 Referer"语义生效; 其他请求面仍按规则配置)
-            // fallback: tocUrlRef 缺失时退回 bookUrl(零回归)
-            const contentRefererUrl = tocUrlRef || bookUrl
-            const contentFetchCfgWithReferer: Partial<FetchConfig> = {
-              ...fetchCfg,
-              refererUrl: contentRefererUrl,
-              refererChain: true,
-            }
-            // [R30-3-E-D] host 行为分自适应(FETCH_ADAPTIVE_GAP=1 缺省关): 该 host 近期 403/429
-            // 连败≥2(对抗态)时间隔整体拉长一档(×2), 其余 ×1; 与 hostgate 降额/惩罚窗互补,
-            // 双开叠加生效。关闭时倍率恒 1, 与旧值逐字节一致
-            const jitteredMinGap = Math.round(jitteredInterval(interval, fetchCfg.jitterMs) * hostAdaptiveGapMultiplier(q.url))
-            const pageRes = await this.gateFetch(taskId, q.url, contentFetchCfgWithReferer, { minGapMs: jitteredMinGap })
-            // 疑似被拦不入库: 保持 fetched=false, 下次增量自动重试; 合法JSON体是API数据非挑战页, 放行
-            if (pageRes.blocked && parseJsonBody(pageRes.html) === undefined) throw new Error('章节页疑似被拦截(验证码/JS挑战)')
-            const parsedC = await parseContent(q.url, pageRes.html, rule.content, contentFetchCfg)
-            // [R28-4-E3] cleaned/plainLen 改 let: trafilatura 兜底采纳时被替换(下方)
-            let cleaned = cleanContentHtml(parsedC.content, rule.clean)
-            let plainLen = cleaned.replace(/<[^>]+>/g, '').length
-            // [R28-4-E3] trafilatura 正文兜底(FETCH_EXTRACT_FALLBACK=1 缺省关): 极短正文 +
-            // 低置信度时 POST 桥 /extract 重提取; 产物重过 cleanContentHtml 且 plainLen≥100
-            // 才采纳(保底长度闸), 日志显式记录兜底来源。失败静默落原 cleaned(不阻断)
-            if (FETCH_EXTRACT_FALLBACK_ENABLED && plainLen < 200 && (parsedC.confidence ?? 1) < 0.3) {
-              const fbHtml = await trafilaturaExtractFallback(q.url, pageRes.html, contentFetchCfg.scraplingBridgeUrl || '')
-              if (fbHtml) {
-                const cleanedFb = cleanContentHtml(fbHtml, rule.clean)
-                const plainFb = cleanedFb.replace(/<[^>]+>/g, '').length
-                if (plainFb >= FETCH_EXTRACT_MIN_PLAIN) {
-                  await this.log(taskId, 'warn', `正文过短(${plainLen} chars, confidence=${(parsedC.confidence ?? 1).toFixed(2)}), trafilatura 兜底提取 ${plainFb} chars: ${q.url.slice(0, 120)}`)
-                  cleaned = cleanedFb
-                  plainLen = plainFb
-                }
-              }
-            }
-            const chId0 = q.chId || idMap.get(q.url)
-            let rel: string | null = null
-            // oo-①修复(qq-c收编): 内容保存路径的 chapter.update 此前无 catch —— 章节行在
-            // 任务运行中被并发删除(删书/清空章节/另一任务重采同书)时 Prisma 抛 P2025
-            // "Invalid prisma.chapter.update() invocation: An operation failed because it
-            // depends on one or more records..." 且整章记 error。重排段四处早已 .catch()
-            // 防护, 唯独此处漏网。现改为: update 失败(P2025 行已删等)不抛, 落到下方 create
-            // 兜底重建该章(内容不丢失); create 自身失败仍走外层 catch 计 error(真 DB 故障不吞)
-            let chId: string | null | undefined = chId0
-            if (taskCfg.storageMode === 'txt') {
-              // [R13-5] txt 落盘文本转换: cleaned 是清洗后的 HTML(p 段落结构), 旧实现裸剥
-              // 标签 "<p>段1</p><p>段2</p>"→"段1段2"整章粘连(HTML 模式规则 + txt 存储
-              // 段落全丢, plainText 规则因产物本就是 \n\n 文本而幸免)。与 downloader
-              // .stripHtmlToText / cleaner 纯文本模式同口径: br/块级闭标签 → \n 再剥标签
-              rel = await saveChapterTxt(bookId, q.idx, q.title, cleaned
-                .replace(/<\s*br\s*\/?>/gi, '\n')
-                .replace(/<\/(p|div|h[1-6]|li)>/gi, '\n')
-                .replace(/<[^>]+>/g, '')
-                .replace(/\n{3,}/g, '\n\n'))
-              if (chId) {
-                const updated = await db.chapter.update({
-                  where: { id: chId },
-                  data: { content: null, filePath: rel, storage: 'txt', wordCount: plainLen, fetched: true },
-                }).then(() => true).catch(() => false)
-                if (!updated) chId = null
-              }
-            } else {
-              if (chId) {
-                const updated = await db.chapter.update({
-                  where: { id: chId },
-                  data: { content: cleaned, storage: 'db', wordCount: plainLen, fetched: true },
-                }).then(() => true).catch(() => false)
-                if (!updated) chId = null
-              }
-            }
-            if (!chId) {
-              // 兜底: 直接建(filePath 用已写盘的 rel, 原占位 '待补' 会让公开API读不到文件)
-              // zz-d: 去掉 .catch(()=>{}) 吞错 —— create 失败(P2025 书被删/真 DB 故障)必须落
-              // 外层计 error + 连败熔断推进, 修前虚记成功致该章内容静默丢失(与 oo-① 注释
-              // "create 自身失败仍走外层 catch 计 error" 的声明对齐)
-              await db.chapter.create({
-                data: {
-                  bookId, idx: q.idx, title: q.title, url: q.url, volume: q.volume,
-                  content: taskCfg.storageMode === 'txt' ? null : cleaned,
-                  filePath: rel,
-                  storage: taskCfg.storageMode,
-                  wordCount: plainLen, fetched: true,
-                },
-              })
-            }
-            stats.chaptersUpdated++
-            consecutiveErrs = 0
-            done++
-            progress.contentDone = done
-            // R8-5: throttle saveProgress from every 10 chapters to every 50 chapters.
-            // 旧实现 done%10===0 触发 saveProgress, 50000 章 = 5000 次序列化(每次 O(N) 12MB),
-            // 累计数小时纯 JSON.stringify 工作; done%50===0 把调用次数降到 1/5, 总序列化开销降 80%。
-            // book 边界 / 任务完成 / 错误熔断 / 章节完成(contentTotal) 等其他检查点保持原行为不变。
-            if (done % 50 === 0 || done === progress.contentTotal) {
-              await this.saveProgress(taskId, progress, stats)
-            }
-          } catch (e: any) {
-            if (e?.isFetchTimeout) {
-              // ee-d: 源站超时不再被 x-a 停止豁免分支静默吞掉(修前: 零日志/不计 errors/
-              // 慢站对 hostGate 不可见) —— 计失败+可见日志(与列表页/浏览器链 TimeoutError 口径一致),
-              // 章节保持 fetched=false, 增量重试照常优先; hostGate 连败已由 gateFetch 统一喂
-              stats.errors++
-              consecutiveErrs++
-              await this.log(taskId, 'error', `章节失败(源站超时) ${q.title.slice(0, 60)}: ${q.url.slice(0, 120)}`)
-            } else if (e?.name === 'AbortError' || e?.code === 'ABORT_ERR') {
-              // 修复(x-a): 停止/换代造成的中止不计章节失败(防停止时批量刷错误+errors虚高)
-              // 章节保持 fetched=false, 下次增量照常优先重采
-            } else if (e?.name === 'HostCircuitOpen') {
-              // [R28-4-E1] host 级熔断快速失败: 403 连败长静默期间新请求毫秒级被拒 —— 引擎侧
-              // 闸门行为而非源站故障, 不计 errors/不计连败; 章节保持 fetched=false, 熔断解除后
-              // 增量重试可恢复。日志节流(同 host 1min 至多 1 条)防千章任务刷屏
-              {
-                const hkey = hostGateKeyOf(q.url)
-                const last = hostCircuitWarnAt.get(hkey) || 0
-                if (Date.now() - last > 60_000) {
-                  numberMapFifoSet(hostCircuitWarnAt, hkey, Date.now(), HOST_CIRCUIT_WARN_CAP) // [R30-3-2] 有界写入
-                  await this.log(taskId, 'warn', `章节批量跳过: host 级熔断中(${hkey || '未知'}, 源站 403 连败长静默), 章节保持未采集; 熔断解除后增量重试可恢复`)
-                }
-              }
-            } else if (e?.name === 'HostGateTimeout' || e?.name === 'GlobalSemTimeout') {
-              // bb-d: 同站并发闸门槽满等待超时 / [R30-3-3] 全局并发信号量等待超时 —— 两者均为
-              // 引擎侧并发护栏(源站无关), 不计 errors/不计源站连续失败; 章节保持 fetched=false,
-              // 稍后增量重试可恢复。修前 GlobalSemTimeout 落 else 分支计失败+喂熔断链,
-              // 多任务并行信号量打满时可把健康任务误熔断(错误分类漂移)
-              await this.log(taskId, 'warn', `章节 ${q.title.slice(0, 60)} 引擎并发护栏等待超时(${e?.name === 'GlobalSemTimeout' ? '全局信号量' : `host:${hostGateKeyOf(q.url) || '未知'}`}), 章节保持未采集; 稍后增量重试可恢复`)
-            } else {
-              stats.errors++
-              consecutiveErrs++
-              // [R12-b-7] 错误响应体摘要: fetcher !res.ok 抛错时响应体挂 err.bodyHtml(如转换代理
-              // 的 401 配置指引 JSON), 只记 message 会让操作员只见 "HTTP 502" 无从下手;
-              // 摘要压平空白+掐 220 字符(挑战壳页也是大 HTML, 防日志刷屏; TaskLog 单条上限 1500)
-              const bodySnippet = String((e as { bodyHtml?: unknown })?.bodyHtml ?? '')
-                .replace(/\s+/g, ' ')
-                .trim()
-                .slice(0, 220)
-              await this.log(taskId, 'error', `章节失败 ${q.title}: ${e?.message?.slice(0, 100)}${bodySnippet ? ` | 响应体: ${bodySnippet}` : ''}`)
-            }
-          }
-        })
-      )
-      // tt-c: 连续错误熔断检查(每批次末) —— 达阈值即刻中止, 不再继续敲站点
-      if (consecutiveErrs >= CIRCUIT_ERROR_LIMIT) {
-        // E4: 记录熔断触发时间戳, control('start') 入口检查 60s 冷却窗口期内拒绝重启
-        rt.circuitTrippedAt = Date.now()
-        await this.log(taskId, 'error', `🔴 熔断中止: 连续 ${consecutiveErrs} 章采集失败(上游站点异常/被反爬拦截), 停止继续请求以保护站点与出口 IP; autoRefresh 任务将按计划自动重试; 60s 冷却期内手动重启将被拒绝`)
-        await this.saveProgress(taskId, progress, stats)
-        const cbErr = new Error(`连续 ${consecutiveErrs} 章采集失败, 触发连续错误熔断(阈值 ${CIRCUIT_ERROR_LIMIT})`)
-        ;(cbErr as any).isCircuitBreak = true
-        throw cbErr
-      }
-      // feat-round-8: B1 — 批次间 sleepGap 同款 ±20% 抖动(与 per-chapter 抖动同口径),
-      // 防止"批次间固定间隔 + 章节间固定间隔"双固定模式被识别。fetchCfg.jitterMs 额外叠加。
-      await sleepGap(jitteredInterval(interval, fetchCfg.jitterMs), rt, myEpoch)
+    // ---------- [R46-2a-1] 两阶段切割点: 元数据段到此结束 ----------
+    // 语义同原"queue 为空时批次循环不执行直接收尾"(增量末章未变/跨源去重/无新章):
+    // 无正文待采 → 就地完成收尾(finishBookOk); 有正文 → 产出 ctx, 由 executeTask 合并
+    // 批内其他书的队列统一跨书批量采集(crawlBookContentsBatch)
+    const ctx: BookCrawlCtx = { taskId, bookUrl, bookId, bookName, rule, taskCfg, queue, idMap, tocUrlRef, tocItems, fetchCfg, contentFetchCfg, isFull, detectedStatus, doneCount: 0 }
+    if (queue.length === 0) {
+      return { result: await this.finishBookOk(ctx, rt, myEpoch, progress, stats, true) }
     }
-    // 收尾保存: 原先仅靠 done===contentTotal 触发, contentTotal 因队列追加/失败章偏低时进度会停在旧值
-    // jj-d: epoch 漂移(被新一轮 start 取代)时跳过 —— 进度权归新循环, 旧循环的过期对象不得回滚其刚写进度
-    if (rt.epoch === myEpoch) await this.saveProgress(taskId, progress, stats)
+    await this.log(taskId, 'info', `目录就绪: 《${bookName}》 ${tocItems.length} 章, 正文待采 ${queue.length} 章(${isFull ? '完全覆盖' : '增量更新'}) —— 元数据完成, 稍后批量采集`)
+    return { result: 'deferred', ctx }
+  }
 
+  // ================== 单本书收尾 [R46-2a-1] ==================
+  /** 书籍收尾: 书统计聚合(wordCount/latestChapter)恒执行(停止/漂移同样执行, 反映已采实况);
+   *  allowFinish=true 且未停止/漂移时: 完成日志+下拉词+PSEO+booksDone+状态分流+进度落库,
+   *  返回 'ok'; 停止/漂移时仅统计聚合, 返回 'stopped'(原 crawlOneBook 尾部语义逐项保留) */
+  private async finishBookOk(
+    ctx: BookCrawlCtx,
+    rt: TaskRuntime,
+    myEpoch: number,
+    progress: TaskProgress,
+    stats: TaskStats,
+    allowFinish: boolean
+  ): Promise<'ok' | 'stopped'> {
+    const { taskId, bookUrl, bookId, bookName, taskCfg, tocItems, detectedStatus } = ctx
     // 更新书籍统计(停止/漂移同样执行: wordCount/latestChapter 反映已采实况, 对恢复采集有益)
     const agg = await db.chapter.aggregate({ where: { bookId, fetched: true }, _sum: { wordCount: true }, _count: true })
     // Bug 24: .catch 收口 —— 修前 .catch(()=>{}) 无差别吞错, 真 DB 故障(P2025 以外)
@@ -2487,8 +2317,8 @@ export class TaskRunner {
     // jj-d: 停止/漂移后短路 —— "完成"日志/下拉词网络抓取/booksDone 计数属"本轮推进"语义:
     // 修前停止一册未采完的书仍会(1)误记"《书》完成"(2)发下拉词引擎网络请求(最长8s, 拖住
     // 停止收尾)(3)booksDone 虚增(书未采完)(4)旧进度回写; 漂移时同理且全部归新循环所有
-    if (rt.stopped || rt.epoch !== myEpoch) return 'stopped'
-    await this.log(taskId, 'success', `《${bookName}》完成: ${done}章正文已采集 (共${tocItems.length}章)`)
+    if (!allowFinish || rt.stopped || rt.epoch !== myEpoch) return 'stopped'
+    await this.log(taskId, 'success', `《${bookName}》完成: ${ctx.doneCount}章正文已采集 (共${tocItems.length}章)`)
 
     // ---------- 6. 搜索引擎下拉关键词 ----------
     // ab-b 注(设计如此): 下拉词走外部搜索引擎(suggest.ts 直连), 不经 gateFetch、不传 minGapMs
@@ -2550,6 +2380,259 @@ export class TaskRunner {
     await this.saveProgress(taskId, progress, stats)
     return 'ok'
   }
+
+  // ================== 跨书正文批量采集 [R46-2a-1] ==================
+  /** 正文段: 接收同一批 meta 段产出的多本书 ctx, 合并章节队列后沿用原"多线程批次采集"
+   *  循环跨书并发采正文(threads/interval 在线调参/hostgate 闸门/Referer 链/抖动/熔断/暂停/
+   *  停止/epoch 漂移语义逐项保留)。批内跨书共享 consecutiveErrs 熔断计数(更强保护)。
+   *  循环结束后逐书 finishBookOk 收尾(统计聚合恒做; 停止/漂移时不做完成推进)。
+   *  返回 'stopped'(停止/漂移) 或 'ok'(批内全部书籍已收尾) */
+  private async crawlBookContentsBatch(
+    ctxs: BookCrawlCtx[],
+    rt: TaskRuntime,
+    myEpoch: number,
+    progress: TaskProgress,
+    stats: TaskStats,
+    nextThreads: () => number,
+    nextInterval: () => number
+  ): Promise<'ok' | 'stopped'> {
+    if (!ctxs.length) return 'ok'
+    const taskId = ctxs[0].taskId
+    const isStale = () => rt.epoch !== myEpoch
+    // 合并批内全部章节队列(每项携带所属书 ctx) —— 跨书批量采集的本体
+    const items: { ctx: BookCrawlCtx; q: { chId?: string; title: string; url: string; volume: string; idx: number } }[] = []
+    let tocSum = 0
+    for (const c of ctxs) {
+      tocSum += c.tocItems.length
+      for (const q of c.queue) items.push({ ctx: c, q })
+    }
+    // [R46-2a-1] tocTotal 语义对齐原单书形态: 本批目录章总数(原为当前书目录章数)
+    // 章节日志按批汇总一条/书(原单书一条"正文队列"日志的跨书等价)
+    for (const c of ctxs) {
+      if (c.queue.length > 0) {
+        await this.log(taskId, 'info', `正文队列: 《${c.bookName}》 ${c.queue.length}/${c.tocItems.length} 章需要采集 (${c.isFull ? '完全覆盖' : '增量更新'})`)
+      }
+    }
+    progress.phase = 'content'
+    progress.tocTotal = tocSum
+    progress.contentTotal = items.length
+    progress.currentBook = ctxs[0].bookName
+    progress.phaseNote = `正文批量采集: 本批 ${ctxs.length} 本书共 ${items.length} 章`
+    await this.saveProgress(taskId, progress, stats)
+
+    // ---------- 多线程批次采集(跨书) ----------
+    let done = 0
+    // tt-c: 任务级连续错误熔断 —— 连续真实章节失败(源站超时/抓取异常, 不含无链接/HostGate限流/停止中止)
+    // 达阈值即中止本批后续请求: 防止站点改版/被反爬拦截时引擎无休止硬敲(烧站点+烧出口IP),
+    // 同时把任务推向 error 终态(autoRefresh 任务会按计划自动重试, 站点恢复后自愈)
+    // [R46-2a-1] 跨书共享: 原"本书内"连败升级为"批内跨书"连败(同任务同站, 语义更强)
+    // [R22-f-1]: live 状态读失败节流标志(仅状态翻转时打一条, 防 DB 长故障期每 2s 一条刷屏)
+    let liveReadFailed = false
+    let consecutiveErrs = 0
+    while (items.length > 0) {
+      if (rt.stopped || isStale()) break
+      while (rt.paused && !rt.stopped && rt.epoch === myEpoch) await sleep(600)
+      if (rt.stopped || isStale()) break
+
+      // 在线调参即时生效: 每批次实时读任务行(原来用书首快照, 大部头中途调线程/间隔要等下一本书才生效)
+      let threads = nextThreads()
+      let interval = nextInterval()
+      let live
+      try {
+        live = await db.task.findUnique({
+          where: { id: taskId },
+          select: { threadMin: true, threadMax: true, intervalMin: true, intervalMax: true, status: true },
+        })
+      } catch {
+        // DB 读取失败: 跳过本批次不推进采集(不确认非暂停就不处理), 有界退避后重试
+        if (!liveReadFailed) {
+          liveReadFailed = true
+          await this.log(taskId, 'warn', '任务状态读取失败(DB 故障), 批次推进挂起(2s 退避重试, DB 恢复后自动续采)').catch(() => {})
+        }
+        await sleepGap(2000, rt, myEpoch)
+        continue
+      }
+      if (liveReadFailed) liveReadFailed = false
+      if (live) {
+        // DB 状态守卫: 外部把任务改 paused/stopped(recoverOnBoot/管理操作)时, 内存循环同步停下,
+        // 防止"内存运行中/DB已暂停"的僵尸状态各自为政
+        if (live.status === 'stopped') { rt.stopped = true; rt.paused = false; break }
+        if (live.status === 'paused') {
+          if (!rt.paused) {
+            rt.paused = true
+            await this.log(taskId, 'warn', '检测到任务状态为暂停, 批次循环挂起(点击继续可恢复)')
+          }
+          continue
+        }
+        // [R22-f-1] 兜底复位内存暂停标志(与原单书循环同语义)
+        if (rt.paused) rt.paused = false
+        threads = randInt(clampMin(live.threadMin, live.threadMax), live.threadMax)
+        interval = randInt(clampMin(live.intervalMin, live.intervalMax), live.intervalMax)
+      }
+      const batch = shuffleBatch(items.splice(0, threads)) // [R36-2c-8] 批内顺序随机化(缺省关)
+      progress.lastThread = threads
+      progress.lastInterval = interval
+      await this.log(taskId, 'info', `⚙ 线程批次: ${threads} 线程 × ${batch.length} 章`)
+
+      await Promise.all(
+        batch.map(async (item) => {
+          const { ctx, q } = item
+          try {
+            // 无URL章节(纯标题项/javascript:链接被 absolutize 置空): 无法抓取,
+            // 保持未采集状态即可 —— 原实现照样 fetchPage('') 每批报 "Obscura: 无效 URL" 噪音错误
+            if (!q.url) {
+              stats.errors++
+              await this.log(ctx.taskId, 'warn', `章节无有效链接, 跳过: ${q.title.slice(0, 60)}`)
+              done++
+              ctx.doneCount++
+              progress.contentDone = done
+              return
+            }
+            // ff-b②/gg-d/feat-cloak-anticrawler J/feat-round-8 B1/[R30-3-E-D] 语义逐项保留:
+            // 章节 Referer 强制 tocUrlRef(目录页), per-chapter ±20% 抖动 + jitterMs 叠加,
+            // host 行为分自适应(403/429 连败对拉长间隔)
+            const contentRefererUrl = ctx.tocUrlRef || ctx.bookUrl
+            const contentFetchCfgWithReferer: Partial<FetchConfig> = {
+              ...ctx.contentFetchCfg,
+              refererUrl: contentRefererUrl,
+              refererChain: true,
+            }
+            const jitteredMinGap = Math.round(jitteredInterval(interval, ctx.fetchCfg.jitterMs) * hostAdaptiveGapMultiplier(q.url))
+            const pageRes = await this.gateFetch(ctx.taskId, q.url, contentFetchCfgWithReferer, { minGapMs: jitteredMinGap })
+            // 疑似被拦不入库: 保持 fetched=false, 下次增量自动重试; 合法JSON体是API数据非挑战页, 放行
+            if (pageRes.blocked && parseJsonBody(pageRes.html) === undefined) throw new Error('章节页疑似被拦截(验证码/JS挑战)')
+            const parsedC = await parseContent(q.url, pageRes.html, ctx.rule.content, contentFetchCfgWithReferer)
+            // [R28-4-E3] cleaned/plainLen 改 let: trafilatura 兜底采纳时被替换(下方)
+            let cleaned = cleanContentHtml(parsedC.content, ctx.rule.clean)
+            let plainLen = cleaned.replace(/<[^>]+>/g, '').length
+            // [R28-4-E3] trafilatura 正文兜底(FETCH_EXTRACT_FALLBACK=1 缺省关): 极短正文 +
+            // 低置信度时 POST 桥 /extract 重提取; 产物重过 cleanContentHtml 且 plainLen≥100
+            // 才采纳(保底长度闸), 日志显式记录兜底来源。失败静默落原 cleaned(不阻断)
+            if (FETCH_EXTRACT_FALLBACK_ENABLED && plainLen < 200 && (parsedC.confidence ?? 1) < 0.3) {
+              const fbHtml = await trafilaturaExtractFallback(q.url, pageRes.html, ctx.contentFetchCfg.scraplingBridgeUrl || '')
+              if (fbHtml) {
+                const cleanedFb = cleanContentHtml(fbHtml, ctx.rule.clean)
+                const plainFb = cleanedFb.replace(/<[^>]+>/g, '').length
+                if (plainFb >= FETCH_EXTRACT_MIN_PLAIN) {
+                  await this.log(ctx.taskId, 'warn', `正文过短(${plainLen} chars, confidence=${(parsedC.confidence ?? 1).toFixed(2)}), trafilatura 兜底提取 ${plainFb} chars: ${q.url.slice(0, 120)}`)
+                  cleaned = cleanedFb
+                  plainLen = plainFb
+                }
+              }
+            }
+            const chId0 = q.chId || ctx.idMap.get(q.url)
+            let rel: string | null = null
+            // oo-①修复(qq-c收编): 内容保存路径的 chapter.update 此前无 catch —— 章节行在
+            // 任务运行中被并发删除(删书/清空章节/另一任务重采同书)时 Prisma 抛 P2025
+            // 且整章记 error。update 失败(P2025 行已删等)不抛, 落到下方 create
+            // 兜底重建该章(内容不丢失); create 自身失败仍走外层 catch 计 error(真 DB 故障不吞)
+            let chId: string | null | undefined = chId0
+            if (ctx.taskCfg.storageMode === 'txt') {
+              // [R13-5] txt 落盘文本转换(语义同原单书路径)
+              rel = await saveChapterTxt(ctx.bookId, q.idx, q.title, cleaned
+                .replace(/<\s*br\s*\/?>/gi, '\n')
+                .replace(/<\/(p|div|h[1-6]|li)>/gi, '\n')
+                .replace(/<[^>]+>/g, '')
+                .replace(/\n{3,}/g, '\n\n'))
+              if (chId) {
+                const updated = await db.chapter.update({
+                  where: { id: chId },
+                  data: { content: null, filePath: rel, storage: 'txt', wordCount: plainLen, fetched: true },
+                }).then(() => true).catch(() => false)
+                if (!updated) chId = null
+              }
+            } else {
+              if (chId) {
+                const updated = await db.chapter.update({
+                  where: { id: chId },
+                  data: { content: cleaned, storage: 'db', wordCount: plainLen, fetched: true },
+                }).then(() => true).catch(() => false)
+                if (!updated) chId = null
+              }
+            }
+            if (!chId) {
+              // 兜底: 直接建(filePath 用已写盘的 rel, 原占位 '待补' 会让公开API读不到文件)
+              // zz-d: create 失败(P2025 书被删/真 DB 故障)必须落外层计 error + 连败熔断推进
+              await db.chapter.create({
+                data: {
+                  bookId: ctx.bookId, idx: q.idx, title: q.title, url: q.url, volume: q.volume,
+                  content: ctx.taskCfg.storageMode === 'txt' ? null : cleaned,
+                  filePath: rel,
+                  storage: ctx.taskCfg.storageMode,
+                  wordCount: plainLen, fetched: true,
+                },
+              })
+            }
+            stats.chaptersUpdated++
+            consecutiveErrs = 0
+            done++
+            ctx.doneCount++
+            progress.contentDone = done
+            // R8-5: done%50 节流 saveProgress(50000 章 = 1000 次 → 200 次序列化);
+            // book 边界 / 任务完成 / 错误熔断 / 章节完成(contentTotal) 等其他检查点保持原行为不变。
+            if (done % 50 === 0 || done === progress.contentTotal) {
+              await this.saveProgress(ctx.taskId, progress, stats)
+            }
+          } catch (e: any) {
+            if (e?.isFetchTimeout) {
+              // ee-d: 源站超时计失败+可见日志, 章节保持 fetched=false, 增量重试照常优先
+              stats.errors++
+              consecutiveErrs++
+              await this.log(ctx.taskId, 'error', `章节失败(源站超时) ${q.title.slice(0, 60)}: ${q.url.slice(0, 120)}`)
+            } else if (e?.name === 'AbortError' || e?.code === 'ABORT_ERR') {
+              // 修复(x-a): 停止/换代造成的中止不计章节失败(防停止时批量刷错误+errors虚高)
+            } else if (e?.name === 'HostCircuitOpen') {
+              // [R28-4-E1] host 级熔断快速失败: 不计 errors/不计连败; 日志节流(同 host 1min 至多 1 条)
+              {
+                const hkey = hostGateKeyOf(q.url)
+                const last = hostCircuitWarnAt.get(hkey) || 0
+                if (Date.now() - last > 60_000) {
+                  numberMapFifoSet(hostCircuitWarnAt, hkey, Date.now(), HOST_CIRCUIT_WARN_CAP) // [R30-3-2] 有界写入
+                  await this.log(ctx.taskId, 'warn', `章节批量跳过: host 级熔断中(${hkey || '未知'}, 源站 403 连败长静默), 章节保持未采集; 熔断解除后增量重试可恢复`)
+                }
+              }
+            } else if (e?.name === 'HostGateTimeout' || e?.name === 'GlobalSemTimeout') {
+              // bb-d/[R30-3-3]: 引擎侧并发护栏(源站无关), 不计 errors/不计连败
+              await this.log(ctx.taskId, 'warn', `章节 ${q.title.slice(0, 60)} 引擎并发护栏等待超时(${e?.name === 'GlobalSemTimeout' ? '全局信号量' : `host:${hostGateKeyOf(q.url) || '未知'}`}), 章节保持未采集; 稍后增量重试可恢复`)
+            } else {
+              stats.errors++
+              consecutiveErrs++
+              // [R12-b-7] 错误响应体摘要: fetcher !res.ok 抛错时响应体挂 err.bodyHtml
+              const bodySnippet = String((e as { bodyHtml?: unknown })?.bodyHtml ?? '')
+                .replace(/\s+/g, ' ')
+                .trim()
+                .slice(0, 220)
+              await this.log(ctx.taskId, 'error', `章节失败 ${q.title}: ${e?.message?.slice(0, 100)}${bodySnippet ? ` | 响应体: ${bodySnippet}` : ''}`)
+            }
+          }
+        })
+      )
+      // tt-c: 连续错误熔断检查(每批次末) —— 达阈值即刻中止, 不再继续敲站点
+      if (consecutiveErrs >= CIRCUIT_ERROR_LIMIT) {
+        // E4: 记录熔断触发时间戳, control('start') 入口检查 60s 冷却窗口期内拒绝重启
+        rt.circuitTrippedAt = Date.now()
+        await this.log(taskId, 'error', `🔴 熔断中止: 连续 ${consecutiveErrs} 章采集失败(上游站点异常/被反爬拦截), 停止继续请求以保护站点与出口 IP; autoRefresh 任务将按计划自动重试; 60s 冷却期内手动重启将被拒绝`)
+        await this.saveProgress(taskId, progress, stats)
+        const cbErr = new Error(`连续 ${consecutiveErrs} 章采集失败, 触发连续错误熔断(阈值 ${CIRCUIT_ERROR_LIMIT})`)
+        ;(cbErr as any).isCircuitBreak = true
+        throw cbErr
+      }
+      // feat-round-8: B1 — 批次间 sleepGap 同款 ±20% 抖动(同任务 fetchCfg 一致, 取批首书 jitterMs)
+      await sleepGap(jitteredInterval(interval, ctxs[0].fetchCfg.jitterMs), rt, myEpoch)
+    }
+    // 收尾保存: 原先仅靠 done===contentTotal 触发, contentTotal 因队列追加/失败章偏低时进度会停在旧值
+    // jj-d: epoch 漂移(被新一轮 start 取代)时跳过 —— 进度权归新循环, 旧循环的过期对象不得回滚其刚写进度
+    if (rt.epoch === myEpoch) await this.saveProgress(taskId, progress, stats)
+
+    // [R46-2a-1] 逐书收尾: 统计聚合恒做; 停止/漂移时 finishBookOk 内短路(不做完成推进)
+    let anyStopped = false
+    for (const c of ctxs) {
+      const r = await this.finishBookOk(c, rt, myEpoch, progress, stats, true)
+      if (r === 'stopped') anyStopped = true
+    }
+    return anyStopped ? 'stopped' : 'ok'
+  }
+
 
   private async saveProgress(taskId: string, progress: TaskProgress, stats: TaskStats) {
     // P2025 噪音修复(dd-b, bb-g 存档竞态): 任务被删除后 stop 收尾的 saveProgress 对已删行

@@ -38,7 +38,7 @@ import { TrxswRead } from './Read'
 import { TrxswRanking } from './Ranking'
 import { TrxswFulltext } from './Fulltext'
 import { TrxswSearch } from './Search'
-import { TrxswFooter } from './Footer' // [R41-C-9] Wayback 版源站仿制页脚(杰奇默认模板 .footer 版权组, #f5f5f5 底)
+import { TrxswFooter } from './Footer' // [R46-2b-1] 真站实抓重校准页脚(唐人小说网 33yq 家族 .footer/.footer_cont, 无底色 #302b35 字)
 
 export const trxswTemplate: SiteTemplateSet = {
   Home: TrxswHome,
@@ -53,11 +53,13 @@ export const trxswTemplate: SiteTemplateSet = {
   Footer: TrxswFooter,
   // [R28-2g-6] 站点级克隆 CSS —— 伪类/媒体查询集中于此; 逐条注明出处(家族标准级)
   css: `
-/* [R28-2g-6] 杰奇家族 body{font:14px arial,"SimSun";color:#333;background:#fff} — 主题 vars 已对齐, 此处兜底 */
-.clone-trxsw{color:#333;font-size:14px}
-/* [R28-2g-6] 杰奇家族 a{color:#333} a:hover{color:#C00}(b.css 无存档 → 家族标准; 原生 <a> 仅 TXT 下载钮与友链出口) */
-.clone-trxsw a{color:#333;text-decoration:none}
-.clone-trxsw a:hover{color:#C00}
+/* [R46-2b-3] body 基线校准: 33yq.css 实测 body{background:#e9faff;color:#555;font-size:14px;
+   font-family:Arial,'Microsoft YaHei','宋体'} — 主题 vars.bg/text 已同步对齐(见 themes.ts) */
+.clone-trxsw{color:#555;font-size:14px}
+/* [R46-2b-3] 全局链接色校准: 33yq.css 实测 a{color:#6f78a7} a:hover{text-decoration:underline}
+   (旧值 #333/hover #C00 系 2019 杰奇家族推定, 真站现模板无此规则) */
+.clone-trxsw a{color:#6f78a7;text-decoration:none}
+.clone-trxsw a:hover{text-decoration:underline}
 /* [R28-2g-6] 杰奇家族分页/榜 tab 钮: 白底灰边, hover 深蓝白字; 当前页 strong 深蓝白字(组件内联已配色, 此处兜底伪类) */
 .clone-trxsw .tx-pg{background:#fff;color:#333;border-color:#ddd;transition:background .15s ease,color .15s ease}
 .clone-trxsw .tx-pg:hover:not(:disabled):not(.tx-pg-on){background:#1C5087;color:#fff}
@@ -65,7 +67,28 @@ export const trxswTemplate: SiteTemplateSet = {
 .clone-trxsw .tx-content p{margin:0 0 12px;text-indent:2em}
 /* [R28-2g-6] 杰奇家族 h2 等价底纹(真站为底纹图 → 线性渐变等价; 组件内联承担, 此处兜底动态节点) */
 .clone-trxsw .tx-sec h2{background:linear-gradient(180deg,#fafbfc 0%,#e9eef5 100%)}
+/* [R46-2b-1] 页脚: 33yq.css 实测 .footer{margin:auto;width:980px;text-align:center} +
+   .footer_cont{margin:10px auto auto} + .footer_cont p{color:#302b35;line-height:20px};
+   真站无底色(透出 body #e9faff, 见 themes.ts vars.bg [R46-2b-3]); 980 定宽 → max-width+width:100% 无横滚适配 */
+.clone-trxsw .trx-footer{margin:0 auto;max-width:980px;width:100%;box-sizing:border-box;text-align:center}
+.clone-trxsw .trx-footer-cont{margin:10px auto 0;padding:0 10px}
+.clone-trxsw .trx-footer-cont p{margin:0;color:#302b35;line-height:20px}
+/* [R46-2b-1] 页脚备案链接: 真站 a 全局色 #6f78a7(33yq.css a{color:#6f78a7}), hover 下划线 */
+.clone-trxsw .trx-footer-cont a{color:#6f78a7}
+.clone-trxsw .trx-footer-cont a:hover{text-decoration:underline}
+/* [R46-2b-2] #firendlink 友链条: 33yq.css 实测逐条(padding 1px/2px #a6d3e8 边/圆角 10/#fff 底/22px 行;
+   h2 30px 高 #daedf5 底条+1px #ddd 下界/左缩进 10px/700 14px; a margin-left 5px, hover #f60;
+   真站 972 定宽 → max-width+width:100%) */
+.clone-trxsw .trx-firendlink{overflow:hidden;margin:14px auto 0;padding:1px;max-width:972px;width:100%;box-sizing:border-box;border:2px solid #a6d3e8;border-radius:10px;background:#fff;line-height:22px}
+.clone-trxsw .trx-firendlink h2{overflow:hidden;margin:0;padding:0 0 0 10px;height:30px;border-bottom:1px solid #ddd;background-color:#daedf5;font-weight:700;font-size:14px;line-height:30px}
+.clone-trxsw .trx-firendlink a{margin-left:5px;margin-right:5px;color:#6f78a7}
+.clone-trxsw .trx-firendlink a:hover{color:#f60;text-decoration:none}
 /* [R28-2g-6] 响应式: 真站 2019 年固定 960px 非响应式 → 组件端栅格降级已承担(sm/lg 断点),
    375px 无横滚(列表行 min-w-0 + truncate 截断 + 外层 px-2) */
+/* [R46-2b-2] 友链/页脚窄屏: 972/980 已 max-width 收口, 仅补内边距防贴边(真站移动端无快照, 近似) */
+@media (max-width: 640px) {
+  .clone-trxsw .trx-firendlink{margin-left:8px;margin-right:8px;width:auto}
+  .clone-trxsw .trx-footer{padding-left:8px;padding-right:8px}
+}
 `,
 }

@@ -1,32 +1,38 @@
 // ============================================================
-// [R41-C-8] trxsw(同人小说网) 源站 1:1 仿制页脚 —— Wayback 版(真站不可达)
-// 素材出处: Wayback 2019-10-19 首页快照(R28 实测, /tmp/r28-2g/snap/tx-home.html; R25-1/
-//   R27-6b 同源 DOM 复核)。真站 2019 年后不可达(美国出口 IP 限制, R40-1 四通道实测)
-//   → 按 R28 考据记录实现: 杰奇 CMS 默认模板 .footer 版权组标准; 配色=R39 themes.ts
-//   继承记录(页脚区 #f5f5f5 底 / 顶边 1px solid #e5e5e5 / 灰 #999 / 12px / 链接 #666;
-//   b.css 无存档 → 家族标准级, 同 index.ts 头注三级标注口径)
-// 源站结构(杰奇默认模板页脚标准):
-//   <div id="firendlink">友情链接：…</div>
-//   <div class="footer">
-//     <p>本站所有小说为转载作品，所有章节均由网友上传，转载至本站只是为了宣传本书让更多读者欣赏。</p>
-//     <p>Copyright © 2019 同人小说网 All Rights Reserved.</p>
-//   </div>
-// 降级声明: #firendlink 友链块由 Home.tsx 页内动态渲染(fetchFooterLinks, 快照实测位于
-//   页脚上方) → 本组件不重复渲染, 免首页双友链块; 链接 #666 口径随块留页内, 本页脚无链接
-// 站名动态: usePublic().site.name(考据值=同人小说网); 年份按快照逐字节固定 2019
-// 版心: 该站 960px(index.ts 头注) → max-width:960 + width:100% 响应式, 375px 无横滚
+// [R46-2b-1] trxsw(唐人小说网) 源站 1:1 仿制页脚 —— 2026-09-19 真站实抓重校准版
+// 素材出处(本轮实抓, 取代 R41-C Wayback 版): CN 代理(池内 120.232.115.57:17981)直抓
+//   /tmp/r46-theme/trxsw-home.html 69.9KB + /tmp/r46-theme/trxsw-33yq.css 20KB
+//   (真站现挂 /tpl/default/style/33yq.css —— 与 x33yq 同属 520xs 模板家族, 非 2019 杰奇默认模板)。
+// 真站页脚结构(首页尾部实抓):
+//   <div class="footer"><div class="footer_cont">
+//     <p>唐人小说网所有免费小说阅读网络小说为转载作品，转载至唐人小说网只是为了宣传本书让更多读者欣赏。</p>
+//     <p>Copyright © 唐人小说网 <a href="https://beian.miit.gov.cn/" target="_blank">苏ICP备2024118507号-1</a></p>
+//   </div></div>
+// 真站 CSS 逐条实测(33yq.css): .footer{margin:auto;width:980px;text-align:center} +
+//   .footer_cont{margin:10px auto auto} + .footer_cont p{color:#302b35;line-height:20px} ——
+//   无底色/无边线(透出 body #e9faff, 见 themes.ts vars.bg [R46-2b-3]); 旧 Wayback 版的
+//   #f5f5f5 底 + 1px #e5e5e5 顶线 + #999 字为 2019 杰奇家族推定值, 与真站实测不符, 全部弃用。
+// 备案链接: 真站真实外链 https://beian.miit.gov.cn/ → safeHref 白名单 + target _blank。
+// 站名硬编码「唐人小说网」: 真站页脚为字面站名(qb23「铅笔小说」同口径), 非动态 site.name
+//   —— 真站已由 2019「同人小说网」品牌升级为「唐人小说网」, 见 themes.ts [R46-2b-3]。
+// 版心适配: 真站 width:980px 固定 → max-width:980 + width:100% + box-sizing(ddyueshu 先例),
+//   375px 无横滚。
 // ============================================================
 'use client'
 
-import { usePublic } from '../../ctx'
+import { safeHref } from '../../safe-href'
 
 export function TrxswFooter() {
-  const { site } = usePublic()
   return (
-    <footer style={{ background: '#f5f5f5', borderTop: '1px solid #e5e5e5' }}>
-      <div style={{ maxWidth: 960, width: '100%', margin: '0 auto', padding: '12px 10px', boxSizing: 'border-box', textAlign: 'center', color: '#999', fontSize: 12 }}>
-        <p style={{ margin: 0, lineHeight: '20px' }}>本站所有小说为转载作品，所有章节均由网友上传，转载至本站只是为了宣传本书让更多读者欣赏。</p>
-        <p style={{ margin: 0, lineHeight: '20px' }}>Copyright © 2019 {site.name} All Rights Reserved.</p>
+    <footer className="trx-footer">
+      <div className="trx-footer-cont">
+        <p>唐人小说网所有免费小说阅读网络小说为转载作品，转载至唐人小说网只是为了宣传本书让更多读者欣赏。</p>
+        <p>
+          Copyright © 唐人小说网{' '}
+          <a href={safeHref('https://beian.miit.gov.cn/')} target="_blank" rel="noopener noreferrer">
+            苏ICP备2024118507号-1
+          </a>
+        </p>
       </div>
     </footer>
   )
