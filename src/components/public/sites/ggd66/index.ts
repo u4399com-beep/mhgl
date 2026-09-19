@@ -79,6 +79,9 @@ export const ggd66Template: SiteTemplateSet = {
 .clone-ggd66 .ggd-btn-info[disabled]{opacity:.5;cursor:not-allowed}
 /* 章节列表(真站目录格: 三列) */
 .clone-ggd66 .ggd-chlist ul li{width:33.3%;float:left;box-sizing:border-box;padding:4px 6px}
+/* [R40-d-2] 书页右列章节(ggd-chlist-r)单列整行: 33.3% 三列格只属左列最新章节格,
+   右列 25% 栏内三列会把章名挤成 ~8% 宽碎行; 真站右栏列表(#fengyou/#zuixin 系)均为整行虚线条目 */
+.clone-ggd66 .ggd-chlist-r ul li{width:100%}
 .clone-ggd66 .ggd-toc-list li.is-active a{color:#f50;font-weight:700}
 /* 分页 */
 .clone-ggd66 .ggd-pager{margin:10px 0}
@@ -86,6 +89,9 @@ export const ggd66Template: SiteTemplateSet = {
 .clone-ggd66 .ggd-pager button{border:1px solid #56ccb5;background:#fff;border-radius:4px;padding:5px 16px;margin:0 6px;cursor:pointer;color:#00886d}
 .clone-ggd66 .ggd-pager button:hover:not([disabled]){background:#56ccb5;color:#fff}
 .clone-ggd66 .ggd-pager button[disabled]{opacity:.45;cursor:not-allowed}
+/* [R40-d-3] 阅读页章尾导航(真站 #linkIndex/#linkPrev/#linkNext 三钮各 width:30%;padding:6px 0 实测);
+   1% 水平间隙替代真站钮间边框分界(克隆 .btn-info 同色无隙会粘连成一条) */
+.clone-ggd66 .ggd-read-nav .ggd-btn-info{width:30%;margin:0 1%;padding:6px 0;text-align:center}
 /* 榜单 tab */
 .clone-ggd66 h2 button{border:1px solid #56ccb5;background:#fff;border-radius:4px;padding:2px 12px;margin-right:8px;cursor:pointer;color:#00886d;font-size:14px}
 .clone-ggd66 h2 button.is-active{background:#56ccb5;color:#fff}
@@ -99,15 +105,26 @@ export const ggd66Template: SiteTemplateSet = {
 .clone-ggd66 .ggd-read-title{text-align:center;font-size:20px;color:#333;margin:10px 0}
 .clone-ggd66 .ggd-readcontent{color:#444;min-height:320px}
 .clone-ggd66 .ggd-readcontent p{margin:0 0 1em;text-indent:2em}
-/* 页脚(真站 .footer #56ccb5 10px padding 白字居中) */
-.clone-ggd66 .ggd-footer{padding:10px 0;background-color:#56ccb5;color:#fff;text-align:center;font-size:14px;margin-top:14px}
+/* 页脚(真站 .footer #56ccb5 10px padding 白字居中; 真站页脚无上边距, 紧贴内容流末尾)
+   [R40-d-1] margin-top:auto 配合页型根撑满 main 将页脚推到视口底(内容满屏时 auto=0, 与真站零间距一致) */
+.clone-ggd66 .ggd-footer{padding:10px 0;background-color:#56ccb5;color:#fff;text-align:center;font-size:14px;margin-top:auto}
 .clone-ggd66 .ggd-footer p{margin:0}
+
+/* [R40-d-1] 页脚上方异常空白带根因修复: main 为平台 flex-1 撑满视口剩余高度, 而克隆页脚随内容流
+   停在内容尾 → 书量少内容不足一屏时, 页脚色带与站点页脚之间露出大片空白(截图像素实证: 色带
+   412-452px 处结束, 站点页脚 580px 处才开始, 中间 ~130px 纯背景; 大视口下达 ~180px)。
+   非编辑占位/非冗余 spacer(DOM 实证两者皆无)。修法: 页型根撑满 main + 页脚 margin-top:auto 置底,
+   等价真站「页脚为文档流最后一块」的观感; 排查结论: R36 页面底部编辑功能作用于 SiteFooter 内部, 与该空白无关 */
+.clone-ggd66 main{display:flex;flex-direction:column}
+.clone-ggd66 main>.ggd-home,.clone-ggd66 main>.ggd-cat,.clone-ggd66 main>.ggd-book,.clone-ggd66 main>.ggd-toc,.clone-ggd66 main>.ggd-read,.clone-ggd66 main>.ggd-search,.clone-ggd66 main>.ggd-ranking,.clone-ggd66 main>.ggd-full{flex:1 0 auto;display:flex;flex-direction:column}
 
 /* ================= 移动端(375px 无横向滚动) ================= */
 @media (max-width: 900px){
   .clone-ggd66 .ggd-content-left,.clone-ggd66 .ggd-content-right{width:100%!important;float:none!important}
   .clone-ggd66 #ggd-fengtui .ggd-item{width:100%!important}
   .clone-ggd66 .ggd-chlist ul li{width:50%!important}
+  /* [R40-d-2] 右列章节保持单列(同基准规则, 压过上面的 chlist 50% !important) */
+  .clone-ggd66 .ggd-chlist-r ul li{width:100%!important}
   .clone-ggd66 .ggd-header{flex-wrap:wrap;height:auto;line-height:40px;padding:4px 2%}
   .clone-ggd66 .ggd-header .ggd-header-nav a{width:52px}
 }

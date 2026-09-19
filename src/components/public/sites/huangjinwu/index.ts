@@ -32,6 +32,10 @@ export const huangjinwuTemplate: SiteTemplateSet = {
 .clone-huangjinwu .hjw-navbar-menu a:hover{background:#e8f1ff;color:#1d4ed8}
 /* 标题(真站 .page-title: 左 4px secondary 色条) */
 .clone-huangjinwu .hjw-page-title{border-left:4px solid #2563eb;border-radius:2px 0 0 2px;color:#1e293b;font-size:17px;font-weight:600;letter-spacing:-.02em;margin:0 0 16px;padding-left:13px}
+/* [R40-d-4] section 通用节: 真站无 .section 裸类(首页 hot-section/update-section 等语义类无 CSS 规则),
+   区块间距由 .book-grid{margin-bottom:3.2rem} 承载且 html{font-size:10px} → 32px 实测; 补齐同节奏节间距
+   (与节内 book-grid 的 20px 底距折叠取大, 不叠加) */
+.clone-huangjinwu .hjw-section{margin-bottom:32px}
 .clone-huangjinwu .hjw-title-sub{font-size:12px;color:#94a3b8;font-weight:400;margin-left:6px}
 /* 卡片(真站 .book-card: 白底 边 #dbe4f0 radius 10 shadow; hover 上浮) */
 .clone-huangjinwu .hjw-book-grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));margin-bottom:20px}
@@ -50,6 +54,9 @@ export const huangjinwuTemplate: SiteTemplateSet = {
 .clone-huangjinwu .hjw-badge-words{background:#fff;border:1px solid #dbe4f0;color:#64748b}
 /* 书页 hero */
 .clone-huangjinwu .hjw-book-hero{background:#fff;border:1px solid rgba(219,228,240,.85);border-radius:10px;box-shadow:0 4px 16px rgba(37,99,235,.06);display:flex;gap:16px;padding:16px}
+/* [R40-d-5] 书页 hero 信息列(真站 .detail-info{flex:1;width:100%} 实测; min-width:0 同卡片版
+   .hjw-book-info 防长题/长简介撑破 flex 行) */
+.clone-huangjinwu .hjw-book-hero-info{flex:1;min-width:0;width:100%}
 .clone-huangjinwu .hjw-book-hero-cover img{width:140px;height:188px;object-fit:cover;border-radius:8px}
 .clone-huangjinwu .hjw-book-hero-title{margin:0 0 6px;font-size:20px;color:#1e293b}
 .clone-huangjinwu .hjw-book-hero-desc{color:#64748b;font-size:13.5px;line-height:1.8;margin:8px 0}
@@ -83,9 +90,17 @@ export const huangjinwuTemplate: SiteTemplateSet = {
 .clone-huangjinwu .hjw-read-info{text-align:center;font-size:12.5px;color:#94a3b8;margin-bottom:12px}
 .clone-huangjinwu .hjw-readcontent{color:#1e293b;min-height:320px}
 .clone-huangjinwu .hjw-readcontent p{margin:0 0 1.1em;text-indent:2em}
-/* 页脚(真站 --footer-bg #e2eaf5) */
-.clone-huangjinwu .hjw-footer{background:#e2eaf5;color:#64748b;text-align:center;padding:16px 10px;font-size:13px;margin-top:20px}
+/* 页脚(真站 --footer-bg #e2eaf5)
+   [R40-d-2] margin-top:auto 置底(真站 .footers 紧贴 .main-content 流末; 内容满屏时 auto=0) */
+.clone-huangjinwu .hjw-footer{background:#e2eaf5;color:#64748b;text-align:center;padding:16px 10px;font-size:13px;margin-top:auto}
 .clone-huangjinwu .hjw-footer p{margin:0}
+
+/* [R40-d-2] 页脚上方空白带(与 ggd66 同根因, huangjinwu 截图像素实证: 色带 423-476px 结束,
+   站点页脚 631px 才开始, 中间 ~150px 纯背景): main 为平台 flex-1, 页型根 .hjw-main 撑满 main
+   + 页脚 auto 置底; width:100% 防 margin:auto 取消 flex stretch 后 .hjw-container 收缩成 fit-content */
+.clone-huangjinwu main{display:flex;flex-direction:column}
+.clone-huangjinwu main>.hjw-main{flex:1 0 auto;display:flex;flex-direction:column}
+.clone-huangjinwu main>.hjw-main>.hjw-container{width:100%}
 
 /* ================= 移动端(375px 无横向滚动) ================= */
 @media (max-width: 760px){

@@ -31,7 +31,8 @@ export function DdyueshuCategory({ data, loading, error, catName, cat, page }: S
           <div className="ddy-newscontent">
             <div className="ddy-nc-l">
               <h2>{catName}列表</h2>
-              <ul>
+              {/* [R40-b-2] 补家族列表类(R39 漏挂致行样式缺失, 同 Search 页 DdyListRows 同款) */}
+              <ul className="ddy-ul-list">
                 {loading
                   ? Array.from({ length: 14 }).map((_, i) => <li key={i}><Sk style={{ height: 24 }} /></li>)
                   : error

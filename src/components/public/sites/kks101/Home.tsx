@@ -45,10 +45,13 @@ function KksBookCard({ b, rank }: { b: BookItem; rank?: number }) {
 
 export function Kks101Home({ books, loading }: SiteHomeProps) {
   const { site, navigate } = usePublic()
-  const [tags, setTags] = useState<string[]>([])
+  // [R40-c-1] 熱門標籤「載入中…」卡死修复: tri-state(null=載入中)。根因: fetchSuggestTags 失败/空词池
+  //   静默返回 null 或 tags=[], 旧版 then 内 `if (alive && e)` 不落值 → tags 恒为 [] →
+  //   `tags.length===0 && 載入中…` 永真不退场。现改为完成必落值: 空数据整块隐藏(真站无空态呈现), 载入中才显示 loading
+  const [tags, setTags] = useState<string[] | null>(null)
   useEffect(() => {
     let alive = true
-    fetchSuggestTags().then((e) => { if (alive && e) setTags(e.tags.slice(0, 32)) }).catch(() => {})
+    fetchSuggestTags().then((e) => { if (alive) setTags(e ? e.tags.slice(0, 32) : []) }).catch(() => { if (alive) setTags([]) })
     return () => { alive = false }
   }, [])
   const hot = [...books].sort((a, b) => (b.wordCount || 0) - (a.wordCount || 0)).slice(0, 8)
@@ -91,16 +94,21 @@ export function Kks101Home({ books, loading }: SiteHomeProps) {
                 </div>
               ))}
           </div>
-          {/* 标签云 */}
-          <div className="kks-tag">
-            <h3 className="kks-mytitle">熱門標籤</h3>
-            <ul>
-              {tags.map((t) => (
-                <a key={t} href={viewToUrl({ view: 'search', q: t }, site.id)} onClick={(e) => { e.preventDefault(); navigate({ view: 'search', q: t }) }}>{t}</a>
-              ))}
-              {tags.length === 0 && <span className="kks-meta-empty">載入中…</span>}
-            </ul>
-          </div>
+          {/* 标签云 [R40-c-1] 载入中显示占位; 加载完成且为空 → 整块隐藏(渲染空态而非永久 loading) */}
+          {(tags === null || tags.length > 0) && (
+            <div className="kks-tag">
+              <h3 className="kks-mytitle">熱門標籤</h3>
+              <ul>
+                {tags === null ? (
+                  <span className="kks-meta-empty">載入中…</span>
+                ) : (
+                  tags.map((t) => (
+                    <a key={t} href={viewToUrl({ view: 'search', q: t }, site.id)} onClick={(e) => { e.preventDefault(); navigate({ view: 'search', q: t }) }}>{t}</a>
+                  ))
+                )}
+              </ul>
+            </div>
+          )}
           {/* 排行榜 */}
           <h3 className="kks-mytitle">熱門小說排行</h3>
           {loading ? (
