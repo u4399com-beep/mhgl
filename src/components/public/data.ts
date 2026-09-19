@@ -36,7 +36,21 @@ export function fetchSites(): Promise<SiteInfo[]> {
 /** 分类列表（顶部导航用） — 走公开端点; public/categories 返回 {items:[...]}, 这里解包 */
 export async function fetchCategories(): Promise<CategoryItem[]> {
   const data = await get<{ items: Array<{ id: string; name: string; bookCount: number }> }>('/api/public/categories?limit=60')
-  return (data?.items || []).map((c) => ({ id: c.id, name: c.name, _count: { books: c.bookCount } }))
+  const items = (data?.items || []).map((c) => ({ id: c.id, name: c.name, _count: { books: c.bookCount } }))
+  // [R47-1] 分类稀薄兜底: 新库/采集初期 DB 分类常不足(实测仅 1 个"其他"), 而各仿站头部分类
+  //  导航(源站 13~16 固定锚)、分类页签均消费本列表 —— 稀薄时导航整排塌陷, 用户视角即
+  //  "所有主题都不对"。源站导航本就是站方预设固定文案(非动态分类), 故 DB 不足 8 个时用
+  //  通用主分类表补齐到 8 个(id 用名称 encode, category 视图按名称匹配; 合并引擎收敛后
+  //  DB 分类变多, 本兜底自动退场)。点击到无书分类时空列表, 不误导航死链
+  const FALLBACK_MIN = 8
+  if (items.length < FALLBACK_MIN) {
+    const have = new Set(items.map((c) => c.name))
+    const fill = ['玄幻', '都市', '言情', '仙侠', '历史', '科幻', '悬疑', '网游'].filter((n) => !have.has(n))
+    for (const name of fill) {
+      items.push({ id: `cat:${encodeURIComponent(name)}`, name, _count: { books: 0 } })
+    }
+  }
+  return items
 }
 
 interface BooksQuery {

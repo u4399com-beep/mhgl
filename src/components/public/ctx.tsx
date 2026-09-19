@@ -32,6 +32,8 @@ export interface PublicCtxValue {
   /** 伪静态预设(query/numeric/alnum/directory/restful/compact) — 书籍页/阅读页链接形态 */
   pseudoPreset: PseudoPreset
   embedMode: boolean
+  /** [R47-1] 当前视图(home/book/read/...) — 仿站头部按视图差异化渲染(如 qb23 首页头部大图) */
+  view: PublicView
   /** 站内视图切换（onClick，不做整页跳转），自动同步查询串 */
   navigate: (p: ViewParams) => void
 }

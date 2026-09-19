@@ -21,8 +21,11 @@ const FLOAT_NAV_FALLBACK = ['穿越', '重生', '古代架空', '现代言情', 
 export function AijjxsHeader({ cats, pending }: { cats: CategoryItem[]; pending: boolean }) {
   const { site, navigate } = usePublic()
   const [kw, setKw] = useState('')
-  // 真站顶导航 = 分类胶囊(首页 + /txt/{slug}/ 分类); 平台以分类表映射 navigate({view:'category'})
-  const navCats = cats.length ? cats : FLOAT_NAV_FALLBACK.map((n, i) => ({ id: `f${i}`, name: n }))
+  // 真站顶导航 = 固定 15 分类胶囊(首页 + /txt/{slug}/, 源站 top-float-nav 16 锚实抓 2026-09-19)。
+  // [R47-1] 修导航塌陷: 原 `cats.length ? cats : fallback` 在 DB 分类不足 15 个时(如新库仅 1 分类)
+  // 顶导航塌成 1 项, 与源站 16 锚形态完全不符 —— 源站导航是站方固定文案非动态分类表, 恒用固定表,
+  // 点击仍走 category 视图(分类合并引擎收敛后 DB 有对应分类即自然命中)
+  const navCats = FLOAT_NAV_FALLBACK.map((n) => ({ id: `cat:${encodeURIComponent(n)}`, name: n }))
 
   const submit = (e: FormEvent) => {
     e.preventDefault()

@@ -28,6 +28,11 @@ export const qb23Template: SiteTemplateSet = {
 .clone-qb23 .qb-clear{clear:both;height:0;overflow:hidden}
 /* header(真站 mxone: 顶栏底 #EAEDEF 96% ≈ #eaedf1; 搜索胶囊白底圆角 10 高 45 max 500) */
 .clone-qb23 .qb-header{padding:10px 0 0;background:#eaedf1}
+/* [R47-1] 首页头部大图(真站 .homepage #header::after: #eaedf1 url(sort/1.jpg) no-repeat center /
+   cover, 高 90%, z-index:-1 垫在内容下; 图已转存本地 /sites/qb23-header.jpg 防盗链) */
+.clone-qb23 .qb-header{position:relative}
+.clone-qb23 .qb-header.qb-homepage::before{content:'';position:absolute;left:0;top:0;width:100%;height:90%;z-index:0;background:url('/sites/qb23-header.jpg') no-repeat center;background-size:cover}
+.clone-qb23 .qb-header>*{position:relative;z-index:1}
 .clone-qb23 .qb-nav-search{max-width:500px;margin:0 auto;padding:8px 0}
 .clone-qb23 .qb-search-dh{display:flex;background:#fff;border-radius:10px;overflow:hidden;height:45px;box-sizing:border-box} /* [R40-b-10] 去伪红边, 真站白胶囊 */
 .clone-qb23 .qb-search-dh input{flex:1;border:none;outline:none;padding:0 14px;font-size:16px;color:#333;background:transparent;min-width:0}

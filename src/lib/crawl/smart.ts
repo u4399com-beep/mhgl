@@ -115,7 +115,7 @@ export function canonicalizeCategoryName(raw: string): string | null {
   const s0 = (raw || '').trim()
   if (!s0) return null
   // 剥包裹符(书名号/引号/全半角括号)与内部空白
-  let s = s0.replace(/^[\s《「『【\[(（]+/, '').replace(/[\s》」』】\])）]+$/, '').replace(/\s+/g, '')
+  let s = s0.replace(/^[\s《「『【[(（]+/, '').replace(/[\s》」』】\])）]+$/, '').replace(/\s+/g, '')
   if (!s) return null
   const lookup = (v: string): string | null => {
     if (CANON_SET.has(v)) return v

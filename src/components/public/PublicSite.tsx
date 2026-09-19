@@ -223,6 +223,7 @@ export default function PublicSite({
             themeOverride: overridesMap?.[theme.id],
             pseudoPreset,
             embedMode: !!embedMode,
+            view: view.view,
             // embedMode 下切换器走 navigate({view:'home', site:id}) 也可；提供 switchSite 保持语义清晰
             navigate: (p) => {
               if (p.site && p.site !== site.id) {
@@ -233,7 +234,7 @@ export default function PublicSite({
             },
           }
         : null,
-    [site, sites, theme, pseudoPreset, embedMode, navigate, switchSite, overridesMap],
+    [site, sites, theme, pseudoPreset, embedMode, navigate, switchSite, overridesMap, view.view],
   )
 
   // 首屏加载期 SEO 兜底（仅站点未就绪时接管 head；站点就绪后完全退位给各视图，防止父子互覆盖）

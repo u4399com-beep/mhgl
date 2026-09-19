@@ -1403,7 +1403,7 @@ export class TaskRunner {
               await this.saveProgress(taskId, progress, stats)
 
               const { result: bookResult, ctx: bookCtx } = await this.crawlOneBookMeta(
-                taskId, bookUrl, rule, cfg.fetchOverride, cfg.task, rt, myEpoch, progress, stats, cfg.threads, cfg.interval, bookFields
+                taskId, bookUrl, rule, cfg.fetchOverride, cfg.task, rt, myEpoch, progress, stats, cfg.interval, bookFields
               )
               if (bookResult === 'blocked' || bookResult === 'empty-toc') {
                 // 跳过的书也计入已完成, 防 booksDone/booksTotal 进度条永远到不了头
@@ -1665,7 +1665,8 @@ export class TaskRunner {
     myEpoch: number,
     progress: TaskProgress,
     stats: TaskStats,
-    nextThreads: () => number,
+    // [R46-7] nextThreads 形参已删: 正文段(唯一消费点)迁出至 crawlBookContentsBatch 后,
+    //  元数据段无线程消费点 —— 调用面少一个同值函数实参, 签名更贴实
     nextInterval: () => number,
     listFields?: { name?: string; author?: string; intro?: string; category?: string }
   ): Promise<{ result: 'stopped' | 'blocked' | 'empty-toc' | 'ok' | 'deferred'; ctx?: BookCrawlCtx }> {

@@ -6378,3 +6378,23 @@ Stage Summary:
 - 产出快照存档 /tmp/r46-theme/(10 站 home HTML+8 份 CSS+bqg.js, 重启自清); 修改 6 文件全带 [R46-2b-N] 注释: trxsw/{Footer,Home,index}+qb23/{Home,index}+themes.ts(+123/-66)
 - 验证: 语法门+花括号平衡+agent-browser 双视口 computed style 实测+375px 全主题零横滚+dev.log 零错误; 未跑 lint/tsc(留主控)/未重启 dev/未装包/DB 零触碰
 - 遗留: ①trxsw 主题布局骨架(ywtop/nav/hotcontent 等整页)仍为 2019 Wayback 杰奇版, 真站已切 33yq 家族模板 → 建议后续轮按 /tmp/r46-theme/trxsw-* 快照全量重克隆(可大量参照 x33yq 已校准实现) ②qb23 .pd60/源站 logo img(高 10px)维持不复刻(无对应资产/机制) ③77shuku 仍死站无主题
+---
+Task ID: R46/R47（主控全程）
+Agent: Z.ai Code 主控
+Task: 并发采集架构改造 + 全主题深度校准 + 分页审计(代理) + 分类合并 + 精简 + 推送
+
+Work Log:
+- [R46-2a-1 两阶段流水线] runner.ts 大手术: crawlOneBook(1000行)拆为 crawlOneBookMeta(书籍页+封面+建书+目录+章节记录A~E重排)+crawlBookContentsBatch(跨书合并章节队列批量采正文)+finishBookOk(统一收尾); executeTask 书循环改两阶段批次流水线(meta 批 CRAWL_META_BATCH=10 内书级并发池 CRAWL_BOOK_CONCURRENCY=2 跑书籍+目录 → 📦批内 deferred ctx 合并跨书批量采正文 → 下一批); 语义逐项保留(完结跳过/连载增量/跨源去重/智能分类完结/书级+章级熔断/在线调参/hostgate/epoch 漂移让位/pause-stop); 并发池熔断不 throw 改共享标志待全 worker 退出后上抛(防 Promise.all reject 与收尾写库竞态); E2E 实测: xjp 单本增量任务 元数据阶段(681章目录就绪)→📦批次正文阶段→线程批次滚动 全链路 PASS
+- [R46-2c 收尾] smart.ts 分类同类合并引擎(EXACT_CANON_MAP 归一映射+MAX_MAIN_CATEGORIES=15+consolidateCategories dryRun 安全缺省)+POST /api/admin/categories/consolidate API; proxy-pool.ts 两源格式漂移适配(proxifly scheme 行形态+geonode protocols/anonymityLevel 字段); dryRun 实测库内 1 分类无碎片可并
+- [R47-1 主题深度诊断] agent 残留 VLM 对比样本证伪: kks101 抓样=CF验证页/trxsw=域名停放页/pili VLM"源站蓝色"实为无CSS裸渲染(源站 CSS 高频色 #fd8929 橙×20 与克隆一致) —— "所有主题不对"真根因=①分类稀薄致导航塌陷(DB 仅1分类, cats.length?cats:fallback 模式让 aijjxs 导航塌成1项) ②qb23 首页头部缺大图背景(真站 .homepage #header::after: #eaedf1+sort/1.jpg cover, 图已转存 /sites/qb23-header.jpg 81KB+按 view 加 qb-homepage 类) ③pili/ggd66/huangjinwu 页脚经源站 HTML 快照逐字复核【已一致】不做伪修复
+- [R47-1 分类兜底链] data.ts fetchCategories: DB 分类<8 时合成通用主分类锚点(cat:{name} 形态) → aijjxs 导航恒固定 15 项(源站 top-float-nav 16 锚实抓对齐) → books API cat 参数双形态(categoryId 直查/合成锚点按名匹配) —— 全部主题导航-分类页签-列表链路在稀薄库下不再塌陷
+- [R47-4 分页代理] 静态审计 18 规则翻页配置(5 处 nextLink 缺失=文案兜底设计非 bug; list 段 nextLink=死配置发现留档); pili 403 站实测 fetchPage auto 引擎自愈链(curl 403×2→impersonate→233KB 真页面标题正确); 代理路径 trxsw/x33yq R43 段已实测; 抽测 yybsw toc(40章单页正常)+content(1662字 confidence 0.90)
+- [R46-7 精简] crawlOneBookMeta 无消费点的 nextThreads 形参删除(正文段迁出后签名贴实); deadscan 临时脚本清理
+- [质检] lint 0/0 + tsc 0 错(串行); dev.log 无新错误; 插曲: qb23.tsx 注释漏闭合 `}`(MultiEdit new_str 写成 `*/` 少 `}`)引发连环解析错误, git checkout 恢复后干净重写; PublicSite ctx 补 view 字段(view: view.view 注入+useMemo 依赖数组补全)
+- [推送] origin 已切 https://github.com/u4399com-beep/mhgl.git, 待本轮 commit+push
+
+Stage Summary:
+- 并发采集: 两阶段流水线上线(用户"先书籍+目录支持数据再批量采正文"指令全量落地, E2E PASS), 内存批粒度有界(CRAWL_META_BATCH 钳 ctx 不跨批累积)
+- 主题: 修复分类稀薄系统性根因(导航/页签塌陷)+qb23 头图; 源站 HTML 快照复核澄清 3 站伪差异(避免改错)
+- 分类: 合并引擎+收敛 API 就绪(≤15 主分类+语义归一), 待采集数据丰富后自动生效
+- 遗留: ①wanben/wanbenxinshu.com 源站死亡 ②77shuku 死站(CN 池不可达) ③trxsw 整页布局仍 Wayback 杰奇版(建议下轮按已存快照全量重克隆) ④kks101 源站 CF 墙(克隆为 R41-C Wayback 版)

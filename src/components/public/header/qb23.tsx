@@ -17,7 +17,7 @@ import type { CategoryItem } from '../types'
 export const QB_NAV_LABELS = ['言情', '都市', '唯美', '穿越', '青春', '玄幻', '武侠', '军事', '竞技', '科幻', '悬疑', '同人', '职场']
 
 export function QbHeader({ cats, pending }: { cats: CategoryItem[]; pending: boolean }) {
-  const { navigate } = usePublic()
+  const { navigate, view } = usePublic()
   const [kw, setKw] = useState('')
   const submit = (e: FormEvent) => {
     e.preventDefault()
@@ -27,7 +27,8 @@ export function QbHeader({ cats, pending }: { cats: CategoryItem[]; pending: boo
 
   return (
     <>
-      <div className="qb-header">
+      {/* R47-1 首页头部大图: 真站 .homepage #header 后景 cover, 按 view 加 qb-homepage 类 */}
+      <div className={view === 'home' ? 'qb-header qb-homepage' : 'qb-header'}>
         <div className="qb-nav-search">
           <form className="qb-search-dh" onSubmit={submit}>
             <input

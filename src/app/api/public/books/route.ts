@@ -77,7 +77,19 @@ export async function GET(req: Request) {
 
     const where: Record<string, unknown> = {}
     if (q) where.OR = [{ name: { contains: q } }, { author: { contains: q } }, { keywords: { contains: q } }]
-    if (cat) where.categoryId = cat
+    // [R47-1] 分类锚双形态: ①常规 categoryId 精确直查; ②前端分类稀薄兜底合成的 `cat:{name}`
+    //  锚点(fetchCategories 兜底, DB 分类<8 时导航才可见)按【分类名】命中 —— 采集跑起来后
+    //  分类合并引擎建出同名分类即自然接上; 全无同名分类时空结果(合法空态, 非报错)
+    if (cat) {
+      if (cat.startsWith('cat:')) {
+        let name = cat.slice(4)
+        try { name = decodeURIComponent(name) } catch { /* 已解码形态原样 */ }
+        const byName = await db.category.findFirst({ where: { name }, select: { id: true } })
+        where.categoryId = byName?.id ?? '__no_match__'
+      } else {
+        where.categoryId = cat
+      }
+    }
     // 状态白名单: 非法值忽略(不报错), 防任意字符串进查询
     if (status && ['unknown', 'ongoing', 'completed'].includes(status)) where.status = status
 
