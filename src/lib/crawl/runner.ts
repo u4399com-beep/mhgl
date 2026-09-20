@@ -146,6 +146,14 @@ const CIRCUIT_ERROR_LIMIT = 20
  *  站点级故障 2~3 轮内即熔断交由 autoRefresh 自愈 */
 const BOOK_CIRCUIT_ERROR_LIMIT = 20
 
+// [R49-2b-1] 内存硬熔断自动暂停阈值: 连续 N 个列表页/书籍/章节吃 MemoryHaltError 且熔断
+//  未解除时, 任务自动转 paused(而非逐项空转烧完整条队列后以 "任务完成" 假终态收场)。
+//  背景(真实链路实录): aijjxs 数据恢复任务在 dev 基线 RSS 破熔断线期间, 发现/书籍两循环
+//  对每页/每本只 warn 不停手, ~85s 内烧完 50 本(booksDone=0)后 status='done' —— 意图是
+//  "熔断解除后增量重试可恢复", 实际操作员看到的是已完成且无任何自动恢复面。转 paused 后
+//  进度/续采集合原位冻结(与操作员手动暂停同语义), 点击继续即从断点续采
+const MEM_HALT_PAUSE_AFTER = 3
+
 // ================== [R46-2a-1] 两阶段流水线(R46-2 用户指令) ==================
 // 用户指令: "先采集书籍+目录名把所有数据支持起来再去批量采集章节内容"。
 // 原 crawlOneBook(书籍页→目录→章节入库→正文批次全流程单书内串行, 范围任务逐本硬采)拆为:
@@ -1210,6 +1218,8 @@ export class TaskRunner {
         //  判定源站不可用, 提前终止翻页(已发现部分照常进入采集, 同 R22-f-4 空页熔断语义)
         const DISCOVERY_FAIL_CIRCUIT = 20
         let consecutivePageFails = 0
+        // [R49-2b-1] 连续内存硬熔断计数: 达 MEM_HALT_PAUSE_AFTER 自动转 paused(替代逐页空转烧完余页)
+        let consecutiveMemHalts = 0
         for (let p = cfg.task.listStart; p <= cfg.task.listEnd; p++) {
           if (rt.stopped || isStale()) break
           while (rt.paused && !rt.stopped && !isStale()) await sleep(600)
@@ -1236,6 +1246,7 @@ export class TaskRunner {
             // 静默失效(发现 0 本书)。双字段都做 absolutize, 取值时 url 优先 bookUrl 兜底
             const parsed = parseList(res.html, url, listRule, ['url', 'bookUrl'])
             consecutivePageFails = 0 // [R36-2c-5] 本页抓取+解析成功, 连败归零
+            consecutiveMemHalts = 0 // [R49-2b-1] 本页成功, 熔断暂停臂归零
             const pageUrls = parsed.items.map((i) => i.fields.url || i.fields.bookUrl).filter(Boolean)
             // feat-contentproxy-resume(范围任务续采): 已发现过的书籍 URL 不再加入 bookQueue
             // (节省后续书籍页/目录/正文抓取; 已采集过的书籍会被 completedBookUrls 跳过整本)
@@ -1285,9 +1296,21 @@ export class TaskRunner {
             if (e?.name === 'GlobalSemTimeout' || e?.name === 'MemoryHaltError') {
               // [R48-1] MemoryHaltError 同口径豁免: 内存硬熔断快速失败是引擎侧自保非源站故障,
               //  不计 errors/不喂 DISCOVERY_FAIL_CIRCUIT 连败链, 页面保持未抓取态可增量恢复
+              // [R49-2b-1] 熔断持续时不再逐页空转: 连续 N 页吃熔断即自动转 paused,
+              //  循环停在顶部 rt.paused 等待门(恢复后从当前页继续翻, 已发现部分照常进采集)
+              consecutiveMemHalts++
               await this.log(taskId, 'warn', e?.name === 'MemoryHaltError'
-                ? `列表页 P${p} 暂停(内存硬熔断), 页面保持未抓取; 熔断解除后重跑可恢复`
+                ? `列表页 P${p} 暂停(内存硬熔断 ${consecutiveMemHalts}/${MEM_HALT_PAUSE_AFTER}), 页面保持未抓取; 熔断解除后重跑可恢复`
                 : `列表页 P${p} 引擎并发护栏等待超时(全局信号量), 页面保持未抓取; 稍后重跑可恢复`)
+              if (consecutiveMemHalts >= MEM_HALT_PAUSE_AFTER) {
+                await this.tripMemoryHaltPause(taskId, rt, progress, `列表页 P${p}`)
+                // [R49-2bw-3] 不 break: tripMemoryHaltPause 已置 rt.paused, 本轮 for 迭代自然走完
+                //  (sleepGap 见 paused 提前返回)后停在循环顶部既有 rt.paused 等待门(L1225) —— 恢复
+                //  后从当前页继续翻, 与上方 [R49-2b-1] 注释"恢复后从当前页继续翻"一致。原 `break`
+                //  会永久退出发现循环: 恢复后余下 listEnd 页本轮永不补翻, 队列排空即以"任务完成"
+                //  收尾(余页书籍静默丢失, 恰是 R49-2b-1 要消灭的假终态家族; 余量只能靠下一轮
+                //  重启重发现兜底)。停止/换代让位不受影响(循环头 L1224/L1226 既有判定先行)
+              }
             } else {
               stats.errors++
               consecutivePageFails++ // [R36-2c-5]
@@ -1346,6 +1369,8 @@ export class TaskRunner {
       //  (AbortError/HostGateTimeout/GlobalSemTimeout/MemoryHaltError[R48-1])不计入(引擎侧拥塞非源站故障)。
       //  并发池语义: 计数为共享变量(worker 并发推进下"严格连续"弱化为"窗口内连续", 熔断保护面不缩)
       let consecutiveBookErrs = 0
+      // [R49-2b-1] 书籍段连续内存硬熔断计数(共享变量, 并发池下语义同 consecutiveBookErrs 弱化口径)
+      let consecutiveMetaHalts = 0
       for (let batchStart = 0; batchStart < bookQueue.length; batchStart += META_BATCH_SIZE) {
         if (rt.stopped || isStale()) break
         while (rt.paused && !rt.stopped && !isStale()) await sleep(600)
@@ -1380,6 +1405,7 @@ export class TaskRunner {
             if (rt.completedBookUrls.has(bookUrl)) {
               progress.booksDone++
               consecutiveBookErrs = 0 // [R36-2c-4] 跳过非失败, 连败计数归零
+              consecutiveMetaHalts = 0 // [R49-2b-1] 非失败结局同步归零熔断暂停臂
               progress.currentBook = bookUrl
               progress.phaseNote = `跳过已完结 (${bi + 1}/${bookQueue.length})`
               await this.log(taskId, 'info', `跳过已完结: ${bookUrl}`)
@@ -1415,11 +1441,12 @@ export class TaskRunner {
                 // [R36-2c-4] 拦截壳页计入书籍连败(请求成功但被反爬拦截, 与章节拦截同风险面);
                 //  empty-toc 可能是合法空书(书号模式撞无效书号/无章节书), 不计入
                 if (bookResult === 'blocked') consecutiveBookErrs++
-                else consecutiveBookErrs = 0
+                else { consecutiveBookErrs = 0; consecutiveMetaHalts = 0 } // [R49-2b-1] empty-toc 同步归零暂停臂
               }
               // [R36-2c-4] 采集成功(含 deferred: 元数据就绪待正文)归零连败
               if (bookResult === 'ok' || bookResult === 'deferred') {
                 consecutiveBookErrs = 0
+                consecutiveMetaHalts = 0 // [R49-2b-1] 书籍成功, 熔断暂停臂归零
               }
               // feat-combo-theme-incremental: 状态分流由 crawlOneBookMeta/finishBookOk 内部完成;
               // 'deferred' 书籍的 ctx 收集到本批正文池, 阶段2 统一跨书批量采
@@ -1448,10 +1475,17 @@ export class TaskRunner {
                 // bb-d/[R31-3-2]: 同站闸门槽满等待超时/全局信号量超时 —— 引擎侧拥塞非源站故障,
                 // 不计 errors, 书籍保持未完成态, 稍后增量重试可恢复
                 // [R48-1] MemoryHaltError 同口径豁免: 内存硬熔断快速失败亦属引擎侧自保
+                // [R49-2b-1] 熔断持续时不再逐本空转烧完队列: 连续 N 本吃熔断即自动转 paused,
+                //  worker 在循环头 rt.paused 等待门停住(恢复后本批未完成书籍原地续采)
+                if (e?.name === 'MemoryHaltError') consecutiveMetaHalts++
                 await this.log(taskId, 'warn', e?.name === 'MemoryHaltError'
-                  ? `书籍采集暂停(内存硬熔断): ${bookUrl}; 书籍保持未完成, 熔断解除后增量重试可恢复`
+                  ? `书籍采集暂停(内存硬熔断 ${consecutiveMetaHalts}/${MEM_HALT_PAUSE_AFTER}): ${bookUrl}; 书籍保持未完成, 熔断解除后增量重试可恢复`
                   : `书籍采集等待引擎并发护栏超时(${e?.name === 'GlobalSemTimeout' ? '全局信号量' : `host:${hostGateKeyOf(bookUrl) || '未知'}, 该站在飞已达上限`}): ${bookUrl}; 书籍保持未完成, 稍后增量重试可恢复`)
                 await this.saveProgress(taskId, progress, stats)
+                if (e?.name === 'MemoryHaltError' && consecutiveMetaHalts >= MEM_HALT_PAUSE_AFTER) {
+                  await this.tripMemoryHaltPause(taskId, rt, progress, `书籍页 ${bookUrl.slice(0, 80)}`)
+                  return
+                }
               } else {
                 stats.errors++
                 consecutiveBookErrs++ // [R36-2c-4]
@@ -1580,6 +1614,21 @@ export class TaskRunner {
         r.dirtyLastChapters = false
       }
     }
+  }
+
+  /** [R49-2b-1] 内存硬熔断自动暂停(三处循环共用收口): 连续 MEM_HALT_PAUSE_AFTER 个
+   *  MemoryHaltError 后置 rt.paused + DB 'paused'(走串行状态写链, 与 control('pause')
+   *  同语义), 循环体停在各既有 rt.paused 等待门上 —— 恢复后从断点原地续采(同代循环
+   *  不重发现/不重排)。幂等: 已 paused/stopped 时不重复写; epoch 漂移时仅置内存标志
+   *  (状态权归新循环) */
+  private async tripMemoryHaltPause(taskId: string, rt: TaskRuntime, progress: TaskProgress, where: string): Promise<void> {
+    if (rt.stopped || rt.paused) return
+    rt.paused = true
+    progress.phaseNote = `内存硬熔断自动暂停(${where}; 内存回落后点击「继续」恢复)`
+    if (rt.epoch === (this.runtimes.get(taskId)?.epoch ?? rt.epoch)) {
+      await this.serializeStatusWrite(taskId, 'paused').catch(() => {})
+    }
+    await this.log(taskId, 'warn', `⏸ 任务自动转入暂停: 内存硬熔断持续(${where}, 连续 ${MEM_HALT_PAUSE_AFTER} 项快速失败未解除), 未采内容保持未采集态; 内存回落(RSS<恢复水位)后点击「继续」从断点增量恢复`).catch(() => {})
   }
 
   // ================== hostGate 同站闸门抓取 ==================
@@ -2440,6 +2489,9 @@ export class TaskRunner {
     // [R22-f-1]: live 状态读失败节流标志(仅状态翻转时打一条, 防 DB 长故障期每 2s 一条刷屏)
     let liveReadFailed = false
     let consecutiveErrs = 0
+    // [R49-2b-1] 章节段连续内存硬熔断计数: 达阈值自动转 paused(循环停在顶部等待门),
+    //  不再逐批烧完整个章节队列后以"《书》完成: 0章"假完成态收尾
+    let consecutiveHaltSkips = 0
     while (items.length > 0) {
       if (rt.stopped || isStale()) break
       while (rt.paused && !rt.stopped && rt.epoch === myEpoch) await sleep(600)
@@ -2576,6 +2628,7 @@ export class TaskRunner {
             }
             stats.chaptersUpdated++
             consecutiveErrs = 0
+            consecutiveHaltSkips = 0 // [R49-2b-1] 章节成功, 熔断暂停臂归零
             done++
             ctx.doneCount++
             progress.contentDone = done
@@ -2605,9 +2658,15 @@ export class TaskRunner {
             } else if (e?.name === 'HostGateTimeout' || e?.name === 'GlobalSemTimeout' || e?.name === 'MemoryHaltError') {
               // bb-d/[R30-3-3]: 引擎侧并发护栏(源站无关), 不计 errors/不计连败
               // [R48-1] MemoryHaltError 同口径豁免: 内存硬熔断期间章节快速跳过保持未采集
+              // [R49-2b-1] 熔断持续时不再逐批烧完章节队列: 连续 N 章吃熔断即自动转 paused,
+              //  循环停在顶部 rt.paused 等待门(恢复后本批余下章节原地续采)
+              if (e?.name === 'MemoryHaltError') consecutiveHaltSkips++
               await this.log(ctx.taskId, 'warn', e?.name === 'MemoryHaltError'
-                ? `章节 ${q.title.slice(0, 60)} 暂停(内存硬熔断), 章节保持未采集; 熔断解除后增量重试可恢复`
+                ? `章节 ${q.title.slice(0, 60)} 暂停(内存硬熔断 ${consecutiveHaltSkips}/${MEM_HALT_PAUSE_AFTER}), 章节保持未采集; 熔断解除后增量重试可恢复`
                 : `章节 ${q.title.slice(0, 60)} 引擎并发护栏等待超时(${e?.name === 'GlobalSemTimeout' ? '全局信号量' : `host:${hostGateKeyOf(q.url) || '未知'}`}), 章节保持未采集; 稍后增量重试可恢复`)
+              if (e?.name === 'MemoryHaltError' && consecutiveHaltSkips >= MEM_HALT_PAUSE_AFTER) {
+                await this.tripMemoryHaltPause(ctx.taskId, rt, progress, `章节 ${q.title.slice(0, 40)}`)
+              }
             } else {
               stats.errors++
               consecutiveErrs++

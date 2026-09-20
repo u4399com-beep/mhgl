@@ -1,118 +1,111 @@
 // ============================================================
-// [R28-2g] 本轮复核: 2019 快照复用 + Wayback 内页复抓(tx-{book,read,top,full,search,quanben}.html)全为 Wayback 404 页, 家族标准结论维持; 文件按 R28-2g 重建并入模板集。
-// [R27-6b-14] trxsw(同人小说网) 分类/书库页克隆 —— 杰奇 CMS 默认模板家族标准还原(降级声明)
-// 素材等级: 家族标准 —— 真站分类页 /book/{cat}_{sort}_0_0_0_0_{page}.html(cat 1..7 全实证于
-// 2019 快照导航, 页本体无存档) → 按杰奇家族分类页结构补全: JqH2 标题条 + 更新列表行式
-// (s1..s5 与首页 .l 同款) + 杰奇分页。色值沿用家族标准(b.css 无存档, R25 实证)。
-// 真站导航 cat 1..7 + 排行(monthvisit)/全本(lastupdate) 形态见 R25-1 worklog。
+// [R49-2a-4] R49 全页重克隆: trxsw 真站已由 2019 杰奇版换为「唐人小说网」33yq 家族模板(与 x33yq 同族同源,
+//   实抓 /tmp/r49-snap/trxsw/ 2026-09-20: home/category/book/toc/read/lastupdate/goodnum + 33yq.css 20033B +
+//   read.css 8614B —— 与 x33yq common/style/read.css 逐值一致), 全套组件由 x33yq 已校准实现移植 + 站点文案替换。
+// [R43-2] x33yq(33言情 原始注释, 移植自) 克隆分类页 —— 快照 /tmp/r43-snap/sort1.html(/sort/1/ 直连实抓)
+//   源站结构: #conn > #hotcontent > .l > #alist > h3「{分类}小说列表」+ #alistbox ×20(每页) +
+//     .pic 封面 115×160 + .info(.title《书名》+ 作者 / .sys 最新更新：xx / .intro 简介 / .yuedu 开始阅读)
+//     + #pagelink.pagelink(首页/页码/下一页/尾页)
+//   [R43-2v] 复核轮: stylelist.css 已实抓, 分页条实测为 .articlepage 灰底 #f9f9f9 40px 形态;
+//     列表卡/分页条样式均按实测对齐(见 index.ts); 「加入书架」为源站登录交互不克隆, 仅保留功能性「开始阅读」。
 // ============================================================
 'use client'
 
 import type { SiteCategoryProps } from '../shared'
-import { usePublic } from '../../ctx'
-import { JqH2Slot as JqH2, Pager } from './_kit' // [R34-2c-4] Pager 收敛 / [R36-2d-11] 本地 JqH2 收敛至 _kit
-import { useSiteCats } from '../hooks' // [R35-2d-1] 原逐字节重复的 cats 拉取 effect 收敛
-import { bookNavProps, ErrorState, Sk } from '../../bits'
+import { usePublic, viewToUrl } from '../../ctx'
+import { BookCover } from '../../BookCover'
+import { EmptyState, ErrorState, Sk } from '../../bits'
+import type { BookItem } from '../../types'
 
-/** [R27-6b-14] 杰奇 CMS 家族标准色板(同 Home) */
-const C = {
-  navBlue: '#1C5087',
-  text: '#333333',
-  gray: '#666666',
-  light: '#999999',
-  border: '#dddddd',
-  dotted: '#cccccc',
-} as const
+/** 单页页码窗口(当前页起最多 8 个, 与源站 /sort/1/2/ 分页形态一致) */
+function pageWindow(page: number, total: number): number[] {
+  const out: number[] = []
+  const end = Math.min(total, page + 7)
+  for (let p = Math.max(1, page - 3); p <= end; p++) out.push(p)
+  return out
+}
 
-// [R27-6b-14] 杰奇默认 h2(同 Home)已收敛至 _kit.JqH2Slot [R36-2d-11]
+/** 列表卡行(分类页/排行页共用形态; 源站 #alistbox) */
+export function TrxswAlistRows({ books, loading, error, empty }: { books: BookItem[]; loading: boolean; error: string; empty: string }) {
+  const { site, navigate } = usePublic()
+  const go = (b: BookItem) => navigate({ view: 'book', bookId: b.id })
+  const link = (b: BookItem) => viewToUrl({ view: 'book', bookId: b.id }, site.id)
+  if (loading) {
+    return (
+      <div className="trx-alist-body" role="status" aria-label="列表加载中">
+        {Array.from({ length: 6 }).map((_, i) => <Sk key={i} style={{ height: 180, margin: 10, borderRadius: 0 }} />)}
+      </div>
+    )
+  }
+  if (error) return <div className="trx-alist-body"><ErrorState message="列表加载失败" detail={error} /></div>
+  if (books.length === 0) return <div className="trx-alist-body"><EmptyState text={empty} hint="换个分类看看" /></div>
+  return (
+    <div className="trx-alist-body">
+      {books.map((b) => (
+        <div className="trx-alistbox" key={b.id}>
+          <button className="trx-pic" onClick={() => go(b)} aria-label={b.name}>
+            <BookCover cover={b.cover} name={b.name} />
+          </button>
+          <div className="trx-info">
+            <div className="trx-title">
+              <a href={link(b)} onClick={(e) => { e.preventDefault(); go(b) }}>《{b.name}》</a>
+              <span>作者：{b.author}</span>
+            </div>
+            <div className="trx-sys">最新更新：{b.latestChapter || '暂无章节'}</div>
+            <div className="trx-intro-list">{(b.intro || '暂无简介').slice(0, 88)}</div>
+            <div className="trx-yuedu">
+              <a href={link(b)} onClick={(e) => { e.preventDefault(); go(b) }}>开始阅读</a>
+            </div>
+          </div>
+          <div className="trx-clear" />
+        </div>
+      ))}
+      <div className="trx-clear" />
+    </div>
+  )
+}
+
+/** 分页条(源站 .articlepage > #pagelink.pagelink: 首页/页码/下一页/尾页, 当前页为 strong; 灰底 40px 实测形态) */
+export function TrxswPageLink({ page, totalPages, onPage }: { page: number; totalPages: number; onPage: (p: number) => void }) {
+  const nums = pageWindow(page, totalPages)
+  return (
+    <div className="trx-articlepage">
+      <div className="trx-pagelink" role="navigation" aria-label="分页">
+        <a href="#" onClick={(e) => { e.preventDefault(); onPage(1) }}>首页</a>
+        {nums.map((p) => (
+          p === page
+            ? <strong key={p}>{p}</strong>
+            : <a key={p} href="#" onClick={(e) => { e.preventDefault(); onPage(p) }}>{p}</a>
+        ))}
+        {page < totalPages && <a href="#" className="trx-next" onClick={(e) => { e.preventDefault(); onPage(page + 1) }}>下一页</a>}
+        {page < totalPages && <a href="#" className="trx-ngroup" onClick={(e) => { e.preventDefault(); onPage(totalPages) }}>尾页</a>}
+      </div>
+    </div>
+  )
+}
 
 export function TrxswCategory({ data, loading, error, catName, cat, page }: SiteCategoryProps) {
   const { navigate } = usePublic()
-
-  // 分类导航(真站 .nav 深蓝条分类 ×7; 库内动态分类)
-  const cats = useSiteCats()
-
   const books = data?.books || []
-  const totalPages = data ? Math.ceil((data.total || 0) / (data.size || 24)) : 0
+  const total = data?.total || 0
+  const totalPages = Math.max(1, Math.ceil(total / 24))
+  const onPage = (p: number) => navigate({ view: 'category', cat, page: p })
 
   return (
-    <div className="tx-home mx-auto w-full max-w-[960px] px-2 pb-6 pt-3" style={{ color: C.text, fontSize: 14 }}>
-      {/* 分类导航条(杰奇家族: 白卡 h2 条) */}
-      <div className="tx-cats mb-3 border p-2.5" style={{ borderColor: C.border }}>
-        <span className="mr-2 text-[13px]" style={{ color: C.gray }}>
-          分类：
-        </span>
-        {cats === null ? (
-          <Sk className="inline-block h-4 w-2/3 align-middle" />
-        ) : cats.length ? (
-          cats.map((c) => (
-            <button
-              key={c.id}
-              type="button"
-              onClick={() => navigate({ view: 'category', cat: c.id, page: 1 })}
-              className={`tx-cat mr-2 text-[14px] ${cat === c.id ? 'font-bold' : ''}`}
-              style={{ color: cat === c.id ? C.navBlue : C.text }}
-              aria-label={`前往 ${c.name} 分类`}
-              aria-current={cat === c.id ? 'true' : undefined}
-            >
-              {c.name}
-            </button>
-          ))
-        ) : (
-          <span className="text-[13px]">暂无分类</span>
-        )}
-      </div>
-
-      {/* JqH2 + s1..s5 更新列表(杰奇家族分类页标准) */}
-      <section className="tx-sec">
-        <JqH2>{catName}列表</JqH2>
-        {error ? (
-          <div className="py-6">
-            <ErrorState message="书库加载失败" detail={error} />
+    <div className="trx-cat">
+      <div id="trx-main">
+        <div id="trx-conn">
+          <div id="trx-hotcontent">
+            <div className="trx-l">
+              <div className="trx-alist">
+                <h3 className="trx-alist-h3">{catName}小说列表</h3>
+                <TrxswAlistRows books={books} loading={loading} error={error} empty="暂无相关书籍" />
+                <TrxswPageLink page={page} totalPages={totalPages} onPage={onPage} />
+              </div>
+            </div>
           </div>
-        ) : loading && !books.length ? (
-          <ul aria-hidden className="m-0 list-none p-0">
-            {Array.from({ length: 12 }).map((_, i) => (
-              <li key={i} className="tx-li flex h-9 items-center border-b border-dotted" style={{ borderColor: C.dotted }}>
-                <Sk className="h-4 w-full" />
-              </li>
-            ))}
-          </ul>
-        ) : books.length ? (
-          <ul className="m-0 list-none p-0">
-            {books.map((b) => (
-              <li key={b.id} className="tx-li flex h-9 items-center gap-2 border-b border-dotted" style={{ borderColor: C.dotted }}>
-                <span className="tx-s1 hidden w-[76px] shrink-0 truncate text-[12px] sm:block" style={{ color: C.gray }}>
-                  [{b.category || '小说'}]
-                </span>
-                <button
-                  type="button"
-                  {...bookNavProps(navigate, b.id)}
-                  className="tx-s2 w-[36%] min-w-0 shrink truncate text-left text-[14px]"
-                  style={{ color: C.text }}
-                  aria-label={`查看《${b.name}》详情`}
-                >
-                  {b.name}
-                </button>
-                <span className="tx-s3 hidden min-w-0 flex-1 truncate text-[13px] sm:block" style={{ color: C.gray }}>
-                  {b.latestChapter || b.intro || '—'}
-                </span>
-                <span className="tx-s4 hidden w-[80px] shrink-0 truncate text-right text-[12px] sm:block" style={{ color: C.gray }}>
-                  {b.author}
-                </span>
-                <em className="tx-s5 w-[44px] shrink-0 text-right not-italic text-[12px]" style={{ color: C.light }}>
-                  {b.wordCount > 0 ? `${Math.round(b.wordCount / 10000)}万` : ''}
-                </em>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="py-6 text-center" style={{ color: C.gray }}>
-            该分类暂无书籍
-          </p>
-        )}
-        <Pager page={page} totalPages={totalPages} onGo={(p) => navigate({ view: 'category', cat, page: p })} />
-      </section>
+        </div>
+      </div>
     </div>
   )
 }

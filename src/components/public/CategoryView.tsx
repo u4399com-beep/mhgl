@@ -56,10 +56,12 @@ export function CategoryView({ cat, page }: { cat?: string; page: number }) {
     fetchCategories()
       .then((list) => {
         if (!alive) return
-        setCatName(list.find((c) => c.id === cat)?.name || '分类书籍')
+        // [R49-2a-3] 合成锚点形态(cat:{name})在分类列表未命中时回退用锚点名直显,
+        // 避免 h1/TDK 落「分类书籍」泛称(稀薄库窗口期锚点名=导航可见名, 语义等价)
+        setCatName(list.find((c) => c.id === cat)?.name || (cat.startsWith('cat:') ? cat.slice(4) : '分类书籍'))
       })
       .catch(() => {
-        if (alive) setCatName('分类书籍')
+        if (alive) setCatName(cat.startsWith('cat:') ? cat.slice(4) : '分类书籍')
       })
     return () => {
       alive = false

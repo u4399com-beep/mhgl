@@ -59,7 +59,7 @@ export const api = {
 //  标为 'interrupted', 此前 UI 侧联合类型缺该值, 徽章靠 `|| TASK_STATUS_META.pending` 回退
 //  成"等待中"误导操作员。状态为自由 String, 六值白名单自此扩为七值
 export type TaskStatus = 'pending' | 'running' | 'paused' | 'stopped' | 'done' | 'error' | 'interrupted'
-export type BookStatus = 'ongoing' | 'completed' | 'unknown'
+// [R49-3-5] BookStatus 类型删除(零引用 ts-prune+rg 双确认): 书籍状态展示走 public/types 的 BookItem.status(string)
 export type RuleSection = 'list' | 'book' | 'toc' | 'content'
 
 // [R34-2a-6] 任务模式显示名映射: single/range 既有文案不变, bookIds 显示「书号采集」;
@@ -267,7 +267,7 @@ export interface DownloadJobRow {
 }
 
 // ---------------- feat-round-7: 用户反馈 ----------------
-export type FeedbackType = 'bug' | 'suggestion' | 'praise' | 'other'
+// [R49-3-5] FeedbackType 类型删除(零引用 ts-prune+rg 双确认): FeedbackRow.type 为自由 string, 前端徽章自持映射
 
 export interface FeedbackRow {
   id: string

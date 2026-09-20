@@ -12,7 +12,7 @@ import { db } from '@/lib/db'
 //   带空格词按 R9-a-17 原样匹配永不命中真实简介(死关键词), R22-c-2 词界方案下不再需要
 // - 新增耽美行(置于轻小说之前: 与'校园'打平时耽美优先)
 // [R46-2c-1] 分类同类合并(R46-3): 灵异行并入悬疑(主流小说站"悬疑灵异"同段惯例, 如起点/
-//   纵横/晋江分类页), 主分类收敛到 15 个 —— 词表行数即主分类白名单, MAX_MAIN_CATEGORIES 恒等约束
+//   纵横/晋江分类页), 主分类收敛到 15 个 —— 词表行数即主分类白名单(15)
 const CATEGORY_KEYWORDS: [string, string[]][] = [
   ['玄幻', ['玄幻', '修罗', '斗气', '魔法学院', '异界', '大陆', '废材', '神帝', '武魂', '神祇', '神国']],
   ['奇幻', ['奇幻', '史诗', '骑士', '法师', '精灵', '龙族', '矮人', '魔兽']],
@@ -33,7 +33,8 @@ const CATEGORY_KEYWORDS: [string, string[]][] = [
 
 // [R46-2c-1] 主分类白名单(≤15)与兜底分类名 —— consolidateCategories/smartCategory/
 //   canonicalizeCategoryName 三者的单一真值源
-export const MAX_MAIN_CATEGORIES = 15
+// [R49-3-7] MAX_MAIN_CATEGORIES 导出常量删除(零引用 ts-prune+rg 双确认): 白名单实体为
+//   CANONICAL_CATEGORIES(词表行数派生), 15 仅存于本注释
 export const CANONICAL_CATEGORIES: string[] = CATEGORY_KEYWORDS.map(([name]) => name)
 const CANON_SET = new Set(CANONICAL_CATEGORIES)
 export const FALLBACK_CATEGORY = '其他'

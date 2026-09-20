@@ -1,6 +1,8 @@
 // ============================================================
 // [R26-c-3] 站点克隆模板工具箱 —— 各站 {Page}.tsx 模板组件共用的阅读侧小件
-// (字号调节 / 阅读位置记忆 / 章节正文渲染 / 分卷分组), 让 10 站模板不必各自复制这些逻辑。
+// (字号调节 / 阅读位置记忆 / 章节正文渲染), 让 10 站模板不必各自复制这些逻辑。
+// [R49-3-3] groupTocVolumes 删除: 全库零引用(ts-prune+rg 双确认), 分卷分组仅通用
+//   BookView 自有实现, 各站模板从未接入。
 // ============================================================
 'use client'
 
@@ -9,7 +11,6 @@ import type { CSSProperties } from 'react'
 import { contentToHtml, READER_FONT_KEY, readStoredFontSize } from '../read-layouts/shared'
 import { usePublic } from '../ctx'
 import { getReadTimeMs, saveReadPos, setReadTimeMs } from '../read-layouts/reading-memory'
-import type { TocChapter } from '../types'
 
 // [R34-2c-2] READER_FONT_KEY 与字号读取器收敛至 read-layouts/shared 单处定义(原私有副本同键同校验)
 
@@ -104,20 +105,4 @@ export function useThemeFontBase(fallback: number): number {
 export function useThemeLineHeight(fallback: number): number {
   const { themeOverride } = usePublic()
   return themeOverride?.read?.lineHeight ?? fallback
-}
-
-/**
- * 目录分卷分组(与通用 BookView 同口径): 连续相同 volume 一组, 空卷归「正文」。
- * 无卷数据返回 null(模板渲染平铺列表)。
- */
-export function groupTocVolumes(chapters: TocChapter[]): { volume: string; chapters: TocChapter[] }[] | null {
-  if (!chapters.some((c) => c.volume)) return null
-  const gs: { volume: string; chapters: TocChapter[] }[] = []
-  for (const c of chapters) {
-    const vol = c.volume || ''
-    const last = gs[gs.length - 1]
-    if (last && last.volume === vol) last.chapters.push(c)
-    else gs.push({ volume: vol, chapters: [c] })
-  }
-  return gs
 }

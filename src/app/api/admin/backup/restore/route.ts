@@ -559,26 +559,40 @@ export async function POST(req: Request) {
         }
 
         // downloadJobs
+        // [R49-2c-3] 状态归一化(与 R9-d-8 任务状态归一化同哲学): 生成作业由 POST 内联
+        //  IIFE 推进, 恢复导入后进程内没有对应 worker —— 备份中 status=pending/running 的
+        //  作业若原样入库会以「排队中/生成中」幽灵态永久滞留(仅靠 POST 入口 1h 陈旧清扫兜底)。
+        //  导入时归一为 error + 说明, done/error 原样保留; 丢失的成品文件由公开下载路由的
+        //  open/stat 404 兜底, 不新增风险面
         for (const d of downloadJobs) {
           if (!d || typeof d.id !== 'string' || !d.id) continue
           const bookId = String(d.bookId || '')
           if (!bookId) continue
+          const rawDlStatus = String(d.status || 'pending').slice(0, 20)
+          const isGhost = rawDlStatus === 'pending' || rawDlStatus === 'running'
+          const dlStatus = isGhost ? 'error' : rawDlStatus
+          if (isGhost) {
+            warnings.push('备份中存在未完成的下载任务, 导入后已标记为失败, 请重新发起生成')
+          }
+          const dlError = isGhost
+            ? '生成中断(备份恢复导入), 请重新发起'
+            : d.error == null ? null : String(d.error).slice(0, 500)
           try {
             await tx.downloadJob.upsert({
               where: { id: d.id },
               create: {
                 id: d.id, bookId,
                 options: String(d.options || '{}').slice(0, 100_000),
-                status: String(d.status || 'pending').slice(0, 20),
+                status: dlStatus,
                 filePath: d.filePath == null ? null : String(d.filePath).slice(0, 500),
-                error: d.error == null ? null : String(d.error).slice(0, 500),
+                error: dlError,
                 size: Number(d.size) || 0,
               },
               update: {
                 options: String(d.options || '{}').slice(0, 100_000),
-                status: String(d.status || 'pending').slice(0, 20),
+                status: dlStatus,
                 filePath: d.filePath == null ? null : String(d.filePath).slice(0, 500),
-                error: d.error == null ? null : String(d.error).slice(0, 500),
+                error: dlError,
                 size: Number(d.size) || 0,
               },
             })

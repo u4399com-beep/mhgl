@@ -106,19 +106,25 @@ const ADMIN_RATE_LIMIT_PER_MIN = (() => {
 })()
 
 // ---- 安全响应头 ----
+// [R49-2c-4] 生产环境补 HSTS(与 createSession 的 Secure cookie 同一 prod-only 策略):
+//  修前安全头集无 Strict-Transport-Security, HTTPS 反代(Caddy)部署下浏览器首访后不强制
+//  升级后续连接, 降级/中间人窗口敞开。dev 不注入(本地 http 预览不受影响; 浏览器对 http
+//  响应本就忽略 HSTS, prod-only 属防御性收窄)
+const isProd = process.env.NODE_ENV === 'production'
 const SECURITY_HEADERS: Record<string, string> = {
   'X-Content-Type-Options': 'nosniff',
   'X-Frame-Options': 'DENY',
   'Referrer-Policy': 'strict-origin-when-cross-origin',
   'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
   'X-DNS-Prefetch-Control': 'off',
+  ...(isProd ? { 'Strict-Transport-Security': 'max-age=15552000; includeSubDomains' } : {}),
 }
 
 // HTML 页面 CSP
 // R5-22: 按运行环境分级 —— 生产环境去除 'unsafe-eval'(Next dev 用于 HMR/eval, 生产无需),
 //  收紧 XSS 攻击面; dev 保留 'unsafe-inline' + 'unsafe-eval' 让 Next.js HMR 正常工作。
 //  进一步收紧(如 nonce 替代 unsafe-inline)需 Next.js 16 nonce-based CSP, 单独立项推进。
-const isProd = process.env.NODE_ENV === 'production'
+// [R49-2c-4] isProd 已上移至 SECURITY_HEADERS 处单点声明(此处原重复声明与新增 HSTS 冲突)
 const CSP_HTML =
   "default-src 'self'; " +
   `script-src 'self' 'unsafe-inline'${isProd ? '' : " 'unsafe-eval'"}; ` +

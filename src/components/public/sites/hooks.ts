@@ -1,10 +1,12 @@
 // ============================================================
 // [R35-2d-1] 站点克隆模板「alive-guard 客户端拉取」钩子族 —— 原 12 处逐字节重复的
-// useState+useEffect(alive 竞态守卫)收敛为单处定义, 逐字节等价语义:
+//   useState+useEffect(alive 竞态守卫)收敛为单处定义, 逐字节等价语义:
 //   挂载/依赖变更时拉取; 卸载(或依赖变更)先置 alive=false → 不再 setState;
 //   成功 settle 为 pick 结果, 失败 settle 为回退值(各钩子与原文件同口径)。
 // 消费方均为站点模板('use client' 展示层); 主体数据仍由通用视图层 props 下发,
-// 此处仅为克隆侧增强拉取(热榜池/分类条/相关阅读/友链)的共享机械部分。
+// 此处仅为克隆侧增强拉取(热榜池/分类条/友链)的共享机械部分。
+// [R49-3-2] useRelatedBooks 删除: 原 trxsw·ggd66 Read 两处消费点随 R49-2a trxsw 33yq 家族
+//   重写消失, ts-prune+rg 双确认零引用。
 // ============================================================
 'use client'
 
@@ -48,26 +50,6 @@ export function useWordsPool(siteId: string): BookItem[] | null {
     }
   }, [siteId])
   return pool
-}
-
-/** 相关阅读池(字数热榜 10 本排除本书, 失败回退空数组; bookId 未就绪时不拉取) —— trxsw·ggd66 Read 两处共用 */
-export function useRelatedBooks(bookId: string | undefined): BookItem[] | null {
-  const [rel, setRel] = useState<BookItem[] | null>(null)
-  useEffect(() => {
-    if (!bookId) return
-    let alive = true
-    fetchBooks({ sort: 'words', page: 1, size: 10 })
-      .then((d) => {
-        if (alive) setRel((d.books || []).filter((b) => b.id !== bookId).slice(0, 10))
-      })
-      .catch(() => {
-        if (alive) setRel([])
-      })
-    return () => {
-      alive = false
-    }
-  }, [bookId])
-  return rel
 }
 
 /** 页脚友链(空数组初值, 失败保持空数组) —— trxsw·shipsay Home 两处共用 */

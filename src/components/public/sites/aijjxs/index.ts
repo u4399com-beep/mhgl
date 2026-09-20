@@ -48,7 +48,10 @@ export const aijjxsTemplate: SiteTemplateSet = {
 .clone-aijjxs a{color:#115e59;text-decoration:none}
 .clone-aijjxs a:hover{color:#0f766e;text-decoration:underline}
 /* 版心(真站 .wrap: max-width 1220 居中 padding 18 14 36; 页面根容器均等价 .wrap, header.top 由 .ajx-top 自行居中) */
-.clone-aijjxs .ajx-home,.clone-aijjxs .ajx-cat,.clone-aijjxs .ajx-book-page,.clone-aijjxs .ajx-toc,.clone-aijjxs .ajx-full,.clone-aijjxs div.ajx-search{max-width:1220px;width:100%;margin:0 auto;padding:0 14px 36px}
+/* [R49-2a-1] 版心选择器原含 .ajx-cat —— 与列表行「分类胶囊」<span class=ajx-cat> 同名碰撞, width:100% 被注入胶囊 →
+   胶囊占满整行把书名 <a> 压到 0 宽(实测 offsetWidth=0, 书名不可见, 用户报障根因之一);
+   页根类名 Category.tsx 改 .ajx-catpage, 胶囊 .ajx-cat(对齐真站 .cat)仅由 L114/L287 胶囊规则承载 */
+.clone-aijjxs .ajx-home,.clone-aijjxs .ajx-catpage,.clone-aijjxs .ajx-book-page,.clone-aijjxs .ajx-toc,.clone-aijjxs .ajx-full,.clone-aijjxs div.ajx-search{max-width:1220px;width:100%;margin:0 auto;padding:0 14px 36px}
 /* ---- 行内链接既有语义(保留 R39 轮已实测的行级色值) ---- */
 .clone-aijjxs .ajx-line a{color:#115e59;text-decoration:none}
 .clone-aijjxs .ajx-line a:hover{color:#0f766e;text-decoration:underline}
@@ -56,8 +59,10 @@ export const aijjxsTemplate: SiteTemplateSet = {
 .clone-aijjxs .ajx-book-card a{color:#115e59;text-decoration:none}
 .clone-aijjxs .ajx-book-card a:hover{color:#09B295;text-decoration:none}
 
-/* ================= 顶部固定导航(真站 .top-float 深酒红渐变条, style.css 1721-1757 实测) ================= */
-.clone-aijjxs .ajx-topfloat{position:fixed;top:0;left:0;right:0;z-index:1200;display:flex;align-items:center;padding:8px 9px;background:linear-gradient(180deg,rgba(85,15,28,.94) 0%,rgba(60,8,20,.94) 50%,rgba(38,4,12,.96) 100%);border-bottom:1px solid rgba(20,5,10,.55);box-shadow:inset 0 1px 0 rgba(255,220,230,.18),inset 0 -1px 0 rgba(0,0,0,.22),0 4px 10px rgba(40,5,12,.22),0 2px 4px rgba(40,5,12,.12);backdrop-filter:blur(12px) saturate(145%)}
+/* ================= 顶部固定导航(真站 .top-float 深酒红条, style.css 1721-1757 实测) ================= */
+/* [R49-2a-2] 按真站 2026-09-20 实抓 style.css 终态级联校准: 末段 "top-float deeper-bg" 覆盖为
+   平涂 rgba(52,6,16,.86)(弃 R18 期三段深酒红渐变), 边框 rgba(255,214,224,.28), 单层投影 0 8px 24px rgba(60,10,20,.28) */
+.clone-aijjxs .ajx-topfloat{position:fixed;top:0;left:0;right:0;z-index:1200;display:flex;align-items:center;padding:8px 9px;background:rgba(52,6,16,.86);border-bottom:1px solid rgba(255,214,224,.28);backdrop-filter:blur(12px) saturate(145%);box-shadow:0 8px 24px rgba(60,10,20,.28)}
 /* 真站 .top-float-inner(padding 8 9 + 居中)并入外壳; margin auto 居中兼容 overflow-x 滚动(防左端不可达) */
 .clone-aijjxs .ajx-topfloat-nav{display:flex;gap:5px;margin:0 auto;overflow-x:auto;white-space:nowrap;scrollbar-width:none;-ms-overflow-style:none}
 .clone-aijjxs .ajx-topfloat-nav::-webkit-scrollbar{width:0;height:0;display:none}
@@ -295,6 +300,6 @@ export const aijjxsTemplate: SiteTemplateSet = {
   .clone-aijjxs .ajx-read-title{font-size:22px}
 }
 /* 兜底: 375px 无横向滚动(行内容均 ellipsis 截断) */
-.clone-aijjxs .ajx-home,.clone-aijjxs .ajx-cat,.clone-aijjxs .ajx-book-page,.clone-aijjxs .ajx-toc,.clone-aijjxs .ajx-read,.clone-aijjxs .ajx-ft,.clone-aijjxs .ajx-search,.clone-aijjxs .ajx-full{overflow-x:hidden}
+.clone-aijjxs .ajx-home,.clone-aijjxs .ajx-catpage,.clone-aijjxs .ajx-book-page,.clone-aijjxs .ajx-toc,.clone-aijjxs .ajx-read,.clone-aijjxs .ajx-ft,.clone-aijjxs .ajx-search,.clone-aijjxs .ajx-full{overflow-x:hidden}
 `,
 }

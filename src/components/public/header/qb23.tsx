@@ -14,7 +14,8 @@ import { usePublic } from '../ctx'
 import type { CategoryItem } from '../types'
 
 // 真站 nav 分类文案(快照实测): 言情/都市/唯美/穿越/青春/玄幻/武侠/军事/竞技/科幻/悬疑/同人/职场
-export const QB_NAV_LABELS = ['言情', '都市', '唯美', '穿越', '青春', '玄幻', '武侠', '军事', '竞技', '科幻', '悬疑', '同人', '职场']
+// [R49-3-4] QB_NAV_LABELS 常量删除(零引用 ts-prune+rg 双确认): 组件 nav 实际由 DB 分类(cats.slice(0,13))驱动,
+//   该常量仅为快照文案留档, 注释保留即承载同等信息
 
 export function QbHeader({ cats, pending }: { cats: CategoryItem[]; pending: boolean }) {
   const { navigate, view } = usePublic()

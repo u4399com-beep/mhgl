@@ -1,146 +1,60 @@
 // ============================================================
-// [R28-2g-5] trxsw(同人小说网) 搜索页克隆 —— 杰奇 CMS 默认模板家族标准还原(降级声明)
-// 素材等级: 家族标准 —— ①真站搜索框形态: 快照 .head > #searchbar > .search(内容由 b.js
-// 注入, 表单本体无存档) → 按杰奇家族默认搜索框补全: 直角输入框(1px #ccc 边) + 深蓝渐变
-// 提交钮(SiteHeader TrxswSearchBox 同款, R25-4 实现先例)。②真站搜索路由: 杰奇家族
-// 标准 /modules/article/search.php(GET searchkey) 或 /search.html — 伪静态化 2019 快照
-// map 页形态无存档; 结果列表区无存档(R28-2g Wayback 复抓 tx-search.html 为 Wayback 404 页)
-// → 结果区按家族列表页 s1..s5 行式骨架补全(与首页 .l 同款)。
-// 降级声明(逐条):
-//   ①搜索提交 navigate({view:'search', q}) 承担(真站 GET searchkey 表单语义等价映射)
-//   ②SearchData 无 total/分页契约 → 不渲染计数与分页, 结果行数即返回条数(声明)
-//   ③relatedTags 相关搜索词 chips 落地 navigate keyword(杰奇家族无此形态 → 克隆侧增强,
-//     与通用 SearchView 同口径)
+// [R49-2a-4] R49 全页重克隆: trxsw 真站已由 2019 杰奇版换为「唐人小说网」33yq 家族模板(与 x33yq 同族同源,
+//   实抓 /tmp/r49-snap/trxsw/ 2026-09-20: home/category/book/toc/read/lastupdate/goodnum + 33yq.css 20033B +
+//   read.css 8614B —— 与 x33yq common/style/read.css 逐值一致), 全套组件由 x33yq 已校准实现移植 + 站点文案替换。
+// [R43-2] x33yq(33言情 原始注释, 移植自) 克隆搜索结果页 —— 源站契约: POST /search.html(字段 searchtype=all + searchkey,
+//   target=_blank); 快照未含 search.html → 按平台 SearchView 数据契约 + 源站列表块形态渲染:
+//   .novelslistss 行式结果块(style.css 实测: 968px 2px #C8D4E1 圆角10 / h2 底 #F6F8FE /
+//   行 s1 10% s2 30% s3 30% s4 #B3B3B3 15% 右) + .place 相关词条(common.css 实测)
 // ============================================================
 'use client'
 
-import { useState } from 'react'
-import type { FormEvent } from 'react'
-import { JqH2 } from './_kit' // [R34-2c-4] 三文件逐字节重复的 JqH2 收敛
 import type { SiteSearchProps } from '../shared'
-import { usePublic } from '../../ctx'
-import { bookNavProps, EmptyState, ErrorState, Sk } from '../../bits'
-
-/** [R28-2g-5] 杰奇 CMS 家族标准色板(b.css 无存档, R25 轮实证) */
-const C = {
-  navBlue: '#1C5087',
-  navBlueLight: '#1F5FA9',
-  text: '#333333',
-  gray: '#666666',
-  light: '#999999',
-  border: '#dddddd',
-  dotted: '#cccccc',
-} as const
+import { usePublic, viewToUrl } from '../../ctx'
+import { EmptyState, ErrorState, Sk } from '../../bits'
+import type { BookItem } from '../../types'
 
 export function TrxswSearch({ q, data, loading, error }: SiteSearchProps) {
-  const { navigate } = usePublic()
-  const [input, setInput] = useState(q)
-
-  // 表单提交(声明①: 真站 GET searchkey → navigate search 视图)
-  const onSubmit = (e: FormEvent) => {
-    e.preventDefault()
-    const kw = input.trim()
-    if (kw) navigate({ view: 'search', q: kw })
-  }
-
+  const { site, navigate } = usePublic()
   const books = data?.books || []
-  const tags = data?.relatedTags || []
+  const go = (b: BookItem) => navigate({ view: 'book', bookId: b.id })
+  const link = (b: BookItem) => viewToUrl({ view: 'book', bookId: b.id }, site.id)
 
   return (
-    <div className="tx-home mx-auto w-full max-w-[960px] px-2 pb-6 pt-3" style={{ color: C.text, fontSize: 14 }}>
-      {/* 搜索框(杰奇家族 #searchbar 形态: 直角输入 + 深蓝渐变钮) */}
-      <form className="tx-searchbar mb-3 flex" role="search" onSubmit={onSubmit}>
-        <input
-          type="text"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="输入书名或作者"
-          className="tx-searchinput min-w-0 flex-1 border px-2 py-[7px] text-[14px] outline-none"
-          style={{ borderColor: C.border, color: C.text, background: '#fff' }}
-          aria-label="搜索关键词"
-        />
-        <button
-          type="submit"
-          className="tx-searchbtn shrink-0 px-5 py-[7px] text-[14px] text-white transition-opacity hover:opacity-90"
-          style={{ background: `linear-gradient(180deg, ${C.navBlueLight} 0%, ${C.navBlue} 100%)`, border: `1px solid ${C.navBlue}` }}
-          aria-label="搜索"
-        >
-          搜 索
-        </button>
-      </form>
-
-      <section className="tx-sec">
-        <JqH2>{q ? `“${q}” 的搜索结果` : '站内搜索'}</JqH2>
-        {error ? (
-          <div className="py-6">
+    <div className="trx-search">
+      <div id="trx-main">
+        <div className="trx-novelslistss">
+          <h2>搜索「{q}」的结果</h2>
+          {loading ? (
+            <ul>
+              {Array.from({ length: 10 }).map((_, i) => <li key={i}><Sk style={{ height: 18 }} /></li>)}
+            </ul>
+          ) : error ? (
             <ErrorState message="搜索失败" detail={error} />
-          </div>
-        ) : loading ? (
-          <ul aria-hidden className="m-0 list-none border bg-white" style={{ borderColor: C.border }}>
-            {Array.from({ length: 10 }).map((_, i) => (
-              <li key={i} className="tx-li flex h-9 items-center border-b border-dotted" style={{ borderColor: C.dotted }}>
-                <Sk className="h-4 w-full" />
-              </li>
+          ) : books.length === 0 ? (
+            <EmptyState text="未找到相关书籍, 换个关键词试试" />
+          ) : (
+            <ul>
+              {books.map((b) => (
+                <li key={b.id}>
+                  <span className="s1">[{b.category || '小说'}]</span>
+                  <span className="s2"><a href={link(b)} onClick={(e) => { e.preventDefault(); go(b) }}>{b.name}</a></span>
+                  <span className="s3">{(b.intro || '暂无简介').slice(0, 30)}</span>
+                  <span className="s4">{b.author}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        {(data?.relatedTags?.length || 0) > 0 && (
+          <div className="trx-place">
+            <span>相关词：</span>
+            {data?.relatedTags.slice(0, 10).map((t) => (
+              <a key={t.tag + t.bookId} href="#" onClick={(e) => { e.preventDefault(); navigate({ view: 'keyword', tag: t.tag }) }}>{t.tag}</a>
             ))}
-            <li className="sr-only" aria-hidden>加载中…</li>
-          </ul>
-        ) : books.length ? (
-          <ul className="m-0 list-none border bg-white" style={{ borderColor: C.border }}>
-            {books.map((b) => (
-              <li key={b.id} className="tx-li flex h-9 items-center gap-2 border-b border-dotted" style={{ borderColor: C.dotted }}>
-                <span className="tx-s1 hidden w-[76px] shrink-0 truncate text-[12px] sm:block" style={{ color: C.gray }}>
-                  [{b.category || '小说'}]
-                </span>
-                <button
-                  type="button"
-                  {...bookNavProps(navigate, b.id)}
-                  className="tx-s2 w-[36%] min-w-0 shrink truncate text-left text-[14px]"
-                  style={{ color: C.text }}
-                  aria-label={`查看《${b.name}》详情`}
-                >
-                  {b.name}
-                </button>
-                <span className="tx-s3 hidden min-w-0 flex-1 truncate text-[13px] sm:block" style={{ color: C.gray }}>
-                  {b.intro || '—'}
-                </span>
-                <span className="tx-s4 hidden w-[80px] shrink-0 truncate text-right text-[12px] sm:block" style={{ color: C.gray }}>
-                  {b.author}
-                </span>
-                <em className="tx-s5 w-[52px] shrink-0 text-right not-italic text-[12px]" style={{ color: C.light }}>
-                  {b.wordCount > 0 ? `${(b.wordCount / 10000).toFixed(1)}万` : ''}
-                </em>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <div className="border bg-white py-8" style={{ borderColor: C.border }}>
-            <EmptyState text={q ? `没有找到与「${q}」相关的书籍` : '输入关键词开始搜索'} hint="可搜书名、作者" />
           </div>
         )}
-      </section>
-
-      {/* 相关搜索词(克隆侧增强, 声明③) */}
-      {tags.length > 0 && (
-        <div className="tx-reltags mt-3 border p-2.5" style={{ borderColor: C.border }}>
-          <p className="m-0 flex flex-wrap items-center gap-x-3 gap-y-1">
-            <span className="text-[13px]" style={{ color: C.gray }}>
-              相关搜索：
-            </span>
-            {tags.map((t) => (
-              <button
-                key={`${t.bookId}-${t.tag}`}
-                type="button"
-                onClick={() => navigate({ view: 'keyword', tag: t.tag })}
-                className="text-[13px] hover:underline"
-                style={{ color: C.text }}
-                aria-label={`搜索 ${t.tag}`}
-              >
-                {t.tag}
-              </button>
-            ))}
-          </p>
-        </div>
-      )}
+      </div>
     </div>
   )
 }

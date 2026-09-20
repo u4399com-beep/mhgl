@@ -158,6 +158,14 @@ model Task {
   logs      TaskLog[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  // [R49-2c-6] status 扫描索引 —— 热消费点: GET /api/admin/stats 的
+  //  task.count({ status: { in: ['running','paused'] } })(仪表盘轮询热路径)、
+  //  recovery.recoverOnBoot 的 updateMany({ status: 'running' })(每次进程启动)、
+  //  GET /api/admin/tasks?status= 白名单过滤与 tasks/batch 的 FINAL_STATUSES 预检。
+  //  修前 Task 无任何二级索引, 状态筛选恒全表扫描(任务行含 progress 大 JSON, 行宽大,
+  //  扫描代价随任务历史线性上涨)
+  @@index([status])
 }
 
 model TaskLog {
@@ -219,6 +227,14 @@ model DownloadJob {
   // 该端点无鉴权且每次下载请求都触发一次全表扫描(任务行随下载历史无界增长)。
   // 复合序 (bookId, status, createdAt) 与查询形态精确匹配(status 等值 + createdAt 排序取最新)
   @@index([bookId, status, createdAt])
+
+  // [R49-2c-6] status 前缀扫描索引 —— POST /api/admin/downloads 每次创建都执行
+  //  count({ status: { in: ['pending','running'] } })(并发生成上限判定, 先于建行)+
+  //  updateMany({ status in [pending,running], createdAt < 1h 前 })(陈旧孤儿清扫);
+  //  既有 (bookId, status, createdAt) 复合序 bookId 打头, 对不带 bookId 的这两条查询无效,
+  //  修前每次 POST 都是全表扫描(下载历史无界增长后拖慢创建入口)。
+  //  (status, createdAt) 复合序同时命中两条查询的 等值+范围 形态
+  @@index([status, createdAt])
 }
 
 // ==================== 全局设置 ====================

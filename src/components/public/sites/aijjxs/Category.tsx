@@ -22,7 +22,7 @@ export function AijjxsCategory({ data, loading, error, catName, cat, page }: Sit
   const link = (b: BookItem) => viewToUrl({ view: 'book', bookId: b.id }, site.id)
 
   return (
-    <div className="ajx-cat">
+    <div className="ajx-catpage">
       <main className="ajx-layout ajx-cat-layout">
         <section>
           <div className="ajx-cen-main">

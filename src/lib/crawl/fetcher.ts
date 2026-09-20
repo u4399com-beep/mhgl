@@ -881,6 +881,20 @@ function checkMemoryHalt(rssBytes: number): void {
   }
 }
 
+/** [R49-2b-4] 内存熔断准入(非 fetchPage 网络路径的统一接线口):
+ *  R48 熔断层只在 fetchPage 准入路径生效, 其余直连网络出口(封面 fetchBinary 等)在熔断期间
+ *  仍会发起新请求 —— 4G 沙箱 OOM 临界期这些"漏网直连 fetch"与熔断语义相悳。
+ *  本出口供 fetchBinary 等辅助链在入口调用: 熔断中/熔断线以上直接抛 MemoryHaltError
+ *  (与 fetchPage 同名错误同口径, runner 侧封面 catch 已按 warn 降级, 不破坏采集链);
+ *  memoryUsage 异常容忍(与 fetchPage 准入块同口径, 仅 MemoryHaltError 上抛) */
+export function assertMemoryAdmissible(): void {
+  try {
+    checkMemoryHalt(process.memoryUsage().rss)
+  } catch (e) {
+    if ((e as Error)?.name === 'MemoryHaltError') throw e
+  }
+}
+
 /** [R48-1] 内存感知动态并发上限: soft 以下满额; soft~halt 线性收紧至 ≥1/4(下限 2);
  *  halt 以上由 checkMemoryHalt 抛错(到不了这里的计算)。仅收紧新准入, 已持有槽位不收回 */
 function dynConcurrencyLimit(rssBytes: number, cfgLimit: number): number {
@@ -1063,6 +1077,17 @@ interface HostRhythmState {
   gentleGapMs: number
   burstCount: number
   burstTarget: number
+  /** [R49-2b-2] 失败升级链记忆: 同 host 连续 403/429/503 达 HOST_ESCALATION_ARM_STREAK 次
+   *  后自动挂上的 curl-impersonate 档位(''=未升级); 下一请求起经 impersonateTierOverride
+   *  走 curl-impersonate 二进制/桥轨(真实浏览器 TLS/JA3+H2 指纹), 直连→换 UA→换代理之外
+   *  补上"指纹面被站点针对性封禁"的自动逃生(此前仅规则/环境显式配档才生效)。升级态跨
+   *  请求持久(hostRhythm FIFO 512 同账本), 连续干净成功 HOST_ESCALATION_RESET_OK 次后
+   *  衰减复位(防站点恢复后永久多走一跳桥) */
+  escTier: string
+  /** [R49-2b-2] 403/429/503 累计(升级臂计数); 干净成功清零 */
+  escFails: number
+  /** [R49-2b-2] 升级生效期间的干净成功连击(达 HOST_ESCALATION_RESET_OK 复位 escTier) */
+  escOkStreak: number
 }
 const HOST_RHYTHM_CAP = 512
 const HOST_SENSITIVE_WINDOW_MS = 10 * 60 * 1000
@@ -1086,7 +1111,7 @@ function rhythmStateOf(host: string): HostRhythmState | null {
       if (oldest === undefined) break
       hostRhythm.delete(oldest)
     }
-    st = { cooldownUntil: 0, forbiddenStreak: 0, rateLimitStreak: 0, resistUntil: 0, classCounts: {}, sensitiveUntil: 0, gentleGapMs: 0, burstCount: 0, burstTarget: 8 }
+    st = { cooldownUntil: 0, forbiddenStreak: 0, rateLimitStreak: 0, resistUntil: 0, classCounts: {}, sensitiveUntil: 0, gentleGapMs: 0, burstCount: 0, burstTarget: 8, escTier: '', escFails: 0, escOkStreak: 0 }
     hostRhythm.set(host, st)
   }
   return st
@@ -1103,12 +1128,40 @@ function recordFailureClass(url: string, cls: HttpFailureClass): void {
   st.classCounts[cls] = (st.classCounts[cls] || 0) + 1
 }
 
-/** 403/429 惩罚记忆: 429 优先尊重 Retry-After(钳 20s), 其余指数退避; 全部带抖动 */
+// ---------- [R49-2b-2] 失败升级链常量 ----------
+/** 连续 403/429/503 达 N 次即挂升级档(阈值 2: 第一次可能是偶发, 第二次起视为站点针对性拦截) */
+const HOST_ESCALATION_ARM_STREAK = 2
+/** 升级生效期间连续干净成功 N 次后衰减复位(站点已恢复对基础身份的接纳, 撤掉桥跳) */
+const HOST_ESCALATION_RESET_OK = 20
+
+/** 403/429/503 惩罚记忆: 429 优先尊重 Retry-After(钳 20s), 其余指数退避; 全部带抖动 */
 function noteHostHttpFailure(url: string, status: number, retryAfterMs?: number): void {
   const st = rhythmStateOf(hostKeyOf(url))
   if (!st) return
   const now = Date.now()
   st.resistUntil = now + HOST_SENSITIVE_WINDOW_MS
+  // [R49-2b-2] 失败升级链臂计数(仅源站级拒绝 403/429/503; 其余失败不升级):
+  //  达阈值且尚未升级时挂上首档; 已升级时(同轮内又吃拒绝)尝试推进到下一档(环形序末档保持)
+  if (status === 403 || status === 429 || status === 503) {
+    st.escFails++
+    st.escOkStreak = 0
+    if (st.escFails >= HOST_ESCALATION_ARM_STREAK) {
+      const prev = st.escTier
+      if (!prev) {
+        st.escTier = IMPERSONATE_TIER_ROTATION[0] || ''
+      } else if (prev !== IMPERSONATE_TIER_ROTATION[IMPERSONATE_TIER_ROTATION.length - 1]) {
+        // [R49-2bw-2] 末档保持: nextImpersonateTier 是环形序(safari17_0 的后继回绕到 chrome116,
+        //  永不返回 '')—— 原实现已升到末档后仍每吃一次拒绝就回绕轮换一档, 与本函数注释
+        //  "环形序末档保持"相悰, 且 escTier!==prev 恒真导致持续被拒期每次失败都刷一条升级 warn。
+        //  现已达序内末档即停留(escTier 只会由本函数/首档/后继赋值, 恒为序内成员, 判定完备)
+        const nxt = nextImpersonateTier(prev)
+        if (nxt) st.escTier = nxt
+      }
+      if (st.escTier !== prev) {
+        console.warn(`[fetcher] 失败升级链: ${hostKeyOf(url)} 源站级拒绝累计 ${st.escFails} 次(HTTP ${status}), 同 host 下一请求起自动换用 impersonate 档位 ${st.escTier}(真实浏览器 TLS/H2 指纹, 经 curl-impersonate/桥轨)`)
+      }
+    }
+  }
   if (status === 403) {
     st.forbiddenStreak++
     st.cooldownUntil = now + jitter15(Math.min(HOST_RHYTHM_COOLDOWN_CAP_MS, 1500 * Math.pow(2, Math.min(4, st.forbiddenStreak - 1))))
@@ -1135,8 +1188,29 @@ function noteHostHttpSuccess(url: string, blocked: boolean): void {
     st.forbiddenStreak = 0
     st.rateLimitStreak = 0
     st.cooldownUntil = 0
+    // [R49-2b-2] 升级链衰减: 干净成功清失败臂, 连续 HOST_ESCALATION_RESET_OK 次后撤档
+    // (不因单次成功立即撤: 站点放行可能是限流窗口偶发, 立撤会在"拦截↔恢复"边界来回震荡)
+    st.escFails = 0
+    st.escOkStreak++
+    if (st.escTier && st.escOkStreak >= HOST_ESCALATION_RESET_OK) {
+      st.escTier = ''
+      st.escOkStreak = 0
+      console.warn(`[fetcher] 失败升级链衰减: ${hostKeyOf(url)} 连续 ${HOST_ESCALATION_RESET_OK} 次干净成功, 撤销 impersonate 升级档(回落基础身份)`)
+    }
   }
   st.burstCount++
+}
+
+/** [R49-2b-2] 同 host 自动升级档消费: 规则/环境已显式选档时让位(返回 ''=不覆盖显式配置),
+ *  否则返回 hostRhythm 记忆中的升级档(''=未升级)。供 fetchPageOnce 在 HTTP 尝试前注入 */
+function autoEscalationTierFor(url: string, cfg: FetchConfig): string {
+  // 显式配置(规则 curlImpersonate / env host 钉扎 / env 全局档)优先 —— 自动链不抢显式语义
+  if ((cfg.curlImpersonate || '').trim()) return ''
+  const host = hostOf(url).toLowerCase()
+  if (host && IMPERSONATE_HOST_PINNING.has(host)) return ''
+  if (ENV_IMPERSONATE_PROFILE && IMPERSONATE_TIER_RE.test(ENV_IMPERSONATE_PROFILE)) return ''
+  const st = hostRhythm.get(hostKeyOf(url))
+  return st?.escTier || ''
 }
 
 /** C.4/C.5: 敏感信号学习(noindex/蜜罐页) → 温和降速观察窗 */
@@ -4634,7 +4708,12 @@ async function trySolveTokenChallenge(url: string, html: string, cfg: FetchConfi
 //  在 fetcher 错误入口即时写入 hostgate per-host 限流冷却(上限钳 120s 在 hostgate 侧) ——
 //  补上 503 不走 gateFetch 限流冷却的缺口, 且同轮重试尚未结束时其他并发任务已受保护。
 //  仅采纳显式合法值(≥1s): 缺省/非法/过小不触发, 维持既有 30s 兜底口径不变
-const RETRY_AFTER_HONOR_ENABLED = process.env.RETRY_AFTER_HONOR === '1'
+// [R49-2b-3] 缺省改为开启(env RETRY_AFTER_HONOR=0 显式退出): R11-b-EN 审计已将其列为"①可安全开启
+//  (纯减伤, 不改变成功路径响应形态)" —— 尊重服务端 Retry-After 写 hostgate 停手窗, 429/503 后
+//  同轮重试未结束前其他并发任务即受保护, 503 不再完全不走限流冷却。防恶意大值钳制双层在位:
+//  hostgate.reportHostRateLimited 钳 120s 上限(HOST_GATE_RATE_LIMIT_MAX_MS); fetcher 级
+//  hostRhythm 惩罚窗钳 20s(HOST_RHYTHM_COOLDOWN_CAP_MS); <1s 解析噪声不触发
+const RETRY_AFTER_HONOR_ENABLED = process.env.RETRY_AFTER_HONOR !== '0'
 // [R11-b-EN-2] CHALLENGE_ESCALATE: 响应体命中 CF 挑战页强指纹(cf-chl/challenge-platform
 //  探测脚本/cf-turnstile/"just a moment"等)时, 跳过既有的 Cookie 重试链(对新种 Cookie
 //  再请求 1~2 次对 CF 盾毫无收益, 只会多敲盾页恶化 IP 信誉), 直接升级既有 auto 浏览器
@@ -4854,6 +4933,17 @@ async function fetchPageOnce(url: string, cfg: FetchConfig): Promise<FetchResult
 
   const domain = originHost(reqUrl)
 
+  // [R49-2b-2] 失败升级链消费(应用点): 该 host 处于升级态(连续 403/429/503 记忆, 见
+  //  noteHostHttpFailure 臂计数)且无显式档位配置时, 本次请求起全部传输尝试自动携带
+  //  impersonate 档位(真实浏览器 TLS ClientHello/JA3-JA4 + H2 指纹轨, 经
+  //  curl-impersonate 二进制或桥 /impersonate)——"记录失败 → 下次同 host 自动切换手段"
+  //  的落地执行。应用本身不打日志(升级/推进/衰减时机已在 noteHostHttpFailure/
+  //  noteHostHttpSuccess 各打一条, 逐请求刷屏无益); 显式配置在 autoEscalationTierFor 内让位
+  const escTier = (effCfg as FetchCfgOpt).impersonateTierOverride || autoEscalationTierFor(reqUrl, effCfg)
+  if (escTier && !(effCfg as FetchCfgOpt).impersonateTierOverride) {
+    effCfg = { ...effCfg, impersonateTierOverride: escTier } as FetchCfgOpt
+  }
+
   const fallbackStatus = cfg.browserFallbackStatus || [403, 412, 429, 503]
   let lastErr: any = null
   let lastStatus = 0
@@ -4946,7 +5036,12 @@ async function fetchPageOnce(url: string, cfg: FetchConfig): Promise<FetchResult
       // [R9-a-9] B3: 失败分类分级计数(dns/tls/timeout/conn/4xx/5xx, hostRhythm 可观测)
       recordFailureClass(reqUrl, classifyHttpFailure(e))
       // [R9-a-8] B2: 403/429 惩罚记忆(429 优先尊重 Retry-After; 指数退避+抖动, 执行等待有界 3s)
-      if (lastStatus === 403 || lastStatus === 429) noteHostHttpFailure(reqUrl, lastStatus, e?.retryAfterMs)
+      // [R49-2bw-1] 补接线 503: noteHostHttpFailure 文档与 [R49-2b-2] 升级链臂(403/429/503)
+      //  均声明覆盖 503, 但本调用点原只传 403/429 → 升级链的 503 分支是死代码(503 型反爬站
+      //  永远不会触发指纹升级)。503 在 noteHostHttpFailure 内无专属惩罚分支(仅共用
+      //  resistUntil 对抗窗 + 升级臂), 429/503 的 Retry-After hostgate 冷却仍由下方
+      //  reportHostRateLimited 独立承担, 双层互不影响
+      if (lastStatus === 403 || lastStatus === 429 || lastStatus === 503) noteHostHttpFailure(reqUrl, lastStatus, e?.retryAfterMs)
       // [R22-e-1] token 失效重取路径: 注入了 token 的请求吃到 403 → 删除 30s 预取缓存条目,
       // 下一次抓取自然重新预取(本请求的重试链 reqUrl 已定不做热替换, 与 Cookie 重试语义
       // 互不干扰; 幂等, 条目不存在 no-op)
@@ -5092,6 +5187,10 @@ export async function fetchBinary(
   cfgOverride?: Partial<FetchConfig>
 ): Promise<{ buf: Buffer; contentType: string } | null> {
   const cfg: FetchConfig = { ...DEFAULT_FETCH_CONFIG, ...cfgOverride }
+  // [R49-2b-4] 内存硬熔断准入接线(封面向辅助链): 熔断期间新封面请求快速失败,
+  //  不再绕过 fetchPage 准入层直连外网(与 R48 全网络路径过闸的语义对齐);
+  //  MemoryHaltError 由调用方(crawlOneBookMeta 封面 catch)按 warn 降级, 不计失败
+  assertMemoryAdmissible()
   // 2-fetcher Part A: SSRF 守卫(allowLoopback=false), 防 SSRF 滥用封面抓取打内网
   // (配置性拒绝, 重试无意义, 保持重试域之外)
   const ssrf = await assertSafeTarget(url, { allowLoopback: false })

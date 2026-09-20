@@ -1,185 +1,160 @@
 // ============================================================
-// [R28-2g-2] trxsw(同人小说网) 章节阅读页克隆 —— 杰奇 CMS 默认模板家族标准还原(降级声明)
-// 素材等级: 家族标准 —— 真站章节页 /book/{id}/{cid}.html(2019 快照章节实链形态实证, 页本体
-// 无存档) → 按杰奇家族章节页结构补全: h1 章节名 + #content 正文(14px 宋体系/行高 200%) +
-// 上一章/目录/下一章 三钮 + 键盘 ←/→(Enter 回目录)。色值家族标准(b.css 无存档, R25 实证:
-// #C00 红/#333/#666/#ccc 点线); 阅读位置记忆/字号调节走 template-kit。
-// 降级声明: ①A+/A- 字号钮为克隆侧增强(杰奇原版无此工具, useReaderFont 14~24 与全站阅读器
-// 偏好互通) ②「相关推荐」= 字数热榜 10 本替代(ChapterData 无分类字段, 家族惯例书链声明)
+// [R49-2a-4] R49 全页重克隆: trxsw 真站已由 2019 杰奇版换为「唐人小说网」33yq 家族模板(与 x33yq 同族同源,
+//   实抓 /tmp/r49-snap/trxsw/ 2026-09-20: home/category/book/toc/read/lastupdate/goodnum + 33yq.css 20033B +
+//   read.css 8614B —— 与 x33yq common/style/read.css 逐值一致), 全套组件由 x33yq 已校准实现移植 + 站点文案替换。
+// [R43-2] x33yq(33言情 原始注释, 移植自) 克隆阅读页 —— 快照 /tmp/r43-snap/read.html(/read/396391/260443126.html 直连实抓)
+//   源站结构: .content_read > .box_con > .con_top 面包屑(站名 > 分类 > 书名 > 章节名) + .toolbar
+//     (ul.tools: li.theme 主题模式 7 色板 + li.size 字体大小 -/18/+ + li.reset 恢复默认;
+//      ul.links: 作者) + .zhangjieming(h1 章节名 + .bottem1 投票/上一章/目录/下一章/书签)
+//     + #content 段落正文 + p.bottem 尾部翻页
+//   平台接入: useReaderFont(字号增减) / useThemeLineHeight / useRecordReading / 键盘 ←/→ 翻章
+//   [R43-2v] 复核轮: read.css + common.js 已实抓, 全量按实测对齐:
+//     ① 主题色板真实值(read.css .night/.pink/.yellow/.blue/.green/.gray): body/center/ink 三层
+//        day=站点默认(#E9FAFF/白/#333) night=#222/#111/#999 pink=#fff5f8/#f5e4e4/#7f333d
+//        yellow=#f2e8c8/#ddcda1 blue=#dfecf0/#cedce0 green=#e3efe3/#d0e2d0 gray=#e0e0e0/#cfcfcf
+//     ② 色板锚为 18×18 白底阴影方块, 激活态画 #fe4e30 对勾(源站无底色)
+//     ③ 字号基线 24(common.js size() 默认 24, 页内静态 18 为陈旧标记), 步长 ±2, 范围 10-50
+//     ④ 正文 95% 宽 24px 字距 0.2em 行高 150%; 上下章链墨绿 #085308 纯文本; 恢复默认绿钮 #0d8f72
+//     ⑤ 投推荐票/加入书签为源站登录交互不克隆, 以「返回书页」功能性替代
 // ============================================================
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import type { SiteReadProps } from '../shared'
 import { usePublic } from '../../ctx'
-import { useRelatedBooks } from '../hooks' // [R35-2d-1] 原逐字节重复的 rel 拉取 effect 收敛
-import { ChapterContent, useReaderFont, useRecordReading, useThemeLineHeight } from '../template-kit'
-import { bookNavProps, ErrorState, Sk } from '../../bits'
+import { ChapterContent, useReaderFont, useRecordReading, useThemeFontBase, useThemeLineHeight } from '../template-kit'
+import { ErrorState, Sk } from '../../bits'
 
-/** [R27-6b-17] 杰奇 CMS 家族标准色板(同 Home) */
-const C = {
-  navBlue: '#1C5087',
-  text: '#333333',
-  gray: '#666666',
-  light: '#999999',
-  border: '#dddddd',
-  dotted: '#cccccc',
-} as const
+// 主题色板(read.css .night/.pink/.yellow/.blue/.green/.gray 实测: body 底/center 底/正文墨色三层)
+const BG_PRESETS: Array<{ key: string; label: string; body: string; center: string; ink: string }> = [
+  { key: 'day', label: '日光', body: '#E9FAFF', center: '#FFFFFF', ink: '#333333' },
+  { key: 'night', label: '夜间', body: '#222222', center: '#111111', ink: '#999999' },
+  { key: 'pink', label: '粉红', body: '#fff5f8', center: '#f5e4e4', ink: '#7f333d' },
+  { key: 'yellow', label: '护眼', body: '#f2e8c8', center: '#ddcda1', ink: '#333333' },
+  { key: 'blue', label: '淡蓝', body: '#dfecf0', center: '#cedce0', ink: '#333333' },
+  { key: 'green', label: '淡绿', body: '#e3efe3', center: '#d0e2d0', ink: '#333333' },
+  { key: 'gray', label: '灰色', body: '#e0e0e0', center: '#cfcfcf', ink: '#333333' },
+]
 
 export function TrxswRead({ data, loading, error }: SiteReadProps) {
   const { navigate } = usePublic()
-  // 字号调节(克隆侧增强, 与通用阅读器偏好互通; 声明①)
-  const { font, inc, dec } = useReaderFont()
-  // [R36-2a-fix-5] 主题覆盖行距(未编辑=2 零回归)
-  const txLh = useThemeLineHeight(2)
-  // 阅读位置/时长记忆(hooks 顺序: 挂载即调)
-  useRecordReading(data?.book?.id, data?.chapter?.id, data?.chapter?.title)
+  const chapter = data?.chapter ?? null
+  const book = data?.book ?? null
+  const prev = data?.prev ?? null
+  const next = data?.next ?? null
+  // [R43-2v] 主题覆盖字号基线(common.js size() 默认 24)+行距(read.css #content 行高 150%);
+  //   字号增减走通用 localStorage 键, 步长 ±2 范围 10-50 对齐源站
+  const base = useThemeFontBase(24)
+  const reader = useReaderFont(10, 50)
+  const lh = useThemeLineHeight(1.5)
+  const [bg, setBg] = useState(BG_PRESETS[0])
+  const inc = () => reader.set(Math.min(50, reader.font + 2))
+  const dec = () => reader.set(Math.max(10, reader.font - 2))
+  const reset = () => { reader.set(base); setBg(BG_PRESETS[0]) }
 
-  // 相关阅读(家族惯例书链; ChapterData 无分类字段 → 字数热榜 10 本替代, 声明) [R35-2d-1] 拉取 effect 收敛至 hooks.ts
-  const bookId = data?.book?.id
-  const rel = useRelatedBooks(bookId)
+  useRecordReading(book?.id, chapter?.id, chapter?.title)
 
-  // 键盘导航(杰奇家族惯例: Enter 回目录/← 上一页/→ 下一页)
+  // 键盘 ←/→ 翻章(输入态守卫)
   useEffect(() => {
-    if (!data) return
+    if (!book) return
     const onKey = (e: KeyboardEvent) => {
-      const el = e.target as HTMLElement | null
-      const tag = el?.tagName
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el?.isContentEditable) return
-      if (e.key === 'ArrowLeft' && data.prev) navigate({ view: 'read', chapterId: data.prev.id })
-      else if (e.key === 'ArrowRight' && data.next) navigate({ view: 'read', chapterId: data.next.id })
-      else if (e.key === 'Enter') navigate({ view: 'book', bookId: data.book.id })
+      const t = e.target as HTMLElement | null
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return
+      if (e.key === 'ArrowLeft' && prev) navigate({ view: 'read', chapterId: prev.id })
+      if (e.key === 'ArrowRight' && next) navigate({ view: 'read', chapterId: next.id })
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [data, navigate])
+  }, [book, prev, next, navigate])
 
   if (error) {
-    return (
-      <div className="mx-auto w-full max-w-[960px] px-2 py-10">
-        <ErrorState message="章节加载失败" detail={error} />
-      </div>
-    )
+    return <div className="trx-read"><ErrorState message="章节内容加载失败" detail={error} /></div>
   }
-
-  if (loading || !data) {
+  if (loading || !chapter || !book) {
     return (
-      <div className="mx-auto w-full max-w-[960px] px-2 pb-6 pt-3" aria-label="章节加载中">
-        <Sk className="mb-2 h-8 w-1/2" />
-        <div className="tx-read border bg-white p-2.5" style={{ borderColor: C.border }}>
-          <Sk className="mx-auto mb-4 h-5 w-1/2" />
-          <div className="space-y-3 px-1">
-            {Array.from({ length: 10 }).map((_, i) => (
-              <Sk key={i} className="h-4 w-full" style={{ opacity: 1 - i * 0.06 }} />
-            ))}
-          </div>
-        </div>
+      <div className="trx-read" role="status" aria-label="章节内容加载中">
+        <Sk style={{ height: 48, maxWidth: 980, margin: '10px auto', borderRadius: 0 }} />
+        <Sk style={{ height: 420, maxWidth: 980, margin: '10px auto', borderRadius: 0 }} />
         <span className="sr-only">加载中…</span>
       </div>
     )
   }
 
-  const { chapter, book, prev, next } = data
-  const navBtn = 'tx-navbtn m-[2px] inline-flex h-[32px] items-center justify-center border px-2 text-[13px] transition-colors hover:bg-[#f5f5f5] disabled:cursor-not-allowed disabled:opacity-50'
+  const goto = (cid?: string) => { if (cid) navigate({ view: 'read', chapterId: cid }) }
 
   return (
-    <div className="tx-home mx-auto w-full max-w-[960px] px-2 pb-6 pt-3" style={{ color: C.text, fontSize: 14 }}>
-      {/* 面包屑(杰奇家族 .con) */}
-      <p className="tx-crumb m-0 mb-2 text-[13px]" style={{ color: C.gray }}>
-        <button type="button" onClick={() => navigate({ view: 'home' })} className="hover:underline" style={{ color: C.text }} aria-label="前往首页">
-          首页
-        </button>
-        <span className="mx-1">&gt;</span>
-        <button
-          type="button"
-          onClick={() => navigate({ view: 'book', bookId: book.id })}
-          className="max-w-[12em] truncate hover:underline"
-          style={{ color: C.text }}
-          aria-label={`返回《${book.name}》书页`}
-        >
-          {book.name}
-        </button>
-        <span className="mx-1">&gt;</span>
-        <span>{chapter.title}</span>
-      </p>
-
-      {/* ============ #content 正文(杰奇家族: 白底/14px/行高 200%) ============ */}
-      <div className="tx-read border bg-white p-2.5" style={{ borderColor: C.border }}>
-        <h1 className="m-0 pb-1.5 text-center text-[18px] font-bold" style={{ color: C.text }}>
-          {chapter.title}
-        </h1>
-        <p className="m-0 flex items-center justify-center gap-3 pb-2 text-[12px]" style={{ color: C.light }}>
-          <span>{chapter.wordCount > 0 ? `${chapter.wordCount} 字` : ''}</span>
-          <span className="tx-fontctl inline-flex items-center gap-1">
-            <button
-              type="button"
-              onClick={dec}
-              className="tx-fontbtn inline-flex h-[20px] w-[20px] items-center justify-center border text-[12px] leading-none"
-              style={{ borderColor: C.border, color: C.gray }}
-              aria-label="缩小字号"
-            >
-              A-
-            </button>
-            <span aria-hidden>
-              {font}px
-            </span>
-            <button
-              type="button"
-              onClick={inc}
-              className="tx-fontbtn inline-flex h-[20px] w-[20px] items-center justify-center border text-[12px] leading-none"
-              style={{ borderColor: C.border, color: C.gray }}
-              aria-label="放大字号"
-            >
-              A+
-            </button>
-          </span>
-        </p>
-        <ChapterContent content={chapter.content} className="tx-content border-t pt-2.5" style={{ fontSize: font, lineHeight: txLh, color: C.text }} />
-        <div className="pb-1 pt-2 text-right">
-          <button type="button" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} className="text-[12px] hover:underline" style={{ color: C.gray }} aria-label="返回顶部">
-            返回顶部
-          </button>
+    <div
+      className={bg.key === 'night' ? 'trx-read trx-night' : 'trx-read'}
+      style={{ backgroundColor: bg.body }}
+    >
+      <div className="trx-content-read">
+        <div className="trx-box-con" style={{ backgroundColor: bg.center }}>
+          {/* 面包屑(源站 .con_top: 站名 > 分类 > 书名 > 章节名; JSX 字符串内用字面 ' > ') */}
+          <div className="trx-con-top">
+            <a href="#" onClick={(e) => { e.preventDefault(); navigate({ view: 'home' }) }}>唐人小说网</a>
+            {' > '}
+            <a href="#" onClick={(e) => { e.preventDefault(); navigate({ view: 'book', bookId: book.id }) }}>{book.name}</a>
+            {' > '}{chapter.title}
+          </div>
+          {/* 工具条(源站 .toolbar: 主题模式/字体大小/恢复默认 + 作者) */}
+          <div className="trx-toolbar">
+            <ul className="trx-tools">
+              <li className="trx-theme">
+                <p>主题模式：</p>
+                {BG_PRESETS.map((p) => (
+                  <button
+                    key={p.key}
+                    type="button"
+                    className={bg.key === p.key ? 'trx-swatch on' : 'trx-swatch'}
+                    title={p.label}
+                    aria-label={`主题模式：${p.label}`}
+                    aria-pressed={bg.key === p.key}
+                    onClick={() => setBg(p)}
+                  />
+                ))}
+              </li>
+              <li className="trx-size">
+                <p>字体大小：</p>
+                <button type="button" className="trx-size-btn" aria-label="减小字号" onClick={dec}>-</button>
+                <p id="trx-fontsize">{reader.font}</p>
+                <button type="button" className="trx-size-btn" aria-label="增大字号" onClick={inc}>+</button>
+              </li>
+              <li className="trx-reset">
+                <button
+                  type="button"
+                  className="trx-reset-btn"
+                  onClick={reset}
+                >恢复默认</button>
+              </li>
+            </ul>
+            <div className="trx-links">
+              <p>作者：<i>{book.author}</i></p>
+            </div>
+            <div className="trx-clear" />
+          </div>
+          {/* 章节名 + 上/目录/下(源站 .zhangjieming + .bottem1) */}
+          <div className="trx-zhangjieming">
+            <h1>{chapter.title}</h1>
+            <div className="trx-bottem1">
+              <a href="#" onClick={(e) => { e.preventDefault(); goto(prev?.id) }} aria-disabled={!prev}>上一章</a>
+              <a href="#" onClick={(e) => { e.preventDefault(); navigate({ view: 'toc', bookId: book.id }) }}>章节目录</a>
+              <a href="#" onClick={(e) => { e.preventDefault(); navigate({ view: 'book', bookId: book.id }) }}>返回书页</a>
+              <a href="#" onClick={(e) => { e.preventDefault(); goto(next?.id) }} aria-disabled={!next}>下一章</a>
+            </div>
+          </div>
+          <div id="trx-content" style={{ color: bg.ink }}>
+            <div style={{ fontSize: reader.font, lineHeight: lh }}>
+              <ChapterContent content={chapter.content} />
+            </div>
+          </div>
+          {/* 尾部翻页(源站 p.bottem: 上虚线界) */}
+          <div className="trx-bottem1 trx-bottem-b">
+            <a href="#" onClick={(e) => { e.preventDefault(); goto(prev?.id) }} aria-disabled={!prev}>上一章</a>
+            <a href="#" onClick={(e) => { e.preventDefault(); navigate({ view: 'toc', bookId: book.id }) }}>章节目录</a>
+            <a href="#" onClick={(e) => { e.preventDefault(); navigate({ view: 'book', bookId: book.id }) }}>返回书页</a>
+            <a href="#" onClick={(e) => { e.preventDefault(); goto(next?.id) }} aria-disabled={!next}>下一章</a>
+          </div>
         </div>
-      </div>
-
-      {/* 三钮导航(上一页/目录/下一页; 杰奇家族桌面 30%/移动 46%+全宽) */}
-      <nav aria-label="章节导航" className="tx-readnav mt-1 flex flex-wrap justify-center text-center">
-        <button type="button" onClick={() => prev && navigate({ view: 'read', chapterId: prev.id })} disabled={!prev} className={`${navBtn} w-[46%] sm:w-[30%]`} style={{ borderColor: C.border, background: '#fff', color: C.text }} aria-label="上一章">
-          上一章
-        </button>
-        <button type="button" onClick={() => navigate({ view: 'book', bookId: book.id })} className={`${navBtn} w-[46%] sm:w-[30%]`} style={{ borderColor: C.border, background: '#fff', color: C.text }} aria-label="返回目录">
-          目录
-        </button>
-        <button type="button" onClick={() => next && navigate({ view: 'read', chapterId: next.id })} disabled={!next} className={`${navBtn} w-full sm:w-[30%]`} style={{ borderColor: C.border, background: '#fff', color: C.text }} aria-label="下一章">
-          下一章
-        </button>
-      </nav>
-
-      {/* 相关阅读(家族惯例 → 字数热榜替代, 声明) */}
-      <div className="tx-rel mt-3 border bg-white p-2.5" style={{ borderColor: C.border }}>
-        <p className="m-0 flex flex-wrap items-center py-1 text-[13px]">
-          <span className="mr-2.5" style={{ color: C.gray }}>
-            相关推荐：
-          </span>
-          {rel === null ? (
-            <Sk className="h-4 w-2/3" />
-          ) : rel.length ? (
-            rel.map((b) => (
-              <button
-                key={b.id}
-                type="button"
-                {...bookNavProps(navigate, b.id)}
-                className="mb-0.5 mr-2.5 max-w-full truncate text-left hover:underline"
-                style={{ color: C.text }}
-                aria-label={`查看《${b.name}》详情`}
-              >
-                {b.name}
-              </button>
-            ))
-          ) : (
-            <span>暂无推荐</span>
-          )}
-        </p>
       </div>
     </div>
   )

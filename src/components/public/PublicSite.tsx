@@ -44,7 +44,7 @@ import { BackToTop } from './BackToTop'
 import { InstallPrompt } from './InstallPrompt'
 import type { SiteInfo } from './types'
 
-export type { ViewParams, PublicView } from './ctx'
+// [R49-3-6] ctx 类型再导出行删除(零引用 ts-prune+rg 双确认): 各消费方均直接 from './ctx' 导入
 
 export default function PublicSite({
   initialSiteId,

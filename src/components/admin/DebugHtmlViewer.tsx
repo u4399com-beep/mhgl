@@ -152,7 +152,9 @@ function injectActiveClass(html: string, field: string, idx: number): string {
   if (pattern.test(html)) {
     return html.replace(
       pattern,
-      `class="heis-debug-match heis-debug-active" data-field="${field}" data-idx="${idx}"`,
+      // [R49-2c-5] 函数式替换 — 字符串替换里 $&/$`/$' 等特殊序列会被展开, 字段名含
+      //  `$` 时(规则字段 key 可自定义)注入的 class 属性会被匹配原文污染错位
+      () => `class="heis-debug-match heis-debug-active" data-field="${field}" data-idx="${idx}"`,
     )
   }
   // 兜底: cheerio 可能用单引号或不同属性顺序; 退化用属性选择器拆段拼接

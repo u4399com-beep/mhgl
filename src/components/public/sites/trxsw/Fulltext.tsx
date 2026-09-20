@@ -1,120 +1,78 @@
 // ============================================================
-// [R28-2g-4] trxsw(同人小说网) 全本小说页克隆 —— 杰奇 CMS 默认模板家族标准还原(降级声明)
-// 素材等级: 家族标准 —— 真站全本入口 2019 快照导航实证: 「全本小说」→
-// /book/0_lastupdate_0_0_2_0_1.html(cat 0 全站 + lastupdate 排序 + 第 5 参数 2 = 完本状态),
-// 页本体无存档(R28-2g Wayback 复抓 tx-quanben.html 为 Wayback 404 页) → 按杰奇家族
-// 分类/书库列表页结构补全: JqH2 标题条 + s1..s5 行式列表(与首页 .l 同款骨架) +
-// 杰奇方块分页(tx-pg 白底灰边/hover 深蓝白字/当前页深蓝白字)。
-// 降级声明(逐条):
-//   ①真站列表页顶部「分类筛选区」形态无存档 → 沿用家族分类页白卡筛选条(与 Category 同构,
-//     点击切分类 navigate category, 声明)
-//   ②s5 数值列: 家族列表页为字数 → 契约 BooksData 无点击数, 字数(万)直出(实证家族惯例)
-//   ③真站每页条数未知(杰奇默认 20~30) → 契约 size 24(声明)
+// [R49-2a-4] R49 全页重克隆: trxsw 真站已由 2019 杰奇版换为「唐人小说网」33yq 家族模板(与 x33yq 同族同源,
+//   实抓 /tmp/r49-snap/trxsw/ 2026-09-20: home/category/book/toc/read/lastupdate/goodnum + 33yq.css 20033B +
+//   read.css 8614B —— 与 x33yq common/style/read.css 逐值一致), 全套组件由 x33yq 已校准实现移植 + 站点文案替换。
+// [R43-2] x33yq(33言情 原始注释, 移植自) 克隆全本·完本页 —— 源站无独立完本列表页(规格书声明) → 复用 ddyueshu 同款
+//   布局思路按平台 FulltextView 契约渲染, CSS 全挂 .clone-x33yq:
+//   .MessageDiv 提示条(common.css 实测: lh140% margin 3px auto auto padding 3 居中 958px) +
+//   .novelslistss 分类分组块(style.css 实测: 968px 2px #C8D4E1 圆角10 / h2 底 #F6F8FE 30px /
+//   行 s1-s5) + .pages > .pagelink 分页(style.css 实测)
 // ============================================================
 'use client'
 
-import { JqH2, Pager } from './_kit' // [R34-2c-4] JqH2×3/Pager×2 逐字节重复收敛
+import { useMemo } from 'react'
 import type { SiteFulltextProps } from '../shared'
-import { usePublic } from '../../ctx'
-import { useSiteCats } from '../hooks' // [R35-2d-1] 原逐字节重复的 cats 拉取 effect 收敛
-import { bookNavProps, EmptyState, ErrorState, Sk } from '../../bits'
-
-/** [R28-2g-4] 杰奇 CMS 家族标准色板(b.css 无存档, R25 轮实证) */
-const C = {
-  navBlue: '#1C5087',
-  text: '#333333',
-  gray: '#666666',
-  light: '#999999',
-  border: '#dddddd',
-  dotted: '#cccccc',
-} as const
+import { usePublic, viewToUrl } from '../../ctx'
+import { EmptyState, ErrorState, Sk } from '../../bits'
+import { fmtDate } from '../../seo'
+import type { BookItem } from '../../types'
+import { TrxswPageLink } from './Category'
 
 export function TrxswFulltext({ data, loading, error, page }: SiteFulltextProps) {
-  const { navigate } = usePublic()
+  const { site, navigate } = usePublic()
+  const books = useMemo(() => data?.books || [], [data])
+  const total = data?.total ?? 0
+  const size = data?.size ?? 24
+  const totalPages = data ? Math.max(1, Math.ceil(total / size)) : 1
+  // 按分类分组(复用 ddyueshu 全本页布局思路: 分组列表块)
+  const groups = useMemo(() => {
+    const map = new Map<string, BookItem[]>()
+    for (const b of books) {
+      const k = b.category || '其他'
+      if (!map.has(k)) map.set(k, [])
+      map.get(k)!.push(b)
+    }
+    return [...map.entries()]
+  }, [books])
 
-  // 分类筛选条(家族分类页白卡形态, 声明①)
-  const cats = useSiteCats()
-
-  const books = data?.books || []
-  const totalPages = data ? Math.ceil((data.total || 0) / (data.size || 24)) : 0
+  const go = (b: BookItem) => navigate({ view: 'book', bookId: b.id })
+  const link = (b: BookItem) => viewToUrl({ view: 'book', bookId: b.id }, site.id)
 
   return (
-    <div className="tx-home mx-auto w-full max-w-[960px] px-2 pb-6 pt-3" style={{ color: C.text, fontSize: 14 }}>
-      {/* 分类筛选(声明①) */}
-      <div className="tx-cats mb-3 border p-2.5" style={{ borderColor: C.border }}>
-        <span className="mr-2 text-[13px]" style={{ color: C.gray }}>
-          分类：
-        </span>
-        {cats === null ? (
-          <Sk className="inline-block h-4 w-2/3 align-middle" />
-        ) : cats.length ? (
-          cats.map((c) => (
-            <button
-              key={c.id}
-              type="button"
-              onClick={() => navigate({ view: 'category', cat: c.id, page: 1 })}
-              className="tx-cat mr-2 text-[14px] hover:underline"
-              style={{ color: C.text }}
-              aria-label={`前往 ${c.name} 分类`}
-            >
-              {c.name}
-            </button>
-          ))
+    <div className="trx-full">
+      <div id="trx-main">
+        {/* 提示条(common.css .MessageDiv 实测形态) */}
+        <div className="trx-MessageDiv"><b>提示：本页为完本小说大全， 推荐使用Ctrl+F 来查找小说。</b></div>
+        {loading ? (
+          <div role="status" aria-label="大全加载中">
+            <Sk style={{ height: 60, margin: '10px auto', borderRadius: 10 }} />
+            <Sk style={{ height: 320, margin: '0 auto 10px', borderRadius: 10 }} />
+          </div>
+        ) : error ? (
+          <div className="trx-novelslistss"><ErrorState message="大全列表加载失败" detail={error} /></div>
+        ) : books.length === 0 ? (
+          <EmptyState text="暂无完本书籍" hint="完本清单按最近更新排序" />
         ) : (
-          <span className="text-[13px]">暂无分类</span>
+          groups.map(([cat, items]) => (
+            <div className="trx-novelslistss" key={cat}>
+              <h2>{cat}完本小说列表</h2>
+              <ul>
+                {items.map((b) => (
+                  <li key={b.id} title={`${b.name}/${b.author}`}>
+                    <span className="s1">[{b.category || '小说'}]</span>
+                    <span className="s2"><a href={link(b)} onClick={(e) => { e.preventDefault(); go(b) }}>{b.name}</a></span>
+                    <span className="s3">{b.author}</span>
+                    <span className="s4">{fmtDate(b.updatedAt)}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))
+        )}
+        {!loading && data && totalPages > 1 && (
+          <TrxswPageLink page={page} totalPages={totalPages} onPage={(p) => navigate({ view: 'fulltext', page: p })} />
         )}
       </div>
-
-      <section className="tx-sec">
-        <JqH2>全本小说</JqH2>
-        {error ? (
-          <div className="py-6">
-            <ErrorState message="全本书库加载失败" detail={error} />
-          </div>
-        ) : loading && !books.length ? (
-          <ul aria-hidden className="m-0 list-none border bg-white" style={{ borderColor: C.border }}>
-            {Array.from({ length: 12 }).map((_, i) => (
-              <li key={i} className="tx-li flex h-9 items-center border-b border-dotted" style={{ borderColor: C.dotted }}>
-                <Sk className="h-4 w-full" />
-              </li>
-            ))}
-            <li className="sr-only" aria-hidden>加载中…</li>
-          </ul>
-        ) : books.length ? (
-          <ul className="m-0 list-none border bg-white" style={{ borderColor: C.border }}>
-            {books.map((b) => (
-              <li key={b.id} className="tx-li flex h-9 items-center gap-2 border-b border-dotted" style={{ borderColor: C.dotted }}>
-                <span className="tx-s1 hidden w-[76px] shrink-0 truncate text-[12px] sm:block" style={{ color: C.gray }}>
-                  [{b.category || '小说'}]
-                </span>
-                <button
-                  type="button"
-                  {...bookNavProps(navigate, b.id)}
-                  className="tx-s2 w-[36%] min-w-0 shrink truncate text-left text-[14px]"
-                  style={{ color: C.text }}
-                  aria-label={`查看《${b.name}》详情`}
-                >
-                  {b.name}
-                </button>
-                <span className="tx-s3 hidden min-w-0 flex-1 truncate text-[13px] sm:block" style={{ color: C.gray }}>
-                  {b.latestChapter || b.intro || '—'}
-                </span>
-                <span className="tx-s4 hidden w-[80px] shrink-0 truncate text-right text-[12px] sm:block" style={{ color: C.gray }}>
-                  {b.author}
-                </span>
-                <em className="tx-s5 w-[52px] shrink-0 text-right not-italic text-[12px]" style={{ color: C.light }}>
-                  {b.wordCount > 0 ? `${(b.wordCount / 10000).toFixed(1)}万` : ''}
-                </em>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <div className="border bg-white py-8" style={{ borderColor: C.border }}>
-            <EmptyState text="暂无全本小说" hint="完本书籍入库后自动收录" />
-          </div>
-        )}
-        <Pager page={page} totalPages={totalPages} onGo={(p) => navigate({ view: 'fulltext', page: p })} />
-      </section>
     </div>
   )
 }

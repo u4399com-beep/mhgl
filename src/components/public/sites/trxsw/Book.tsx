@@ -1,257 +1,191 @@
 // ============================================================
-// [R28-2g] 本轮复核: 2019 快照复用 + Wayback 内页复抓(tx-{book,read,top,full,search,quanben}.html)全为 Wayback 404 页, 家族标准结论维持; 文件按 R28-2g 重建并入模板集。
-// [R27-6b-15] trxsw(同人小说网) 书籍详情页克隆 —— 杰奇 CMS 默认模板家族标准还原(降级声明)
-// 素材等级: 家族标准 —— 真站书页 /book/{id}/(2019 快照书页实链 94 条实证 URL 形态, 页本体
-// 无存档) → 按杰奇家族书页结构补全: 面包屑 + #content(h1 书名 + 信息行 + 封面 + 简介) +
-// 最新章节 + #list dd 目录(契约 100 章/页) + TXT 下载。色值家族标准(b.css 无存档, R25 实证);
-// 杰奇书页「#list dd a」选择器实证见 R25-1 worklog。
+// [R49-2a-4] R49 全页重克隆: trxsw 真站已由 2019 杰奇版换为「唐人小说网」33yq 家族模板(与 x33yq 同族同源,
+//   实抓 /tmp/r49-snap/trxsw/ 2026-09-20: home/category/book/toc/read/lastupdate/goodnum + 33yq.css 20033B +
+//   read.css 8614B —— 与 x33yq common/style/read.css 逐值一致), 全套组件由 x33yq 已校准实现移植 + 站点文案替换。
+// [R43-2] x33yq(33言情 原始注释, 移植自) 克隆书页 —— 快照 /tmp/r43-snap/book.html(/xiaoshuo_68759.html 直连实抓)
+//   源站结构: .ui-box > .bread-crumb-nav(首页 > 分类 > 书名) + .detail-cols:
+//     .ui_bg6 > .box_intro(.pic 封面 130×170 + .box_info table.ui_tb1(h1.f21h 书名+作者 em /
+//     .intro 简介 166px 滚动 / 信息行 / .option .btopt 开始阅读 + .txtopt 操作链)) +
+//     #qvod-pl-list.play-list-box(.caption《书名》已更新到 + .txt 最新章 / .play-list 章节块链 385×28) +
+//     .wudu-bar(.ui-title1 热门点击 + .ui-ranking .ranking-list 前 15 行 a+日期) +
+//     #comment.ui-box(.ui-title「看《书名》的大神还喜欢」+ #like-focus 封面墙 110×150)
+//   色值(style.css 实测): ui-box 边 2px #C3DFEA 底 #E9FAFF 圆角10 / breadcrumb #FEF9EF /
+//     f21h simHei 30px / intro #666 lh22 缩进 / 主按钮 #67B5E2 hover #88C6E5 / txt 链 #e12160
+//   降级声明: 点击总数/收藏总数/TXT下载/投票 站方数据与登录交互不克隆; 热门点击用字数热榜池近似。
 // ============================================================
 'use client'
 
-import { FileDown, Play } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import type { SiteBookProps } from '../shared'
-import { usePublic } from '../../ctx'
+import { usePublic, viewToUrl } from '../../ctx'
+import { useWordsPool } from '../hooks'
+import { fetchBooks } from '../../data'
 import { BookCover } from '../../BookCover'
 import { ErrorState, Sk } from '../../bits'
-import { fmtDate, formatWords } from '../../seo'
+import { fmtDate } from '../../seo'
+import type { BookItem } from '../../types'
 
-/** [R27-6b-15] 杰奇 CMS 家族标准色板(同 Home) */
-const C = {
-  navBlue: '#1C5087',
-  logoRed: '#C00',
-  text: '#333333',
-  gray: '#666666',
-  light: '#999999',
-  border: '#dddddd',
-  dotted: '#cccccc',
-} as const
+/** 字数 → 万字口径(源站「386万字」形态) */
+function fmtWords(n: number): string {
+  if (!n) return '0'
+  return n >= 10000 ? `${Math.round(n / 1000) / 10}万字` : `${n}字`
+}
 
-export function TrxswBook({ data, loading, error, tocPage, currentChapterId }: SiteBookProps) {
-  const { navigate } = usePublic()
+/** 状态口径(源站「已完成/连载中」) */
+function fmtStatus(s: BookItem['status']): string {
+  if (s === 'completed') return '已完成'
+  if (s === 'ongoing') return '连载中'
+  return typeof s === 'string' && s ? s : '未知'
+}
 
-  if (error) {
-    return (
-      <div className="mx-auto w-full max-w-[960px] px-2 py-10">
-        <ErrorState message="书籍不存在或加载失败" detail={error} />
-      </div>
-    )
-  }
+export function TrxswBook({ data, loading, error }: SiteBookProps) {
+  const { site, navigate } = usePublic()
+  const book = data?.book ?? null
+  const latest = data?.latestChapters ?? []
+  const pool = useWordsPool(site.id) // 热门点击栏(字数热榜 60; 站方点击数无契约 → 近似)
+  const [likes, setLikes] = useState<BookItem[]>([])
 
-  if (loading || !data) {
-    return (
-      <div className="mx-auto w-full max-w-[960px] px-2 pb-6 pt-3" aria-label="书籍详情加载中">
-        <Sk className="mb-2 h-9 w-2/3" />
-        <div className="tx-book flex flex-col gap-3 border p-2.5 sm:flex-row" style={{ borderColor: C.border, background: '#fff' }}>
-          <Sk className="h-[120px] w-[90px] shrink-0" />
-          <div className="min-w-0 flex-1 space-y-2 pt-1">
-            <Sk className="h-6 w-1/2" />
-            <Sk className="h-4 w-1/3" />
-            <Sk className="h-14 w-full" />
-          </div>
-        </div>
-        <span className="sr-only">加载中…</span>
-      </div>
-    )
-  }
+  // 「大神还喜欢」封面墙: 同分类书 14 本(排除自身)
+  useEffect(() => {
+    let alive = true
+    if (!book) return
+    fetchBooks({ cat: book.categoryId || undefined, page: 1, size: 16, site: site.id })
+      .then((d) => { if (alive) setLikes((d.books || []).filter((x) => x.id !== book.id).slice(0, 14)) })
+      .catch(() => { if (alive) setLikes([]) })
+    return () => { alive = false }
+  }, [book?.id, book?.categoryId, site.id, book])
 
-  const { book, chapters, tocTotal, tocTotalPages } = data
-  const firstChapter = chapters[0]
-  // [R36-2b-5] 真站书页「最新章节」为站方倒序若干条; 原「当前目录页尾 12 条倒序」(多页书第 1 页≈最早)
-  // 升级为 API 全书最新 12 章(latestChapters idx desc 最新在前, 与目录分页解耦)。展示序与原设计
-  // 一致(最新在前) → API desc 序直接用不再 reverse; 缺字段容旧响应回落当前页尾 12 条倒序原口径
-  const latest12 = data.latestChapters ? [...data.latestChapters] : [...chapters].slice(-12).reverse()
+  const go = (b: BookItem) => navigate({ view: 'book', bookId: b.id })
+  const link = (b: BookItem) => viewToUrl({ view: 'book', bookId: b.id }, site.id)
+  const first = latest[0]
 
   return (
-    <div className="tx-home mx-auto w-full max-w-[960px] px-2 pb-6 pt-3" style={{ color: C.text, fontSize: 14 }}>
-      {/* 面包屑(杰奇家族 .con: 首页 > 分类 > 书名) */}
-      <p className="tx-crumb m-0 mb-2 text-[13px]" style={{ color: C.gray }}>
-        <button type="button" onClick={() => navigate({ view: 'home' })} className="hover:underline" style={{ color: C.text }} aria-label="前往首页">
-          首页
-        </button>
-        <span className="mx-1">&gt;</span>
-        <button
-          type="button"
-          onClick={() => navigate({ view: 'category', cat: book.categoryId || undefined, page: 1 })}
-          className="hover:underline"
-          style={{ color: C.text }}
-          aria-label={`前往 ${book.category} 分类`}
-        >
-          {book.category || '小说'}
-        </button>
-        <span className="mx-1">&gt;</span>
-        <span>{book.name}</span>
-      </p>
-
-      {/* ============ #content: 封面 + h1 + 信息 + 简介 ============ */}
-      <div className="tx-book border bg-white p-2.5" style={{ borderColor: C.border }}>
-        <div className="flex flex-col gap-3 sm:flex-row">
-          <div className="shrink-0" style={{ width: 90, height: 120 }}>
-            <BookCover name={book.name} cover={book.cover} className="h-full w-full" style={{ borderRadius: 0, border: `1px solid ${C.border}` }} />
+    <div className="trx-book">
+      <div id="trx-main">
+        {loading || !book ? (
+          <div className="trx-ui-box" style={{ padding: 12 }}>
+            {error ? <ErrorState message="书籍加载失败" detail={error} /> : <Sk style={{ height: 320, borderRadius: 0 }} />}
           </div>
-          <div className="min-w-0 flex-1">
-            <h1 className="m-0 text-[20px] font-bold leading-snug" style={{ color: C.logoRed }}>
-              《{book.name}》
-            </h1>
-            <p className="my-1.5 text-[13px]" style={{ color: C.gray }}>
-              作者：{book.author} | 分类：{book.category || '小说'} | 字数：{formatWords(book.wordCount)} | 状态：{book.status === 'completed' ? '完本' : '连载'}
-            </p>
-            <p className="m-0 min-h-[56px] whitespace-pre-wrap text-[13px] leading-[22px]" style={{ color: C.gray, textIndent: '2em' }}>
-              {book.intro || '暂无简介'}
-            </p>
-            <p className="my-1.5 text-[13px]" style={{ color: C.gray }}>
-              更新时间：{fmtDate(book.updatedAt) || '—'}
-            </p>
-            <div className="flex flex-wrap gap-2 pt-1">
-              <button
-                type="button"
-                onClick={() => firstChapter && navigate({ view: 'read', chapterId: firstChapter.id })}
-                disabled={!firstChapter}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[14px] text-white transition-opacity hover:opacity-85 disabled:opacity-50"
-                style={{ background: C.navBlue }}
-                aria-label="开始阅读"
-              >
-                <Play className="h-3.5 w-3.5" aria-hidden />
-                开始阅读
-              </button>
-              {/* TXT 下载 = 本模板唯一 <a> */}
-              <a
-                href={`/api/public/download?book=${book.id}`}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[14px] text-white transition-opacity hover:opacity-85"
-                style={{ background: C.navBlue }}
-                aria-label={`下载《${book.name}》TXT`}
-              >
-                <FileDown className="h-3.5 w-3.5" aria-hidden />
-                TXT下载
-              </a>
-              <button
-                type="button"
-                onClick={() => navigate({ view: 'toc', bookId: book.id, page: 1 })}
-                className="inline-flex items-center px-3 py-1.5 text-[14px]"
-                style={{ background: '#fff', color: C.text, border: `1px solid ${C.border}` }}
-                aria-label="查看全部目录"
-              >
-                全部目录
-              </button>
+        ) : (
+          <>
+            <div className="trx-ui-box">
+              {/* 面包屑(源站 .bread-crumb-nav: 首页 >分类 >书名) */}
+              <div className="trx-bread-crumb-nav">
+                <ul className="trx-bread-crumbs">
+                  <li className="trx-home">
+                    <a href="#" onClick={(e) => { e.preventDefault(); navigate({ view: 'home' }) }}>{site.name}</a>
+                    {' >'}
+                    <a href="#" onClick={(e) => { e.preventDefault(); navigate({ view: 'category', cat: book.categoryId || undefined }) }}>{book.category || '小说'}</a>
+                    {' >'}<em>{book.name} </em>
+                  </li>
+                </ul>
+              </div>
+              <div className="trx-detail-cols">
+                <div className="trx-bg6">
+                  <div className="trx-box-intro">
+                    <div className="trx-pic">
+                      <BookCover cover={book.cover} name={book.name} />
+                    </div>
+                    <div className="trx-box-info">
+                      <table className="trx-ui-tb1">
+                        <tbody>
+                          <tr>
+                            <td colSpan={3}>
+                              <h1 className="trx-f21h">{book.name}<em>作者:{book.author}</em></h1>
+                            </td>
+                          </tr>
+                          <tr>
+                            <td colSpan={3}>
+                              <div className="trx-intro">{book.intro || '暂无简介'}</div>
+                            </td>
+                          </tr>
+                          <tr className="trx-infotop">
+                            <td><b>小说分类：</b>{book.category || '小说'} </td>
+                            <td><b>小说状态：</b>{fmtStatus(book.status)} </td>
+                            <td><b>全文字数：</b>{fmtWords(book.wordCount)} </td>
+                          </tr>
+                          <tr>
+                            <td colSpan={2}><b>更新时间：</b>{fmtDate(book.updatedAt)} </td>
+                            <td><b>最新连载：</b>{book.latestChapter || '暂无'}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                      <div className="trx-option">
+                        <span className="trx-btopt">
+                          <a
+                            href="#"
+                            onClick={(e) => { e.preventDefault(); if (first) navigate({ view: 'read', chapterId: first.id }) }}
+                          ><span>开始阅读</span></a>
+                        </span>
+                        <span className="trx-txtopt">
+                          <a href="#" onClick={(e) => { e.preventDefault(); navigate({ view: 'toc', bookId: book.id }) }}><span>完整目录</span></a>
+                        </span>
+                      </div>
+                    </div>
+                    <div className="trx-clear" />
+                  </div>
+                  {/* 最新更新章节(源站 #qvod-pl-list 播放列表块; 契约最新 12 章) */}
+                  <div className="trx-play-list-box">
+                    <div className="trx-caption">
+                      <h4><strong>《{book.name}》已更新到</strong></h4>
+                      <div className="trx-txt">
+                        {first && (
+                          <a href={viewToUrl({ view: 'read', chapterId: first.id }, site.id)} onClick={(e) => { e.preventDefault(); navigate({ view: 'read', chapterId: first.id }) }}>{first.title}</a>
+                        )}
+                      </div>
+                    </div>
+                    <div className="trx-play-content">
+                      <div className="trx-play-list">
+                        {latest.map((c) => (
+                          <div key={c.id}>
+                            <a
+                              href={viewToUrl({ view: 'read', chapterId: c.id }, site.id)}
+                              onClick={(e) => { e.preventDefault(); navigate({ view: 'read', chapterId: c.id }) }}
+                            >{c.title}</a>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="trx-clear" />
+                    </div>
+                  </div>
+                </div>
+                {/* 右栏: 热门点击(源站 .wudu-bar; 站方点击数无契约 → 字数热榜池近似) */}
+                <div className="trx-wudu-bar">
+                  <div className="trx-ui-title1"><h2>热门点击<em>Categories New</em></h2></div>
+                  <div className="trx-ui-ranking">
+                    <ul className="trx-ranking-list">
+                      {(pool || []).slice(0, 15).map((b) => (
+                        <li key={b.id}>
+                          <a href={link(b)} onClick={(e) => { e.preventDefault(); go(b) }}>{b.name}</a>
+                          <span>({(fmtDate(b.updatedAt) || '').slice(5)})</span>
+                        </li>
+                      ))}
+                      {!pool && Array.from({ length: 8 }).map((_, i) => <li key={i}><Sk style={{ height: 20 }} /></li>)}
+                    </ul>
+                  </div>
+                </div>
+                <div className="trx-clear" />
+              </div>
             </div>
-          </div>
-        </div>
-      </div>
-
-      {/* ============ 最新章节(杰奇家族 h2 + dd 行) ============ */}
-      <div className="tx-latest mt-3 border bg-white p-2.5" style={{ borderColor: C.border }}>
-        <h2
-          className="m-0 flex items-center overflow-hidden"
-          style={{
-            background: 'linear-gradient(180deg, #fafbfc 0%, #e9eef5 100%)',
-            borderBottom: `1px solid ${C.border}`,
-            borderLeft: `4px solid ${C.navBlue}`,
-            fontSize: 14,
-            fontWeight: 700,
-            lineHeight: '32px',
-            minHeight: 32,
-            paddingLeft: 8,
-          }}
-        >
-          《{book.name}》最新章节
-        </h2>
-        <dl className="m-0 mt-2 flex flex-wrap">
-          {latest12.map((c) => (
-            <dd key={c.id} className="w-full overflow-hidden whitespace-nowrap border-b border-dotted py-1.5 sm:w-1/2 lg:w-1/4" style={{ borderColor: C.dotted }}>
-              <button
-                type="button"
-                onClick={() => navigate({ view: 'read', chapterId: c.id })}
-                className="max-w-full truncate text-left hover:underline"
-                style={{ color: currentChapterId === c.id ? C.logoRed : C.text }}
-                aria-label={`阅读 ${c.title}`}
-              >
-                {c.title}
-              </button>
-            </dd>
-          ))}
-        </dl>
-      </div>
-
-      {/* ============ #list dd 全部目录(契约 100 章/页; 杰奇家族「#list dd a」实证选择器) ============ */}
-      <div className="tx-toc mt-3 border bg-white p-2.5" style={{ borderColor: C.border }}>
-        <h2
-          className="m-0 flex items-center overflow-hidden"
-          style={{
-            background: 'linear-gradient(180deg, #fafbfc 0%, #e9eef5 100%)',
-            borderBottom: `1px solid ${C.border}`,
-            borderLeft: `4px solid ${C.navBlue}`,
-            fontSize: 14,
-            fontWeight: 700,
-            lineHeight: '32px',
-            minHeight: 32,
-            paddingLeft: 8,
-          }}
-        >
-          《{book.name}》全部章节目录
-          <span className="ml-2 text-[12px] font-normal" style={{ color: C.gray }}>
-            共 {tocTotal} 章
-          </span>
-        </h2>
-        <dl className="tx-list m-0 mt-2 flex flex-wrap">
-          {chapters.map((c) => (
-            <dd key={c.id} className="w-full overflow-hidden whitespace-nowrap border-b border-dotted py-1.5 sm:w-1/2 lg:w-1/4" style={{ borderColor: C.dotted }}>
-              <button
-                type="button"
-                onClick={() => navigate({ view: 'read', chapterId: c.id })}
-                className="max-w-full truncate text-left hover:underline"
-                style={{ color: currentChapterId === c.id ? C.logoRed : C.text }}
-                aria-label={`阅读 ${c.title}`}
-                aria-current={currentChapterId === c.id ? 'true' : undefined}
-              >
-                {c.title}
-              </button>
-            </dd>
-          ))}
-        </dl>
-        {tocTotalPages > 1 && (
-          <nav aria-label="目录分页" className="tx-pages flex flex-wrap items-center justify-center py-2.5">
-            {tocPage > 1 && (
-              <button
-                type="button"
-                onClick={() => navigate({ view: 'book', bookId: book.id, page: tocPage - 1 })}
-                className="tx-pg m-[2px] inline-flex h-[30px] min-w-[30px] items-center justify-center border px-1 text-[13px]"
-                aria-label="上一页"
-              >
-                上一页
-              </button>
-            )}
-            {Array.from({ length: Math.min(10, tocTotalPages) }, (_, i) => Math.max(1, Math.min(tocPage - 4, tocTotalPages - 9)) + i).map((n) =>
-              n === tocPage ? (
-                <strong
-                  key={n}
-                  className="tx-pg m-[2px] inline-flex h-[30px] min-w-[30px] items-center justify-center border px-1 text-[13px]"
-                  style={{ background: C.navBlue, borderColor: C.navBlue, color: '#fff' }}
-                  aria-current="page"
-                >
-                  {n}
-                </strong>
-              ) : (
-                <button
-                  key={n}
-                  type="button"
-                  onClick={() => navigate({ view: 'book', bookId: book.id, page: n })}
-                  className="tx-pg m-[2px] inline-flex h-[30px] min-w-[30px] items-center justify-center border px-1 text-[13px]"
-                  aria-label={`第 ${n} 页`}
-                >
-                  {n}
-                </button>
-              ),
-            )}
-            {tocPage < tocTotalPages && (
-              <button
-                type="button"
-                onClick={() => navigate({ view: 'book', bookId: book.id, page: tocPage + 1 })}
-                className="tx-pg m-[2px] inline-flex h-[30px] min-w-[30px] items-center justify-center border px-1 text-[13px]"
-                aria-label="下一页"
-              >
-                下一页
-              </button>
-            )}
-          </nav>
+            {/* 「大神还喜欢」封面墙(源站 #comment.ui-box + #like-focus) */}
+            <div className="trx-ui-box" id="trx-comment">
+              <div className="trx-ui-title"><h2>看《{book.name}》的大神还喜欢</h2></div>
+              <div id="trx-like-focus">
+                <ul className="trx-img-list">
+                  {likes.map((b) => (
+                    <li key={b.id}>
+                      <button className="trx-play-img" onClick={() => go(b)} aria-label={b.name}>
+                        <BookCover cover={b.cover} name={b.name} />
+                        <span className="trx-mask" aria-hidden />
+                        <span className="trx-text">{b.author}</span>
+                      </button>
+                      <h5><a className="trx-play-a" href={link(b)} onClick={(e) => { e.preventDefault(); go(b) }}>{b.name}</a></h5>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          </>
         )}
       </div>
     </div>

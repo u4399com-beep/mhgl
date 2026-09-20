@@ -76,7 +76,12 @@ export function BackupSection() {
     })()
     try {
       const raw = localStorage.getItem(HISTORY_KEY)
-      if (raw) setHistory(JSON.parse(raw))
+      // [R49-2c-1] localStorage 历史须为数组校验 — 修前 JSON.parse 结果直接 setHistory,
+      //  被其它代码/扩展写坏的 非数组 JSON(如 {} )会让 history.length 变 undefined、
+      //  appendHistory 的 [...history].slice 抛 TypeError, 间接把「恢复导入」整体打断。
+      //  非数组/损坏一律按空历史处理(与 Dashboard sanitizeHiddenCards 同口径)
+      const parsed: unknown = raw ? JSON.parse(raw) : []
+      if (Array.isArray(parsed)) setHistory(parsed as HistoryEntry[])
     } catch {
       /* 忽略 localStorage 损坏 */
     }

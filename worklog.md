@@ -6417,3 +6417,121 @@ Stage Summary:
 - dev 模式基线(~1.78GB)与采集增量预算(~370MB)的矛盾通过"resume 高于基线+半开断路器"双保险解决; 生产 build 基线低可用 env 收紧更严
 - 改动 3 文件(+210/-20): fetcher.ts(熔断层+动态并发)/obscura.ts(急回收)/runner.ts(豁免接线), 全带 [R48-*] 注释
 - 遗留: scripts/seed-rule-pilishuwu.ts 有既有 tsc 错误(duplicate function implementation, 非本轮引入); curl contentProxyUrl(3015) 连接失败已在 mini-services 全量拉起后恢复
+---
+Task ID: R49-2c
+Agent: general-purpose (app review)
+Task: 应用层(非采集引擎/非主题组件)逐行深度审查 + 修复全部发现的 bug(src/app/api/**、src/lib 非 crawl、src/proxy.ts、src/components/admin/**、src/app/{layout,page,not-found}.tsx、[...slug]、prisma/schema)
+
+Work Log:
+- [R49-2c-0] 前置: 读 worklog 末 300 行(R40-R48 主题/页脚/代理池/内存熔断史对齐)+rg 定位 R31(鉴权/限流)/R3-30(IP信任链)/R35(任务模式)/R46-2c(分类合并)各段; 文件所有权核对(并行 agent 在途件 aijjxs/* 零触碰)
+- [R49-2c-1] 安全面逐行: auth.ts(HMAC 会话 timingSafeEqual 覆盖/exp/nonce 白名单/cookie flags/登录滑窗 Map 上限 FIFO+5min 清扫+unref/prod fail-closed 双告警路径 — 已达标零改动); proxy.ts(admin 匹配 /api/admin/ 前缀全覆盖、buckets MAX_BUCKETS FIFO 淘汰有界、clientIp R3-30 信任链、限流三类分桶+精确 Retry-After); 全部 50 个 admin 路由 rg 核对鉴权覆盖(均落 /api/admin/* 由 proxy 拦截, 路由级 verifySession 缺席属设计使然+withGuard 全覆盖); SSRF 面(公开路由零 URL 抓取端点; cover/download 均 safeJoin+正则边界; rules/test 与 proxy-pool/test-target 为 admin-only 显式功能, 底层 fetcher 自带 SSRF 守卫); 路径穿越(backup/restore 无文件路径参数, download/chapter/t2s/_cover 全部 safeJoin+path.sep 边界); 注入面($queryRaw 仅 health SELECT 1 参数化、LIKE 全走 likeSafe、规则保存有 regexGate 四正则入口防线、banned-words escapeRegExp、JSON.parse 全部带 try/白名单校验); 信息泄漏(errText 消毒/withGuard 500 信封无 stack/logger SENSITIVE_RE 脱敏 — 已达标零改动)
+- [R49-2c-2] 正确性面逐行: 全部 API 路由参数校验(str/clampInt/likeSafe/httpUrl/白名单/分页钳页 API-7/R11-a-2/R4A-4/R4A-5 全在位); backup 导出(50 本一批 cursor 分页+>200 本元数据降级+5MB 串流+代理对边界修复)/restore(200MB 双层防护+600s 事务+悬挂 FK 容错+默认站归一+状态归一); book-ids/_shared 任务模式(书号列表/范围二选一互斥+2000 上限+去重保序); 下载链(并发占位同步原子+DB 计数双保险+10min 硬超时+1h 陈旧孤儿清扫+slot 释放幂等); pseo/pseudostatic 链(slug 白名单字符+确定性哈希+P2002 熵重试; [...slug] token 形态校验+cuid 章节归属校验; sitemap 私网段拒绝+缓存 50 条 FIFO); admin 组件(15 区块 busy/saving 禁用防重+aliveRef 竞态守卫+TaskMonitor 3s/2s 轮询 cleanup+BookDetail 目录分页 max-h-96+备份导入双重确认)
+- [R49-2c-3] prisma schema 索引核查: Book(categoryId/updatedAt/wordCount)/Chapter(bookId_idx 唯一+bookId,url+updatedAt+createdAt)/TaskLog(taskId,id+createdAt)/DownloadJob(bookId,status,createdAt)/FreeProxy(3)/PseoPage(2)/FriendLink/Feedback 均有; Task 表零索引(状态扫描全表)、DownloadJob 缺 status 前缀序(POST 创建入口 count+清扫两条查询无法用 bookId 打头复合索引) → 补 Task @@index([status]) 与 DownloadJob @@index([status, createdAt])(**需要主控 db push**)
+- [R49-2c-4] 修复1(proxy.ts) 生产安全头补 HSTS: Strict-Transport-Security max-age=15552000;includeSubDomains 仅 NODE_ENV=production 注入(与 Secure cookie 同策略; dev http 零影响); isProd 声明上移单点化消除重复声明
+- [R49-2c-5] 修复2(restore) 幽灵下载任务归一: 备份中 status=pending/running 的 downloadJob 导入后原样入库会永久滞留「排队中/生成中」(生成 IIFE 不随进程恢复, 仅 POST 入口 1h 清扫兜底) → 导入时归一 error+说明文案+warnings 汇总, 与 R9-d-8 任务状态归一同哲学
+- [R49-2c-6] 修复3(proxy-pool check/test-target) 裸 req.json() → readBody(5MB): admin 鉴权路由对 chunked 无限 body 原无防护, 与全站 R6-3 契约(超限 413)统一; harvest/prune/PATCH 原本合规零改动
+- [R49-2c-7] 修复4(BackupSection) localStorage 导入历史数组校验: JSON.parse 结果直接 setHistory, 被写坏的非数组 JSON 会让 appendHistory 的展开抛 TypeError 打断恢复导入 → Array.isArray 门(与 Dashboard sanitizeHiddenCards 同口径)
+- [R49-2c-8] 修复5(DebugHtmlViewer) injectActiveClass 改函数式替换: 字符串替换的 $&/$`/$' 特殊序列在字段名含 $ 时污染注入属性
+- [R49-2c-9] 排查证伪: candidates 审查中「9 处 Dialog 宽度类 sm:max-w-in(...) 损坏」疑点经 od 十六进制逐字节复核为 grep 管道显示伪影, 实际源码为正确的 sm:max-w-[min(...)] — 未做无意义改动
+- [R49-2c-10] 验证: bunx tsc --noEmit 全库 0 错; bunx eslint 6 个改动文件 0 错; curl 实测链(登录→tasks 列表→建临时书→restore 含 running 下载任务的合成备份→warnings 命中+状态归一 error→删除临时书/任务→backup 导出 6.7MB 200→未登录 admin 401→安全响应头实测+dev 无 HSTS 符合预期→proxy-pool check limit=5 后台作业正常收尾); 全程未重启 dev server/未装包/git 未提交
+
+Stage Summary:
+- 应用层全量逐行审查完成(A 安全面 7 项/B 正确性面 8 项/C 健壮性面 3 项), 代码库经 R31/R3-3x/R4A/R5-R12/tt-b/gg-a/API-1~22 等多轮加固后基线质量高, 本轮新抓实质 bug 5 个全部修复(+2 索引): ①prod HSTS 缺失 ②restore 幽灵下载任务 ③proxy-pool 两路由 body 无上限 ④备份历史非数组致恢复链断裂 ⑤正则替换 $ 序列污染
+- prisma/schema.prisma 改动(Task/DownloadJob 索引)【需要主控 db push】, 客户端类型零变化无需 generate
+- 跨 scope 报告(发现未改, 属他人文件): ①src/lib/crawl/proxy-pool.ts ensurePoolAutoLoop 全局定时器已有 globalThis+unref 处置(R42 记录)建议下轮引擎侧复查 intervalMin=0 类脏配置的循环节奏 ②scripts/seed-rule-pilishuwu.ts 既有 tsc duplicate function implementation(R48 已留档) ③src/components/PwaRegister.tsx 不在本轨所有权内未审
+- 跳过项(有意不改): loginAttempts 固定窗口(非滚动)语义/备份大库 findMany({}) 无 take(>200 本走元数据降级已护)/calibJobs Map 驻留(规则数有界+删除清理 R6-4 已闭)/downloadJob 429 不入队排队(产品语义)
+---
+Task ID: R49-2a
+Agent: frontend-styling-expert
+Task: aijjxs 首页书籍显示修复 + 全主题 1:1 回源站克隆校准(本节为超时续跑收尾: 主会话在途产出已全部落盘, 本会话据 git diff 实证重建记录 + E2E 复验, 未改任何代码)
+
+Work Log:
+- [R49-2a-0] 超时接续: 前主会话产出经 git working tree 核对(aijjxs/2 文件 + trxsw/8 文件 + CategoryView/1 文件共 11 件在途, 与 R49-2c 审查轨/R49-2b 引擎轨 fetcher+runner 互斥零交叠); 本会话只做复核/E2E/记录, 代码零改动
+- [R49-2a-1] aijjxs 书名不可见根因修复(用户报障): index.ts 版心选择器 `.ajx-home,.ajx-cat,...{max-width:1220px;width:100%}` 中的 `.ajx-cat` 与列表行「分类胶囊」<span class=ajx-cat> 同名碰撞 → width:100% 注入胶囊占满整行, 书名 <a> 被压至 offsetWidth=0(实测 0 宽, 书名不可见)。修复: Category.tsx 页根类名改 `.ajx-catpage`(胶囊 .ajx-cat 对齐真站 .cat 语义, 仅由 L114/L287 胶囊规则承载), index.ts 版心规则与 375px overflow-x 兜底规则同步换名, [R49-2a-1] 注释留档
+- [R49-2a-2] aijjxs 顶部固定导航回源站校准: 2026-09-20 实抓真站 style.css(/tmp 快照)末段 "top-float deeper-bg" 级联终态为平涂 rgba(52,6,16,.86) + 边框 rgba(255,214,224,.28) + 单层投影 0 8px 24px rgba(60,10,20,.28), 弃 R18 期三段深酒红渐变旧值, .ajx-topfloat 重写([R49-2a-2] 注释)
+- [R49-2a-3] CategoryView 合成锚点标题回退: 分类稀薄兜底链(R47-1)产出的 `cat:{name}` 锚点在分类列表未命中/加载失败时, h1/TDK 原落「分类书籍」泛称 → 改为锚点名直显(cat.slice(4), 与导航可见名语义等价), fetch 成功/失败两分支同口径([R49-2a-3] 注释)
+- [R49-2a-4] trxsw 全页重克隆(8 组件): 真站已由 2019「同人小说网」杰奇版(R46-2b-3 确认)换为「唐人小说网」33yq 家族模板 —— 代理池 CN 出口实抓 /tmp/r49-snap/trxsw/ 2026-09-20 全量素材(home/category/book/toc/read/lastupdate/goodnum/ranking 8 页 HTML + 33yq.css 20033B + read.css 8614B + common.js), 与 x33yq 的 common/style/read.css 逐值比对一致(同族同源)。7 页型+Search 共 8 组件全部按 x33yq 已校准实现移植+站点文案替换: Home(#trx-main>#trx-hotcontent 6 封面卡 + .GARAN 新书排行榜 33 卡 3 列 + #trx-newscontent .l 最近更新 s1-s5 含[目]链 + .r 最新上架)、Category(/sort/{cat}/{page} 卡流+分页)、Book(h1.f21h 30px 黑体 + .box_intro 表格版 .pic 125 + .intro 166px 滚动 + .btopt 主钮 #67B5E2 + #trx-qvod-pl-list 章节块链 + 热门点击 + 封面墙)、Toc(box_con 面包屑 + #trx-maininfo fmimg 150×200 + 三列 #list dd)、Read(工具条 7 色板 + 字号档 + zhangjieming + 正文 24px/0.2em 字距/150% 行高, useReaderFont(10,50) + useThemeFontBase(24) + useThemeLineHeight(1.5) + useRecordReading + 键盘←→)、Ranking(榜型栏对齐真站 /goodnum/ 总收藏、/lastupdate/ 最近更新、/goodnew/ 新书榜三榜)、Fulltext(分类分组)、Search(.novelslistss 行块 + .place 相关词)。全部 [R49-2a-4] 头注释留档
+- [R49-2a-5] 复验(本会话): bunx tsc --noEmit 全库 0 错; agent-browser E2E: ①/?view=home 默认站(久久小说网/aijjxs)首页 30/30 书名链接全部可见且非零宽(山野闲云 w=64/我家后门通洪荒 w=112/学霸的黑科技系统 w=128 等, DB 10+ 本书真实数据), 分类胶囊 .ajx-cat 恒 40px 不再占行 → R49-2a-1 碰撞修复实证通过; ②/?view=category&cat=cat:玄幻 12/12 命名链接可见, 375px 兜底规则随页根改名同步生效; 截图 /tmp/r49-2a-aijjxs-home.png、aijjxs-category.png; ③/?view=home&theme=trxsw 结构渲染正常(#trx-hotcontent 有数据)但 computed 实测 body 白底/版心未限宽 —— **css 字段未随组件移植, 见遗留①**; 用毕 pkill -f chrome 清杀
+
+Stage Summary:
+- aijjxs 修复闭环实证: 首页/分类页书名 100% 可见(碰撞根因修复+导航终态级联校准+锚点标题回退), DB 真实数据(10+ 书/10757+ 章节持续入库)渲染验证通过
+- trxsw 重克隆完成度: 8 组件(100 个 trx-* 类)结构/文案/交互全部按 33yq 家族实测素材移植完成, **关键遗留: sites/trxsw/index.ts 的 css 字段仍是 R28 Wayback 杰奇旧版(仅 3 个页脚类), 新 100 类零样式** —— 需按 /tmp/r49-snap/trxsw/33yq.css(20033B)+read.css(8614B)移植(可大量对照 x33yq index.ts 同族实现), 建议主控单独派单(素材快照重启即失, 先落盘到持久目录); 迁移前勿对 trxsw 做视觉验收
+- 源站可达性: aijjxs/trxsw 直连+CN 代理均 200 实抓; 其余主题本轨未触碰(R46-2b 已全量校准过)
+- 遗留: ①上条 trxsw css 移植(阻塞视觉验收) ②平行轨在途件 fetcher.ts/runner.ts 带 [R49-2b-*] 注释属引擎轨所有, 本轨零触碰 ③/tmp/r49-2a-*.png 三张 E2E 截图留 /tmp
+---
+Task ID: R49-2bw
+Agent: general-purpose
+Task: R49-2b 反反爬增强验证 + 补档
+
+Work Log:
+- [R49-2bw-0] 前置: 读 worklog 末 120 行(R49-2c 应用层轨/R49-2a 主题轨)+ git working tree 核对: R49-2b 在途件=src/lib/crawl/fetcher.ts(+89 行)+runner.ts(+57 行), 与其他并行轨零交叠; 本轨原则上不改代码, 发现 3 处小 bug 已修(全带 [R49-2bw-N] 注释, 见下)
+- [R49-2bw-1] fetcher.ts 升级链逐行审查【结论: 设计主体正确】①计臂状态存 hostRhythm Map(globalThis.__novelHostRhythm_v1 挂钩防 HMR 多实例, HOST_RHYTHM_CAP=512 FIFO 淘汰防泄漏; escTier/escFails/escOkStreak 三字段随 HostRhythmState 同账本, 无新增全局态) ②消费点 fetchPageOnce L4938: autoEscalationTierFor 对显式配置三源让位(规则 curlImpersonate 档/CURL_IMPERSONATE_HOSTS host 钉扎[按 hostname 键]/CURL_IMPERSONATE_PROFILE 全局档), 自动档经 impersonateTierOverride 注入 effCfg(局部拷贝不污染跨请求 cfg)→ resolveCurlImpersonateTier 第 4 参最高优先轨, 优先级序与 R28-4-E2 既有语义一致 ③撤档复位: noteHostHttpSuccess 仅干净成功(未被拦壳, blocked=false)清 escFails+连击计数, 连 20 次(HOST_ESCALATION_RESET_OK)撤档回落基础身份; 被拦壳不清(交 hostgate/惩罚窗学习)——防"拦截↔恢复"边界震荡的设计成立 ④与 R48 交互顺序无冲突: fetchPage 准入序 dynConcurrencyLimit→checkMemoryHalt(熔断上抛)→acquireGlobalSlot→…→fetchPageOnce(升级档消费在熔断准入之后, 熔断期根本到不了升级消费); MemoryHaltError 不经 noteHostHttpFailure(仅 HTTP 状态码路径调用)不喂计臂; fetchBinary 的 assertMemoryAdmissible 在 SSRF 守卫之前, 复用 checkMemoryHalt 同一状态机(置 halted+reclaimObscuraNow+冷却), 唯一调用方 crawlOneBookMeta 封面 catch(L1844-1846)按 warn 降级不计失败 ✓
+- [R49-2bw-2] 修复 fetcher 升级链 2 bug: ①[R49-2bw-1] 503 死代码: noteHostHttpFailure 函数文档与 [R49-2b-2] 计臂条件均声明 403/429/503, 但全文件唯一调用点(L5044)只传 403/429 → 503 型反爬站永远不会触发指纹升级; 修: 调用点补 503(503 在函数内无专属惩罚分支, 仅共用 resistUntil 对抗窗+计臂; 429/503 的 Retry-After hostgate 冷却仍由 reportHostRateLimited 独立承担, 双层互不影响) ②[R49-2bw-2] 档位环形回绕违背"末档保持": nextImpersonateTier 是环形序(safari17_0 后继回绕 chrome116, 永不返回 ''), 原实现升到末档后每次被拒仍回绕轮换一档且 escTier!==prev 恒真 → 持续被拒期每次失败刷一条升级 warn+档位震荡, 与 [R49-2b-2] 注释"环形序末档保持"相悖; 修: 已达 IMPERSONATE_TIER_ROTATION 末档即停留(escTier 只由首档/后继赋值恒为序内成员, 判定完备); 逻辑复刻测试: chrome116→edge101→safari17_0 后保持+20 连干净成功复位 PASS
+- [R49-2bw-3] runner.ts 熔断暂停臂逐行审查: ①列表页循环单线程 for 无计数竞态; 【修复 [R49-2bw-3]】原 trip 后 `break` 永久退出发现循环, 与 [R49-2b-1] 自注释"循环停在顶部 rt.paused 等待门(恢复后从当前页继续翻)"相悖 —— 实际恢复后余下 listEnd 页本轮永不补翻, 队列排空即以"任务完成"收尾(余页书籍静默丢失=假终态家族残留); 修: 去掉 break, trip 置 rt.paused 后本轮迭代自然走完(sleepGap 见 paused 提前返回), 停在 L1225 既有等待门, 恢复后从断点页续翻——正是注释所述语义 ②书籍段: 连发池(2 worker)共享 consecutiveMetaHalts, JS 单线程无撕裂; check-then-trip 幂等(trip 入口 rt.paused 同步置位, 并发双 trip 不可能双写); worker return 后存活 worker 在循环头等待门(L1389)接管本批余书(metaPtr 续推)=注释"原地续采"对存活 worker 成立; 边界态(双 worker 均三连熔断双 return)本批余书由下轮重启重发现兜底(可接受) ③章节段: trip 后无 break, 当前批在飞自然完成, 下一批循环头等待门(L2492)停住, items 未 splice 部分保持未采可增量恢复 ④恢复(start)后臂归零路径完备: 列表页成功/书籍 ok|deferred|empty-toc|跳过已完结/章节成功 五处同步归零 ✓ ⑤与 pause-stop 语义兼容: trip 走 serializeStatusWrite('paused') 与 control('pause') 同链; control('start') 对活 runtime(rt.running=true+paused) 原地恢复(L842-848), 对已收尾 runtime 全新启动从 DB progress 重建续采集合(L1595-1596 同语义); executeTask 收尾对 rt.paused=true 落 'paused' 不落 'done'(L1550-1556); 章节段 DB 状态守卫(L2517-2526)与 trip 写库一致无僵尸态 ✓
+- [R49-2bw-4] 实录取证(aijjxs 任务 cmu90jsjh000vk4tx38903ner, [R49-2b-1] 背景病灶的现场实证, 非本轮引入): 23:47 dev server 重启(孤儿恢复转 paused)→23:59:00 任务重启, 但当时运行模块仍是旧版(TaskLog 无 N/3 计数后缀可证): 发现循环 P1~P10 全部吃内存硬熔断逐页空转烧完(此前 23:46 正文段亦逐章空转), "范围发现完成: 0 本书待采集"后以"✅ 任务完成(新书10/新章节10757 更新250)"假终态收场, contentDone 250/10757 滞留 —— 正是 R49-2b-1 要消灭的行为; 本轮 00:21 API 调用已触发 Turbopack 重编译(R49-2b+本轨修复代码生效, dev.log 内存护栏配置行正常打印), 下次运行: 3 连熔断即自动 paused(不再空转), 恢复后从断点页续翻([R49-2bw-3])
+- [R49-2bw-5] 验证: bunx tsc --noEmit 全库 0 错; bunx eslint src/lib/crawl/fetcher.ts+runner.ts 0 错; 升级链逻辑复刻测试(推进序/末档保持/衰减复位)PASS; curl 实测登录+任务 API 全 200(新代码在 dev server 真实编译通过); dev.log 尾部无新错误; dmesg 无新 OOM(仅旧 pid 6308 事件); 当前 next-server(pid 8435)RSS=2104MB 仍在硬熔断线(1950)以上 —— 按内存纪律未启动新任务/未重启 dev server/未 git 提交, 其他并行轨在途件零触碰
+
+Stage Summary:
+- R49-2b 实际改动清单(代原作者补记, 2 文件 +146/-7): ①fetcher.ts: [R49-2b-2] 失败升级链(HostRhythmState 增 escTier/escFails/escOkStreak; noteHostHttpFailure 对 403/429/503 计臂, 连续 2 次挂 chrome116→edge101→safari17_0 档, noteHostHttpSuccess 干净连击 20 次衰减撤档; autoEscalationTierFor 显式配置让位; fetchPageOnce 入口消费注入 impersonateTierOverride 走 curl-impersonate 二进制/桥轨真实浏览器 TLS/JA3+H2 指纹) + [R49-2b-3] RETRY_AFTER_HONOR 缺省开启(env RETRY_AFTER_HONOR=0 显式退出; 钳制双层在位: hostgate 120s+fetcher 20s) + [R49-2b-4] assertMemoryAdmissible 导出+fetchBinary 封面入口接内存硬熔断 ②runner.ts: [R49-2b-1] MEM_HALT_PAUSE_AFTER=3 连续内存硬熔断自动转 paused(列表页/书籍元数据/章节正文三处接线; tripMemoryHaltPause 幂等收口: rt.paused+serializeStatusWrite+TaskLog warn, epoch 漂移让位) —— 消灭"熔断期逐项空转烧完队列后假终态 done"(有 23:59 实录为证)
+- 验证结论: 设计主体正确(状态有界 512 FIFO/显式配置让位优先级/幂等/与 R48 内存熔断+GlobalSem+control 语义兼容), tsc+eslint 0 错, 已在 dev server 编译生效
+- 本轨发现并修复 3 问题(全带 [R49-2bw-N] 注释): ①升级链 503 死代码接线 ②升级档环形回绕违背"末档保持"(持续被拒期档位震荡+warn 刷屏) ③列表页熔断 break 违背"从当前页续翻"注释(假终态残留: 余页书籍本轮静默丢失)
+- 风险残留: ①下拉词 fetchSuggestKeywords 未接内存准入(外部搜索引擎低频, 可接受, 建议下轮评估) ②书籍段双 worker 同时三连熔断的边界态本批余书待下轮重发现兜底 ③trip 的 progress.phaseNote 可能被并发 saveProgress 覆盖(纯展示层, TaskLog 为权威记录) ④next-server RSS 2104MB 仍在熔断线上, aijjxs 恢复任务需 RSS 回落(<1900 resume 线)后由主控重启(增量续采; 本轮 0 新书, 250/10757 章滞留待续)
+---
+Task ID: R49-2a2
+Agent: frontend-styling-expert
+Task: trxsw CSS 层移植
+
+Work Log:
+- [R49-2a2-1] 接续发现: index.ts 的 css 字段已被本任务上一次中断的会话写成(文件 00:33, 全文带 [R49-2a2-1..11] 注释, 33yq.css/read.css 逐段实测值+快照出处), worklog 无记录 → 本会话按任务门禁做完整核对/补漏/验证, 不推倒重写
+- [R49-2a2-2] 类覆盖审计: 组件 97 个唯一 trx-* token(grep -oh sort -u)与 css 字段定义集双向 comm diff 双空 —— 使用未定义 0 / 定义未使用 0; 13 个 id 选择器(#trx-main/#trx-hotcontent/#trx-newscontent/#trx-comment/#trx-like-focus/#trx-sidebar/#trx-maininfo/#trx-info/#trx-intro/#trx-list/#trx-content/#trx-fontsize)逐一 rg 核对组件确以 id= 挂载; 抓出唯一失配: Toc.tsx L62 封面位是 className="trx-fmimg" 而 CSS 写 #trx-fmimg(id 选择器)→ 规则整组不生效(封面位裸奔无 150×200/#e1eced 底/直角守卫)
+- [R49-2a2-3] 修复 fmimg 失配(3 处: 目录页主规则+封面直角守卫 border-radius:0!important 组+≤980 媒体查询), id→类选择器对齐组件, 组件层零改动(结构未触碰), 注释留档
+- [R49-2a2-4] 快照值抽检(agent-ctx/r49-snap/trxsw/ 持久化快照 vs css 字段): 33yq.css 的 .nav1(978/#fc3/#fff9d9/r10)/#hotcontent pt10/.l(980/#a6d3e8/#fef9ef)/.novelslist(968)/.GARAN(960)/.top(315)/.item(310)/#newscontent .l(695 #f7fbfd) .r(265)/#alistbox(460)/.articlepage(#f9f9f9 40)/.footer_cont p(#302b35 lh20) 与 read.css 的 .content_read(980)/.toolbar(50 #d8d8d8 #f7f7f7)/.zhangjieming(#88c6e5 虚线)/.bottem1 a(14px #085308) 逐值一致; 花括号 247/247 平衡
+- [R49-2a2-5] 门禁: bunx tsc --noEmit 全库 0 错 ×2(修复前后各一轮); bunx eslint src/components/public/sites/trxsw 0 错 ×2
+- [R49-2a2-6] agent-browser 实测(DB 真实数据 10 书/683 章): ①桌面 1280 首页 scrollWidth=1280 零横滚, #trx-main 版心 980 限宽生效, 6 封面卡(.trx-item 310px)+GARAN 卡 315px 网格正常, computed: body rgb(233,250,255)=#e9faff/.trx-l 边 2px #a6d3e8 圆角 10 底 #fef9ef/#newscontent h2 底 #88c6e5/链接 #6f78a7/页脚 p #302b35 全中 ②375px 首页 scrollWidth=375 零横滚, 卡片自适应 371 ③阅读页 1280: 工具条 50px #f7f7f7+7 色板 18×18+章节题 SimHei 25px+正文 24px 字距 4.8px(0.2em)+上下章链 #085308, 375px 工具条折行 92px 零横滚 ④书页 375: 版心自适应+f21h 22px(窄屏档)+播放列表链 #c3dfea+btopt 钮 #67b5e2 ⑤目录页 1280: 版心 980+三列 dd 321px 虚线界+dt 条 #c3dfea+侧栏 264; 修复后 .trx-fmimg 实测 150×200/#e1eced/float left/直角 0 —— 全部与快照实测值吻合; 用毕 pkill -f chrome 清杀
+- [R49-2a2-7] 勘误备注: 任务简报所称「css 字段仍 R28 旧版仅 3 类/100 类零样式」为启动时快照描述, 实际接手时上一次会话已写入新 CSS 层; 本轮净增改动仅 [R49-2a2-3] 三处 id→类修正, 其余为验证与记录
+
+Stage Summary:
+- trxsw CSS 层移植闭环: 97 个 trx-* 类 100% 覆盖(双向 diff 空), 值全部取自 33yq.css/read.css 快照实测(与同族 x33yq 已精校实现同构), 修复 #trx-fmimg 选择器失配 1 处(3 个规则组), 组件 8 文件零结构改动
+- 验证全绿: 花括号 247/247 + tsc 0 错 + eslint 0 错 + agent-browser 五页型(首页/分类沿用同套卡规则/书/目录/阅读)双视口 computed style 实测吻合快照, 1280 版心限宽/卡片网格正常 + 375px 全页零横滚
+- 遗留: ①ranking.html 快照仅 548B(实抓不完整), Ranking 榜型栏按真站 top 页第二 .nav1 li.on 形态移植已可用, 后续可回源补抓精校 ②分类页卡流复用 #trx-hotcontent 容器语义, 与真站 /sort/ 卡流目视一致性未逐像素对比(素材在 agent-ctx/r49-snap/trxsw/category.html 可复核) ③dev server next-server RSS 偏高(R49-2bw 记录的内存护栏语境), 本轮未重启未提交, 素材快照已持久化在 agent-ctx/r49-snap/trxsw/ 不会随重启丢失
+---
+Task ID: R49-3
+Agent: general-purpose
+Task: 代码清理整合优化精简(并行开发结束后的全库保守清理)
+
+Work Log:
+- [R49-3-0] 前置: 读 worklog 末 250 行对齐 R49-2a/2a2/2b/2bw/2c 全部改动; git working tree 核对在途件(prisma/restore/proxy-pool/BackupSection/DebugHtmlViewer/CategoryView/aijjxs×2/trxsw×8/fetcher/runner/proxy)全部不碰; tsconfig 确认 scripts/*.ts 在编译圈内(仅 scripts/archive 排除)
+- [R49-3-1] scripts/ 审计: ①scripts/tmp-content-audit.ts(25行)+tmp-page-audit.ts(29行)删除 —— 两文件头注释均自带「[R46-4] 临时, 用毕即删」, R46-4 早已完结, rg 全库零引用; ②deadscan/qdb-tmp 残留确认已零(R46-7 清过); ③seed-rule-*.ts 全保留: gen-builtin-rules.ts 以种子脚本为「语义唯一权威」求值提取生成 builtin-rules.ts, 删种子=断再生链; ④scripts/seed-rule-pilishuwu.ts 的 R48 留档 tsc 错(duplicate function implementation)不复现: 全库 tsc 0 错+单文件 tsc 0 错双重实证, 无需处置(builtin-rules.ts 已含同款规则, 种子留作再生权威); ⑤scripts/archive(294件)不动(tsconfig/eslint 双排除, 纯历史档案带 README)
+- [R49-3-2] 死代码扫描(ts-prune + rg 双确认, 8 处删除): ①header/common.tsx 删 SearchBox(56行)/BookshelfButton(23行)/SiteMark(26行) —— R31-7 自 SiteHeader.tsx 拆分的默认头部消费点随各站仿制头部落地而消失, 仅 SiteSwitcher 存活(x2552/trxsw/shipsay 三站在用), 未用 import(useRef/Search/Library/sliceCodePoints/search-suggest 三件)同步清; ②sites/trxsw/_kit.tsx 整文件删(106行, JqH2/JqH2Slot/Pager 三件全死) —— R49-2a-4 trxsw 33yq 家族重写后旧杰奇共享小件零引用(对照 x2552/_kit 与 shipsay/_kit 均存活不动); ③sites/hooks.ts 删 useRelatedBooks(19行) —— 文档声称 trxsw·ggd66 Read 两处共用, 实际消费点随 R49-2a 重写消失; ④template-kit.tsx 删 groupTocVolumes(18行)+TocChapter 死 import —— 分卷分组仅通用 BookView 自有实现, 各站模板从未接入; ⑤header/qb23.tsx 删 QB_NAV_LABELS 常量(nav 实际由 DB cats.slice(0,13) 驱动, 快照文案注释保留承载同等信息); ⑥admin/helpers.ts 删 BookStatus/FeedbackType 两个零引用类型; ⑦PublicSite.tsx 删 ctx 类型再导出行(各消费方均直连 './ctx'); ⑧crawl/smart.ts 删 MAX_MAIN_CATEGORIES 导出常量(白名单实体为 CANONICAL_CATEGORIES 词表派生, 15 仅存注释)
+- [R49-3-3] 死代码扫描(查证后保留, 报告不改): ①fetcher.ts __r31*/__r34*/fetchHttpForTest 等 8 个调试/测试钩子 —— R31/R34 故意留档的 REPL 验证面, 且 fetcher 属 R49-2b 引擎轨在途件; ②builtin-rules.ts findBuiltinRuleByName —— 生成物(gen-builtin-rules.ts tail 模板固定产出, 「幂等导入查重口径」), 改生成物会被再生成覆盖; ③hostgate.ts hostGateReset(30行) —— 自注释「验证脚本隔离用; 生产代码勿调」的故意验证设施; ④themes.ts READ_LAYOUT_LABEL/SITE_CLONE_LABEL —— admin 两组件为「避免引入服务端模块」故意自持副本, themes 侧作对齐锚点(注释交叉引用); ⑤sites/*/index.ts *Template 导出 —— registry.tsx 全量在用(ts-prune 误报)
+- [R49-3-4] 重复整合: 逐项排查后零合并 —— ①admin 80 处 catch 均为 1-2 行 toast 习语(消息文案各异), 且 R36-2d-10 已收敛 alive 守卫至 hooks.ts, 无 ≥30 行同语义块; ②seo-presets.ts 18 套预设为产品设计的风格差异矩阵(非重复); ③R34-2c/R35-2d/R36-2d 多轮「逐字节重复收敛单处」已扫过主要重复面; 不做激进抽象
+- [R49-3-5] console 噪音: 全 src 仅 5 处 console.log, 逐一核验均为进程生命周期一次性事件(instrumentation 孤儿恢复结果/fetcher cookie jar 加载·持久化·优雅关闭·内存护栏配置), fetcher 4 处自带「一次性事件留 console 理由」注释(R48); proxy.ts/api/_lib/数据链零 console —— 无热路径噪音, 零改动
+- [R49-3-6] 未使用依赖审计: package.json 17 个运行时依赖逐一 rg import 核对全部在用(含易漏的动态 import: smart.ts L228 z-ai-web-dev-sdk; cli 依赖: prisma db:push; css 依赖: tw-animate-css @import; shadcn 链: clsx/tailwind-merge/cva/next-themes), 零死依赖, 清单为空
+- [R49-3-7] TODO/FIXME/XXX 扫描: src/ 仅 2 处命中且均为 seo-tpl.ts 注释中 \uXXXX 字面示例的伪命中, 真 TODO/FIXME 为零
+- [R49-3-8] 验证门: bunx tsc --noEmit 全库 0 错; bunx eslint src 0 错 0 警告(scripts 在 eslint ignore 列表); dev.log 尾部无新错误; curl 首页 200(0.56s, 改动文件经 Turbopack 按需重编译正常出页); 未重启 dev server/采集任务零触碰/未装包/DB 零触碰/prisma schema 零触碰/git 未提交
+
+Stage Summary:
+- 净删 -299 行(+19/-158 改动文件 + 160 行整文件删×3): 临时脚本 2 件(54行)+ 死代码 6 文件 8 处(约 245 行), 全部 ts-prune+rg 双确认零引用后执行, 每处带 [R49-3-N] 留档注释, git 历史可回溯
+- 质量结论: 代码库经 R34/R35/R36 收敛轮+R46-7 精简+R31-7 拆分后基线健康 —— 本轮死代码主体为 R49-2a trxsw 重写与早期默认头部下线产生的「新孤儿」; 无死依赖/无 TODO 欠账/无热路径 console 噪音
+- 报告不改项(有意保留): fetcher 调试钩子×8/生成物 findBuiltinRuleByName/hostgate hostGateReset/themes 标签锚点表/seed 种子脚本全族; scripts/archive 294 件历史档案不动
+- 验证全绿: tsc 0 错 + eslint src 0/0 + dev.log 无新错误 + 首页 200 实测
+---
+Task ID: R49（主控全程）
+Agent: Z.ai Code 主控
+Task: 数据恢复 + aijjxs 修复 + 全主题 1:1 克隆 + 反反爬增强 + 全应用审查 + 清理精简 + 推送
+
+Work Log:
+- [R49-0 根因定位] 用户报「aijjxs 首页没有书名」→ 实测 DB 全空(Books 0/Chapters 0/Sites 0): 沙箱重置致 db/custom.db 23:17 重建, 13 书/11221 章/代理池/规则全部丢失, 无任何备份残留 → 数据恢复为第一优先
+- [R49-1 数据恢复] admin API 链恢复: import-builtin 全量 29 规则 → 建站「久久小说网」(aijjxs 主题, isDefault) → range 任务(玄幻区 10 页 100 本, thread 1-2/interval 800-2000 温和档)启动; meta 阶段落库 10 书/10757 章; 期间经历 3 次任务中断(HMR 重编译/内存熔断), R49-2b-1 连续熔断自动 paused 机制真实生效(不再逐页空转假终态); 最终 RSS 释放后增量续采恢复
+- [R49-2a] 前端 agent: aijjxs 书名不可见真根因=CSS 类名碰撞(.ajx-cat 版心规则 vs 分类胶囊同名 → width:100% 压扁书名链 a) → Category 页根改名 .ajx-catpage; 顶部固定导航回源站 style.css 终态校准; trxsw 全套 8 组件按唐人小说网 33yq 家族重写(CN 代理实抓快照); E2E 实证 30/30 书名可见
+- [R49-2a2] trxsw CSS 层移植闭环: 97 个 trx-* 类双向 diff 双空(使用未定义 0/定义未使用 0); 修 3 处 id→类选择器失配(#trx-fmimg); 桌面 1280 版心 980/热区 6 卡/阅读器工具条 7 色板 + 375px 零横滚全过; 快照素材落盘 agent-ctx/r49-snap/(防 /tmp 重启丢失)
+- [R49-2b/2bw] 引擎 agent: 失败升级链(同 host 连续 403/429/503 计臂 → 自动 impersonate 真实 TLS/H2 指纹档, 20 连干净成功撤档)/Retry-After 尊重缺省开/封面路径接内存熔断准入/连续硬熔断自动 paused; 验证 agent 修 3 真 bug: ①503 升级臂死代码 ②档位环形回绕(末档应停留) ③列表页熔断 trip 后 break 永久退出发现循环(余页假终态 done)
+- [R49-2c] 全应用 agent(50 路由/15 lib/30 admin 组件): 修 6 bug(HSTS prod 注入/备份恢复幽灵任务归一/proxy-pool check+test-target readBody 5MB/BackupSection localStorage 数组门/DebugHtmlViewer replace 特殊序列/schema 补 Task+DownloadJob 索引) + 证伪 1 伪缺陷(Dialog 宽度 grep 管道伪影)
+- [R49-3] 清理 agent: 净删 -299 行(死代码 8 处: header/common SearchBox 等导出、trxsw/_kit.tsx 整文件、hooks useRelatedBooks 等; scripts 临时件 2 个); 未使用依赖 0; TODO 欠账 0; 重复整合 0(无 ≥30 行同语义块); 有意保留项全部查证留档
+- [R49-4 质检] eslint.config.mjs 加 agent-ctx/** 忽略(快照素材入 lint 面 7 错) → bun run lint 0 错 + tsc --noEmit 0 错全绿; db push 完成(Task/DownloadJob 索引生效); agent-browser E2E: aijjxs 首页(书名/点击榜/15 分类导航/搜索)✓ + trxsw 主题(唐人形态全套 CSS)✓ + 书籍页移动端 375px ✓ + 零横滚 ✓ + 零 JS 错误 ✓; 内存: 熔断→重启→RSS 1032MB 健康态采集运行中
+- [R49-5] 推送 mhgl.git(本 section 提交后执行)
+
+Stage Summary:
+- 用户 6 指令闭环: ①aijjxs 书名=DB 空+CSS 碰撞双重根因, 已修+数据恢复中 ②trxsw 全页 1:1 重克隆(唐人 33yq 家族)+其余主题维持 R46-2b 校准基线 ③R48 内存加固完整收尾+自动 paused 机制实证生效 ④反反爬失败升级链+全应用 6 bug+引擎 3 bug 全修 ⑤净删 299 行 ⑥推送
+- 质量态: lint 0/tsc 0/E2E 全过/RSS 健康; DB 10 书 10757 章持续增量采集中(任务 cmu90jsjh000vk4tx38903ner)
+- 遗留: ①采集任务 100 本全量内容尚需时间(熔断窗口自动让路属设计行为) ②trxsw ranking 快照 548B 不完整(榜型栏按 top 形态移植可用) ③旧 GitHub token 已暴露应撤销, 本轮推送若 401 需用户新 token
