@@ -6535,3 +6535,22 @@ Stage Summary:
 - 用户 6 指令闭环: ①aijjxs 书名=DB 空+CSS 碰撞双重根因, 已修+数据恢复中 ②trxsw 全页 1:1 重克隆(唐人 33yq 家族)+其余主题维持 R46-2b 校准基线 ③R48 内存加固完整收尾+自动 paused 机制实证生效 ④反反爬失败升级链+全应用 6 bug+引擎 3 bug 全修 ⑤净删 299 行 ⑥推送
 - 质量态: lint 0/tsc 0/E2E 全过/RSS 健康; DB 10 书 10757 章持续增量采集中(任务 cmu90jsjh000vk4tx38903ner)
 - 遗留: ①采集任务 100 本全量内容尚需时间(熔断窗口自动让路属设计行为) ②trxsw ranking 快照 548B 不完整(榜型栏按 top 形态移植可用) ③旧 GitHub token 已暴露应撤销, 本轮推送若 401 需用户新 token
+---
+Task ID: R49-10
+Agent: Z.ai Code (主控)
+Task: 继续增强性能 —— 治理采集期内存熔断反复打断任务(用户实录 18:14:47-51 列表页 1/3→3/3 自动暂停)
+
+Work Log:
+- R49-10-1 取证: 复现实证「项目根任意文件被改写 → Turbopack 路由图失效 → 下次请求重编译+模块重求值」(30 次 touch 无关 .tmp → 8 次轮询 4 次重求值); dev.log 每请求追加是 crawl 期最重 churn 源
+- R49-10-2 实验排除: gitignore 不被 turbopack watcher 尊重(gitignored probe 仍触发); Next 16.1.3 已移除 turbopack.watchOptions.ignored(tsc 实证, config 类型仅剩 pollIntervalMs); 外部(/tmp)文件churn 也复现重求值 → 重求值是 Next dev 内部行为, 与项目文件无关, 无法配置消除; dev.log 迁出项目树(tee /tmp/mhgl-dev.log, 沙箱禁 symlink)后重编译成本 50-105ms→5-21ms(重 fs 重扫部分消失, 残余为廉价重求值)
+- R49-10-3 根因实锤(--expose-gc 加持): 图加载点 RSS=1658MB 而 heapUsed 仅 168MB; 全量 GC 零回收(1926→1924, 1984→1984) → RSS 高位是 Turbopack 原生缓存/运行时, 非垃圾非采集足迹; 旧 RSS 口径护栏(soft1550/halt1950/resume1900)被该常量噪声顶死, 采集堆真实 ~200MB, 熔断无法自愈 → 3/3 自动暂停死循环(10:14/10:49 两次运行实录复现)
+- R49-10-4 修复 fetcher: 护栏口径重构为「采集堆」crawlMem=heapUsed+arrayBuffers+external(soft 256/halt 512/resume 448, FETCH_CRAWL_*_MB 可调), RSS 仅留 2100 兜底窗口+观测字段; 显式 GC 体系(forceFullGc/maybeCrawlGc≥20s 节流/preflightMemorySweep, NODE_OPTIONS=--expose-gc + Bun.gc 兜底), 熔断触发/续期即刻全量 GC 自愈; GC 日志带堆构成细分; condCache 256→64
+- R49-10-5 修复 runner: 正文批次+书级并发池接入 rssThreadCap 内存感知收缩(修「熔断 2/3 后批次 2×2→3×3 回升」随机性观感, 档位变化才打日志); 三处 MemoryHaltError 臂 rt.paused 冻结计数(修实录 4/3 溢出); executeTask 入口 preflightMemorySweep
+- R49-10-6 验证: tsc/eslint 归零; 新口径运行 11:02:46 起: 发现 1782 本(100 页)→元数据(10 本新建/1816 章)→正文批量采集全链路零熔断零暂停零错误(agent-browser E2E 首页+监控页渲染正常零报错, /tmp/uiverify.png); 修复前同任务 4 秒即 3/3 自动暂停
+- R49-10-7 运维: dev server 迁移日志路径 /tmp/mhgl-dev.log(package.json tee 目标, 项目内 dev.log 已删除); commit 4d6f0c3
+
+Stage Summary:
+- 根因: dev 模式 Turbopack 原生基线(~1.5GB, GC 不可及)挤占全部 RSS 预算, 旧 RSS 口径熔断线(1950)贴着基线 → 熔断永远无法自愈 → 任务反复自动暂停; 采集真实足迹仅 ~200MB
+- 定性: 性能问题的本质是「拿常量噪声当信号」; 修复=换信号(采集堆口径, GC 可自愈)+主动降压(显式 GC)+批次随内存收缩(压力单调)
+- 关键产物: fetcher.ts 护栏口径重构+GC 体系; runner.ts 批次收缩+计数冻结+启动自检; package.json(--expose-gc+日志迁出); worklog/agent-ctx 入 .gitignore
+- 未结: ①采集引擎子进程隔离仍是终极解(dev 原生基线 1.5GB 仍占用系统内存, 仅不再误伤护栏); ②curl code=28 超时调查(R49-7 遗留); ③监控页 2s 轮询每 ~2 次触发模块重求值(Next 16 dev 内部, 留档观察); ④GitHub 推送仍待新 token
