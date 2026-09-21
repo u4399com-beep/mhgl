@@ -8,6 +8,13 @@ import { type CleanConfig, DEFAULT_CLEAN_CONFIG } from './types'
 // [R9-cl-1] 整合: escapeRegExp/sliceCodePoints 下沉到 @/lib/utils 共用(原本文件内 escapeReg
 // 与 DebugHtmlViewer.escapeRegExp 重复; 码点截断惯用法三处重复)
 import { escapeRegExp, sliceCodePoints } from '@/lib/utils'
+// [R51-3-c] 违禁词接线: 纯引擎(applyBannedWordsToHtml) + 服务端配置缓存(60s TTL, 单一事实源
+// 在 banned-words-server, 本模块只持同步快照供同步热路径读取)
+import { applyBannedWordsToHtml, type BannedWordsConfig } from '@/lib/banned-words'
+import {
+  getBannedWordsConfig,
+  invalidateBannedWordsCache as invalidateServerBannedWordsCache,
+} from '@/lib/banned-words-server'
 
 // ---------- 繁体→简体转换(OpenCC, 采集源为繁体时自动启用) ----------
 // 设计: 逐段检测"繁体独有字"命中才触发转换 —— 简体源站零误转, 繁体源站任意段落必然
@@ -250,6 +257,63 @@ export function decodeEntitiesOnce(s: string): string {
 }
 
 /** 清洗章节正文HTML */
+// ---------- 违禁词过滤接线 [R51-3-c](admin/banned-words route 契约) ----------
+// 契约(见 api/admin/banned-words/route.ts 头注释): cleaner 持惰性缓存(60s TTL)并在管理端
+// 保存后 invalidate + 同步预载, 采集/预览等所有 cleanContentHtml 出口自动按新词表过滤。
+// 实现: 配置读取/缓存单一事实源复用 banned-words-server(60s TTL + fail-open 默认空词表),
+// 本模块额外持一份同步快照 —— cleanContentHtml 是同步热路径, 未就绪/过期时 kick 后台刷新
+// (stale-while-revalidate), 冷启动首章 fail-open 直通(与 server 端读侧同口径, 不过滤不出错)。
+
+const BANNED_SNAPSHOT_TTL_MS = 60_000
+let bwSnapshot: { at: number; cfg: BannedWordsConfig } | null = null
+let bwRefreshing = false
+
+function refreshBannedWordsSnapshot(): void {
+  if (bwRefreshing) return
+  bwRefreshing = true
+  void getBannedWordsConfig()
+    .then((cfg) => {
+      bwSnapshot = { at: Date.now(), cfg }
+    })
+    .catch(() => {
+      bwSnapshot = null
+    })
+    .finally(() => {
+      bwRefreshing = false
+    })
+}
+
+/** 同步读取快照(过期即 kick 后台刷新); 未就绪返回 null → 调用方直通(fail-open) */
+function peekBannedWordsConfig(): BannedWordsConfig | null {
+  if (!bwSnapshot || Date.now() - bwSnapshot.at > BANNED_SNAPSHOT_TTL_MS) refreshBannedWordsSnapshot()
+  return bwSnapshot?.cfg ?? null
+}
+
+/** 管理端保存违禁词后调用: 服务端配置缓存 + 本模块同步快照双失效(下次 peek 拉新) */
+export function invalidateBannedWordsCache(): void {
+  invalidateServerBannedWordsCache()
+  bwSnapshot = null
+}
+
+/** 管理端保存后同步预载新配置: await 返回后 cleanContentHtml 立即按新策略处理(无 fail-open 窗口) */
+export async function reloadBannedWordsCache(): Promise<void> {
+  invalidateServerBannedWordsCache()
+  bwSnapshot = null
+  try {
+    const cfg = await getBannedWordsConfig()
+    bwSnapshot = { at: Date.now(), cfg }
+  } catch {
+    bwSnapshot = null
+  }
+}
+
+/** 出口统一违禁词过滤: 快照未就绪(冷启动首章)或词表为空时零开销直通; 只过滤文本段不动标签 */
+function applyBannedWordsIfLoaded(text: string): string {
+  const bw = peekBannedWordsConfig()
+  if (!bw || !text) return text
+  return applyBannedWordsToHtml(text, bw)
+}
+
 export function cleanContentHtml(raw: string, cfgOverride?: Partial<CleanConfig>): string {
   const cfg: CleanConfig = { ...DEFAULT_CLEAN_CONFIG, ...cfgOverride }
   if (!raw) return ''
@@ -274,7 +338,8 @@ export function cleanContentHtml(raw: string, cfgOverride?: Partial<CleanConfig>
     // 会把词组保护外的「乾县」继续转成「干县」), 双重转换是真实的简体损坏路径
     // 控制字符剥离(\b 退格等源站杂符; \t\n\r 不在剥离类内): 全库实扫发现 2 章孤立 \b
     // 随正文入库(dd 轮), 输出层统一剥离一次
-    return text.replace(CTRL_CHARS_RE, '')
+    // [R51-3-c] 违禁词出口过滤(纯文本出口同口径, 无标签段全量文本过滤)
+    return applyBannedWordsIfLoaded(text.replace(CTRL_CHARS_RE, ''))
   }
 
   // HTML模式
@@ -473,7 +538,8 @@ export function cleanContentHtml(raw: string, cfgOverride?: Partial<CleanConfig>
       .join('')
   }
   // 同上: HTML 模式出口同样剥离控制字符(源站 \b 杂符曾随 <p>\b话虽… 入库)
-  return out.replace(CTRL_CHARS_RE, '').trim()
+  // [R51-3-c] 违禁词出口过滤: 采集/预览等所有 cleanContentHtml 出口自动覆盖(只过滤文本段不动标签)
+  return applyBannedWordsIfLoaded(out.replace(CTRL_CHARS_RE, '').trim())
 }
 
 // 广告正则清洗的 URL 保护例外(y-a重放): 默认首条广告正则

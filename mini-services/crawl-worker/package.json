@@ -1,0 +1,8 @@
+{
+  "name": "crawl-worker",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "cd ../.. && FETCH_RSS_SOFT_MB=350 FETCH_RSS_HALT_MB=650 FETCH_RSS_RESUME_MB=550 FETCH_RSS_STOP_MB=800 bun --smol mini-services/crawl-worker/index.ts"
+  }
+}

@@ -189,6 +189,19 @@ export function proxy(req: NextRequest) {
     )
   }
 
+  // 0.5) [R50-1] Go 采集引擎回调通道(契约 §2): crawler-go(127.0.0.1:3032)以固定路径
+  //  http://127.0.0.1:3000/api/admin/tasks/go-callback 回调本服务 —— Go 侧无管理会话,
+  //  且 progress 类回调 ≥1 次/秒会瞬间烧穿 admin 令牌桶(120/min), 故本【确切路径】豁免
+  //  会话鉴权与限流直通下游; 真实防线在路由内: x-go-callback-secret 共享密钥强校验
+  //  (timingSafeEqual, 不匹配 403, 口径与 src/lib/crawl/go-engine.ts GO_CALLBACK_SECRET 一致)。
+  //  仅豁免这一个路径, 其余 /api/admin/* 的鉴权+限流行为零变化
+  if (pathname === '/api/admin/tasks/go-callback') {
+    const cbForwardHeaders = new Headers(req.headers)
+    cbForwardHeaders.set('x-request-id', reqId)
+    const cbRes = NextResponse.next({ request: { headers: cbForwardHeaders } })
+    return applyHeaders(cbRes, false, reqId)
+  }
+
   // 1) /api/admin/* —— 鉴权 + ADMIN_RATE_LIMIT_PER_MIN req/min([R31-6-2] 缺省 120)
   if (pathname.startsWith('/api/admin/')) {
     const adm = rateLimit('admin', ip, ADMIN_RATE_LIMIT_PER_MIN, ADMIN_RATE_LIMIT_PER_MIN / 60)

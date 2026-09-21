@@ -508,6 +508,8 @@ export async function POST(req: Request) {
               bookEnd: Number(t.bookEnd) || 0,
               recrawlMode: String(t.recrawlMode || 'incremental').slice(0, 20),
               storageMode: String(t.storageMode || 'db').slice(0, 20),
+              // [R50-1] 采集引擎白名单透传: 仅 'go' 保留, 其余(含缺省/非法值)归一 'ts' 丢弃
+              engine: t.engine === 'go' ? 'go' : 'ts',
               // [R35-2a-10] 已在上方闸过 >50KB(整任务跳过), 此处原样入库(不再 slice 硬截防非法 JSON)
               fetchConfig: rawFetchConfig,
               threadMin: Number(t.threadMin) || 1,
@@ -539,6 +541,8 @@ export async function POST(req: Request) {
               bookEnd: Number(t.bookEnd) || 0,
               recrawlMode: String(t.recrawlMode || 'incremental').slice(0, 20),
               storageMode: String(t.storageMode || 'db').slice(0, 20),
+              // [R50-1] 同 create 侧: engine 白名单透传(非 'go' 归一 'ts')
+              engine: t.engine === 'go' ? 'go' : 'ts',
               // [R35-2a-10] 同 create 侧: 已闸过 >50KB, 原样入库
               fetchConfig: rawFetchConfig,
               threadMin: Number(t.threadMin) || 1,

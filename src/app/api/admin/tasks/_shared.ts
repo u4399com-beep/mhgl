@@ -8,6 +8,8 @@ import {
   BOOK_ID_MAX_LEN,
   BOOK_ID_MAX_COUNT,
   BOOK_ID_PLACEHOLDER,
+  // [R51-4] bookIdMaxCountForEngine 移除本模块 import: normalize 不再做 count 上限执法,
+  //  上限取值由调用方(两个 API 路由)算好传 validateTaskPair(单一执法点)
 } from '@/lib/book-ids'
 
 // [R31-5-0] 补 'interrupted'(R31-3 移交项①): recovery.ts 服务重启后把孤儿 running 标为
@@ -20,6 +22,8 @@ export interface NormalizedTask {
   name: string
   // [R34-2a-3] 扩 'bookIds'(书号): bookUrl 复用存「书籍页 URL 模板」(必含 {bookId}), 零新增 URL 列
   mode: 'single' | 'range' | 'bookIds'
+  // [R50-1] 采集引擎: 'ts'(经典 TS 引擎, 缺省) | 'go'(独立 Go 进程); 白名单见 normalizeTaskData
+  engine: 'ts' | 'go'
   bookUrl: string
   // [R34-2a-3] 书号原文(规范化后为换行分隔的去重书号列表; 非 bookIds 模式恒空串)
   bookIds: string
@@ -71,6 +75,15 @@ export function normalizeTaskData(
     out.mode = ['single', 'range', 'bookIds'].includes(body?.mode) ? body.mode : 'range'
   }
 
+  // [R50-1] 采集引擎白名单('ts'|'go', 缺省 'ts'): full 模式非法/缺省值一律归一 'ts'(与既有
+  //  枚举字段「白名单外落缺省」同风格); partial 模式仅显式携带且值合法时写入(非法值丢弃不动,
+  //  防编辑接口把存量 go 任务引擎静默改掉), engine 未设置的既有请求体零影响
+  if (full) {
+    out.engine = body?.engine === 'go' ? 'go' : 'ts'
+  } else if (body?.engine === 'go' || body?.engine === 'ts') {
+    out.engine = body.engine
+  }
+
   // URL 字段: 必须是合法 http(s) 或空串
   if (full || body?.bookUrl !== undefined) {
     const u = httpUrl(body?.bookUrl) || ''
@@ -84,16 +97,16 @@ export function normalizeTaskData(
   }
 
   // [R34-2a-3] 书号采集: 书号原文规范化 —— 混合分隔符拆分(空白/逗号/顿号/分号)→trim→去空→去重(保序)
-  //  → 单项≤200 字→去重后总数≤2000(超限报错)→ 换行 join 写回, 保证 UI 与 runner 拿到干净数据。
-  //  httpUrl 已把 {bookId} 字面还原(R12-a-1 %7B/%7D 还原口径), 模板占位符在存库/回显/替换各环节保持原样
+  //  → 单项≤200 字 → 换行 join 写回, 保证 UI 与 runner 拿到干净数据。
+  //  [R51-4] 去重后总数≤上限的执法折叠为 validateTaskPair 单点(修前 normalize/validate 各做一次
+  //  同构 count 上限执法): 两个 API 路由(POST/PUT)均 normalize 后立即 validate(合并后生效值),
+  //  书号上限报错仍由 validate 按模式+engine 精确产出(文案不变); 本段只做形态规范化
+  //  [R50-1] httpUrl 已把 {bookId} 字面还原(R12-a-1 %7B/%7D 还原口径), 模板占位符在存库/回显/替换各环节保持原样
   if (full || body?.bookIds !== undefined) {
     const raw = typeof body?.bookIds === 'string' ? body.bookIds : body?.bookIds == null ? '' : String(body.bookIds)
     const ids = parseBookIdList(raw)
     const tooLong = ids.find((id) => id.length > BOOK_ID_MAX_LEN)
     if (tooLong) return { data: {}, error: `单个书号长度超过 ${BOOK_ID_MAX_LEN} 字符上限` }
-    if (ids.length > BOOK_ID_MAX_COUNT) {
-      return { data: {}, error: `书号数量超过上限(去重后 ${ids.length} 个, 最多 ${BOOK_ID_MAX_COUNT} 个)` }
-    }
     out.bookIds = ids.join('\n')
   }
 
@@ -183,7 +196,9 @@ export function normalizeTaskData(
   return { data: out }
 }
 
-/** 模式与URL联动校验(用合并后的生效值调用) */
+/** 模式与URL联动校验(用合并后的生效值调用)
+ *  [R50-1] 第 7 参 bookIdMaxCount: 书号范围展开上限(按 engine 传 bookIdMaxCountForEngine(engine));
+ *  旧调用点(不传)缺省 2000, 既有语义零回归 */
 export function validateTaskPair(
   mode: string | undefined,
   bookUrl: string | undefined,
@@ -192,7 +207,9 @@ export function validateTaskPair(
   bookIds?: string,
   // [R35-2a-3] 书号范围端点(合并后的生效值): bookIds 模式下列表与范围二选一互斥执法
   bookIdFrom?: string,
-  bookIdTo?: string
+  bookIdTo?: string,
+  // [R50-1] 书号上限(ts 2000 / go 100000); 不传时 parseBookIdRange 缺省 2000 零回归
+  bookIdMaxCount?: number
 ): string | undefined {
   if (mode === 'single' && !bookUrl) return '单本模式必须填写书籍页URL'
   // [R12-a-4] 文案补充占位符语义: 引擎仅自动替换 {page}/{offset:N}(R12-a-2 起任务级
@@ -209,13 +226,18 @@ export function validateTaskPair(
     const from = (bookIdFrom ?? '').trim()
     const to = (bookIdTo ?? '').trim()
     const listCount = parseBookIdList(bookIds).length
+    // [R50-1] 列表子形态上限同口径: 按 engine 取 2000/100000(不传参时维持 2000 既有文案)
+    const maxCount = bookIdMaxCount ?? BOOK_ID_MAX_COUNT
     if ((from || to) && listCount > 0) return '书号列表与书号范围只能二选一'
     if (from || to) {
-      const range = parseBookIdRange(from, to)
+      const range = parseBookIdRange(from, to, maxCount)
       if (!range.ok) return range.error
       return undefined
     }
     if (listCount === 0) return '书号采集必须填写书号列表'
+    if (listCount > maxCount) {
+      return `书号数量超过上限(去重后 ${listCount} 个, 最多 ${maxCount} 个)`
+    }
   }
   return undefined
 }

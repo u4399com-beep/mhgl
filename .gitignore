@@ -18,13 +18,3 @@ tsconfig.tsbuildinfo
 # sandbox runtime artifacts
 .zscripts/dev.pid
 backups/
-
-# [R49-10] 运行时高频写入产物(排除出 turbopack 文件监视, 防路由重编译churn推高 dev RSS)
-*.db-journal
-*.db-wal
-*.db-shm
-worklog.md
-agent-ctx/
-watch-probe*.tmp
-*.tmp.log
-dev-server.pid

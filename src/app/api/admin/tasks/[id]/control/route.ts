@@ -3,6 +3,8 @@ import { readBody, ok, fail } from '@/lib/api'
 import { TaskRunner } from '@/lib/crawl/runner'
 import { db } from '@/lib/db'
 import { withGuard } from '../../../../_lib/http'
+// [R50-1] engine==='go' 时前置走 Go 引擎控制面(不可达/能力不符/ts 存储自动回退下方 TS 原路径)
+import { goEngineControl } from '../../_go-control'
 
 const ACTIONS = ['start', 'pause', 'stop'] as const
 type ControlAction = (typeof ACTIONS)[number]
@@ -18,6 +20,16 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const task = await db.task.findUnique({ where: { id } })
     if (!task) return fail('任务不存在', 404)
 
+    // [R50-1] Go 采集引擎分支: 仅 task.engine==='go' 进入; engine 未设置/'ts' 的全部既有路径
+    //  零改动(下方 TaskRunner.control 原逻辑逐字节保留)。goEngineControl 返回 ts-fallback 时
+    //  落回本路径, 与既有回退语义(TaskLog warn 留痕)一致
+    if (task.engine === 'go') {
+      const go = await goEngineControl(task, act)
+      if (go.kind === 'ok') return ok({ action: act })
+      if (go.kind === 'fail') return fail(go.message)
+      // ts-fallback: 继续走下方 TaskRunner 原路径
+    }
+
     // R5-7: 先调用 TaskRunner.control, 成功后再更新 DB 终态重置 ——
     //  旧行为先把 DB 置 pending 再 control, 若 control 因熔断冷却返回 {ok:false},
     //  DB 已被改为 pending 但 runtime 没启动, 任务永久卡在 pending 误导用户。
@@ -29,8 +41,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
     // control 成功后, 才把 done/error/stopped → pending 由 runner 置 running
     // zz-d: updateMany 条件原子写 —— 修前无条件 update 存在竞态覆写窗口(读到旧终态快照
-    // 的并发 start 可把已被其他请求置为 running/paused 的状态覆写回 pending, 标签漂移);
-    // 条件不满足(count=0)时静默放行(runtime 已接管, 不再依赖 DB 状态)
+    //  的并发 start 可把已被其他请求置为 running/paused 的状态覆写回 pending, 标签漂移);
+    //  条件不满足(count=0)时静默放行(runtime 已接管, 不再依赖 DB 状态)
     if (act === 'start' && ['done', 'error', 'stopped'].includes(task.status)) {
       try {
         await db.task.updateMany({ where: { id, status: { in: ['done', 'error', 'stopped'] } }, data: { status: 'pending' } })

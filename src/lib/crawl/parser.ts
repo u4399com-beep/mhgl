@@ -3,7 +3,8 @@
 // 支持: 字段提取、列表项遍历、翻页合并、URL绝对化
 // JSON模式: 纯JSON API站(SPA壳无SSR) — 响应体JSON.parse后按点路径取值;
 //           itemSelector.expression 指向数组路径对每项跑 fields;
-//           const 常量模板用 {字段名}/{index}/{q.参数} 占位符合成URL
+//           const 常量模板用 {字段名}/{index}/{q.参数} 占位符合成URL;
+//           [R51-3-b] 支持算术后缀 {v|/N}/{v|+N}/{v|-N}(对齐 Go, 残缺整体置空 fail-closed)
 // ============================================================
 import * as cheerio from 'cheerio'
 import { DOMParser } from '@xmldom/xmldom'
@@ -584,11 +585,68 @@ export function urlVars(url: string): Record<string, string> {
   return out
 }
 
-/** const 常量模板占位符替换: `{name}` → vars[name], 未命中→空串 */
+// ---------------- const 模板(含算术后缀, 语义对齐 Go internal/rule/parse.go:825-920) ----------------
+// [R51-3-b] 契约漂移修复(R51-2-a-3): constTemplate 正则扩为算术后缀形态, 消除「Go 可跑/TS 产
+// 残 URL」的跨引擎能力分叉(bqg713 封面 `https://www.bqg616.cc/bookimg/{q.id|/1000}/{q.id}.jpg`
+// 在 TS 引擎下曾产出字面残 URL 直抓)。语义:
+//   {name}        → vars[name], 未命中→空串(TS 既有语义, 单占位符置空)
+//   {v|/N}        → floor(值/N); 变量缺失/非数/除零 → 置空
+//   {v|+N}/{v|-N} → 加/减; 变量缺失/非数 → 置空
+// 渲染前必须经 arithPlaceholderIncomplete 预检(extractField const 臂): 任一算术占位符残缺
+// (未知算子/未闭合/缺变量/非数/除零) → 整个字段置空 fail-closed, 防半残 URL(bookimg//.jpg)
+// 静默命中源站占位图(R49-9 教训; Go 侧 R50 已同语义)
+const CONST_TPL_RE = /\{([a-zA-Z0-9_.]+)(?:\|([+\-/])(\d{1,6}))?\}/g
+// 已闭合且带 | 后缀的占位符(预检扫描用: 后缀形态比渲染正则宽, 捕获 {v|*2}/{v|/1.5}/{v|} 等非法形态)
+const CONST_TPL_SUFFIX_RE = /\{([a-zA-Z0-9_.]+)\|([^{}]*)\}/g
+// 未闭合的算术占位符({v|/1000 无右括号, 表达式尾部悬空)
+const CONST_TPL_DANGLING_RE = /\{[a-zA-Z0-9_.]+\|[^{}]*$/
+// 合法算术后缀: +/-/整除 N(1~6 位整数, 与 CONST_TPL_RE 渲染能力一致)
+const CONST_TPL_ARITH_RE = /^[+\-/]\d{1,6}$/
+
+/** 算术占位符预检(R49-9 语义, 对齐 Go parse.go arithPlaceholderIncomplete 预检1/2/3):
+ *  表达式中任一算术占位符(含 | 后缀)残缺 → true, 调用方将整个字段置空 fail-closed:
+ *  ①未闭合({v|/1000 无右括号) ②后缀非法(未知算子 {v|*2}/非整数 {v|/1.5}/空后缀 {v|})
+ *  ③变量缺失/空串/非数 ④除零({v|/0})。纯 {name} 模板(缺失仅置空该占位符)与无占位符
+ *  表达式恒 false —— 既有规则零行为变化 */
+export function arithPlaceholderIncomplete(expr: string, vars: Record<string, string> | undefined): boolean {
+  if (!expr || !expr.includes('{')) return false
+  // 预检1: 未闭合算术占位符 → 残缺
+  if (CONST_TPL_DANGLING_RE.test(expr)) return true
+  // 预检2+3: 已闭合带后缀占位符逐个校验(后缀合法性 + 变量级完整性)
+  for (const m of expr.matchAll(CONST_TPL_SUFFIX_RE)) {
+    const key = m[1]
+    const suffix = m[2]
+    // 预检2: 后缀残缺(未知算子/非整数 N/空后缀) → 整体残缺
+    if (!CONST_TPL_ARITH_RE.test(suffix)) return true
+    // 预检3(R49-9): 变量缺失/空串/非数/除零 → 整体残缺
+    const raw = vars?.[key]
+    const t = raw === undefined || raw === null ? '' : String(raw).trim()
+    if (!t || !Number.isFinite(Number(t))) return true
+    if (suffix.startsWith('/') && parseInt(suffix.slice(1), 10) === 0) return true
+  }
+  return false
+}
+
+/** const 常量模板占位符替换: 纯 `{name}` → vars[name](未命中→空串); 算术后缀 `{v|op N}`
+ *  按上方段注计算, 变量级异常(缺失/非数/除零)置空该占位符(整体置空由预检承担) */
 function constTemplate(expr: string, vars: Record<string, string> | undefined): string {
-  return expr.replace(/\{([a-zA-Z0-9_.]+)\}/g, (m, key: string) => {
+  return expr.replace(CONST_TPL_RE, (_m, key: string, op: string | undefined, num: string | undefined) => {
     const v = vars?.[key]
-    return v === undefined || v === null ? '' : String(v)
+    if (!op) return v === undefined || v === null ? '' : String(v) // 纯 {name}: 既有语义(不 trim)
+    // 算术占位符(预检已保证变量在位, 此处兜底): 单占位符置空
+    const raw = (v === undefined || v === null ? '' : String(v)).trim()
+    const val = Number(raw)
+    const n = Number(num)
+    if (raw === '' || !Number.isFinite(val) || !Number.isFinite(n)) return ''
+    let result: number
+    if (op === '/') {
+      if (n === 0) return '' // 除零 → 置空
+      result = Math.floor(val / n) // '/' = floor 整除(Go math.Floor 口径)
+    } else {
+      result = op === '+' ? val + n : val - n
+    }
+    // 结果格式化: 整值不带小数点(String(123.0)==='123'), 非整值保留必要精度(对齐 Go formatArithResult)
+    return String(result)
   })
 }
 
@@ -624,6 +682,12 @@ export function extractField(html: string, $: cheerio.CheerioAPI, scope: any, do
         break
       }
       case 'const': {
+        // [R51-3-b] 算术占位符预检: 任一残缺 → 整个字段置空 fail-closed(防半残 URL 静默
+        // 命中源站占位图, 对齐 Go parse.go 预检1/2/3; 纯 {name}/无占位符恒 false 零回归)
+        if (arithPlaceholderIncomplete(rule.expression, ctx?.vars)) {
+          v = ''
+          break
+        }
         v = constTemplate(rule.expression, ctx?.vars)
         break
       }

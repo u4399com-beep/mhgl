@@ -32,7 +32,8 @@ import { toast } from 'sonner'
 import { api, type RuleRow, type TaskForm, type TaskRow } from './helpers' // [R36-2d-9] TaskForm 副本收敛至 helpers
 // [R34-2a-7] 书号采集: 与 API 规范化/引擎建队列共用同一纯函数模块
 // [R35-2a-7] 书号范围: parseBookIdRange 与 API/runner 共用同一校验口径
-import { parseBookIdList, parseBookIdRange, BOOK_ID_MAX_COUNT, BOOK_ID_RANGE_MAX } from '@/lib/book-ids'
+// [R50-1] 书号上限按 engine 取值(ts 2000 / go 100000): bookIdMaxCountForEngine 三方同口径
+import { parseBookIdList, parseBookIdRange, bookIdMaxCountForEngine } from '@/lib/book-ids'
 
 interface TaskDialogProps {
   open: boolean
@@ -48,6 +49,7 @@ const emptyForm: TaskForm = {
   name: '',
   ruleId: '',
   mode: 'single',
+  engine: 'ts', // [R50-1] 缺省经典 TS 引擎(零回归)
   bookUrl: '',
   bookIds: '',
   bookIdFrom: '',
@@ -91,6 +93,8 @@ export function TaskDialog({ open, onOpenChange, task, onSaved }: TaskDialogProp
         ruleId: task.ruleId,
         // [R34-2a-7] bookIds 任务回显不崩: 三值白名单内原样回显, 未知历史值防御性回退 single
         mode: task.mode === 'range' ? 'range' : task.mode === 'bookIds' ? 'bookIds' : 'single',
+        // [R50-1] 引擎回显: 仅 'go' 保留, 其余(旧库行 undefined/非法值)按缺省 ts
+        engine: task.engine === 'go' ? 'go' : 'ts',
         bookUrl: task.bookUrl,
         bookIds: task.bookIds ?? '',
         bookIdFrom: from,
@@ -156,7 +160,8 @@ export function TaskDialog({ open, onOpenChange, task, onSaved }: TaskDialogProp
         return
       }
       if (bookIdSource === 'range') {
-        const range = parseBookIdRange(form.bookIdFrom, form.bookIdTo)
+        // [R50-1] 上限按 engine 取值(ts 2000 / go 100000), 与服务端同口径
+        const range = parseBookIdRange(form.bookIdFrom, form.bookIdTo, bookIdMax)
         if (!range.ok) {
           toast.error(range.error)
           return
@@ -166,8 +171,8 @@ export function TaskDialog({ open, onOpenChange, task, onSaved }: TaskDialogProp
           toast.error('书号采集必须填写书号列表')
           return
         }
-        if (count > BOOK_ID_MAX_COUNT) {
-          toast.error(`书号数量超过上限(去重后 ${count} 个, 最多 ${BOOK_ID_MAX_COUNT} 个)`)
+        if (count > bookIdMax) {
+          toast.error(`书号数量超过上限(去重后 ${count} 个, 最多 ${bookIdMax} 个)`)
           return
         }
       }
@@ -232,7 +237,9 @@ export function TaskDialog({ open, onOpenChange, task, onSaved }: TaskDialogProp
   // [R34-2a-7] 书号实时计数(去重后, 渲染期派生值; 与主组件/引擎同口径)
   const bookIdCount = parseBookIdList(form.bookIds).length
   // [R35-2a-7] 范围子形态实时解析(渲染期派生, 与 API/runner 同一口径)
-  const bookIdRange = parseBookIdRange(form.bookIdFrom, form.bookIdTo)
+  // [R50-1] 上限按 engine 取值(ts 2000 / go 100000), 文案/计数/校验同口径
+  const bookIdMax = bookIdMaxCountForEngine(form.engine)
+  const bookIdRange = parseBookIdRange(form.bookIdFrom, form.bookIdTo, bookIdMax)
   const rangeTouched = form.bookIdFrom.trim() !== '' || form.bookIdTo.trim() !== ''
 
   return (
@@ -364,15 +371,15 @@ export function TaskDialog({ open, onOpenChange, task, onSaved }: TaskDialogProp
                       value={form.bookIds}
                       onChange={(e) => patch({ bookIds: e.target.value })}
                     />
-                    <p className={`text-[10px] ${bookIdCount > BOOK_ID_MAX_COUNT ? 'font-medium text-red-400' : 'text-zinc-600'}`}>
+                    <p className={`text-[10px] ${bookIdCount > bookIdMax ? 'font-medium text-red-400' : 'text-zinc-600'}`}>
                       已识别 {bookIdCount} 个书号(去重后)
-                      {bookIdCount > BOOK_ID_MAX_COUNT ? ` · 超过 ${BOOK_ID_MAX_COUNT} 上限, 请删减后再保存` : ''}
+                      {bookIdCount > bookIdMax ? ` · 超过 ${bookIdMax} 上限, 请删减后再保存` : ''}
                     </p>
                   </div>
                 ) : (
                   /* [R35-2a-7] 范围子形态: 从/到两输入框 + 实时计数/警示(text+inputMode 同 Wizard, 避免浏览器静默改写) */
                   <div className="space-y-1.5">
-                    <Label className="text-xs text-zinc-400">书号范围 * <span className="text-zinc-600">最多 {BOOK_ID_RANGE_MAX} 本</span></Label>
+                    <Label className="text-xs text-zinc-400">书号范围 * <span className="text-zinc-600">最多 {bookIdMax} 本</span></Label>
                     <div className="flex items-center gap-2">
                       <Input
                         className="h-9 flex-1 border-zinc-700 bg-zinc-950 font-mono text-xs"
@@ -397,7 +404,7 @@ export function TaskDialog({ open, onOpenChange, task, onSaved }: TaskDialogProp
                         ? `共 ${bookIdRange.count} 本(从 ${bookIdRange.from} 到 ${bookIdRange.to} 连续展开, 去重后)`
                         : rangeTouched
                           ? bookIdRange.error
-                          : `填写起止书号后自动展开为连续序列, 上限 ${BOOK_ID_RANGE_MAX} 本`}
+                          : `填写起止书号后自动展开为连续序列, 上限 ${bookIdMax} 本`}
                     </p>
                   </div>
                 )}
@@ -468,6 +475,31 @@ export function TaskDialog({ open, onOpenChange, task, onSaved }: TaskDialogProp
           </div>
 
           <Separator className="bg-zinc-800" />
+
+          {/* [R50-1] 采集引擎(缺省经典 TS; Go 引擎书号上限放开到 10 万, 采集在独立进程执行) */}
+          <div className="space-y-2">
+            <Label className="text-xs font-medium text-zinc-300">采集引擎</Label>
+            <RadioGroup
+              value={form.engine}
+              onValueChange={(v) => patch({ engine: v === 'go' ? 'go' : 'ts' })}
+              className="grid grid-cols-1 gap-2 sm:grid-cols-2"
+            >
+              <ModeCard
+                value="ts"
+                current={form.engine}
+                title="经典 TS 引擎"
+                desc="与后台同进程, 兼容全部规则能力(缺省)"
+                onSelect={() => patch({ engine: 'ts' })}
+              />
+              <ModeCard
+                value="go"
+                current={form.engine}
+                title="Go 引擎（独立进程·内存隔离·支持 10 万书号）"
+                desc="独立 Go 进程抓取/解析, 内存硬顶 600MB, 回调本后台落库; 暂不支持 TXT 存储"
+                onSelect={() => patch({ engine: 'go' })}
+              />
+            </RadioGroup>
+          </div>
 
           {/* 重采模式 + 存储模式 */}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

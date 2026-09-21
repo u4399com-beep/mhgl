@@ -41,6 +41,7 @@
     "mini-services",
     "scripts/archive",
     "examples",
-    "skills"
+    "skills",
+    "agent-ctx"
   ]
 }

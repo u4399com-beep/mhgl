@@ -22,6 +22,8 @@ export const BANNED_WORDS_SETTING_KEY = 'bannedWords'
 export type BannedWordsMode = 'mask' | 'remove'
 
 export interface BannedWordsConfig {
+  /** 总开关(可选; admin/banned-words route 代次字段): 缺省 = 无显式开关, 词表非空即生效(采集侧空表零处理) */
+  enabled?: boolean
   mode: BannedWordsMode
   words: string[]
 }
@@ -36,6 +38,9 @@ export const BANNED_MASK_MAX_STARS = 6
 const COMPILE_CACHE_MAX = 32
 
 export const DEFAULT_BANNED_WORDS_CONFIG: BannedWordsConfig = { mode: 'mask', words: [] }
+
+/** [R51-3-c] 缺省配置别名(admin/banned-words route.ts 消费名): 与 DEFAULT_BANNED_WORDS_CONFIG 同值 */
+export const DEFAULT_BANNED_WORDS: BannedWordsConfig = DEFAULT_BANNED_WORDS_CONFIG
 
 /** 提取词表(防御非数组/非字符串项, 调用方可传未消毒配置) */
 function wordsOf(cfg: BannedWordsConfig | null | undefined): string[] {
@@ -63,6 +68,26 @@ export function sanitizeBannedWordsConfig(raw: unknown): BannedWordsConfig {
     }
   }
   return { mode, words }
+}
+
+/**
+ * [R51-3-c] 管理端 banned-words API 消毒入口(route.ts 消费, 与 sanitizeBannedWordsConfig 同口径):
+ * mode 白名单回退 + 词去空/去重/钳量, 额外剔除 '#' 注释词条(词表以行文本为主, '#' 行 = 注释,
+ * 与 route.ts 头注释「词表去空/#注释/去重 + 上限 + mode 白名单」声明一致)。
+ */
+export function parseBannedWords(raw: unknown): BannedWordsConfig {
+  const cfg = (() => {
+    if (raw && typeof raw === 'object' && Array.isArray((raw as { words?: unknown }).words)) {
+      const words = (raw as { words: unknown[] }).words.filter(
+        (w) => !(typeof w === 'string' && w.trim().startsWith('#')),
+      )
+      return sanitizeBannedWordsConfig({ ...(raw as Record<string, unknown>), words })
+    }
+    return sanitizeBannedWordsConfig(raw)
+  })()
+  // enabled 为显式布尔时透传保存(route 代次字段; 缺省不注入 —— 与现行「词表非空即生效」口径兼容)
+  const enabled = raw && typeof raw === 'object' ? (raw as { enabled?: unknown }).enabled : undefined
+  return typeof enabled === 'boolean' ? { ...cfg, enabled } : cfg
 }
 
 interface CompiledBannedWords {

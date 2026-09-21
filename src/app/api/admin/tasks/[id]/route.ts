@@ -4,6 +4,10 @@ import { ok, fail, readBody } from '@/lib/api'
 import { TaskRunner } from '@/lib/crawl/runner'
 import { withGuard, str, slimTaskProgressJson } from '../../../_lib/http'
 import { normalizeTaskData, validateTaskPair } from '../_shared'
+// [R50-1] 书号上限按 engine 取值(ts 2000 / go 100000), 三方(API/UI/范围校验)同口径
+import { bookIdMaxCountForEngine } from '@/lib/book-ids'
+// [R51-3-b] 删除 engine='go' 任务前先停 Go 侧(与 batch delete 同口径; isRunning 只反映 TS runtime)
+import { goTaskControl } from '@/lib/crawl/go-engine'
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   return withGuard(async () => {
@@ -68,6 +72,8 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     }
 
     // 模式与URL联动: 用"现值+补丁"合并后的生效值校验
+    // [R50-1] 书号上限按合并后的 engine 传入(ts 2000 / go 100000; schema push 前旧行缺 engine → bookIdMaxCountForEngine 归 ts)
+    const mergedEngine = (data.engine as string | undefined) ?? (exist as { engine?: string }).engine
     const pairErr = validateTaskPair(
       (data.mode as string) ?? exist.mode,
       (data.bookUrl as string) ?? exist.bookUrl,
@@ -76,7 +82,8 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       (data.bookIds as string) ?? (exist as { bookIds?: string }).bookIds,
       // [R35-2a-4] 范围端点合并值(与 bookIds 同口径; 显式携带空串可清除, '' 非 nullish 不会被 exist 值覆盖)
       (data.bookIdFrom as string | undefined) ?? (exist as { bookIdFrom?: string }).bookIdFrom,
-      (data.bookIdTo as string | undefined) ?? (exist as { bookIdTo?: string }).bookIdTo
+      (data.bookIdTo as string | undefined) ?? (exist as { bookIdTo?: string }).bookIdTo,
+      bookIdMaxCountForEngine(mergedEngine)
     )
     if (pairErr) return fail(pairErr)
 
@@ -122,6 +129,10 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
     if (TaskRunner.instance.isRunning(id)) {
       await TaskRunner.instance.control(id, 'stop')
     }
+    // [R51-3-b] engine='go' 任务: isRunning 只反映 TS runtime, Go 进程内运行中的任务删除前
+    //  必须先停 Go 侧(fire-and-forget, Go 不可达时 catch 吞掉不阻断删除; 修前只删 DB 行,
+    //  Go 侧继续采集+回调写库, 已删任务的全部回调撞 P2025 静默丢)
+    if (exist.engine === 'go') void goTaskControl(id, 'stop').catch(() => {})
     // jj-e: 取消已排定的自动刷新定时器(防幽灵 timer 触发后撞 404)
     TaskRunner.instance.cancelAutoRefresh(id)
     try {

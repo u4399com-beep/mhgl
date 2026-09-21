@@ -293,3 +293,48 @@ export function fetchSuggestTags(): Promise<SuggestTagsEntry | null> {
   })
   return p
 }
+
+// ---------------- 首页分类图文卡(6 分类封面) ----------------
+// [R51-3-c] 回搬(861da1f 代次原版): CategoryShowcase.tsx(沙箱重置回归件)恢复引用。
+// 注: [R30-5-1] /api/public/categories 已收窄为纯分类计数(rep 死载荷移除, N+1 不回引),
+//     故 rep 现恒为 null → 消费方 BookCover 走名称占位封面兜底(该链路本就支持), 不改 API 契约。
+
+export interface ShowcaseCategory {
+  id: string
+  name: string
+  bookCount: number
+  /** 代表书: 字数最高带封面书; 无书时为 null */
+  rep: { id: string; name: string; cover: string } | null
+}
+
+/**
+ * 分类图文数据(非空分类按 sortOrder, 各带代表书封面), 失败静默返回 null(调用方不渲染区块)。
+ */
+export function fetchShowcaseCategories(): Promise<ShowcaseCategory[] | null> {
+  return (async (): Promise<ShowcaseCategory[] | null> => {
+    try {
+      const res = await fetch('/api/public/categories?limit=24', { cache: 'no-store' })
+      const json: { ok?: boolean; data?: { items?: unknown } } = await res.json().catch(() => null)
+      if (!json?.ok || !json.data || !Array.isArray(json.data.items)) return null
+      const items: ShowcaseCategory[] = []
+      for (const raw of json.data.items) {
+        if (!raw || typeof raw !== 'object') continue
+        const it = raw as Record<string, unknown>
+        if (typeof it.id !== 'string' || typeof it.name !== 'string') continue
+        const repRaw = it.rep && typeof it.rep === 'object' ? (it.rep as Record<string, unknown>) : null
+        items.push({
+          id: it.id,
+          name: it.name,
+          bookCount: typeof it.bookCount === 'number' ? it.bookCount : 0,
+          rep:
+            repRaw && typeof repRaw.id === 'string' && typeof repRaw.name === 'string'
+              ? { id: repRaw.id, name: repRaw.name, cover: typeof repRaw.cover === 'string' ? repRaw.cover : '' }
+              : null,
+        })
+      }
+      return items
+    } catch {
+      return null // 失败静默降级: 分类图文卡整体不渲染
+    }
+  })()
+}

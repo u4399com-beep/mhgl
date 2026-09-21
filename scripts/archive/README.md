@@ -73,6 +73,13 @@ e2e-bb-a2（yybsw）/ e2e-bb-b（dawei|dafeng 参数化）/ e2e-cc-a2（book4 br
 
 两文件均以 `../src/lib/crawl/*` 相对路径 import（归档后不复跑）；如需复跑按惯例 `git mv` 回 `scripts/` 原位。
 
+## R51-4 轮归档（7 个，2026-09）
+
+| 组 | 文件 | 归档依据 |
+| --- | --- | --- |
+| 根目录临时脚本 | r21c-debug.tmp.ts / r21c-repro.tmp.ts | R21-c 轮一次性调试/复现脚本（`./src/...` 相对 import，归档后不复跑），零引用 |
+| R46/R49 轮临时审计 | tmp-content-audit.ts / tmp-page-audit.ts / tmp-r46-deadscan.ts / tmp-r46-deadscan2.ts / tmp-r46-geo-check.ts | 临时内容/分页审计与死导出扫描/geo 核查一次性脚本，结论已沉淀进 worklog 与 src/ 实现，全库 rg 零引用 |
+
 ## 此前批次（历史记录保留）
 
 ### rr-b 轮归档（58 个，mm~qq 轮残留探针 + ll-b 例外复审）

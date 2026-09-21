@@ -14,6 +14,10 @@ import { obscuraFetch, checkObscuraAvailable, clickSelectorAnywhere, buildIdenti
 // [R28-4-E1] 增强: reportHostForbidden —— host 级长静默熔断(403 连败≥5 → 5~15min 停手),
 // 接线点在本文件 noteHostHttpFailure 的 403 记账路径
 import { reportHostLatency, reportHostChallenge, reportHostRateLimited, reportHostForbidden, PACE_PROFILE_ENABLED } from './hostgate'
+// [R51-4] playwrightProxyParts 实现下沉 @/lib/crawl/proxy-parts 单一实现(与 obscura 共消费,
+//  修前 obscura 本地副本已漂移: 单 try 包整体, 密码含非法 % 序列时整串带凭证落 server 参数);
+//  本文件保留原函数名别名以减少调用面改动
+import { parseProxyParts as playwrightProxyParts } from './proxy-parts'
 
 // ---------- UA 池 ----------
 // C.3(y-a重放): Chrome 系版本升级至当前稳定段 137~140(原池 118~131 过旧, 属明显
@@ -757,15 +761,20 @@ globalForOom.__novelOomBackpressure_v1 = oomBackpressure
 //  高水位 FETCH_RSS_STOP_MB(缺省 2100[R48-2: 需高于 halt, 仅 halt 被显式禁用时才可触达
 //  的兜底], 下限 256): 暂停新请求窗口 FETCH_RSS_PAUSE_MS(缺省 8000, 钳 [500,60000]),
 //  协调机制复用 R8-19 同款(第一发现者睡满窗口并置标志, 并发请求等窗口结束不重复睡);
+//  低水位 FETCH_RSS_SOFT_MB(缺省 1550[R48-2: 适配 dev 基线 ~1.7GB, 基线上方才开始降]):
+//   对新发起请求概率性让路 —— 让路概率随持续压力递增(25%→90% 封顶), 让路 sleep 幅度随压力
+//   翻倍(30ms→480ms 封顶)±25% 抖动, 收紧引擎有效并发(让路发生在 acquireGlobalSlot 之后,
+//   持槽等待天然减少新请求准入, 与 pathJitter 同点位同语义)。
+// [R48-1→R48-2 校准实录] 初版缺省 soft1024/halt1400 在 dev 模式下误触发: Turbopack 按需
+//  编译缓存 + Prisma 引擎把 next-server 稳态基线推到 1.7~1.8GB(非采集流量贡献), 采集首请求
+//  即熔断且基线不回落 → 续冷却死循环饿死采集。R48-2 按实测校准: halt 1900(dev 基线上方
+//  150MB, 距实测 kill 线 2.1GB 留 200MB 刹车距离——历史 OOM 从 1.7 涨到 2.1 过程中快速失败
+//  +Obscura 回收可刹住), resume 1700, soft 1550; 生产 build 基线低得多, 可用 env 收紧更严。
 // [R48-1] 硬性内存熔断层(在上述软背压之上, 全部水位从低到高):
 //  soft(1550 软让路+降并发) < halt(1900 硬熔断) < stop(2100 兜底窗口) < 实测 kill 线(≈2100+)
 //  halt 触发 = 快速失败(throw MemoryHaltError) + 立即回收 Obscura 空闲 ctx + 冷却窗口;
 //  旧 stop 的 sleep 窗口在 RSS 只涨不降时会无限循环占槽等待, R46 实测未能兜住 OOM,
 //  故 halt 层选择"新请求立即失败让 runner 跳过(章节保持未采集, 增量重试可恢复)"。
-// [R49-10 口径重构·历史注记保留] 上述 RSS 口径在 dev 模式失效: Turbopack 原生基线 ~1.5GB
-//  (GC 不可及)本身贴线, halt 1950/resume 1900/soft 1550 全部被常量噪声顶死(实测图加载点
-//  RSS=1658MB/heapUsed=168MB)。R49-10 起软让路/硬熔断改用"采集堆"口径(CRAWL_MEM_*,
-//  见下方常量区), RSS 仅保留 stop 兜底窗口与本段历史注记。
 interface MemoryBackpressureWindow { active: boolean; until: number }
 const globalForRssBp = globalThis as unknown as {
   __novelRssBackpressure_v1?: MemoryBackpressureWindow
@@ -773,7 +782,6 @@ const globalForRssBp = globalThis as unknown as {
   __novelMemHalt_v1?: MemHaltState
   __novelMemHaltCfgLogged_v1?: boolean
   __novelMemDeLimit_v1?: number
-  __novelLastOpGcAt_v1?: number
 }
 const rssBackpressure: MemoryBackpressureWindow = globalForRssBp.__novelRssBackpressure_v1 ?? { active: false, until: 0 }
 globalForRssBp.__novelRssBackpressure_v1 = rssBackpressure
@@ -781,182 +789,99 @@ const rssSoftStreak = globalForRssBp.__novelRssSoftStreak_v1 ?? { streak: 0 }
 globalForRssBp.__novelRssSoftStreak_v1 = rssSoftStreak
 
 const RSS_STOP_MB = Math.max(256, Number(process.env.FETCH_RSS_STOP_MB) || 2100)
+const RSS_SOFT_MB = Math.max(128, Number(process.env.FETCH_RSS_SOFT_MB) || 1550)
 const RSS_PAUSE_MS = Math.min(60_000, Math.max(500, Number(process.env.FETCH_RSS_PAUSE_MS) || 8_000))
 const RSS_STOP_BYTES = RSS_STOP_MB * 1024 * 1024
+const RSS_SOFT_BYTES = RSS_SOFT_MB * 1024 * 1024
 
-// ---------- [R49-10] 护栏口径重构: 采集堆内存(crawlMem) ----------
-// 实测判据(本沙箱 dev 模式, R49-10): fetcher 图加载点 RSS=1658MB 而 heapUsed 仅 168MB ——
-// RSS 的 ~1.5GB 是 Turbopack dev 原生编译缓存/运行时(与采集无关, 全量 GC 零回收), 且随
-// 监控页轮询驱动的模块重求值缓慢爬高(1658→1926MB 实录)。旧护栏以 RSS 为口径: dev 基线
-// 本身就贴着熔断线(1950), GC 又帮不上忙 → 熔断无法自愈 → 任务反复"熔断 1/3→3/3→自动
-// 暂停"(用户实录 18:14 链)。新口径: crawlMem = heapUsed + arrayBuffers + external ——
-// 采集的真实内存足迹(HTML 串/cheerio DOM/网络 Buffer/原生绑定), GC 对它有效, 熔断触发后
-// 全量 GC 真正能压回恢复水位以下 → 快速自愈。RSS 保留仅两处: ①2100 暂停窗口(OS 级兜底);
-// ②日志观测字段。生产 build 原生基线低(~300MB), 两套口径天然兼容。
-const CRAWL_MEM_SOFT_MB = Math.max(64, Number(process.env.FETCH_CRAWL_SOFT_MB) || 256)
-const CRAWL_MEM_HALT_MB = Math.max(0, Number(process.env.FETCH_CRAWL_HALT_MB) || 512)
-const CRAWL_MEM_RESUME_MB = CRAWL_MEM_HALT_MB > 0
-  ? Math.max(64, Math.min(CRAWL_MEM_HALT_MB - 32, Number(process.env.FETCH_CRAWL_RESUME_MB) || (CRAWL_MEM_HALT_MB - 64)))
-  : 0
-const CRAWL_MEM_SOFT_BYTES = CRAWL_MEM_SOFT_MB * 1048576
-const CRAWL_MEM_HALT_BYTES = CRAWL_MEM_HALT_MB * 1048576
-const CRAWL_MEM_RESUME_BYTES = CRAWL_MEM_RESUME_MB * 1048576
-/** 采集堆内存足迹(JS 可见): heapUsed(活对象+堆) + arrayBuffers(Buffer/网络) + external(原生绑定) */
-export function crawlMemBytes(): number {
-  const m = process.memoryUsage()
-  return m.heapUsed + m.arrayBuffers + m.external
-}
-
-// ---------- [R48-1] 硬性内存熔断(口径: 采集堆, 见上方 R49-10 注) ----------
+// ---------- [R48-1] 硬性内存熔断 ----------
 /** 熔断状态(挂 globalThis 防 dev HMR 多实例): halted=熔断中; until=冷却截止; trips=历史触发次数;
  *  renews=本轮连续续冷却次数(≥3 强制解除=半开断路器, 防基线不回落时永久饿死采集) */
 interface MemHaltState { halted: boolean; until: number; trips: number; renews: number }
 const memHalt: MemHaltState = globalForRssBp.__novelMemHalt_v1 ?? { halted: false, until: 0, trips: 0, renews: 0 }
 globalForRssBp.__novelMemHalt_v1 = memHalt
 const MEM_HALT_RENEW_CAP = 3
+
+// FETCH_RSS_HALT_MB: 硬熔断线(缺省 1950; 显式 ≤0 = 禁用熔断回落旧 stop 层; 显式正值下限 512)
+// 缺省依据: [R48-2] dev 模式 Turbopack 稳态基线 ~1.78GB, 距实测 kill 线 2.15GB 只有 ~370MB
+// 采集增量预算 → halt 1950(kill 下 200MB 刹车距离), resume 1900(= halt-50, 必须高于基线
+// 否则熔断后基线不回落永远无法解除); 生产 build 基线低得多, 可用 env 收紧更严
+const rawHaltMb = Number(process.env.FETCH_RSS_HALT_MB)
+const RSS_HALT_MB = rawHaltMb === undefined || Number.isNaN(rawHaltMb) || rawHaltMb === 0
+  ? 1950
+  : (rawHaltMb < 0 ? 0 : Math.max(512, rawHaltMb))
+// 恢复水位(滞回防抖): RSS 回落到该线以下才解除熔断, 缺省 = halt-50(=1900), 钳 ≤ halt-32;
+// 滞回带窄(50MB)是有意的: resume 必须高于 dev 稳态基线, 否则熔断永远无法解除
+const RSS_RESUME_MB = RSS_HALT_MB > 0
+  ? Math.max(256, Math.min(RSS_HALT_MB - 32, Number(process.env.FETCH_RSS_RESUME_MB) || (RSS_HALT_MB - 50)))
+  : 0
 // 熔断冷却窗口: 触发后至少停采该时长, 缺省 30s, 钳 [5s, 5min]
 const RSS_HALT_COOLDOWN_MS = Math.min(300_000, Math.max(5_000, Number(process.env.FETCH_RSS_HALT_COOLDOWN_MS) || 30_000))
 // 内存感知自动降并发开关(缺省启用): soft~halt 区间线性收紧有效并发至 ≥1/4(下限 2)
 const CONCURRENCY_AUTO = process.env.FETCH_CONCURRENCY_AUTO !== '0' && process.env.FETCH_CONCURRENCY_AUTO !== 'false'
+const RSS_HALT_BYTES = RSS_HALT_MB * 1024 * 1024
+const RSS_RESUME_BYTES = RSS_RESUME_MB * 1024 * 1024
 
-// ---------- [R49-10] 显式全量 GC 助手(内存熔断主动降压) ----------
-// 动机(实测): 任务暂停后 next-server RSS 卡 2260MB 高水位不回落(V8 垃圾回收惰性归还内存页),
-// resume 水位永远够不着 → 点击继续首轮准入即再熔断 → 3 连击又自动暂停, "续采即停"死循环。
-// Node 运行时需 --expose-gc 才暴露 gc(dev 脚本已加 NODE_OPTIONS=--expose-gc);
-// Bun 运行时兜底 Bun.gc(true); 都不可用时 no-op(返回 -1, 调用方不打 GC 后 RSS)。
-export function forceFullGc(reason: string): number {
-  try {
-    const g = globalThis as { gc?: () => void; Bun?: { gc?: (force?: boolean) => void } }
-    if (typeof g.gc === 'function') g.gc()
-    else if (g.Bun && typeof g.Bun.gc === 'function') g.Bun.gc(true)
-    else return -1
-    // [R49-10] GC 后打堆构成细分: heapUsed(JS 活对象)/external(原生绑定)/arrayBuffers(Buffer)
-    //  —— 若 RSS 高而 heapUsed 低, 高位来自 Turbopack dev 原生缓存/非堆分配, GC 无法回收,
-    //  须走"降基线"路线(子进程隔离/减图)而非"勤回收"路线; 本细分日志就是判据
-    const mu = process.memoryUsage()
-    const mb = Math.round(mu.rss / 1048576)
-    console.warn(
-      `[fetcher] 🧹 全量GC(${reason}) 完成, RSS=${mb}MB` +
-      ` [heapUsed=${Math.round(mu.heapUsed / 1048576)}MB external=${Math.round(mu.external / 1048576)}MB arrayBuffers=${Math.round(mu.arrayBuffers / 1048576)}MB]`,
-    )
-    return mb
-  } catch { return -1 }
-}
-
-/** 节流 opportunistic 全量 GC(采集批次边界调用): 采集堆>软让路水位 且 距上次≥20s 才执行。
- *  主动回收爬取垃圾(HTML 串/cheerio DOM/解析中间串), 把采集堆压离熔断线。
- *  软让路水位以下回收无收益(垃圾本就少), 20s 节流防同步 GC(10-100ms)高频停顿。
- *  globalThis 记时间戳防 dev HMR 重新求值重置节流窗口 */
-export function maybeCrawlGc(reason: string): void {
-  if (CRAWL_MEM_HALT_MB <= 0) return
-  try {
-    const now = Date.now()
-    const last = globalForRssBp.__novelLastOpGcAt_v1 ?? 0
-    if (now - last < 20_000) return
-    if (crawlMemBytes() <= CRAWL_MEM_SOFT_BYTES) return
-    globalForRssBp.__novelLastOpGcAt_v1 = now
-    forceFullGc(reason)
-  } catch { /* memoryUsage 异常容忍, 不阻断采集 */ }
-}
-
-/** [R49-10] 启动前内存自检(executeTask 入口调用): 采集堆仍在恢复水位以上时先强制 GC
- *  防止首轮准入即再熔断; 并附带进程级内存构成观测(RSS/堆/外部), 供运维判读基线形态。
- *  返回人读描述(空串=无需处理), runner 侧据此打观测日志 */
-export function preflightMemorySweep(): string {
-  try {
-    const cm = crawlMemBytes()
-    const cmMb = Math.round(cm / 1048576)
-    let note = ''
-    if (CRAWL_MEM_HALT_MB > 0 && CRAWL_MEM_RESUME_MB > 0 && cm >= CRAWL_MEM_RESUME_BYTES) {
-      const after = forceFullGc(`任务启动内存自检@采集堆${cmMb}MB≥恢复水位${CRAWL_MEM_RESUME_MB}MB`)
-      note = after > 0 ? `启动前GC: 采集堆=${cmMb}MB→${after}MB(恢复水位${CRAWL_MEM_RESUME_MB}MB)` : `启动前GC: 采集堆=${cmMb}MB(水位${CRAWL_MEM_RESUME_MB}MB)`
-    }
-    const mu = process.memoryUsage()
-    return `${note ? note + ' | ' : ''}内存构成: RSS=${Math.round(mu.rss / 1048576)}MB heapUsed=${Math.round(mu.heapUsed / 1048576)}MB external=${Math.round(mu.external / 1048576)}MB ab=${Math.round(mu.arrayBuffers / 1048576)}MB(采集堆口径熔断线=${CRAWL_MEM_HALT_MB}MB)`
-  } catch { return '' }
-}
-
-/** [R48-1] 内存熔断错误(口径 R49-10: 采集堆): 引擎侧自保行为非源站故障 —— runner 各 catch
- *  按 name 豁免(与 GlobalSemTimeout/HostGateTimeout 同口径, 不计 errors/不喂连败链,
- *  章节保持未采集)。消息同时携带采集堆与进程 RSS 双指标(日志检索友好+运维判读) */
+/** [R48-1] 内存熔断错误: 引擎侧自保行为非源站故障 —— runner 各 catch 按 name 豁免
+ *  (与 GlobalSemTimeout/HostGateTimeout 同口径, 不计 errors/不喂连败链, 章节保持未采集) */
 export class MemoryHaltError extends Error {
-  constructor(crawlMb: number, haltMb: number, cooldownRemainMs: number) {
-    let rssMb = 0
-    try { rssMb = Math.round(process.memoryUsage().rss / 1048576) } catch { /* ignore */ }
+  constructor(rssMb: number, haltMb: number, cooldownRemainMs: number) {
     super(
-      `MemoryHalt: 采集堆=${Math.round(crawlMb)}MB ≥ 熔断线${haltMb}MB(进程RSS=${rssMb}MB), ` +
+      `MemoryHalt: RSS=${Math.round(rssMb)}MB ≥ 熔断线${haltMb}MB, ` +
       `采集引擎停${Math.max(1, Math.ceil(cooldownRemainMs / 1000))}s(内存硬熔断, 内容保持未采集, 稍后增量重试可恢复)`,
     )
     this.name = 'MemoryHaltError'
   }
 }
 
-/** [R48-1] 硬熔断检查(fetchPage 在获取全局槽位前调用, 同步快速失败); [R49-10] 口径改为
- *  采集堆内存(heapUsed+arrayBuffers+external, GC 可自愈), 入参即 crawlMemBytes():
- *  - 未熔断且采集堆 ≥ halt → 置 halted + 回收 Obscura 空闲 ctx + 全量 GC + 起 30s 冷却 + throw
+/** [R48-1] 硬熔断检查(fetchPage 在获取全局槽位前调用, 同步快速失败):
+ *  - 未熔断且 RSS ≥ halt → 置 halted + 立即回收 Obscura 空闲 ctx + 起 30s 冷却 + throw
  *  - 冷却期内(或续冷却窗口内) → 直接 throw(不再打日志, 防每请求刷屏)
- *  - 冷却期满且采集堆 ≥ resume → 续冷却(GC + 节流 warn) + throw
- *  - 冷却期满且采集堆 < resume → 解除熔断(打一条 warn) + 放行
- *  设计取舍: 用 throw 而非 sleep 等待 —— 等待=持槽占位继续堆积, 与 OOM 赛跑必输 */
-function checkMemoryHalt(crawlBytes: number): void {
-  if (CRAWL_MEM_HALT_MB <= 0) return
-  const cmMb = crawlBytes / 1048576
-  const rssMbNote = (): string => {
-    try { return `(进程RSS=${Math.round(process.memoryUsage().rss / 1048576)}MB)` } catch { return '' }
-  }
+ *  - 冷却期满且 RSS ≥ resume → 续冷却(打一条节流 warn) + throw
+ *  - 冷却期满且 RSS < resume → 解除熔断(打一条 warn) + 放行
+ *  设计取舍: 用 throw 而非 sleep 等待 —— 等待=持槽占位继续堆积, RSS 只涨不降时与 OOM 赛跑必输 */
+function checkMemoryHalt(rssBytes: number): void {
+  if (RSS_HALT_MB <= 0) return
+  const rssMb = rssBytes / 1048576
   if (memHalt.halted) {
     const remain = memHalt.until - Date.now()
-    if (remain > 0) throw new MemoryHaltError(cmMb, CRAWL_MEM_HALT_MB, remain)
-    // 冷却期满: 采集堆回落到恢复水位以下才解除; 仍在 resume~halt 间则续冷却(滞回防抖)
-    if (crawlBytes >= CRAWL_MEM_RESUME_BYTES) {
+    if (remain > 0) throw new MemoryHaltError(rssMb, RSS_HALT_MB, remain)
+    // 冷却期满: RSS 回落到恢复水位以下才解除; 仍在 resume~halt 间则续冷却(滞回防抖)
+    if (rssBytes >= RSS_RESUME_BYTES) {
       // [R48-2] 半开断路器: 完成 3 次续冷却后强制解除 —— 用户把 halt 配到基线以下时纯
-      //  滞回会永久饿死采集; 宁冒再触发风险也不无限停摆(放行后采集堆若仍≥halt 会重新
+      //  滞回会永久饿死采集; 宁冒再触发风险也不无限停摆(放行后 RSS 若仍≥halt 会重新
       //  熔断重新计数, 采集以低占空比推进而非完全停摆)
       if (memHalt.renews >= MEM_HALT_RENEW_CAP) {
         memHalt.halted = false
         memHalt.renews = 0
-        console.warn(`[fetcher] ⚠️ 内存熔断半开放行(连续续冷却${MEM_HALT_RENEW_CAP}次 采集堆仍=${Math.round(cmMb)}MB≥恢复水位${CRAWL_MEM_RESUME_MB}MB)${rssMbNote()}, 允许采集试探性恢复(若真涨至熔断线将再次停采)`)
+        console.warn(`[fetcher] ⚠️ 内存熔断半开放行(连续续冷却${MEM_HALT_RENEW_CAP}次 RSS 仍=${Math.round(rssMb)}MB≥恢复水位${RSS_RESUME_MB}MB), 允许采集试探性恢复(若真涨至熔断线将再次停采)`)
         return
       }
       memHalt.until = Date.now() + RSS_HALT_COOLDOWN_MS
       memHalt.renews++
-      // [R49-10] 续期时同步强制 GC(续期间隔≥冷却窗口 5s, 频度天然受控): 新口径下采集堆
-      // 是 GC 可回收的, 每轮续期都把堆压向 resume 以下, 熔断快速自愈避免烧满 3 次续期
-      try { forceFullGc(`内存熔断续期@采集堆${Math.round(cmMb)}MB`) } catch { /* 不阻断熔断路径 */ }
       // 续期日志直接打(续期间隔=冷却窗口≥5s, 天然不刷屏)
-      console.warn(`[fetcher] ⛔ 内存熔断续期(采集堆=${Math.round(cmMb)}MB 仍≥恢复水位${CRAWL_MEM_RESUME_MB}MB)${rssMbNote()}, 再停 ${Math.round(RSS_HALT_COOLDOWN_MS / 1000)}s(累计熔断${memHalt.trips}次, 连续续期${memHalt.renews}/${MEM_HALT_RENEW_CAP})`)
-      throw new MemoryHaltError(cmMb, CRAWL_MEM_HALT_MB, RSS_HALT_COOLDOWN_MS)
+      console.warn(`[fetcher] ⛔ 内存熔断续期(RSS=${Math.round(rssMb)}MB 仍≥恢复水位${RSS_RESUME_MB}MB), 再停 ${Math.round(RSS_HALT_COOLDOWN_MS / 1000)}s(累计熔断${memHalt.trips}次, 连续续期${memHalt.renews}/${MEM_HALT_RENEW_CAP})`)
+      throw new MemoryHaltError(rssMb, RSS_HALT_MB, RSS_HALT_COOLDOWN_MS)
     }
     memHalt.halted = false
     memHalt.renews = 0
-    console.warn(`[fetcher] ✅ 内存熔断解除(采集堆=${Math.round(cmMb)}MB ≤ 恢复水位${CRAWL_MEM_RESUME_MB}MB)${rssMbNote()}, 恢复采集(历史熔断${memHalt.trips}次)`)
+    console.warn(`[fetcher] ✅ 内存熔断解除(RSS=${Math.round(rssMb)}MB ≤ 恢复水位${RSS_RESUME_MB}MB), 恢复采集(历史熔断${memHalt.trips}次)`)
     return
   }
-  if (crawlBytes >= CRAWL_MEM_HALT_BYTES) {
+  if (rssBytes >= RSS_HALT_BYTES) {
     memHalt.halted = true
     memHalt.trips++
     memHalt.renews = 0
     memHalt.until = Date.now() + RSS_HALT_COOLDOWN_MS
     let reclaimed = 0
     try { reclaimed = reclaimObscuraNow() } catch { /* 清理失败不阻断熔断路径 */ }
-    // [R49-10] 触发即刻全量 GC: 新口径下触发=采集堆真高(HTML/DOM/Buffer 可回收), GC 直接
-    // 决定熔断能否在一轮冷却内自愈 —— 回收后 <resume 即解除继续采, 回收不动则续冷却
-    let gcNote = ''
-    try {
-      const afterBytes = forceFullGc(`内存硬熔断触发@采集堆${Math.round(cmMb)}MB`)
-      if (afterBytes > 0) {
-        // GC 后重测采集堆判定自愈前景(GC 返回的是 RSS, 采集堆需重测)
-        const cmAfterMb = Math.round(crawlMemBytes() / 1048576)
-        gcNote = `, GC后采集堆=${cmAfterMb}MB${cmAfterMb < CRAWL_MEM_RESUME_MB ? '(冷却期满即自愈)' : ''}`
-      }
-    } catch { /* GC 失败不阻断熔断路径 */ }
     console.warn(
-      `[fetcher] ⛔ 内存硬熔断触发(采集堆=${Math.round(cmMb)}MB ≥ 熔断线${CRAWL_MEM_HALT_MB}MB)${rssMbNote()}, ` +
-      `已回收 Obscura 空闲 ctx ${reclaimed} 个${gcNote}, 停采 ${Math.round(RSS_HALT_COOLDOWN_MS / 1000)}s` +
-      `(采集堆≤${CRAWL_MEM_RESUME_MB}MB 才恢复); 在途请求继续完成, 新请求快速失败`,
+      `[fetcher] ⛔ 内存硬熔断触发(RSS=${Math.round(rssMb)}MB ≥ 熔断线${RSS_HALT_MB}MB), ` +
+      `已回收 Obscura 空闲 ctx ${reclaimed} 个, 停采 ${Math.round(RSS_HALT_COOLDOWN_MS / 1000)}s` +
+      `(RSS≤${RSS_RESUME_MB}MB 才恢复); 在途请求继续完成, 新请求快速失败`,
     )
     // 触发请求自身同样快速失败(置标志后不 throw 会让首个触发请求漏网继续跑)
-    throw new MemoryHaltError(cmMb, CRAWL_MEM_HALT_MB, RSS_HALT_COOLDOWN_MS)
+    throw new MemoryHaltError(rssMb, RSS_HALT_MB, RSS_HALT_COOLDOWN_MS)
   }
 }
 
@@ -968,57 +893,36 @@ function checkMemoryHalt(crawlBytes: number): void {
  *  memoryUsage 异常容忍(与 fetchPage 准入块同口径, 仅 MemoryHaltError 上抛) */
 export function assertMemoryAdmissible(): void {
   try {
-    checkMemoryHalt(crawlMemBytes())
+    checkMemoryHalt(process.memoryUsage().rss)
   } catch (e) {
     if ((e as Error)?.name === 'MemoryHaltError') throw e
   }
 }
 
-/** [R48-1] 内存感知动态并发上限(口径 R49-10: 采集堆): soft 以下满额; soft~halt 线性收紧至
- *  ≥1/4(下限 2); halt 以上由 checkMemoryHalt 抛错(到不了这里的计算)。仅收紧新准入, 已持有槽位不收回 */
-function dynConcurrencyLimit(crawlBytes: number, cfgLimit: number): number {
-  if (!CONCURRENCY_AUTO || cfgLimit <= 2 || CRAWL_MEM_HALT_MB <= 0) return cfgLimit
-  if (crawlBytes <= CRAWL_MEM_SOFT_BYTES) return cfgLimit
-  const t = Math.min(1, Math.max(0, (crawlBytes - CRAWL_MEM_SOFT_BYTES) / (CRAWL_MEM_HALT_BYTES - CRAWL_MEM_SOFT_BYTES)))
+/** [R48-1] 内存感知动态并发上限: soft 以下满额; soft~halt 线性收紧至 ≥1/4(下限 2);
+ *  halt 以上由 checkMemoryHalt 抛错(到不了这里的计算)。仅收紧新准入, 已持有槽位不收回 */
+function dynConcurrencyLimit(rssBytes: number, cfgLimit: number): number {
+  if (!CONCURRENCY_AUTO || cfgLimit <= 2 || RSS_HALT_MB <= 0) return cfgLimit
+  if (rssBytes <= RSS_SOFT_BYTES) return cfgLimit
+  const t = Math.min(1, Math.max(0, (rssBytes - RSS_SOFT_BYTES) / (RSS_HALT_BYTES - RSS_SOFT_BYTES)))
   const floorLimit = Math.max(2, Math.ceil(cfgLimit / 4))
   return Math.max(floorLimit, Math.round(cfgLimit - (cfgLimit - floorLimit) * t))
-}
-
-/** [R49-10] 采集堆感知批次大小上限(runner 消费): 把 dynConcurrencyLimit 的收紧曲线投影到
- *  runner 的批次维度(正文批线程数/书级并发池)。soft 以下满额; soft~halt 线性收紧(下限 2);
- *  halt 以上由 checkMemoryHalt 快速失败兜底(到不了这里的计算)。
- *  动机(实测): 修前 runner 批次大小只随 threadMin/Max 随机, 与内存压力无关 —— 熔断 2/3 后
- *  批次反而从 2×2 升到 3×3 的"回升"观感即来自随机性; 修后压力越大批次越小, 内存回落自动恢复满额 */
-export function rssThreadCap(cfgLimit: number): number {
-  if (CRAWL_MEM_HALT_MB <= 0) return cfgLimit
-  try {
-    return Math.max(1, Math.min(cfgLimit, dynConcurrencyLimit(crawlMemBytes(), cfgLimit)))
-  } catch { return cfgLimit }
 }
 
 // [R48-1] 配置摘要一次性日志(模块首次加载打印, globalThis 去重防 HMR 重复刷)
 if (!globalForRssBp.__novelMemHaltCfgLogged_v1) {
   globalForRssBp.__novelMemHaltCfgLogged_v1 = true
   console.log(
-    `[fetcher] 内存护栏配置: [R49-10 口径=采集堆] 软让路${CRAWL_MEM_SOFT_MB}MB → 硬熔断${CRAWL_MEM_HALT_MB > 0 ? `${CRAWL_MEM_HALT_MB}MB(恢复${CRAWL_MEM_RESUME_MB}MB, 冷却${Math.round(RSS_HALT_COOLDOWN_MS / 1000)}s)` : '禁用'}(heapUsed+arrayBuffers+external, GC可自愈) ` +
-    `| 进程RSS兑底暂停窗口${RSS_STOP_MB}MB | 自动降并发${CONCURRENCY_AUTO ? '开' : '关'}(FETCH_CONCURRENCY_AUTO 可调) ` +
-    `| 显式GC${typeof (globalThis as { gc?: unknown }).gc === 'function' ? '可用(NODE_OPTIONS=--expose-gc)' : '不可用(仅护栏无主动降压)'}` +
-    // [R49-10] 图加载点内存构成观测: heapUsed 高=JS 活对象(走回收/减活路线); RSS-heap 高=
-    //  Turbopack dev 原生缓存/非堆(只能走降基线路线: 子进程隔离/减依赖图)
-    (() => {
-      try {
-        const mu = process.memoryUsage()
-        return ` | 内存构成: RSS=${Math.round(mu.rss / 1048576)}MB heapUsed=${Math.round(mu.heapUsed / 1048576)}MB external=${Math.round(mu.external / 1048576)}MB ab=${Math.round(mu.arrayBuffers / 1048576)}MB`
-      } catch { return '' }
-    })(),
+    `[fetcher] 内存护栏配置: 软让路${RSS_SOFT_MB}MB → 硬熔断${RSS_HALT_MB > 0 ? `${RSS_HALT_MB}MB(恢复${RSS_RESUME_MB}MB, 冷却${Math.round(RSS_HALT_COOLDOWN_MS / 1000)}s)` : '禁用'} ` +
+    `→ 暂停窗口${RSS_STOP_MB}MB | 自动降并发${CONCURRENCY_AUTO ? '开' : '关'}(FETCH_CONCURRENCY_AUTO 可调)`,
   )
 }
 
-/** 采集堆软让路(仅 fetchPage 调用): 采集堆≤软水位重置连击并直通; 超软水位按连击概率性
+/** RSS 低水位软让路(仅 fetchPage 调用): rss≤低水位重置连击并直通; 超低水位按连击概率性
  *  sleep(持有全局信号量槽位 → 有效并发收紧)。幅度有界 ≤600ms, 远低于 GlobalSemTimeout 30s,
  *  不会把并发等待者推入信号量超时 */
-async function maybeCrawlMemSoftThrottle(crawlBytes: number): Promise<void> {
-  if (crawlBytes <= CRAWL_MEM_SOFT_BYTES) {
+async function maybeRssSoftThrottle(rssBytes: number): Promise<void> {
+  if (rssBytes <= RSS_SOFT_BYTES) {
     rssSoftStreak.streak = 0
     return
   }
@@ -1147,6 +1051,11 @@ function classifyHttpFailure(e: unknown): HttpFailureClass {
   if (err?.name === 'AbortError' || err?.code === 'ABORT_ERR') return 'other'
   const code = String(err?.code || '')
   const msg = String(err?.message || '')
+  // [R51-3-b] curl 传输层退出码 28(OPERATION_TIMEDOUT, --max-time 到点/总耗时超限)归
+  //  'timeout': curl 轨的超时错误无 err.code 字段, 仅 message 带「curl 进程异常退出(code=28)」,
+  //  修前落 'other' → hostRhythm.classCounts 超时率观测失真(curl 轨超时全被埋进 other)。
+  //  属真实"源站超时"信号, 与 isFetchTimeout/ETIMEDOUT 同类
+  if (/curl 进程异常退出\(code=28\)/.test(msg)) return 'timeout'
   if (code === 'ETIMEDOUT') return 'timeout'
   if (/^(ENOTFOUND|EAI_AGAIN)$/.test(code) || /getaddrinfo (ENOTFOUND|EAI_AGAIN)|DNS 解析失败/i.test(msg)) return 'dns'
   if (/^(ECONNREFUSED|ECONNRESET|EPIPE|EHOSTUNREACH|ENETUNREACH|ECONNABORTED)$/.test(code) || /ECONNREFUSED|ECONNRESET|socket hang up/i.test(msg)) return 'conn'
@@ -1389,9 +1298,7 @@ function detectTrapSignals(html: string): { trapGapMs: number; noindex: boolean;
  */
 type FetchCfgOpt = FetchConfig & { conditionalGet?: boolean; /** [R28-4-E2] 403/429 换档重试注入的显式档位(传输态, 不进规则 JSON/sanitize) */ impersonateTierOverride?: string }
 interface CondCacheEntry { html: string; etag: string; lastModified: string; at: number }
-// [R49-10] 256→64: 每条目持完整 HTML 响应体, 256 条上限对大页站最坏可达 ~76MB 常驻;
-// 条件请求缓存只服务 10min 内同 URL 重访(采集场景极少), 64 条(最坏 ~19MB)覆盖面等价
-const COND_CACHE_MAX = 64
+const COND_CACHE_MAX = 256
 const COND_CACHE_TTL_MS = 10 * 60 * 1000
 // [R31-2b-3] 256KB→64KB: 全库唯一消费点 fetchHttp 304 记账行(仅此一处, 无其他语义依赖 256KB)
 const COND_CACHE_BODY_MAX = 64 * 1024
@@ -2747,33 +2654,9 @@ function redactProxy(proxy: string): string {
   // WHATWG/RFC3986 均以最后一个 @ 定界 userinfo)时只吃到首个 @ → 脱敏后 '***@ss@host:8080'
   // 把密码后半段泄进日志(bun 实证)。改 [^/\s]* 贪婪跨 @: 凭证段不可能含字面 '/'(URL 解析
   // 以首个 / 终结 authority), 故最后一个 @ 前、首个 / 后即完整 userinfo —— 多 @ 密码全段隐藏,
-  // 无凭证但 path/query 含 @ 的形态因首个 / 截断不会误伤。与 playwrightProxyParts 的
-  // URL 解析定界口径一致
+  // 无凭证但 path/query 含 @ 的形态因首个 / 截断不会误伤。与 parseProxyParts(proxy-parts.ts)
+  // 的 URL 解析定界口径一致
   return proxy.replace(/^(https?|socks5h?|socks4a?):\/\/[^/\s]*@/i, '$1://***@')
-}
-
-/** Playwright per-context proxy 参数: 内联凭证拆出 username/password
- *  (Playwright 不接受 server 内嵌凭证), 无凭证原样返回 */
-function playwrightProxyParts(proxy: string): { server: string; username?: string; password?: string } {
-  try {
-    const u = new URL(proxy)
-    if (u.username || u.password) {
-      const out: { server: string; username?: string; password?: string } = {
-        server: `${u.protocol}//${u.host}`,
-      }
-      // [R17-d-2](Low): decodeURIComponent 对合法 %XX 但非法 UTF-8 序列(如密码 'a%80b')
-      // 抛 URIError → 外层 catch 落入 { server: proxy } 把内嵌凭证原样交给 Playwright
-      // (playwright 要求 server 不带凭证, 连接即败)。逐组件安全解码: 解不开退回原编码值,
-      // 保证 server 恒无凭证
-      const dec = (s: string) => { try { return decodeURIComponent(s) } catch { return s } }
-      const un = dec(u.username)
-      const pw = dec(u.password)
-      if (un) out.username = un
-      if (pw) out.password = pw
-      return out
-    }
-  } catch { /* 已过 isValidProxySpec, 理论不达 */ }
-  return { server: proxy }
 }
 
 // ---------- HTTP 引擎 ----------
@@ -4512,9 +4395,14 @@ async function prefetchToken(targetUrl: string, cfg: FetchConfig, ua: string): P
   //  后续 caller 再发一次重复预取(TTL 过期瞬间 N 并发时放大)。条件化后每个 promise 只清
   //  自己的登记, 误删面闭合; 外链时机比内部 finally 晚一个微任务, 期间同键 get 返回的是
   //  已落定的同一 promise, 去重语义不变。完成后清条目, 让下次 TTL 过期能重新预取(不变)
-  void p.finally(() => {
-    if (inflightMap.get(cacheKey) === p) inflightMap.delete(cacheKey)
-  })
+  // [R51-3-b] P1 修复: .finally 派生 promise 必须自带 catch —— p 拒约(token 端点超时/4xx/5xx)
+  //  时该派生 promise 以同一 reason reject 且无任何 handler, Node ≥15 缺省 unhandledRejection
+  //  可杀进程。清理语义不变, rejection 就地吞掉(调用方 await p 自行处理, 预取失败静默降级直连)
+  void p
+    .finally(() => {
+      if (inflightMap.get(cacheKey) === p) inflightMap.delete(cacheKey)
+    })
+    .catch(() => {})
   inflightMap.set(cacheKey, p)
   return p
 }
@@ -4546,7 +4434,9 @@ export function __r34TokenStateResetForTest(): void {
  *    (runner.gateFetch 对整个 fetchPage 调用持一个闸门槽, 内部镜像重试随行同槽);
  *  - 每个镜像 host 独立走完整 fetchPageOnce 流程(token 预取 {url} 占位符按重写后 URL
  *    取值 → 逐章 token 天然按镜像域重签, 代理池/回环豁免/UA/Cookie 逻辑照常);
- *    不做跨请求"上次好域"记忆(有状态缓存会延迟故障发现, 保持无状态可测);
+ *    [R51-3-b] 在此基础上补成功域 sticky(反反爬清单④ TS 半边, 下方 mirrorSticky 段注):
+ *    失败驱动切换语义不变, 仅"上次成功域"跨请求优先尝试 —— 修前每次都先撞死主域再逐个
+ *    轮换, 主域死亡窗口内每个章节都要白吃 group.size-1 次失败才能命中存活镜像;
  *  - fetchBinary(封面等静态资源)刻意不接镜像: 非内容链路且失败优雅降级 null。
  */
 const MAX_MIRROR_HOSTS = 10
@@ -4600,6 +4490,38 @@ export function isMirrorSwitchableError(e: unknown): boolean {
   return true
 }
 
+// ---------- [R51-3-b] 镜像成功域 sticky(反反爬清单④ TS 半边) ----------
+/** 跨请求记忆"上次成功域": 键=目标 URL host 的注册域(registrableDomainOf, 主域+组内镜像
+ *  host 同注册域时共享一条记忆; IP/单标签原样返回=按 host 记), 值=上次成功的镜像组条目
+ *  (与 mirrorGroupFor 产出同构)。消费点 fetchPage 镜像循环: 命中且仍在当前组内的条目重排
+ *  到首位优先尝试(失败驱动切换语义不变, 仅成功域优先); 成功出口记账, 整组耗尽(全镜像终败)
+ *  清除该组 sticky(故障域不再被优先, 下轮从主域起轮换重新发现)。
+ *  有界: FIFO 512(与 hostRhythm 同纪律, delete+set 刷新位次); globalThis 版本化防 HMR 多实例 */
+const MIRROR_STICKY_CAP = 512
+const globalForMirrorSticky = globalThis as unknown as { __novelMirrorSticky_v1?: Map<string, string> }
+const mirrorSticky: Map<string, string> = globalForMirrorSticky.__novelMirrorSticky_v1 ?? new Map()
+globalForMirrorSticky.__novelMirrorSticky_v1 = mirrorSticky
+
+/** sticky 键: 目标 URL host 的注册域; URL 不可解析返回 ''(调用方跳过记账) */
+function mirrorStickyKeyFor(url: string): string {
+  try {
+    return registrableDomainOf(new URL(url).hostname)
+  } catch {
+    return ''
+  }
+}
+
+/** 记账上次成功域(FIFO 有界: delete 再 set 保证同键刷新位次) */
+function mirrorStickyNote(key: string, hostEntry: string): void {
+  if (!key || !hostEntry) return
+  mirrorSticky.delete(key)
+  mirrorSticky.set(key, hostEntry)
+  if (mirrorSticky.size > MIRROR_STICKY_CAP) {
+    const first = mirrorSticky.keys().next().value
+    if (first !== undefined) mirrorSticky.delete(first)
+  }
+}
+
 // ---------- 统一入口 ----------
 export interface FetchResult {
   html: string
@@ -4629,22 +4551,19 @@ export async function fetchPage(url: string, cfgOverride?: Partial<FetchConfig>)
     // 非源站故障, 内容保持未采集, 增量重试可恢复)。memoryUsage 失败容忍: 退回配置并发
     let globalLimit = cfgLimit
     try {
-      // [R49-10] 口径=采集堆(heapUsed+arrayBuffers+external): 进程 RSS 在 dev 模式被 Turbopack
-      // 原生缓存(~1.5GB, GC 不可及)主导, 拿它判采集压力等于拿常量噪声当信号
       const rssNow = process.memoryUsage().rss
-      const crawlNow = crawlMemBytes()
-      globalLimit = dynConcurrencyLimit(crawlNow, cfgLimit)
+      globalLimit = dynConcurrencyLimit(rssNow, cfgLimit)
       if (globalLimit < cfgLimit) {
         // [R48-2] 降并发日志按档位变化打(挂 globalThis): 同档持续压力不刷屏, 档位回落也通报
         const lastLimit = globalForRssBp.__novelMemDeLimit_v1
         if (lastLimit === undefined || lastLimit !== globalLimit) {
           globalForRssBp.__novelMemDeLimit_v1 = globalLimit
-          console.warn(`[fetcher] 内存压力降并发: 采集堆=${Math.round(crawlNow / 1048576)}MB(RSS=${Math.round(rssNow / 1048576)}MB), 全局有效并发 ${cfgLimit}→${globalLimit}`)
+          console.warn(`[fetcher] 内存压力降并发: RSS=${Math.round(rssNow / 1048576)}MB, 全局有效并发 ${cfgLimit}→${globalLimit}`)
         }
       } else if (globalForRssBp.__novelMemDeLimit_v1 !== undefined) {
         globalForRssBp.__novelMemDeLimit_v1 = undefined // 恢复满额, 重置档位记忆
       }
-      checkMemoryHalt(crawlNow)
+      checkMemoryHalt(rssNow)
     } catch (e) {
       // 熔断错误必须上抛(整条 fetchPage 快速失败); 其余 memoryUsage 异常容忍直通
       if ((e as Error)?.name === 'MemoryHaltError') throw e
@@ -4680,8 +4599,9 @@ export async function fetchPage(url: string, cfgOverride?: Partial<FetchConfig>)
         }
       } catch { /* memoryUsage 失败容忍 */ }
 
-      // [R31-2b-4] RSS 维度背压(缺省启用, OS 级兑底; [R49-10] 软让路已切采集堆口径):
-      // 高水位(RSS>2100) → R8-19 同款暂停窗口; 低水位 → 采集堆概率性软让路。
+      // [R31-2b-4] RSS 维度背压(缺省启用, 保护性护栏; 上方 heapUsed 检查原样保留=双保险):
+      // 高水位 → R8-19 同款暂停窗口; 低水位 → 概率性软让路(见 maybeRssSoftThrottle 段注)。
+      // 与 heapUsed 检查同为每请求一次同步 memoryUsage, 开销可忽略
       try {
         const rss = process.memoryUsage().rss
         if (rss > RSS_STOP_BYTES) {
@@ -4698,7 +4618,7 @@ export async function fetchPage(url: string, cfgOverride?: Partial<FetchConfig>)
             if (remain > 0) await new Promise((r) => setTimeout(r, remain))
           }
         } else {
-          await maybeCrawlMemSoftThrottle(crawlMemBytes())
+          await maybeRssSoftThrottle(rss)
         }
       } catch { /* memoryUsage 失败容忍 */ }
 
@@ -4716,8 +4636,15 @@ export async function fetchPage(url: string, cfgOverride?: Partial<FetchConfig>)
         return r
       }
       let lastErr: unknown = null
-      for (let i = 0; i < group.length; i++) {
-        const hostUrl = rewriteMirrorHost(url, group[i])
+      // [R51-3-b] sticky 重排: 上次成功域仍在当前组内时排到首位(未命中/配置已变保持原序)。
+      //  失败驱动切换语义不变 —— 首选失败仍按组序逐个轮换; 仅省掉"每次都先撞死主域"的无效请求
+      const stickyKey = mirrorStickyKeyFor(url)
+      const stickyHost = stickyKey ? mirrorSticky.get(stickyKey) : undefined
+      const order = stickyHost && group.includes(stickyHost)
+        ? [stickyHost, ...group.filter((h) => h !== stickyHost)]
+        : group
+      for (let i = 0; i < order.length; i++) {
+        const hostUrl = rewriteMirrorHost(url, order[i])
         if (!hostUrl) continue
         // 2-fetcher Part A: 镜像 host 也走 SSRF 守卫(防 admin 配置 mirrorDomains 指向内网)
         // R5-13: 原硬编码 allowLoopback:false 会把 URL 自身的 loopback token 代理(如 127.0.0.1:3010)
@@ -4725,7 +4652,7 @@ export async function fetchPage(url: string, cfgOverride?: Partial<FetchConfig>)
         //  改用 loopbackBypassAllowed(hostUrl, cfg) 与外层 SSRF 守卫同口径(配置豁免则放行)
         const mirrorSsrf = await assertSafeTarget(hostUrl, { allowLoopback: loopbackBypassAllowed(hostUrl, cfg) })
         if (!mirrorSsrf.ok) {
-          console.warn(`[fetcher] 镜像 ${group[i]} SSRF 拒绝: ${mirrorSsrf.reason}`)
+          console.warn(`[fetcher] 镜像 ${order[i]} SSRF 拒绝: ${mirrorSsrf.reason}`)
           lastErr = new Error(`SSRF blocked: ${mirrorSsrf.reason}`)
           continue
         }
@@ -4733,17 +4660,22 @@ export async function fetchPage(url: string, cfgOverride?: Partial<FetchConfig>)
           const r = await fetchPageOnce(hostUrl, cfg)
           // [R31-2-2]: 镜像轨成功页同样记账(键=实际抓取 host)
           if (REFERER_CHAIN_ENABLED && !r.blocked) refererChainNote(hostUrl)
+          // [R51-3-b] 成功出口记账: 下次请求该组时本 host 优先(成功域 sticky)
+          mirrorStickyNote(stickyKey, order[i])
           return r
         } catch (e) {
           lastErr = e
           // 不可切换错误(404/3xx/其余4xx)原样上抛: 换镜像无意义, 错误语义与单 host 契约一致
           if (!isMirrorSwitchableError(e)) throw e
           console.warn(
-            `[fetcher] 镜像切换: ${group[i]} 失败(${String((e as Error)?.message || e).slice(0, 120)}), ` +
-            (i + 1 < group.length ? `改试下一镜像 ${group[i + 1]}` : `镜像组已尽(共${group.length}个 host)`)
+            `[fetcher] 镜像切换: ${order[i]} 失败(${String((e as Error)?.message || e).slice(0, 120)}), ` +
+            (i + 1 < order.length ? `改试下一镜像 ${order[i + 1]}` : `镜像组已尽(共${order.length}个 host)`)
           )
         }
       }
+      // [R51-3-b] 整组耗尽(全镜像终败): 清除该组 sticky —— 上次成功域已故障, 下次从主域起
+      //  轮换重新发现存活镜像(不清除会让已知故障域继续排首位白吃一轮失败)
+      if (stickyKey) mirrorSticky.delete(stickyKey)
       throw lastErr ?? new Error('抓取失败(镜像组全部尝试失败)')
     } finally {
       releaseGlobalSlot()
@@ -5181,7 +5113,12 @@ async function fetchPageOnce(url: string, cfg: FetchConfig): Promise<FetchResult
         !tierRetried &&
         cookieRetries < MAX_COOKIE_RETRIES
       ) {
-        const currentTier = resolveCurlImpersonateTier(hostOf(reqUrl), cfg, curlProfileOf(hostOf(reqUrl)))
+        // [R51-3-b] 换档重试以 effCfg 解析 currentTier: 修前用原始 cfg —— 失败升级链
+        //  (autoEscalationTierFor)注入的 impersonateTierOverride 只存在于 effCfg, 用 cfg 解析
+        //  会回落到规则/环境档, 升级态下的换档重试静默跳过(算出的 next 与实际在用档位无关)
+        const currentTier =
+          (effCfg as FetchCfgOpt).impersonateTierOverride ||
+          resolveCurlImpersonateTier(hostOf(reqUrl), effCfg, curlProfileOf(hostOf(reqUrl)))
         const nextTier = currentTier ? nextImpersonateTier(currentTier) : ''
         if (nextTier) {
           tierRetried = true

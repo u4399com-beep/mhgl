@@ -90,6 +90,8 @@ export interface TaskRow {
   name: string
   ruleId: string
   mode: string // single | range | bookIds [R34-2a-6]
+  // [R50-1] 采集引擎: 'ts'(经典 TS, 缺省) | 'go'(独立 Go 进程); schema push 前旧库行缺省 undefined → 消费方按 ts 兼容
+  engine?: string
   bookUrl: string
   // [R34-2a-6] 书号采集: 书号原文(换行分隔; schema push 后返回, 旧库行缺省 undefined 时消费方需容忍)
   bookIds?: string
@@ -132,6 +134,8 @@ export interface TaskProgress {
   contentDone?: number
   contentTotal?: number
   currentBook?: string
+  // [R50-1] Go 引擎进程 RSS(MB): engine==='go' 任务由 go-callback progress 回调写入
+  engineRssMB?: number
 }
 
 /** 运行器统计快照 */
@@ -143,6 +147,10 @@ export interface TaskStats {
   coversSaved?: number
   suggestWords?: number
   errors?: number
+  // [R51-4] Go-owned 观测统计(status 透传, 绝对值语义): 拦截页命中/429,503 收到数。
+  // 仅 Go 引擎任务经 _go-control syncGoStatusStats 写入; TS 任务恒缺省(不展示)
+  blocked?: number
+  rateLimited?: number
 }
 
 // [R36-2d-9] 任务表单态(TaskDialog 编辑弹层与 TaskWizard 向导原各持一份字段逐一同型副本)收敛单处。
@@ -153,6 +161,8 @@ export interface TaskForm {
   ruleId: string
   // [R34-2a] 扩 'bookIds'(书号): bookUrl 复用存书籍页 URL 模板(必含 {bookId}), bookIds 存书号原文
   mode: 'single' | 'range' | 'bookIds'
+  // [R50-1] 采集引擎: 'ts'(经典 TS, 缺省) | 'go'(独立 Go 进程·内存隔离·支持 10 万书号)
+  engine: 'ts' | 'go'
   bookUrl: string
   bookIds: string
   // [R35-2a] 书号范围端点(bookIds 模式范围子形态): 提交时按子形态二选一清空另一侧

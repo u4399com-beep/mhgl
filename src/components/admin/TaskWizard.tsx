@@ -40,8 +40,9 @@ import { toast } from 'sonner'
 import { api, safeParseRuleConfig, type RuleRow, type TaskForm } from './helpers' // [R36-2d-9] TaskForm 副本收敛至 helpers
 import { StepIndicator } from './StepIndicator'
 // [R34-2a-4] 书号采集: 与 API 规范化/引擎建队列共用同一纯函数模块, 保证三方计数/解析口径一致
-// [R35-2a-6] 书号范围: parseBookIdRange/BOOK_ID_RANGE_MAX 与 API/runner 共用同一校验口径
-import { parseBookIdList, parseBookIdRange, BOOK_ID_MAX_COUNT, BOOK_ID_RANGE_MAX } from '@/lib/book-ids'
+// [R35-2a-6] 书号范围: parseBookIdRange 与 API/runner 共用同一校验口径
+// [R50-1] 书号上限按 engine 取值(ts 2000 / go 100000): bookIdMaxCountForEngine 三方同口径
+import { parseBookIdList, parseBookIdRange, bookIdMaxCountForEngine } from '@/lib/book-ids'
 
 interface TaskWizardProps {
   open: boolean
@@ -58,6 +59,7 @@ const EMPTY_FORM: TaskForm = {
   name: '',
   ruleId: '',
   mode: 'single',
+  engine: 'ts', // [R50-1] 缺省经典 TS 引擎(零回归)
   bookUrl: '',
   bookIds: '',
   bookIdFrom: '',
@@ -150,7 +152,9 @@ export function TaskWizard({ open, onOpenChange, onSaved, onNavigateToRules }: T
   // ---- 选中规则时自动建议任务名 (用户未手编时跟随) ----
   const bookIdCount = useMemo(() => parseBookIdList(form.bookIds).length, [form.bookIds]) // [R34-2a-4] 书号实时计数(去重后)
   // [R35-2a-6] 范围子形态实时解析(与 API/runner 同一 parseBookIdRange 口径)
-  const bookIdRange = useMemo(() => parseBookIdRange(form.bookIdFrom, form.bookIdTo), [form.bookIdFrom, form.bookIdTo])
+  // [R50-1] 上限按 engine 取值(ts 2000 / go 100000)
+  const bookIdMax = bookIdMaxCountForEngine(form.engine)
+  const bookIdRange = useMemo(() => parseBookIdRange(form.bookIdFrom, form.bookIdTo, bookIdMax), [form.bookIdFrom, form.bookIdTo, bookIdMax])
   // 书号×N 的 N: 范围子形态取展开数(to-from+1, 非法时 0), 列表子形态取去重后书号数
   const effectiveBookIdCount = bookIdSource === 'range' ? (bookIdRange.ok ? bookIdRange.count : 0) : bookIdCount
   useEffect(() => {
@@ -189,13 +193,13 @@ export function TaskWizard({ open, onOpenChange, onSaved, onNavigateToRules }: T
       if (form.mode === 'single') {
         return /^https?:\/\//i.test(form.bookUrl.trim())
       }
-      // [R34-2a-4] 书号模式: 模板需 http(s) 且含 {bookId} 占位符; 书号去重后 1~2000 个
+      // [R34-2a-4] 书号模式: 模板需 http(s) 且含 {bookId} 占位符; 书号去重后 1~上限([R50-1] ts 2000 / go 100000)
       if (form.mode === 'bookIds') {
         if (!/^https?:\/\//i.test(form.bookUrl.trim())) return false
         if (!form.bookUrl.includes('{bookId}')) return false
-        // [R35-2a-6] 书号来源二选一: 范围子形态 parseBookIdRange 全绿; 列表子形态 1~2000(与既有逐字对齐)
+        // [R35-2a-6] 书号来源二选一: 范围子形态 parseBookIdRange 全绿; 列表子形态 1~上限
         if (bookIdSource === 'range') return bookIdRange.ok
-        return bookIdCount > 0 && bookIdCount <= BOOK_ID_MAX_COUNT
+        return bookIdCount > 0 && bookIdCount <= bookIdMax
       }
       if (!/^https?:\/\//i.test(form.listUrl.trim())) return false
       if (form.listStart > form.listEnd) return false
@@ -209,7 +213,7 @@ export function TaskWizard({ open, onOpenChange, onSaved, onNavigateToRules }: T
       return true
     }
     return true
-  }, [step, form, bookIdCount, bookIdSource, bookIdRange]) // [R34-2a-4 收口] bookIdCount 由 form.bookIds 派生, 显式声明满足 exhaustive-deps; [R35-2a-6] 补范围子形态依赖
+  }, [step, form, bookIdCount, bookIdSource, bookIdRange, bookIdMax]) // [R34-2a-4 收口] bookIdCount 由 form.bookIds 派生, 显式声明满足 exhaustive-deps; [R35-2a-6] 补范围子形态依赖; [R50-1] 补 bookIdMax
 
   // ---- 创建任务 ----
   const createTask = async (start: boolean) => {
@@ -498,10 +502,35 @@ function Step2Range({
   // [R34-2a-4] 书号实时计数(去重后, 与主组件/引擎同口径 parseBookIdList)
   const bookIdCount = parseBookIdList(form.bookIds).length
   // [R35-2a-6] 范围子形态实时解析(与 API/runner 同一口径; 渲染期派生, 供即时计数/警示)
-  const bookIdRange = parseBookIdRange(form.bookIdFrom, form.bookIdTo)
+  // [R50-1] 上限按 engine 取值(ts 2000 / go 100000), 文案/计数/校验同口径
+  const bookIdMax = bookIdMaxCountForEngine(form.engine)
+  const bookIdRange = parseBookIdRange(form.bookIdFrom, form.bookIdTo, bookIdMax)
   const rangeTouched = form.bookIdFrom.trim() !== '' || form.bookIdTo.trim() !== ''
   return (
     <div className="space-y-4">
+      {/* [R50-1] 采集引擎选择(缺省经典 TS; Go 引擎书号上限放开到 10 万, 采集在独立进程执行) */}
+      <div className="space-y-2">
+        <Label className="text-xs font-medium text-zinc-300">采集引擎</Label>
+        <RadioGroup
+          value={form.engine}
+          onValueChange={(v) => patch({ engine: v === 'go' ? 'go' : 'ts' })}
+          className="grid grid-cols-1 gap-2 sm:grid-cols-2"
+        >
+          <ModeTab
+            active={form.engine !== 'go'}
+            title="经典 TS 引擎"
+            desc="与后台同进程, 兼容全部规则能力(缺省)"
+            onClick={() => patch({ engine: 'ts' })}
+          />
+          <ModeTab
+            active={form.engine === 'go'}
+            title="Go 引擎（独立进程·内存隔离·支持 10 万书号）"
+            desc="独立 Go 进程抓取/解析, 内存硬顶 600MB, 回调本后台落库; 暂不支持 TXT 存储"
+            onClick={() => patch({ engine: 'go' })}
+          />
+        </RadioGroup>
+      </div>
+
       {/* 任务名 */}
       <div className="space-y-1.5">
         <Label className="text-xs text-zinc-400">任务名称 *</Label>
@@ -588,9 +617,9 @@ function Step2Range({
                 value={form.bookIds}
                 onChange={(e) => patch({ bookIds: e.target.value })}
               />
-              <p className={`text-[10px] ${bookIdCount > BOOK_ID_MAX_COUNT ? 'font-medium text-red-400' : 'text-zinc-600'}`}>
+              <p className={`text-[10px] ${bookIdCount > bookIdMax ? 'font-medium text-red-400' : 'text-zinc-600'}`}>
                 已识别 {bookIdCount} 个书号(去重后)
-                {bookIdCount > BOOK_ID_MAX_COUNT ? ` · 超过 ${BOOK_ID_MAX_COUNT} 上限, 请删减后再创建` : ''}
+                {bookIdCount > bookIdMax ? ` · 超过 ${bookIdMax} 上限, 请删减后再创建` : ''}
               </p>
             </div>
           ) : (
@@ -598,7 +627,7 @@ function Step2Range({
                 用 text+inputMode=numeric 而非 type=number: 避免浏览器对 number 输入静默改写
                 (前导零剥离/科学计数法), 纯数字校验完全交由 parseBookIdRange/BOOK_ID_DIGITS_RE 执法 */
             <div className="space-y-1.5">
-              <Label className="text-xs text-zinc-400">书号范围 * <span className="text-zinc-600">最多 {BOOK_ID_RANGE_MAX} 本</span></Label>
+              <Label className="text-xs text-zinc-400">书号范围 * <span className="text-zinc-600">最多 {bookIdMax} 本</span></Label>
               <div className="flex items-center gap-2">
                 <Input
                   className="h-9 flex-1 border-zinc-700 bg-zinc-950 font-mono text-xs"
@@ -623,7 +652,7 @@ function Step2Range({
                   ? `共 ${bookIdRange.count} 本(从 ${bookIdRange.from} 到 ${bookIdRange.to} 连续展开, 去重后)`
                   : rangeTouched
                     ? bookIdRange.error
-                    : `填写起止书号后自动展开为连续序列, 上限 ${BOOK_ID_RANGE_MAX} 本`}
+                    : `填写起止书号后自动展开为连续序列, 上限 ${bookIdMax} 本`}
               </p>
             </div>
           )}
@@ -837,6 +866,12 @@ function Step3Schedule({
             onClick={() => patch({ storageMode: 'txt' })}
           />
         </RadioGroup>
+        {/* [R50-1] Go 引擎 v1 仅 db 存储: 选了 TXT + Go 的组合在启动时会被拒绝并回退 TS 引擎, 提前提示 */}
+        {form.engine === 'go' && form.storageMode === 'txt' && (
+          <p className="text-[10px] font-medium text-amber-400">
+            Go 引擎暂不支持 TXT 存储, 此组合启动时将自动回退经典 TS 引擎
+          </p>
+        )}
       </div>
 
       {/* 智能开关 */}
@@ -952,6 +987,8 @@ function Step4Confirm({ form, ruleName, bookIdSource }: { form: TaskForm; ruleNa
     { k: '线程数', v: `${form.threadMin} ~ ${form.threadMax}` },
     { k: '请求间隔', v: `${form.intervalMin} ~ ${form.intervalMax} ms` },
     { k: '存储模式', v: form.storageMode === 'db' ? '数据库 (SQLite)' : 'TXT 文件' },
+    // [R50-1] 引擎摘要: 与步骤 2 的选择一致(缺省 TS)
+    { k: '采集引擎', v: form.engine === 'go' ? 'Go 引擎(独立进程·内存隔离·支持 10 万书号)' : '经典 TS 引擎' },
     {
       k: '智能选项',
       v: [

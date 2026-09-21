@@ -344,6 +344,13 @@ export function TaskMonitor({ taskId, onBack }: TaskMonitorProps) {
             </h2>
             <p className="mt-0.5 text-xs text-zinc-500">
               规则: {task.rule?.name || '-'} · 模式: {taskModeLabel(task.mode)}
+              {/* [R50-1] 引擎徽标: engine==='go' 时标识 Go 引擎(缺省/TS 任务无徽标, 零视觉回归);
+                  progress.engineRssMB 存在时顺带展示 Go 进程 RSS(go-callback progress 回调写入) */}
+              {task.engine === 'go' && (
+                <Badge variant="outline" className="ml-2 border-cyan-500/40 bg-cyan-500/10 text-[10px] text-cyan-300">
+                  Go 引擎{progress.engineRssMB ? ` · RSS ${Math.round(progress.engineRssMB)}MB` : ''}
+                </Badge>
+              )}
               {/* [R35-2a-8] 书号范围子形态追加范围端点展示(模式文案保持「书号采集」) */}
               {task.mode === 'bookIds' && task.bookIdFrom && task.bookIdTo
                 ? ` · 范围 ${task.bookIdFrom}-${task.bookIdTo}`
@@ -555,6 +562,10 @@ export function TaskMonitor({ taskId, onBack }: TaskMonitorProps) {
               <StatChip label="封面" value={stats.coversSaved || 0} tone="text-amber-400 border-amber-500/30 bg-amber-500/10" />
               <StatChip label="下拉词" value={stats.suggestWords || 0} tone="text-rose-400 border-rose-500/30 bg-rose-500/10" />
               <StatChip label="错误" value={stats.errors || 0} tone="text-red-400 border-red-500/30 bg-red-500/10" />
+              {/* [R51-4] Go-owned 观测统计(仅 Go 任务经 status 透传后有值): 条件渲染避免 TS 任务/零值噪音 */}
+              {(stats.blocked || 0) > 0 && <StatChip label="拦截页" value={stats.blocked || 0} tone="text-orange-400 border-orange-500/30 bg-orange-500/10" />}
+              {(stats.rateLimited || 0) > 0 && <StatChip label="限流" value={stats.rateLimited || 0} tone="text-yellow-400 border-yellow-500/30 bg-yellow-500/10" />}
+
             </div>
           </CardContent>
         </Card>

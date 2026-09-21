@@ -1,5 +1,7 @@
 // ============================================================
 // [R39-2h] huangjinwu 克隆书页/目录/阅读 —— 现代卡片风(真站 /novel/{id} 形态)
+// [R51-3-c] 补回导出 ChapterItem(R28-2d-3→R35-2d-4 代次件): 目录页(Toc.tsx)自本文件单处引用
+//   —— 实现按 R35-2d-4 原版逐字节回搬(色值同源 hjw-style.css)。
 // ============================================================
 'use client'
 
@@ -11,7 +13,38 @@ import { ChapterContent, useReaderFont, useRecordReading, useThemeLineHeight } f
 import { BookCover } from '../../BookCover'
 import { ErrorState, Sk } from '../../bits'
 import { fmtDate, formatWords, statusLabel } from '../../seo'
-import type { BookItem } from '../../types'
+import type { BookItem, TocChapter } from '../../types'
+
+/** [R28-2d-3] 真站 :root 实测色值(ChapterItem 专用段, hjw-style.css) */
+const SECONDARY = '#2563eb' // --secondary-color
+const TEXT = '#1e293b' // --text-color
+const BORDER = '#dbe4f0' // --border-color
+
+/** [R28-2d-3] .chapter-item 网格卡(真站 auto-fill minmax(250px,1fr)) */
+export function ChapterItem({ ch, bookId, current }: { ch: TocChapter; bookId: string; current?: boolean }) {
+  const { navigate } = usePublic()
+  const go = () => navigate({ view: 'read', bookId, chapterId: ch.id })
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={go}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          go()
+        }
+      }}
+      className={`hjw-chitem cursor-pointer overflow-hidden rounded-[10px] border transition-all duration-300 ${current ? 'hjw-chitem-active' : ''}`}
+      style={{ borderColor: current ? SECONDARY : BORDER, background: current ? '#e8f1ff' : undefined }}
+      aria-current={current}
+    >
+      <div className="block truncate px-4 py-3 text-[15px]" style={{ color: current ? SECONDARY : TEXT }} title={ch.title}>
+        {ch.title}
+      </div>
+    </div>
+  )
+}
 
 export function HuangjinwuBook({ data, loading, error }: SiteBookProps) {
   const { site, navigate } = usePublic()

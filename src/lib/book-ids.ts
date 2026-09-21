@@ -13,8 +13,17 @@ const BOOK_ID_SPLIT_RE = /[\s,，、;；]+/
 export const BOOK_ID_MAX_LEN = 200
 /** 单任务书号总数上限(去重后, 超限报错) */
 export const BOOK_ID_MAX_COUNT = 2000
+// [R50-1] Go 引擎书号上限: 2000 上限的历史原因是 TS 引擎与 dev server 同堆(队列/进度集合
+//  常驻堆内有 OOM 史, R46/R48 实录)+ 单任务失控粒度防护; Go 引擎独立进程+GOMEMLIMIT 硬顶
+//  600MB 后(内存隔离, 引擎崩溃不波及 Next.js), 书号模式输入面上限放开到 10 万。
+//  BOOK_ID_MAX_LEN=200 防误灌语义不变; 仅 engine==='go' 的任务消费本常量, ts/缺省零回归
+export const BOOK_ID_MAX_COUNT_GO = 100_000
 // [R35-2a-1] 书号范围(bookIds 模式「从几到几」范围子形态): 上限与列表形式同口径
 export const BOOK_ID_RANGE_MAX = BOOK_ID_MAX_COUNT
+/** [R50-1] 按引擎取书号上限(ts/缺省→2000, go→100000); API 规范化/UI 计数/范围校验三方同口径消费 */
+export function bookIdMaxCountForEngine(engine: unknown): number {
+  return engine === 'go' ? BOOK_ID_MAX_COUNT_GO : BOOK_ID_MAX_COUNT
+}
 /** [R35-2a-1] 书号范围端点形态: 纯数字 1~12 位(非负整数; 12 位可容纳常见站点的数字书号) */
 export const BOOK_ID_DIGITS_RE = /^\d{1,12}$/
 /** 书籍页 URL 模板占位符字面量(bookIds 模式 bookUrl 必含) */
@@ -62,13 +71,16 @@ export function buildBookIdQueue(raw: unknown, template: string): string[] {
 
 /**
  * [R35-2a-1] 书号范围校验: trim → 纯数字非负整数(BOOK_ID_DIGITS_RE, 1~12 位) → from≤to
- *  → 展开数 to-from+1 ≤ BOOK_ID_RANGE_MAX(2000)。各失败分支返回精确中文错误文案
+ *  → 展开数 to-from+1 ≤ 上限(可选第三参 max, [R50-1] 缺省 BOOK_ID_RANGE_MAX=2000 零回归;
+ *  Go 引擎任务传 BOOK_ID_MAX_COUNT_GO=100000 放开)。各失败分支返回精确中文错误文案
  *  (与既有 bookIds 校验文案同风格), 供 API(validateTaskPair)/UI(向导与对话框实时提示)共用。
  *  成功时返回数字形态端点(前导零按十进制数值口径归一, 展开/渲染均以数字为准)。
  */
 export function parseBookIdRange(
   from: unknown,
   to: unknown,
+  // [R50-1] 可选上限参数: 缺省保持 2000 既有口径(既有调用点零回归); engine='go' 时调用方传 100000
+  max: number = BOOK_ID_RANGE_MAX,
 ): { ok: true; from: number; to: number; count: number } | { ok: false; error: string } {
   const f = typeof from === 'string' ? from.trim() : from == null ? '' : String(from).trim()
   const t = typeof to === 'string' ? to.trim() : to == null ? '' : String(to).trim()
@@ -80,8 +92,8 @@ export function parseBookIdRange(
   const tn = Number(t)
   if (fn > tn) return { ok: false, error: '起始书号不能大于结束书号' }
   const count = tn - fn + 1
-  if (count > BOOK_ID_RANGE_MAX) {
-    return { ok: false, error: `书号范围过大(${fn}-${tn} 共 ${count} 本, 最多 ${BOOK_ID_RANGE_MAX} 本)` }
+  if (count > max) {
+    return { ok: false, error: `书号范围过大(${fn}-${tn} 共 ${count} 本, 最多 ${max} 本)` }
   }
   return { ok: true, from: fn, to: tn, count }
 }

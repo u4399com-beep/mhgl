@@ -22,6 +22,8 @@
 //    (若未来出现同域多账号等更细粒度隔离需求, 可将槽位桶改为 Map<domain, Slot[]>)
 // ============================================================
 import type { Browser, BrowserContext, CDPSession, Page } from 'playwright'
+// [R51-4] 代理拆解单实现(obscura 禁止反向 import fetcher, 下沉独立小模块两侧共消费)
+import { parseProxyParts } from './proxy-parts'
 
 // ---------- 类型定义 ----------
 /** Obscura 渲染选项(全部可选) */
@@ -1085,23 +1087,8 @@ async function launchBrowser(proxyKey: string): Promise<Browser> {
   return b
 }
 
-/** [R9-b-7] 代理 URL → Playwright per-context proxy 参数(server/username/password)。
- *  与 fetcher.playwrightProxyParts 同语义(obscura 禁止反向 import fetcher, 本地复制) */
-function parseProxyParts(proxy: string): { server: string; username?: string; password?: string } {
-  try {
-    const u = new URL(proxy)
-    const server = `${u.protocol}//${u.host}`
-    const username = u.username ? decodeURIComponent(u.username) : ''
-    const password = u.password ? decodeURIComponent(u.password) : ''
-    return {
-      server,
-      ...(username ? { username } : {}),
-      ...(password ? { password } : {}),
-    }
-  } catch {
-    return { server: proxy }
-  }
-}
+// [R51-4] 代理拆解下沉 @/lib/crawl/proxy-parts 单一实现(与 fetcher 同源; 修前本地副本单 try
+//  包整体, 密码含非法 % 序列时整串带凭证落 server 参数 —— 审计 P3-11, 已随统一消除)
 
 async function newStealthContext(fp: ObscuraFingerprint, proxyKey = ''): Promise<BrowserContext> {
   const browser = await ensureBrowser(proxyKey)

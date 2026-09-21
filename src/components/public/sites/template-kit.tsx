@@ -1,13 +1,14 @@
 // ============================================================
 // [R26-c-3] 站点克隆模板工具箱 —— 各站 {Page}.tsx 模板组件共用的阅读侧小件
 // (字号调节 / 阅读位置记忆 / 章节正文渲染), 让 10 站模板不必各自复制这些逻辑。
-// [R49-3-3] groupTocVolumes 删除: 全库零引用(ts-prune+rg 双确认), 分卷分组仅通用
-//   BookView 自有实现, 各站模板从未接入。
+// [R49-3-3] groupTocVolumes 曾因全库零引用删除; [R51-3-c] pili/Toc.tsx(R28 代次件)恢复引用
+//   → 按原实现原样回搬(与通用 BookView 分卷分组同口径)。
 // ============================================================
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
 import type { CSSProperties } from 'react'
+import type { TocChapter } from '../types'
 import { contentToHtml, READER_FONT_KEY, readStoredFontSize } from '../read-layouts/shared'
 import { usePublic } from '../ctx'
 import { getReadTimeMs, saveReadPos, setReadTimeMs } from '../read-layouts/reading-memory'
@@ -93,6 +94,22 @@ export function ChapterContent({ content, style, className }: { content: string;
   // content 引用稳定时(章节未切换)直接复用消毒产物。
   const html = useMemo(() => contentToHtml(content), [content])
   return <div className={className} style={style} dangerouslySetInnerHTML={{ __html: html }} />
+}
+
+/**
+ * 目录分卷分组(与通用 BookView 同口径): 连续相同 volume 一组, 空卷归「正文」。
+ * 无卷数据返回 null(模板渲染平铺列表)。
+ */
+export function groupTocVolumes(chapters: TocChapter[]): { volume: string; chapters: TocChapter[] }[] | null {
+  if (!chapters.some((c) => c.volume)) return null
+  const gs: { volume: string; chapters: TocChapter[] }[] = []
+  for (const c of chapters) {
+    const vol = c.volume || ''
+    const last = gs[gs.length - 1]
+    if (last && last.volume === vol) last.chapters.push(c)
+    else gs.push({ volume: vol, chapters: [c] })
+  }
+  return gs
 }
 
 /** [R36-2a-fix-4] 主题覆盖字号基线读取(fallback=站点原值; 未编辑返回 fallback 零回归) */
