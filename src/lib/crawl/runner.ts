@@ -8,7 +8,7 @@
 // ============================================================
 import { db } from '@/lib/db'
 import { type RuleConfig, type TocItem, type FetchConfig, parseRuleConfig, sanitizeFetchConfig } from './types'
-import { fetchPage, fetchBinary, checkBrowser, type FetchResult, effectiveHostGateLimit, registerGracefulShutdown, loadCookieJarFromDisk, hostAdaptiveGapMultiplier } from './fetcher'
+import { fetchPage, fetchBinary, checkBrowser, type FetchResult, effectiveHostGateLimit, registerGracefulShutdown, loadCookieJarFromDisk, hostAdaptiveGapMultiplier, rssThreadCap, maybeCrawlGc, preflightMemorySweep, crawlMemBytes } from './fetcher'
 import { acquireHostGate, releaseHostGate, reportHostSuccess, reportHostFailure, reportHostRateLimited, hostGateSnapshot, hostGateKeyOf } from './hostgate'
 import { parseList, parseBook, parseToc, parseContent, parseJsonBody, absolutize } from './parser'
 import { cleanContentHtml, cleanIntro, cleanChapterTitle, cleanTextField } from './cleaner'
@@ -1051,6 +1051,13 @@ export class TaskRunner {
       await ensureDirs()
       cfg = await this.loadConfig(taskId)
       if (!cfg) return
+      // [R49-10] 启动前内存自检: 上轮熔断暂停后 RSS 卡高水位(实测 2260MB 不回落, V8 惰性
+      // 归还内存页)时直接点继续, 首轮准入即再熔断 → 3 连击又自动暂停的"续采即停"死循环。
+      // RSS 仍在恢复水位以上时先强制全量 GC 主动降压, 让首轮准入顺利过闸(细节见 fetcher.preflightMemorySweep)
+      {
+        const sweepNote = preflightMemorySweep()
+        if (sweepNote) await this.log(taskId, 'info', sweepNote).catch(() => {})
+      }
       const progress: TaskProgress = { ...emptyProgress(), ...safeJson(cfg.task.progress) }
       const stats: TaskStats = { ...emptyStats(), ...safeJson(cfg.task.stats) }
       // feat-contentproxy-resume(范围任务续采): 从 progress 重建内存 Set; rt 是 control('start')
@@ -1224,6 +1231,7 @@ export class TaskRunner {
           if (rt.stopped || isStale()) break
           while (rt.paused && !rt.stopped && !isStale()) await sleep(600)
           if (rt.stopped || isStale()) break
+          maybeCrawlGc('发现页间隔') // [R49-10] 节流 opportunistic GC: RSS>软水位时每≥20s 压一次堆
           if (urls.length >= DISCOVERY_MAX_URLS) {
             await this.log(taskId, 'warn', `发现书籍数已达单轮上限 ${DISCOVERY_MAX_URLS}, 停止翻页(已发现的书籍继续采集; 余量请用 bookStart/bookEnd 或续采分批处理)`)
             break
@@ -1298,18 +1306,24 @@ export class TaskRunner {
               //  不计 errors/不喂 DISCOVERY_FAIL_CIRCUIT 连败链, 页面保持未抓取态可增量恢复
               // [R49-2b-1] 熔断持续时不再逐页空转: 连续 N 页吃熔断即自动转 paused,
               //  循环停在顶部 rt.paused 等待门(恢复后从当前页继续翻, 已发现部分照常进采集)
-              consecutiveMemHalts++
-              await this.log(taskId, 'warn', e?.name === 'MemoryHaltError'
-                ? `列表页 P${p} 暂停(内存硬熔断 ${consecutiveMemHalts}/${MEM_HALT_PAUSE_AFTER}), 页面保持未抓取; 熔断解除后重跑可恢复`
-                : `列表页 P${p} 引擎并发护栏等待超时(全局信号量), 页面保持未抓取; 稍后重跑可恢复`)
-              if (consecutiveMemHalts >= MEM_HALT_PAUSE_AFTER) {
-                await this.tripMemoryHaltPause(taskId, rt, progress, `列表页 P${p}`)
-                // [R49-2bw-3] 不 break: tripMemoryHaltPause 已置 rt.paused, 本轮 for 迭代自然走完
-                //  (sleepGap 见 paused 提前返回)后停在循环顶部既有 rt.paused 等待门(L1225) —— 恢复
-                //  后从当前页继续翻, 与上方 [R49-2b-1] 注释"恢复后从当前页继续翻"一致。原 `break`
-                //  会永久退出发现循环: 恢复后余下 listEnd 页本轮永不补翻, 队列排空即以"任务完成"
-                //  收尾(余页书籍静默丢失, 恰是 R49-2b-1 要消灭的假终态家族; 余量只能靠下一轮
-                //  重启重发现兜底)。停止/换代让位不受影响(循环头 L1224/L1226 既有判定先行)
+              // [R49-10] 暂停已触发(rt.paused)时冻结熔断计数: 防同一熔断窗口内后续页再命中时
+              //  重复计数/刷日志(修前实测溢出形态 "4/3"); 循环头会停在 rt.paused 等待门, 此处静默
+              if (e?.name === 'MemoryHaltError' && rt.paused) {
+                // 冻结: 静默跳过
+              } else {
+                if (e?.name === 'MemoryHaltError') consecutiveMemHalts++
+                await this.log(taskId, 'warn', e?.name === 'MemoryHaltError'
+                  ? `列表页 P${p} 暂停(内存硬熔断 ${consecutiveMemHalts}/${MEM_HALT_PAUSE_AFTER}), 页面保持未抓取; 熔断解除后重跑可恢复`
+                  : `列表页 P${p} 引擎并发护栏等待超时(全局信号量), 页面保持未抓取; 稍后重跑可恢复`)
+                if (consecutiveMemHalts >= MEM_HALT_PAUSE_AFTER) {
+                  await this.tripMemoryHaltPause(taskId, rt, progress, `列表页 P${p}`)
+                  // [R49-2bw-3] 不 break: tripMemoryHaltPause 已置 rt.paused, 本轮 for 迭代自然走完
+                  //  (sleepGap 见 paused 提前返回)后停在循环顶部既有 rt.paused 等待门(L1225) —— 恢复
+                  //  后从当前页继续翻, 与上方 [R49-2b-1] 注释"恢复后从当前页继续翻"一致。原 `break`
+                  //  会永久退出发现循环: 恢复后余下 listEnd 页本轮永不补翻, 队列排空即以"任务完成"
+                  //  收尾(余页书籍静默丢失, 恰是 R49-2b-1 要消灭的假终态家族; 余量只能靠下一轮
+                  //  重启重发现兜底)。停止/换代让位不受影响(循环头 L1224/L1226 既有判定先行)
+                }
               }
             } else {
               stats.errors++
@@ -1375,6 +1389,7 @@ export class TaskRunner {
         if (rt.stopped || isStale()) break
         while (rt.paused && !rt.stopped && !isStale()) await sleep(600)
         if (rt.stopped || isStale()) break
+        maybeCrawlGc('元数据批次边界') // [R49-10] 批间主动回收 existChapters/tocItems/HTML 垃圾
 
         const batchSlice = bookQueue.slice(batchStart, batchStart + META_BATCH_SIZE)
         const deferredCtxs: BookCrawlCtx[] = []
@@ -1477,14 +1492,19 @@ export class TaskRunner {
                 // [R48-1] MemoryHaltError 同口径豁免: 内存硬熔断快速失败亦属引擎侧自保
                 // [R49-2b-1] 熔断持续时不再逐本空转烧完队列: 连续 N 本吃熔断即自动转 paused,
                 //  worker 在循环头 rt.paused 等待门停住(恢复后本批未完成书籍原地续采)
-                if (e?.name === 'MemoryHaltError') consecutiveMetaHalts++
-                await this.log(taskId, 'warn', e?.name === 'MemoryHaltError'
-                  ? `书籍采集暂停(内存硬熔断 ${consecutiveMetaHalts}/${MEM_HALT_PAUSE_AFTER}): ${bookUrl}; 书籍保持未完成, 熔断解除后增量重试可恢复`
-                  : `书籍采集等待引擎并发护栏超时(${e?.name === 'GlobalSemTimeout' ? '全局信号量' : `host:${hostGateKeyOf(bookUrl) || '未知'}, 该站在飞已达上限`}): ${bookUrl}; 书籍保持未完成, 稍后增量重试可恢复`)
-                await this.saveProgress(taskId, progress, stats)
-                if (e?.name === 'MemoryHaltError' && consecutiveMetaHalts >= MEM_HALT_PAUSE_AFTER) {
-                  await this.tripMemoryHaltPause(taskId, rt, progress, `书籍页 ${bookUrl.slice(0, 80)}`)
-                  return
+                // [R49-10] 计数冻结: 同批其他在途 worker 也会吃 MemoryHaltError, 暂停已触发后
+                //  (rt.paused)不再重复计数/刷日志/落进度(修前实测溢出形态 "4/3")
+                if (e?.name === 'MemoryHaltError' && !rt.paused) {
+                  consecutiveMetaHalts++
+                  await this.log(taskId, 'warn', `书籍采集暂停(内存硬熔断 ${consecutiveMetaHalts}/${MEM_HALT_PAUSE_AFTER}): ${bookUrl}; 书籍保持未完成, 熔断解除后增量重试可恢复`)
+                  await this.saveProgress(taskId, progress, stats)
+                  if (consecutiveMetaHalts >= MEM_HALT_PAUSE_AFTER) {
+                    await this.tripMemoryHaltPause(taskId, rt, progress, `书籍页 ${bookUrl.slice(0, 80)}`)
+                    return
+                  }
+                } else if (e?.name !== 'MemoryHaltError') {
+                  await this.log(taskId, 'warn', `书籍采集等待引擎并发护栏超时(${e?.name === 'GlobalSemTimeout' ? '全局信号量' : `host:${hostGateKeyOf(bookUrl) || '未知'}, 该站在飞已达上限`}): ${bookUrl}; 书籍保持未完成, 稍后增量重试可恢复`)
+                  await this.saveProgress(taskId, progress, stats)
                 }
               } else {
                 stats.errors++
@@ -1506,7 +1526,7 @@ export class TaskRunner {
             await sleepGap(cfg.interval(), rt, myEpoch)
           }
         }
-        await Promise.all(Array.from({ length: Math.min(BOOK_META_CONCURRENCY, batchSlice.length) }, () => metaWorker()))
+        await Promise.all(Array.from({ length: Math.min(BOOK_META_CONCURRENCY, rssThreadCap(BOOK_META_CONCURRENCY), batchSlice.length) }, () => metaWorker()))
         // [R46-2a-1] 全 worker 退出后统一上抛熔断(终点与原串行 throw 一致: executeTask catch 转 error 终态)
         if (metaAbort.circuit && metaAbort.err) throw metaAbort.err
 
@@ -2489,6 +2509,8 @@ export class TaskRunner {
     // [R22-f-1]: live 状态读失败节流标志(仅状态翻转时打一条, 防 DB 长故障期每 2s 一条刷屏)
     let liveReadFailed = false
     let consecutiveErrs = 0
+    // [R49-10] 批次收缩观测: 记录上一次降批值(只在档位变化时打一条, 防每批刷屏); -1=从未降批
+    let lastRssCapLogged = -1
     // [R49-2b-1] 章节段连续内存硬熔断计数: 达阈值自动转 paused(循环停在顶部等待门),
     //  不再逐批烧完整个章节队列后以"《书》完成: 0章"假完成态收尾
     let consecutiveHaltSkips = 0
@@ -2496,6 +2518,7 @@ export class TaskRunner {
       if (rt.stopped || isStale()) break
       while (rt.paused && !rt.stopped && rt.epoch === myEpoch) await sleep(600)
       if (rt.stopped || isStale()) break
+      maybeCrawlGc('正文批次边界') // [R49-10] 批间主动回收章节 HTML/DOM/中间串垃圾(节流≥20s)
 
       // 在线调参即时生效: 每批次实时读任务行(原来用书首快照, 大部头中途调线程/间隔要等下一本书才生效)
       let threads = nextThreads()
@@ -2531,6 +2554,21 @@ export class TaskRunner {
         if (rt.paused) rt.paused = false
         threads = randInt(clampMin(live.threadMin, live.threadMax), live.threadMax)
         interval = randInt(clampMin(live.intervalMin, live.intervalMax), live.intervalMax)
+      }
+      // [R49-10] 内存感知批次收缩: RSS 处 soft~halt 区间时按 dynConcurrencyLimit 同口径收紧
+      // 批次大小(修前批次只随 threadMin/Max 随机, 与内存压力无关 —— 实录"熔断 2/3 后批次
+      // 反而 2×2→3×3 回升"的观感即来自随机性; 修后压力越大批次越小, RSS 回落自动恢复满额)。
+      // 档位变化才打日志(防每批刷屏)
+      const rssCap = rssThreadCap(Math.max(1, threads))
+      if (rssCap < threads) {
+        if (lastRssCapLogged !== rssCap) {
+          lastRssCapLogged = rssCap
+          await this.log(taskId, 'info', `内存压力降批: ${threads}→${rssCap} 线程(采集堆=${Math.round(crawlMemBytes() / 1048576)}MB, 回落后自动恢复满额)`).catch(() => {})
+        }
+        threads = rssCap
+      } else if (lastRssCapLogged >= 0) {
+        lastRssCapLogged = -1
+        await this.log(taskId, 'info', `内存压力解除, 批次恢复满额: ${threads} 线程`).catch(() => {})
       }
       const batch = shuffleBatch(items.splice(0, threads)) // [R36-2c-8] 批内顺序随机化(缺省关)
       progress.lastThread = threads
@@ -2660,12 +2698,18 @@ export class TaskRunner {
               // [R48-1] MemoryHaltError 同口径豁免: 内存硬熔断期间章节快速跳过保持未采集
               // [R49-2b-1] 熔断持续时不再逐批烧完章节队列: 连续 N 章吃熔断即自动转 paused,
               //  循环停在顶部 rt.paused 等待门(恢复后本批余下章节原地续采)
-              if (e?.name === 'MemoryHaltError') consecutiveHaltSkips++
-              await this.log(ctx.taskId, 'warn', e?.name === 'MemoryHaltError'
-                ? `章节 ${q.title.slice(0, 60)} 暂停(内存硬熔断 ${consecutiveHaltSkips}/${MEM_HALT_PAUSE_AFTER}), 章节保持未采集; 熔断解除后增量重试可恢复`
-                : `章节 ${q.title.slice(0, 60)} 引擎并发护栏等待超时(${e?.name === 'GlobalSemTimeout' ? '全局信号量' : `host:${hostGateKeyOf(q.url) || '未知'}`}), 章节保持未采集; 稍后增量重试可恢复`)
-              if (e?.name === 'MemoryHaltError' && consecutiveHaltSkips >= MEM_HALT_PAUSE_AFTER) {
-                await this.tripMemoryHaltPause(ctx.taskId, rt, progress, `章节 ${q.title.slice(0, 40)}`)
+              // [R49-10] 计数冻结: 同批其他在途 worker 也会吃 MemoryHaltError, 暂停已触发后
+              //  (rt.paused)不再重复计数/刷日志(修前实测溢出形态 "4/3" 即此竞态)
+              if (e?.name === 'MemoryHaltError') {
+                if (!rt.paused) {
+                  consecutiveHaltSkips++
+                  await this.log(ctx.taskId, 'warn', `章节 ${q.title.slice(0, 60)} 暂停(内存硬熔断 ${consecutiveHaltSkips}/${MEM_HALT_PAUSE_AFTER}), 章节保持未采集; 熔断解除后增量重试可恢复`)
+                  if (consecutiveHaltSkips >= MEM_HALT_PAUSE_AFTER) {
+                    await this.tripMemoryHaltPause(ctx.taskId, rt, progress, `章节 ${q.title.slice(0, 40)}`)
+                  }
+                }
+              } else {
+                await this.log(ctx.taskId, 'warn', `章节 ${q.title.slice(0, 60)} 引擎并发护栏等待超时(${e?.name === 'GlobalSemTimeout' ? '全局信号量' : `host:${hostGateKeyOf(q.url) || '未知'}`}), 章节保持未采集; 稍后增量重试可恢复`)
               }
             } else {
               stats.errors++
