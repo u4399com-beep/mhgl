@@ -192,21 +192,32 @@ func (c *Client) send(ctx context.Context, kind string, payload interface{}, thr
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if _, err := c.postOnce(ctx, kind, body); err == nil {
+		// [R54-2a](R53 遗留② lastError "%!w(<nil>)" 根因) 修前 `if _, err := c.postOnce(...)`
+		// 的 err 是 if 语句作用域内的遮蔽变量, 循环尾 `lastErr = err` 实际读到外层
+		// json.Marshal 的 err(能走到循环说明序列化已成功, 恒为 nil) —— 重试耗尽后
+		// fmt.Errorf %w(lastErr=nil) 产出 "…已重试 3 次): %!w(<nil>)": 真实失败原因
+		// (contents 超时/5xx/网络错误)全部丢失, /status lastError 残留无意义格式串。
+		// 修后显式捕获单次尝试错误再入 lastErr, 末次真实原因保留可追溯
+		_, attemptErr := c.postOnce(ctx, kind, body)
+		if attemptErr == nil {
 			if kind == KindProgress {
 				c.progMu.Lock()
 				c.lastProg = time.Now()
 				c.progMu.Unlock()
 			}
 			return nil
-		} else {
-			var perm *permanentCallbackError
-			if errors.As(err, &perm) {
-				// [R52-5 P3] 确定性 4xx: 不再退避重试, 立即上抛(调用方转 paused/错误处置)
-				return fmt.Errorf("回调失败(kind=%s, 不可重试): %w", kind, err)
-			}
 		}
-		lastErr = err
+		var perm *permanentCallbackError
+		if errors.As(attemptErr, &perm) {
+			// [R52-5 P3] 确定性 4xx: 不再退避重试, 立即上抛(调用方转 paused/错误处置)
+			return fmt.Errorf("回调失败(kind=%s, 不可重试): %w", kind, attemptErr)
+		}
+		lastErr = attemptErr
+	}
+	// 防御兜底(格式化前判 nil): 正常路径能走到此处必然 4 轮尝试全败(lastErr 非 nil),
+	// 但 %w(nil) 会产出 %!w(<nil>) 格式串 —— nil 时给确定语义错误, 绝不格式化空错误
+	if lastErr == nil {
+		lastErr = errors.New("未知失败(全部重试轮次未产生错误对象)")
 	}
 	return fmt.Errorf("回调失败(kind=%s, 已重试 %d 次): %w", kind, len(retryDelays), lastErr)
 }
@@ -242,6 +253,11 @@ func (c *Client) SendWithDecision(ctx context.Context, kind string, payload inte
 			return resp, fmt.Errorf("回调失败(kind=%s, 不可重试): %w", kind, err)
 		}
 		lastErr = err
+	}
+	// [R54-2a] 同 send() 防御兜底(格式化前判 nil): lastErr 正常路径必非 nil, 但
+	// %w(nil) 产出 %!w(<nil>) 格式串 —— nil 时给确定语义错误
+	if lastErr == nil {
+		lastErr = errors.New("未知失败(全部重试轮次未产生错误对象)")
 	}
 	return resp, fmt.Errorf("回调失败(kind=%s, 已重试 %d 次): %w", kind, len(retryDelays), lastErr)
 }

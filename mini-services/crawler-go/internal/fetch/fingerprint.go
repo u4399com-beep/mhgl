@@ -31,14 +31,21 @@ var (
 	uaLocaleZhRe = regexp.MustCompile(`(?i)zh-cn`)
 	uaLocaleJaRe = regexp.MustCompile(`(?i)(ja-jp|ja_jp|\bja\b)`)
 	uaLocaleEnRe = regexp.MustCompile(`(?i)en-us`)
+	// [R54-2a] 热路径正则上提为包级编译(原 uaFamily/uaPlatformHint 每次调用
+	// MustCompile —— 每请求/每正文分页都重编译, 纯性能缺陷 R52-c P3「热路径
+	// MustCompile」同族; 上提与 TS 正则字面量单次编译语义一致, 判定逻辑零变化)
+	edgFamilyRe = regexp.MustCompile(`\bEdg\b`)
+	iosHintRe   = regexp.MustCompile(`iPhone|iPad|iOS|iPhone OS`)
+	macHintRe   = regexp.MustCompile(`Mac OS|Macintosh`)
+	x11HintRe   = regexp.MustCompile(`X11|Linux`)
 )
 
-// uaFamilyOf UA 家族判定(决定头组构成; TS uaFamilyOf 同口径)
+// uaFamily UA 家族判定(决定头组构成; TS uaFamilyOf 同口径)
 func uaFamily(ua string) string {
 	switch {
 	case strings.Contains(ua, "Firefox/"):
 		return "firefox"
-	case strings.Contains(ua, "Chrome/"), regexp.MustCompile(`\bEdg\b`).MatchString(ua):
+	case strings.Contains(ua, "Chrome/"), edgFamilyRe.MatchString(ua):
 		return "chromium"
 	case strings.Contains(ua, "Safari/"):
 		return "safari"
@@ -55,15 +62,15 @@ func uaPlatformHint(ua string) string {
 	switch {
 	case strings.Contains(ua, "Android"):
 		return "Android"
-	case regexp.MustCompile(`iPhone|iPad|iOS|iPhone OS`).MatchString(ua):
+	case iosHintRe.MatchString(ua):
 		return "iOS"
 	case strings.Contains(ua, "Windows"):
 		return "Windows"
-	case regexp.MustCompile(`Mac OS|Macintosh`).MatchString(ua):
+	case macHintRe.MatchString(ua):
 		return "macOS"
 	case strings.Contains(ua, "CrOS"):
 		return "Chrome OS"
-	case regexp.MustCompile(`X11|Linux`).MatchString(ua):
+	case x11HintRe.MatchString(ua):
 		return "Linux"
 	default:
 		return "Windows"

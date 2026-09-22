@@ -214,6 +214,28 @@ func TestBuildBookIdQueue(t *testing.T) {
 	}
 }
 
+// TestBuildBookIdQueueFromRangeInverted [R54-2a] 倒置范围 panic-safe:
+// 修前 from>to 直调使 make(…, 0, to-from+1) 收到负 cap 直接 panic(makeslice),
+// fail-closed 二次防线自身不可崩; 修后归一交换, 与调用方 buildBookIdsQueue
+// (Validate 同口径先行归一)语义一致
+func TestBuildBookIdQueueFromRangeInverted(t *testing.T) {
+	// 倒置入参: 归一为 3..7 展开(修前此处 panic)
+	got := BuildBookIdQueueFromRange(7, 3, "https://x/book/{bookId}.html")
+	if len(got) != 5 || got[0] != "https://x/book/3.html" || got[4] != "https://x/book/7.html" {
+		t.Fatalf("倒置范围应归一展开 3..7: %v", got)
+	}
+	// 相等边界: from==to 单元素
+	one := BuildBookIdQueueFromRange(42, 42, "https://x/{bookId}")
+	if len(one) != 1 || one[0] != "https://x/42" {
+		t.Fatalf("单元素范围异常: %v", one)
+	}
+	// 跨度截断兜底语义保持: 超上限截至 from..from+span-1
+	big := BuildBookIdQueueFromRange(10, BookIDMaxSpan+50, "https://x/{bookId}")
+	if len(big) != BookIDMaxSpan || big[0] != "https://x/10" {
+		t.Fatalf("超限范围应截断至 %d 条: len=%d first=%s", BookIDMaxSpan, len(big), big[0])
+	}
+}
+
 // ---- 启动校验(书号范围跨度 fail-closed, R51-2-b P1-4) ----
 
 func TestValidateBookIdSpan(t *testing.T) {

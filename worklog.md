@@ -6886,3 +6886,48 @@ Work Log:
 
 Stage Summary:
 - 引擎 /status 与 /tasks 的 Running 语义归一, 控制面 start→409→resume 链路对「引擎暂停态」真实可达; 三任务于新二进制稳定运行
+---
+Task ID: R54-2b
+Agent: general-purpose (TS 侧逐行审查)
+Task: Golang-first 缺省引擎翻转回归 + R53 遗留①收口回归 + TS 采集/反反爬逐行审查抓虫
+
+Work Log:
+- [0] 前置: 读 worklog 末 250 行(R51~R53 各轨基线/R53-5) + agent-ctx/go-engine/CONTRACT.md 全文; 主控本轮两项改动(_shared.ts 缺省引擎翻转 + goFetch notFound 标记/控制面收口)逐 hunk 核对在位; 服务态只读复测(dev 3000=200 / crawler-go 3032 health ok, 1 running); 未触碰 mini-services/** 与 scripts/**, 未 pkill, 未重启 dev server, 未对任务发 control
+- [回归①] TaskDialog.tsx PUT 提交体: 恒带 engine 字段({ ...form } 展开), 值取自表单初始化=任务行原值回显(L97 task.engine==='go'?'go':'ts'; 列表 GET 返回全标量行含 engine, 回显忠实) → 存量 go/ts 任务编辑保存均原值写回, 无静默改写, 判定 PASS 无需 partial 化; 附带发现并修复: ①弹层新建路径 emptyForm.engine 仍为 'ts', 与 TaskWizard R54 翻转('go')不一致 —— 同一「新建任务」双入口双缺省, 翻转意图被第二入口绕过 → 归一 'go'(编辑回显不受影响) ②引擎选择器 TS 卡片文案残留「(缺省)」与翻转后事实相反 → 与向导同口径改写 ③Go+TXT 组合提示补齐(与 TaskWizard L870 同款, 启动时 goEngineControl txt 臂会 ts-fallback, UI 提前告知)
+- [回归②] batch 路由 × notFound 收口: stop→goEngineControl fail 不再产生(notFound 收口 kind:'ok' 含 cancelAutoRefresh+writeStatus stopped) → batch 计 affected, 与单条 control 同语义; pause→notFound 收口条件写 running→paused, 与 TS 路径条件写同构; start 409→resume/不可达→ts-fallback 落回 TaskRunner 原路径逐字节不变 —— 判定 PASS 相容
+- [回归③] 幽灵清扫器(runner.reclaimGhostRunningTasks, R53-3 引擎感知)× notFound 收口语义边界: 发现**双写冲突窗口** —— findMany 快照(仅判 status==='running')与写入之间, 操作员 stop 撞引擎 404 的 notFound 收口先落 stopped / pause 收口先落 paused / Go 回调先写 paused, 修后 sweeper 仍以**无条件 db.task.update** 把上述状态覆写回 interrupted(TS 分支同理可把并发 stop 的 stopped 覆写成 paused); 修复=两分支(引擎感知 interrupted 臂+TS paused 臂)改条件 updateMany(where status==='running')+count!==1 放弃本行 —— 与 recovery.ts 启动期孤儿回收 R31-3「条件写窄化竞态」先例同口径, R53-3「清扫器只处理 DB running 且引擎明确 exists:false 的行」语义不变, 无双写冲突窗口收口
+- [审查] fetcher.ts 五区(反反爬核心): ①looksBlocked/STRONG_BLOCK_MARKERS: JSON 豁免→状态+Server 头联合→isJsChallenge→jsdBenign→强特征→<200B→200~500B 可见文本<50→≥1200+正常标题豁免→4000 字弱特征, 阈值与 CONTRACT §4 及 Go 移植(R51-5 fixture 对齐口径)一致 ②Retry-After: parseRetryAfterHeaderMs 整数秒/HTTP 日期双形态(0 如实返回/溢出 undefined), attach 覆盖 native !ok/3xx 非法 Location/跨 scheme/SSRF 拒绝/curl 三形态/auto 合成错误, RETRY_AFTER_HONOR 缺省开+≥1s 门+双层钳制(hostgate 120s/hostRhythm 20s)+<1s 兜底 30s 全在位 ③镜像 sticky: 键=registrableDomainOf(hostname)/值=组条目/delete+set FIFO 512/整组耗尽清除, 成功出口记账+不可切换错误(404/其余4xx)原样上抛语义完好 ④per-host minGapMs 自适应(hostgate): caller 换代重置/R5-3 冷却快照回滚/R21-d-1 零快照无条件回滚/R6-2 冷却期换代刷新快照/限流冷却抬 gap/admission storm 防护全在位; runner 全部目标站调用点逐次传 jitteredInterval ⑤代理池冷却: 30s×2^(n-1) 钳 300s/成功清零/网络层失败才冷却(源站状态不误责)/代理通道误责豁免先例完好 ⑥RSS 护栏双条件(R53-2c 回归): 唯一触发点 fetchPage 准入段, 单次 memoryUsage() 复用 rss+heapUsed 两读数, 环境变量钳制(RSS_STOP 下限 256/FLOOR ≥0/PAUSE 500~60000)不动, halt(采集堆)/软让路/暂停窗口三路径未混淆 ⑦browserFallbackStatus 归一: types 逐项 safeNum 钳 100~599+slice 10+空数组丢弃, fetcher 缺省 [403,412,429,503] 消费路径一致
+- [审查] parser.ts: constTemplate 算术链(CONST_TPL_RE \d{1,6}/SUFFIX 预检/DANGLING 未闭合/ARITH 白名单)与 CONTRACT §4 fail-closed 逐条吻合(缺变量/空白/非数/非有限/除零/未知算子/空后缀/未闭合→整字段置空; 纯 {name} 不 trim 零回归); ReDoS 覆盖面: regexRuntimeSafe(长度 1000+嵌套量词快筛+200ms 样本预算+512 记忆化)罩住 regexExtract/regexExtractAll/applyTransform, safeReplaceAll 单遍 exec+逐匹配预算+零宽推进 —— 观察一条(不改): 记忆化键仅 pattern 而执行 flags 来自 rule.flags, 理论上同一 pattern 在异 flags 下回溯形态可漂移, 属启发式闸门固有局限且 39 向量/保存期 regexGate 双层在位, 不动
+- [审查] runner.ts: 熔断计数三处(MemoryHaltError 臂 rt.paused 冻结/trip 后清零/wasPaused 恢复门归零)+rt.circuitTrippedAt 60s 冷却+prune 保记忆; metaWorker 局部 cfgNow+cfgMissing 删除保护; saveProgress epoch 门(done%50 节流点/收尾点)+disposeRuntime 防御性 dirty 收口; 章节重排闸经 chapter-reorder 单实现(runner/go-callback 同源); autoRefresh 引擎感知直启(R53-2b-5): 动态 import 防环/fail 重排一次/ts-fallback 落 TS 原路径, 复核臂(存在/autoRefresh/终态)完好
+- [审查] task-log.ts(cap 2000+30s 修剪节流+FIFO 512)/proxy-parts.ts(逐组件解码容错, server 恒无凭证)/chapter-reorder.ts(保守闸=max(50,30%)量闸×creates≤10%签名闸双命中才跳过+tt-c 动态基线+挪尾含 moves.to): 三文件逐行核毕无缺陷
+- [修复2] _go-control.ts start 路径: goTaskStatus 404(notFound)此前落入「状态查询失败」fail 卡死 —— 与 R53 遗留① 收口族(「引擎侧无此任务=无运行体」)不对齐; 修后 !ok && !fallback && !notFound 才 fail, notFound 与 !exists 同语义直接落 goTaskStart 重发(等价断点续采; 契约 §1 现行 status 对不存在任务返 200+exists:false, 本臂为防御面对齐)
+- [门禁] bunx tsc --noEmit 0 错; bun run lint 0 错; verify-r51-const-template 39/39; verify-r51-4-chapter-reorder 33/33 —— 四项全绿; 服务态复测 dev 3000=200/3032 health ok(采集任务未受影响)
+
+Stage Summary:
+- 两项回归判定: ①TaskDialog 恒带 engine 且值取自行原值回显=无静默改写(PASS, 附带修创建缺省不一致+文案+Go/TXT 提示) ②batch notFound 收口相容(PASS) ③清扫器×notFound 发现真实双写冲突窗口并收口(条件写)
+- 改动文件 3(+31/-8, 均 [R54-2b] 注释在位): src/lib/crawl/runner.ts(+12/-3 清扫器两分支条件写)/src/components/admin/TaskDialog.tsx(+14/-4 创建缺省 go 对齐向导+文案+Go/TXT 提示)/src/app/api/admin/tasks/_go-control.ts(+5/-1 start notFound 落 start 对齐收口族)
+- 逐行审查 7 文件(fetcher 5499 行 7 焦点区/parser constTemplate+ReDoS/runner 五机制/三小件)零新缺陷落码; 一条观察记录(regexRuntimeSafe 记忆化键不含 flags)留档不改
+- 遗留: ①regexRuntimeSafe flags 键面(见上, 启发式局限非缺陷) ②TS hostRhythm 429 Retry-After 钳 20s 与 Go 侧 120s 上限不同源(TS 语义权威自洽, 契约 §4 该条为 Go 口径, 不属分叉) ③verify-r49-9-cover 哨兵已在 R53 归档, 本轮未涉
+---
+Task ID: R54-2a
+Agent: general-purpose (Go 侧逐行审查, 传输断连 ×1 后由主控核收补记)
+Task: R53 遗留② lastError 格式瑕疵修复 + crawler-go 逐行审查抓虫（采集+反反爬+超时预算）
+
+Work Log:
+- [核收说明] 代理首次派发实际完成全部修复与测试(产物落盘)但死于收尾(无 worklog 无返回); 二次派发启动超时未执行。主控逐 hunk 核验全部改动 + gofmt -w 归一 task_test.go + 门禁全绿后补记本条
+- [R54-2a-1·R53 遗留②根因修复] callback.go send(): 修前 `if _, err := c.postOnce(...)` 的 err 是 if 作用域遮蔽变量, 循环尾 `lastErr = err` 实际读到外层 json.Marshal 的 err(走到循环说明序列化成功, 恒 nil) —— 重试耗尽后 `fmt.Errorf %w(lastErr=nil)` 产出 "%!w(<nil>)", 真实失败原因全部丢失; 修后显式捕获 attemptErr 再入 lastErr(末次真实原因可追溯) + send()/SendWithDecision() 双路径防御兜底(lastErr==nil 时给确定语义错误, 绝不格式化空错误); 新建 internal/callback/callback_test.go 4 测试回归(含 "%!w(<nil>)" 串不再现断言)
+- [R54-2a-2·竞态修复 removeIfSelf] task.go: 修前 Manager.remove 无条件 delete —— stop 收割落地前同 id 新任务可能已入表(旧任务 run 退出→新 start 抢先入表, 或 60s 收割兜底定时器窗口), 误删新任务致其对 /status /tasks /control 全隐身且可同 id 双跑; 修后 removeIfSelf(id, cur) 身份校验(仅当注册表内该 id 仍指向 cur 才删), stop 收割/终态直接移除/finish() TTL 三路径收敛单一实现; 新增 TestRemoveIfSelfNoIdReuseMisdelete
+- [R54-2a-3·竞态修复 pauseAuto stopped 守卫] task.go: 修前 stop 已表态的任务仍被 pauseAuto 置 paused 并向 Next.js 发 paused 回调(busy 恒真, 同 id start 被 409 拒至收割完成); 修后 t.stopped 直接 return(与手动 pause 的 stopped 守卫同口径); 新增 TestPauseAutoNoopWhenStopped
+- [R54-2a-4·语义对齐 brief Running 排除 stopped] task.go: /tasks 的 Running 排除 stopped(与 R53-5 snapshotLocked 口径完全对齐) —— stop 已表态但 run 协程未退出窗口内不再计 running
+- [R54-2a-5·日志一致性] pipeline.go crawlContentBatches: 行内两次 t.snapshot() 改单次快照(两次读取间 contentDone 被并发批次推进致同行日志 done/total 错位)
+- [R54-2a-6·热路径性能] fingerprint.go: uaFamily/uaPlatformHint 内 4 处每调用 MustCompile 上提为包级编译(edgFamilyRe/iosHintRe/macHintRe/x11HintRe, R52-c P3「热路径 MustCompile」同族), 判定逻辑零变化
+- [R54-2a-7·panic 防护] pages.go BuildBookIdQueueFromRange: 倒置范围归一(from>to 交换) —— 二次防线自身 panic-safe(make 负 cap 修前直接 panic)
+- [超时预算议题] 生产现场 xbqg777 全量 context deadline exceeded(curl 直连 200 正常, 疑 CF tarpit 对 Go 指纹); 本轮未改超时常量(契约 §6 口径勿轻动), 已按 R53 先例重启任务增量重试 + 记录观测
+- [门禁] gofmt -l ./internal/ 空(主控 gofmt -w task_test.go 后) / go vet 0 错 / go test -count=1 ./... 全绿(callback 0.02s / fetch 2.5s / rule 0.09s / task 9.9s); 新增测试 6+: callback_test.go ×4(新建) + TestRemoveIfSelfNoIdReuseMisdelete + TestPauseAutoNoopWhenStopped
+
+Stage Summary:
+- R53 遗留② 闭环: lastError "%!w(<nil>)" 根因=变量遮蔽(lastErr 恒 nil), 双路径修复+防御兜底+4 回归测试
+- 竞态修复 ×2: removeIfSelf 身份校验(防 id 复用误删→同 id 双跑), pauseAuto stopped 守卫(防停后拉回 paused)
+- 语义/性能/防护: brief 排除 stopped、批次日志单快照、热路径正则上提、倒置范围 panic 防护
+- 引擎二进制未重建(运行中任务不受扰); 新二进制随轮末受控部署生效
+- 遗留: 超时预算调整待契约口径决策(xbqg777 tarpit 观测中); go test 未加 -race(既有口径)

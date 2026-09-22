@@ -656,3 +656,69 @@ func TestContentTotalResumeAccounting(t *testing.T) {
 		}
 	})
 }
+
+// ---------------- [R54-2a] 收割误删/pauseAuto 守卫单测 ----------------
+
+// TestRemoveIfSelfNoIdReuseMisdelete [R54-2a] stop 收割/终态 TTL 出表的身份校验:
+// 注册表内同 id 条目已被新任务替换时, 旧任务的双重移除路径不得误删新任务条目
+// (修前 stop 收割为无条件 delete —— 收割落地与新 start 入表交错时新任务对
+// /status、/tasks、/control 全部隐身)
+func TestRemoveIfSelfNoIdReuseMisdelete(t *testing.T) {
+	m := NewManager()
+	old := &Task{ID: "t-reuse"}
+	fresh := &Task{ID: "t-reuse"}
+	// 交错窗口现场: 旧任务 run 退出/60s 兜底到期前, 同 id 新任务已抢先入表
+	// (注册表内条目=fresh, 收割方持 old 引用)
+	m.mu.Lock()
+	m.tasks["t-reuse"] = fresh
+	m.mu.Unlock()
+
+	// 旧任务收割落地: 注册表内已是新任务 → 拒绝删除
+	m.removeIfSelf("t-reuse", old)
+	m.mu.Lock()
+	cur, ok := m.tasks["t-reuse"]
+	m.mu.Unlock()
+	if !ok || cur != fresh {
+		t.Fatalf("旧任务收割不得误删同 id 新任务条目: ok=%v cur==fresh=%v", ok, cur == fresh)
+	}
+	if cur.busy() {
+		t.Fatal("fresh 为裸 Task, busy 应为 false")
+	}
+
+	// 新任务自身收割: 命中删除
+	m.removeIfSelf("t-reuse", fresh)
+	m.mu.Lock()
+	_, ok = m.tasks["t-reuse"]
+	m.mu.Unlock()
+	if ok {
+		t.Fatal("新任务自身收割应删除条目")
+	}
+
+	// 空 id/不存在条目: 幂等无 panic
+	m.removeIfSelf("t-missing", &Task{ID: "t-missing"})
+}
+
+// TestPauseAutoNoopWhenStopped [R54-2a] pauseAuto 的 stopped 守卫: 已停任务不得被
+// 回调失败路径拉回 paused 态(busy 恒真 → 同 id start 被 409 拒至收割完成)且不再
+// 覆写 lastError(终态现场保持)
+func TestPauseAutoNoopWhenStopped(t *testing.T) {
+	tt := &Task{ID: "t-pa-stopped"}
+	tt.mu.Lock()
+	tt.stopped = true
+	tt.mu.Unlock()
+	// 裸 Task 的 cb 为 nil —— 若守卫缺失, 后续 asyncStatus/logf 路径将 nil 解引用,
+	// 测试自身即守卫的回归探针
+	tt.pauseAuto("contents 回调失败: 模拟")
+	// busy() 自带锁 —— 不得持 t.mu 调用(修前测试自身在此自锁死锁)
+	if tt.busy() {
+		t.Fatal("stopped+未暂停任务不应判 busy")
+	}
+	tt.mu.Lock()
+	defer tt.mu.Unlock()
+	if tt.paused {
+		t.Fatal("stopped 任务不得被 pauseAuto 置回 paused")
+	}
+	if tt.lastError != "" {
+		t.Fatalf("stopped 任务 lastError 不应被覆写: %q", tt.lastError)
+	}
+}

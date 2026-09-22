@@ -239,10 +239,17 @@ func (m *Manager) UptimeMs() int64 {
 	return time.Since(m.startedAt).Milliseconds()
 }
 
-// remove 从注册表移除(仅 stop 收割/终态 TTL 用)
-func (m *Manager) remove(id string) {
+// removeIfSelf 身份校验移除(仅当注册表内该 id 仍指向 cur 才删)。
+// [R54-2a] stop 收割与终态 TTL 双路径共用 —— 修前 stop 收割走无条件 remove(delete id),
+// 若收割落地前同 id 新任务已被替换入表(旧任务 run 退出 → running=false → 新 start 抢先
+// 入表; 或 60s 兜底定时器期间新 start 重建), 会误删新任务条目 → 新任务对
+// /status、/tasks、/control 全部隐身且可被再次重建(同 id 双跑)。finish() 的 TTL 路径
+// 本就有身份校验(仅当注册表内仍是本任务才删), 本方法把该口径收敛为单一实现
+func (m *Manager) removeIfSelf(id string, cur *Task) {
 	m.mu.Lock()
-	delete(m.tasks, id)
+	if t, ok := m.tasks[id]; ok && t == cur {
+		delete(m.tasks, id)
+	}
 	m.mu.Unlock()
 }
 
@@ -337,7 +344,9 @@ func (t *Task) snapshotLocked() StatusInfo {
 func (t *Task) brief() TaskBrief {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return TaskBrief{ID: t.ID, Running: t.running && !t.paused, Phase: t.phase, RssMB: RSSMB()}
+	// [R54-2a] Running 排除 stopped(与 snapshotLocked R53-5 口径完全对齐): stop 已表态
+	// 但 run 协程尚未退出/收割的窗口内, /tasks 不应把该任务计为 running
+	return TaskBrief{ID: t.ID, Running: t.running && !t.paused && !t.stopped, Phase: t.phase, RssMB: RSSMB()}
 }
 
 // gate 暂停/停止等待门: 在书籍/批次循环边界调用(契约 §5: pause=跑完在飞批次后挂起)。
@@ -407,15 +416,16 @@ func (m *Manager) stop(t *Task) (string, error) {
 	t.cancel()
 	if wasRunning {
 		// 异步收割: run 协程自然退出(在飞请求随 ctx 取消)后移出注册表
+		// [R54-2a] 身份校验移除: 收割落地前同 id 新任务可能已入表(见 removeIfSelf 注)
 		go func() {
 			select {
 			case <-t.exitCh:
 			case <-time.After(60 * time.Second): // 兜底: 极端挂死也不永久泄漏
 			}
-			m.remove(t.ID)
+			m.removeIfSelf(t.ID, t)
 		}()
 	} else {
-		m.remove(t.ID) // 已终态: 直接移除
+		m.removeIfSelf(t.ID, t) // 已终态: 直接移除(同 id 复用防误删口径一致)
 	}
 	t.logf("warn", "任务停止(注册表移除中)")
 	return "stopped", nil
@@ -425,6 +435,13 @@ func (m *Manager) stop(t *Task) (string, error) {
 // 与手动 pause 相同: 在飞批次完成后在循环边界挂起; 恢复后从断点(重试当前书/批)续采
 func (t *Task) pauseAuto(reason string) {
 	t.mu.Lock()
+	// [R54-2a] stop 已表态则不拉回 paused 态(与手动 pause 的 stopped 守卫同口径):
+	// 修前已停任务仍会被置 paused(busy 恒真, 同 id start 被 409 拒至收割完成)且向
+	// Next.js 发出 paused 状态回调(依赖对端终态条件写兜底)
+	if t.stopped {
+		t.mu.Unlock()
+		return
+	}
 	already := t.paused
 	t.paused = true
 	t.lastError = reason

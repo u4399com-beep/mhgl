@@ -1,3 +1,6 @@
+// [R54] 模块化声明: 顶层 BASE/PASSWORD 不泄漏进 TS 全局脚本聚合作用域(与 seed-rules-batch-v2.ts 撞名, tsc 2451/2393)
+export {}
+
 // 种子脚本: 霹雳书屋 (www.pilishuwu.com) 采集规则
 // 用法: bun run scripts/seed-rule-pilishuwu.ts
 //

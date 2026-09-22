@@ -813,6 +813,13 @@ const BookIDMaxSpan = 100000
 // 10 万级书号构建仅产生 URL 串(契约内存纪律: 队列只是 URL 串, 平稳可控);
 // 跨度超 BookIDMaxSpan 时截断+warn 兜底(正常路径由 Validate 先行 fail-closed 拒绝)
 func BuildBookIdQueueFromRange(from, to int64, template string) []string {
+	// [R54-2a] 倒置范围归一(from>to 交换): 正常路径 Validate/buildBookIdsQueue 已先行
+	// 归一+跨度校验, 本函数作为"二次防线"自身必须 panic-safe —— 修前倒置入参使
+	// make(…, 0, to-from+1) 收到负 cap 直接 panic(虽有 run 协程 recover 兜底, 但
+	// fail-closed 兜底路径自身崩 panic 属口径缺陷); 归一后语义与调用方一致
+	if to < from {
+		from, to = to, from
+	}
 	truncated := false
 	if to-from+1 > BookIDMaxSpan {
 		to = from + BookIDMaxSpan - 1

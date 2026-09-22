@@ -474,3 +474,46 @@ func Test4xxShellNoMirrorSwitch(t *testing.T) {
 		t.Fatalf("400 应喂目标 host 连败链(与代理误责豁免相区分): fails=%d, want 1", fails)
 	}
 }
+
+// TestUAFamilyAndPlatformHints [R54-2a] uaFamily/uaPlatformHint 判定锚(热路径正则
+// 上提为包级编译后的行为回归): Edge UA 走 chromium 臂(\bEdg\b), 旧版 Edge 不误判,
+// 无家族标记判 unknown; 平台推导按 UA 段自洽(iOS/macOS/Linux/缺省 Windows)
+func TestUAFamilyAndPlatformHints(t *testing.T) {
+	edgeChromium := "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36 Edg/137.0.0.0"
+	if got := uaFamily(edgeChromium); got != "chromium" {
+		t.Fatalf("Edge UA 应判 chromium(\\bEdg\\b 臂): %s", got)
+	}
+	if got := uaPlatformHint(edgeChromium); got != "Windows" {
+		t.Fatalf("Edge/Windows 平台推导 = %s, want Windows", got)
+	}
+	// 旧版 EdgeHTML("Edge/18"): 无 Chrome/ 且 \bEdg\b 不命中 "Edge"(e 为词字符) → unknown
+	if got := uaFamily("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Edge/18.18363"); got != "unknown" {
+		t.Fatalf("旧版 EdgeHTML 应判 unknown: %s", got)
+	}
+	if got := uaFamily("Mozilla/5.0 (X11; Linux x86_64; rv:126.0) Gecko/20100101 Firefox/126.0"); got != "firefox" {
+		t.Fatalf("Firefox UA 应判 firefox: %s", got)
+	}
+	// 无任何家族标记 → unknown(不误判)
+	if got := uaFamily("Mozilla/5.0 (X11; Linux x86_64)"); got != "unknown" {
+		t.Fatalf("无家族标记应判 unknown: %s", got)
+	}
+	// 平台推导: iOS 优先于 Chrome 段(移动 UA), macOS/Linux/Android 各归其位
+	iphone := "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1"
+	if got := uaPlatformHint(iphone); got != "iOS" {
+		t.Fatalf("iPhone UA 平台 = %s, want iOS", got)
+	}
+	macSafari := "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15"
+	if got := uaPlatformHint(macSafari); got != "macOS" {
+		t.Fatalf("Mac UA 平台 = %s, want macOS", got)
+	}
+	android := "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Mobile Safari/537.36"
+	if got := uaPlatformHint(android); got != "Android" {
+		t.Fatalf("Android UA 平台 = %s, want Android", got)
+	}
+	if got := uaPlatformHint("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/137.0.0.0 Safari/537.36"); got != "Linux" {
+		t.Fatalf("Linux UA 平台 = %s, want Linux", got)
+	}
+	if !isMobileUA(iphone) || isMobileUA(edgeChromium) {
+		t.Fatal("isMobileUA 判定异常")
+	}
+}

@@ -152,15 +152,10 @@ func (t *Task) finish() {
 
 	close(t.exitCh)
 	// 终态任务保留 10 分钟供 status 查询, 之后自动出注册表(防长生命周期累积);
-	// stop 已先行安排收割, 双路径幂等(仅当注册表内仍是本任务才删, 防 id 复用误删)
-	id := t.ID
-	mgr := t.mgr
+	// stop 已先行安排收割, 双路径幂等([R54-2a] 收敛到 removeIfSelf 单一实现:
+	// 仅当注册表内仍是本任务才删, 防 id 复用误删)
 	time.AfterFunc(terminalTTLMs, func() {
-		mgr.mu.Lock()
-		if cur, ok := mgr.tasks[id]; ok && cur == t {
-			delete(mgr.tasks, id)
-		}
-		mgr.mu.Unlock()
+		t.mgr.removeIfSelf(t.ID, t)
 	})
 }
 
@@ -505,8 +500,11 @@ func (t *Task) crawlContentBatches(bookURL, bookName, tocURL string, needURLs []
 			t.contentDone += len(results)
 			t.mu.Unlock()
 		}
+		// [R54-2a] 单次快照: 修前行内连调两次 t.snapshot(), 两次读取间 contentDone
+		// 可能被并发批次推进 → 同一行日志 done/total 口径错位(纯日志面一致性)
+		snap := t.snapshot()
 		t.logf("info", "《%s》批次 #%d: %d 线程 × %d 章, 成功 %d(累计 %d/%d)",
-			bookName, batchNo, threads, len(batch), len(results), t.snapshot().Progress.ContentDone, t.snapshot().Progress.ContentTotal)
+			bookName, batchNo, threads, len(batch), len(results), snap.Progress.ContentDone, snap.Progress.ContentTotal)
 		t.sendProgress(false)
 
 		// ---- 批间间隔(intervalMin..intervalMax 随机 + jitterMs); 末批不睡 ----
