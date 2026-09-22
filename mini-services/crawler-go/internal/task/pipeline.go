@@ -135,10 +135,16 @@ func (t *Task) finish() {
 	snap := t.snapshotLocked()
 	t.mu.Unlock()
 
-	// 终态状态回调(决策面; 失败仅本地留痕——进程重启后 Next.js 重发 start 天然幂等)
+	// 终态状态回调(决策面)。[R54-2a] 修前 `_ =` 静默吞错 —— 生产实证: done 回调丢失时 DB
+	// 永久卡 running(autoRefresh/清扫器自愈链均依赖 DB 终态), 操作员只能靠引擎 /status 才能发现
+	// 分歧。失败必须留痕; 不在收尾路径重试(进程重启后 Next.js 重发 start 天然幂等)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	_ = t.cb.Status(ctx, final, note)
-	_ = t.cb.SendProgress(ctx, t.progressPayloadNow(), true)
+	if err := t.cb.Status(ctx, final, note); err != nil {
+		t.logf("error", "终态状态回调失败(status=%s): %v —— DB 侧状态未迁移, 请手动 start(增量幂等)或核查 go-callback 链路", final, err)
+	}
+	if err := t.cb.SendProgress(ctx, t.progressPayloadNow(), true); err != nil {
+		t.logf("warn", "终态进度回调失败: %v", err)
+	}
 	cancel()
 	level := "success"
 	if final == "stopped" || final == "paused" {
