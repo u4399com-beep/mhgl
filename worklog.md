@@ -6931,3 +6931,26 @@ Stage Summary:
 - 语义/性能/防护: brief 排除 stopped、批次日志单快照、热路径正则上提、倒置范围 panic 防护
 - 引擎二进制未重建(运行中任务不受扰); 新二进制随轮末受控部署生效
 - 遗留: 超时预算调整待契约口径决策(xbqg777 tarpit 观测中); go test 未加 -race(既有口径)
+---
+Task ID: R54（主控收口）
+Agent: Z.ai Code 主控
+Task: ①整体Golang化(Golang-first落地) ④⑤全面审查+多代理抓虫 ⑥清理整合 + 沙箱重置全量恢复
+
+Work Log:
+- [环境] 沙箱三度重置: DB 整库清空(0 任务/0 书/0 章)+go-sdk 丢失+crawler-go 进程死亡(二进制幸存)+Prisma 缓存失效; dev server 以非常规命令启动(tee /tmp/mhgl-dev.log)且在重门禁期间死亡一次(OOM 压力), 已按标准流程重建
+- [①Golang-first] 框架层强约束(Next.js 16 不可换)下取等效最优: normalizeTaskData full 模式缺省/非法引擎值归一 'go'(修前 'ts')+TaskWizard/TaskDialog 双入口缺省对齐+文案标注缺省 —— 新任务整体默认下沉 Go 引擎; TS 保留为显式选项+不可达/能力不符自动回退; 三大部头全 engine=go 运行实证
+- [恢复链固化] 新建 scripts/bootstrap-db.ts: 登录→import-builtin 35 规则→默认站点(localhost/aijjxs)→三大部头任务幂等创建(yueyouxs bookIds 23070+23069 / xyetianlian range fenlei/1/{page} / xbqg777 bookIds 34807+34808 降速参数 1 线程 1.5~4s)→可选 --start; 第二次手工重建经验固化为一键命令; 修 scripts/seed-rule-pilishuwu.ts 全局作用域撞名(export {} 模块化, tsc 2451/2393 存量 3 错清零)
+- [R54-2b(TS 侧代理, 3 文件 +31/-8)] 清扫器两分支无条件 update→条件 updateMany(防与 notFound 收口/回调双写冲突窗口)+TaskDialog 新建缺省 engine 'go'(修前弹层恒发 'ts' 绕过翻转)+_go-control start 路径 notFound 对齐(goTaskStart 重发); 回归①TaskDialog PUT engine 回显忠实无静默改写/回归②batch×notFound 相容/回归③清扫器双写窗口已封; 遗留留档: regexRuntimeSafe 记忆化键不含 flags(启发式闸固有局限)/TS Retry-After 钳 20s 与 Go 120s 数值不同源(语义权威各自自洽)
+- [R54-2a(Go 侧, 代理传输断连×1 主控核收补记)] ①R53 遗留②根因: callback.go send() 变量遮蔽(if 作用域 err vs 外层 json.Marshal err 恒 nil)→ lastErr 恒 nil → "%!w(<nil>)"; 修后显式 attemptErr+双路径防御兜底+新建 callback_test.go ×4 ②removeIfSelf 身份校验移除(防 stop 收割窗口同 id 新任务被误删→对控制面全隐身+同 id 双跑)+TestRemoveIfSelfNoIdReuseMisdelete ③pauseAuto stopped 守卫(防停后拉回 paused+幽灵回调)+TestPauseAutoNoopWhenStopped ④brief Running 排除 stopped(对齐 R53-5) ⑤批次日志单快照 ⑥fingerprint 热路径 4 处 MustCompile 上提包级 ⑦BuildBookIdQueueFromRange 倒置范围 panic 防护; 门禁 gofmt/vet/test 全绿(+204/-28, 8 文件)
+- [生产实证新缺陷→即时修复] 引擎 finish() 终态回调 `_ =` 静默吞错: done 回调丢失时 DB 永久卡 running(autoRefresh/清扫器自愈链全失灵, 本次手工补发 status 回调修复); 修后失败必 logf 留痕(error 级+操作指引)
+- [ts-fallback 事故复盘] 14:51 引擎重建窗口内重启 xbqg777 → goTaskStatus/Start 连接拒绝 → 静默降级 TS 进程内采集(带 warn 日志但主控未察), 黄金瞳 1223 章在 1.9GB dev server 进程内采至 15:05(反模式实证); 处置: stop(TS 侧)→start(Go 引擎已就绪)→黄金瞳 1163 章回 Go 引擎开采; 教训入档: 引擎重建窗口(30~60s)内的 start 会触发 ts-fallback, 大部头任务重启前必须确认引擎 health ok, 或事后核对 taskLog「回退 TS 引擎」warn
+- [采集战果] yueyouxs done 2499/2499 errors=0; xyetianlian done books 6/6(万古神帝 4236 章正文全填充——R53 遗留⑥自愈+明若 612+左道修仙 428+女帝转生 414); xbqg777 掌中之物 142/142(重启后 CF tarpit 解除自动补齐)+黄金瞳 1223 章入库回 Go 缓采; DB 终态 books=10+ chapters=13279 withContent 91%; CF 态势: 书籍页间歇 tarpit(context deadline exceeded)+章节页间歇 403 Just a moment, 降速参数下均能自行放行(R53 先例复现)
+- [浏览器自检] / 管理登录页渲染 ✓ → /book/6.html 万古神帝页(标题/作者/分类/简介全对) ✓ → 「在线阅读全文」展开第 1 章正文全链渲染 ✓ → 移动端 390px 无横向溢出+页脚长页自然推底 ✓ → 零 console 错误
+- [门禁] tsc 0(含存量 pilishuwu 撞名清零)/lint 0/verify 39+33/go vet+test 全绿/gofmt 合规
+- [推送] 4 批: 8e5daac(R54 Golang-first+遗留①收口+引导脚本) 9036b5d(R54-2a 引擎修复) 8fc68fd(二进制) 5ea271d+8049053(回调留痕+收口) → github.com/u4399com-beep/mhgl main
+
+Stage Summary:
+- ①「整体改 Golang」以 Golang-first 策略落地: 新任务缺省 Go 引擎+三大部头全部 Go 引擎实战运行, 框架层约束下 Go 职责面最大化
+- ④⑤审查闭环: TS 侧 3 修复(清扫器双写/TaskDialog 缺省/start notFound)+Go 侧 7 修复(遗留②根因+removeIfSelf 竞态+pauseAuto 守卫等)+生产实证 2 缺陷即时修复(终态回调吞错/_ts-fallback 复盘)
+- ⑥清理整合: bootstrap-db.ts 一键恢复链固化(第二次 DB 清空经验)+tsc 存量撞名清零+run.sh 多实例抢端口按 PPID 协议再清一次
+- 遗留新增: 引擎重建窗口 ts-fallback 静默降级(操作纪律规避, 长期可在控制面加引擎健康预检)/CF 态势长观测(书籍页 tarpit+章节页 403 交替); 既有遗留沿用: TLS 指纹/付费代理池待决策/curl_cffi 缺失
