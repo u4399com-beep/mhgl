@@ -6874,3 +6874,15 @@ Stage Summary:
 - ①②③④⑤⑥ 全闭环: 三站大部头稳定运行于 Go 引擎(RSS 12~26MB vs dev 2GB+, OOM 根除)+P3 择优 8 修 2 核+生产级 P1(R53-4 完结书跳过)与幽灵清扫误杀双修复+推送 GitHub 两批
 - 门禁: tsc 0/lint 0/verify 39+33/go vet+test 全绿(+R53-2a2 新增 5 测试)/gofmt 合规; 引擎 health ok(rssMB 26, 2 running+1 paused-flip)
 - 遗留: ①engine='go' 任务 stop 撞引擎 404 未回落 TS 原路径(control 语义缺口) ②引擎 contents 回调偶发超时重试成功(lastError 残留"%!w(<nil>)"格式瑕疵) ③xbqg777 CF 态势需长观测(降速参数已配) ④curl_cffi 缺失致 TS impersonate 桥不可用(TLS 指纹议题与 Go 引擎无关) ⑤TaskMonitor chips 零值隐藏设计未在真实 blocked>0 场景实证 ⑥万古神帝 4236 章 0 填充等大部头继续增量(以 Task 表终态为准)
+---
+Task ID: R53-5（主控补遗）
+Agent: Z.ai Code 主控
+Task: 引擎 /status Running 语义分歧修复(paused 死锁)+受控部署
+
+Work Log:
+- 生产复现: 仙侠天恋在 dev 重启窗口回调失败被引擎自挂起(paused)后, 控制面 start 恒报「任务已在运行中」——引擎 snapshotLocked 的 Running=t.running&&!t.stopped 与 brief/health 的 running&&!paused 语义分裂, paused 任务被 start 守卫挡在 resume 路径外(死锁); 现场以直连引擎 POST /task/{id}/control resume 解锁
+- 修复: task.go snapshotLocked Running 排除 paused(对齐 brief), 注释留档; 新增 TestStatusRunningExcludesPaused(运行中 true/paused 后 exists=true 且 running=false/brief 一致性锚)
+- 门禁: gofmt 合规/vet 0/全量 go test(-count=1) 全绿; 受控部署: 三任务 stop→run.sh 重建→engine health ok(RSS 26MB)→start×3 全部恢复增量续跑
+
+Stage Summary:
+- 引擎 /status 与 /tasks 的 Running 语义归一, 控制面 start→409→resume 链路对「引擎暂停态」真实可达; 三任务于新二进制稳定运行

@@ -309,8 +309,12 @@ func (t *Task) snapshotLocked() StatusInfo {
 	stats.Blocked = t.fetcher.BlockedCount()         // 可观测: 拦截页命中(fetch 层原子计数)
 	stats.RateLimited = t.fetcher.RateLimitedCount() // 可观测: 429/503 收到
 	return StatusInfo{
-		Exists:  true,
-		Running: t.running && !t.stopped,
+		Exists: true,
+		// [R53-5] Running 语义与 brief(/tasks)/health 对齐: 排除 paused —— 修前 paused 任务在
+		// /status 恒报 running=true, Next.js start 守卫(_go-control「running → 拒绝」)据此把
+		// 引擎侧暂停任务(如回调失败自挂起)挡在 resume 路径之外, 操作员无法从控制面恢复(死锁);
+		// brief 早已是 running&&!paused, 两口必须一致(R53 生产实测复现)
+		Running: t.running && !t.stopped && !t.paused,
 		Phase:   t.phase,
 		Progress: Progress{
 			Phase:        t.phase,

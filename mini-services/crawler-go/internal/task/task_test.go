@@ -399,6 +399,51 @@ func TestE2ERangeDiscovery(t *testing.T) {
 }
 
 // TestPauseStopControl 控制面: pause 挂起后 resume 完成 / stop 终止
+// [R53-5] Status().Running 语义必须排除 paused(与 brief/health 一致): paused 任务若在
+// /status 恒报 running=true, Next.js start 守卫会把引擎侧暂停任务挡在 resume 路径外(死锁)。
+func TestStatusRunningExcludesPaused(t *testing.T) {
+	site, rc, mgr, mock := e2eHarness(t)
+	p := rule.TaskStartPayload{
+		Task: rule.TaskInfo{ID: "t-runsem", Mode: "bookIds",
+			BookURL: site + "/book/{bookId}.html", BookIds: []string{"1", "2", "3"},
+			RecrawlMode: "incremental", StorageMode: "db", ThreadMin: 1, ThreadMax: 1, IntervalMin: 300, IntervalMax: 300},
+		Rule:     rc,
+		Callback: rule.CallbackInfo{BaseURL: mock.srv.URL, Secret: callback.DefaultSecret},
+	}
+	if err := mgr.Start(p); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	// 运行中: /status running=true
+	if st := mgr.Status("t-runsem"); !st.Exists || !st.Running {
+		t.Fatalf("运行中 Status: exists=%v running=%v, want true/true", st.Exists, st.Running)
+	}
+	// pause 后: exists 仍 true(任务未收割), running 必须翻 false
+	if _, err := mgr.Control("t-runsem", "pause"); err != nil {
+		t.Fatalf("pause: %v", err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if st := mgr.Status("t-runsem"); st.Exists && !st.Running {
+			break // 已到 paused 态
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if st := mgr.Status("t-runsem"); !st.Exists {
+		t.Fatalf("paused 后 exists=false, 任务不应被收割")
+	} else if st.Running {
+		t.Fatalf("paused 后 /status running=true —— Running 语义未排除 paused(契约分歧复现)")
+	}
+	// brief(/tasks 面)同样 running=false(既有语义, 双面一致性回归锚)
+	for _, b := range mgr.List() {
+		if b.ID == "t-runsem" && b.Running {
+			t.Fatalf("paused 任务 brief.Running=true, 与 /status 分歧")
+		}
+	}
+	if _, err := mgr.Control("t-runsem", "stop"); err != nil {
+		t.Fatalf("stop: %v", err)
+	}
+}
+
 func TestPauseStopControl(t *testing.T) {
 	site, rc, mgr, mock := e2eHarness(t)
 	// 间隔拉大, 保证 pause 有窗口切入
