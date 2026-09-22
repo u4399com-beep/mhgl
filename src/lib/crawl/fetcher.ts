@@ -760,7 +760,12 @@ globalForOom.__novelOomBackpressure_v1 = oomBackpressure
 // 1.5GB 阈值, 既有背压全程未触发。两档:
 //  高水位 FETCH_RSS_STOP_MB(缺省 2100[R48-2: 需高于 halt, 仅 halt 被显式禁用时才可触达
 //  的兜底], 下限 256): 暂停新请求窗口 FETCH_RSS_PAUSE_MS(缺省 8000, 钳 [500,60000]),
-//  协调机制复用 R8-19 同款(第一发现者睡满窗口并置标志, 并发请求等窗口结束不重复睡);
+//  协调机制复用 R8-19 同款(第一发现者睡满窗口并置标志, 并发请求等窗口结束不重复睡)。
+//  [R53-2c] 双条件门: RSS 超高水位 且 heapUsed 超 FETCH_RSS_HEAP_FLOOR_MB(缺省 400)
+//  才暂停 —— Bun dev 进程基线 RSS 即 ~2.0~2.3GB 且不向 OS 归还(heapUsed 仅 116~307MB,
+//  GC 无法压 RSS), 单 RSS 条件在 dev 每窗口恒触发(日志刷屏+任务每窗被无谓降速 8000ms);
+//  真实采集压测(R52-6 四大部头并发)heapUsed 远超地板仍会触发, 4GB 沙箱 R52-6 实录
+//  RSS≈2.2GB+ OS OOM 的保护面保留
 // [R48-1] 硬性内存熔断层(在上述软背压之上, 全部水位从低到高):
 //  soft(1550 软让路+降并发) < halt(1900 硬熔断) < stop(2100 兜底窗口) < 实测 kill 线(≈2100+)
 //  halt 触发 = 快速失败(throw MemoryHaltError) + 立即回收 Obscura 空闲 ctx + 冷却窗口;
@@ -785,8 +790,14 @@ const rssSoftStreak = globalForRssBp.__novelRssSoftStreak_v1 ?? { streak: 0 }
 globalForRssBp.__novelRssSoftStreak_v1 = rssSoftStreak
 
 const RSS_STOP_MB = Math.max(256, Number(process.env.FETCH_RSS_STOP_MB) || 2100)
+// [R53-2c] RSS 暂停门的 heapUsed 配套地板(双条件门第二臂, FETCH_RSS_HEAP_FLOOR_MB 可覆盖):
+// 单看 RSS 在 Bun dev 恒误报(基线 RSS ~2.0~2.3GB 不向 OS 归还, heapUsed 仅 116~307MB);
+// 真实采集压测 heapUsed 远超 400MB。取值需低于真实采集压测 heapUsed 下限、高于 dev 空转
+// 基线上限。置极小值(如 1)可等效退回单 RSS 条件的旧行为
+const RSS_HEAP_FLOOR_MB = Math.max(0, Number(process.env.FETCH_RSS_HEAP_FLOOR_MB) || 400)
 const RSS_PAUSE_MS = Math.min(60_000, Math.max(500, Number(process.env.FETCH_RSS_PAUSE_MS) || 8_000))
 const RSS_STOP_BYTES = RSS_STOP_MB * 1024 * 1024
+const RSS_HEAP_FLOOR_BYTES = RSS_HEAP_FLOOR_MB * 1024 * 1024
 
 // ---------- [R49-10] 护栏口径重构: 采集堆内存(crawlMem) ----------
 // 实测判据(本沙箱 dev 模式, R49-10): fetcher 图加载点 RSS=1658MB 而 heapUsed 仅 168MB ——
@@ -1005,7 +1016,8 @@ if (!globalForRssBp.__novelMemHaltCfgLogged_v1) {
   globalForRssBp.__novelMemHaltCfgLogged_v1 = true
   console.log(
     `[fetcher] 内存护栏配置: [R49-10 口径=采集堆] 软让路${CRAWL_MEM_SOFT_MB}MB → 硬熔断${CRAWL_MEM_HALT_MB > 0 ? `${CRAWL_MEM_HALT_MB}MB(恢复${CRAWL_MEM_RESUME_MB}MB, 冷却${Math.round(RSS_HALT_COOLDOWN_MS / 1000)}s)` : '禁用'}(heapUsed+arrayBuffers+external, GC可自愈) ` +
-    `| 进程RSS兑底暂停窗口${RSS_STOP_MB}MB | 自动降并发${CONCURRENCY_AUTO ? '开' : '关'}(FETCH_CONCURRENCY_AUTO 可调) ` +
+    // [R53-2c] RSS 兑底窗口改双条件门(RSS 超高水位 且 heapUsed 超地板才暂停)
+    `| 进程RSS兑底暂停窗口${RSS_STOP_MB}MB(双条件门: 且heapUsed>${RSS_HEAP_FLOOR_MB}MB, 防 Bun dev RSS 基线不归还误报) | 自动降并发${CONCURRENCY_AUTO ? '开' : '关'}(FETCH_CONCURRENCY_AUTO 可调) ` +
     `| 显式GC${typeof (globalThis as { gc?: unknown }).gc === 'function' ? '可用(NODE_OPTIONS=--expose-gc)' : '不可用(仅护栏无主动降压)'}` +
     // [R49-10] 图加载点内存构成观测: heapUsed 高=JS 活对象(走回收/减活路线); RSS-heap 高=
     //  Turbopack dev 原生缓存/非堆(只能走降基线路线: 子进程隔离/减依赖图)
@@ -4705,15 +4717,22 @@ export async function fetchPage(url: string, cfgOverride?: Partial<FetchConfig>)
       } catch { /* memoryUsage 失败容忍 */ }
 
       // [R31-2b-4] RSS 维度背压(缺省启用, OS 级兑底; [R49-10] 软让路已切采集堆口径):
-      // 高水位(RSS>2100) → R8-19 同款暂停窗口; 低水位 → 采集堆概率性软让路。
+      // [R53-2c] 双条件门: RSS>RSS_STOP_MB 且 heapUsed>RSS_HEAP_FLOOR_MB 才进 R8-19 同款
+      // 暂停窗口 —— Bun dev 进程基线 RSS 即 ~2.0~2.3GB 且不向 OS 归还(heapUsed 仅
+      // 116~307MB), 单 RSS 条件每窗口恒触发 = 基线空转误报(dev.log 刷屏+任务每窗无谓
+      // 降速 8000ms); 真实采集压测(R52-6)heapUsed 远超地板仍会触发, OOM 兑底保护面保留。
+      // RSS 高但 heap 低于地板(基线空转) → 走下方采集堆概率性软让路(设计内路径)。
+      // 注意区分: 硬熔断 halt(checkMemoryHalt, 采集堆口径, throw 快速失败)在准入段更早
+      // 执行且语义独立, 与本暂停窗口路径互不混淆
       try {
-        const rss = process.memoryUsage().rss
-        if (rss > RSS_STOP_BYTES) {
+        const mem = process.memoryUsage()
+        const rss = mem.rss
+        if (rss > RSS_STOP_BYTES && mem.heapUsed > RSS_HEAP_FLOOR_BYTES) {
           if (!rssBackpressure.active) {
             // 第一发现者: 置标志 + 睡满窗口(给 GC/native 侧回收让出调度窗口)
             rssBackpressure.active = true
             rssBackpressure.until = Date.now() + RSS_PAUSE_MS
-            console.warn(`[fetcher] 内存压力(RSS=${Math.round(rss / 1024 / 1024)}MB > 高水位${RSS_STOP_MB}MB), 暂停 ${RSS_PAUSE_MS}ms(并发请求将等待本窗口结束)`)
+            console.warn(`[fetcher] 内存压力(RSS=${Math.round(rss / 1024 / 1024)}MB > 高水位${RSS_STOP_MB}MB 且 heapUsed=${Math.round(mem.heapUsed / 1024 / 1024)}MB > 地板${RSS_HEAP_FLOOR_MB}MB), 暂停 ${RSS_PAUSE_MS}ms(并发请求将等待本窗口结束)`)
             await new Promise((r) => setTimeout(r, RSS_PAUSE_MS))
             rssBackpressure.active = false
           } else {

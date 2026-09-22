@@ -6837,3 +6837,40 @@ Stage Summary:
 - 测试清单(+312 行, 仅动 *_test.go): fetch_test.go ×3 —— TestProxyChannelErrorExempt(errors.As 打标/死代理豁免集成/直连喂闸对照)/TestStickyKeyStripsPort(registrableDomain("host:port")×Hostname 口径组合断言+带端口命中/异端口/子域/clear 五行为)/Test4xxShellNoMirrorSwitch(400 壳失败口径+不换镜像+喂闸对照); task_test.go ×2 —— TestAppendNeedDedup(五臂保序去重)/TestContentTotalResumeAccounting(首入/典型续跑/新增章抬升/站回撤/换书重置五子测试)
 - 门禁: gofmt -l ./internal/ 空 / go vet ./... 0 错 / go test -count=1 ./... 全绿; 红线合规: 非测试文件零改动/引擎未重启/零 pkill
 - 遗留: ①修复#4 封面跳过面无本轮直接断言 —— processBook 编排面需 fixture E2E 在 skipContent=true mock 场景断言 cover 回调出现(现有 E2E mock 恒 skipContent=false, 走的是正常路径封面, 需新增 skip 分支 mock, 留待下轮); 其余五项修复均有直接回归测试在位 ②go test 未加 -race(与既有门禁口径一致未扩)
+---
+Task ID: R53-2c
+Agent: general-purpose (R18-c 关闭+RSS 护栏校准)
+Task: 范围任务跨重启续采缺口修复 + RSS 护栏双条件校准
+
+Work Log:
+- [R53-2c-0] 前置: 读 worklog 末 150 行(R53-2b/2a2/2a 上下文) + runner.ts 恢复路径(1040~1100)/发现循环(1240~1300) + fetcher.ts RSS 护栏常量区(755~800)与唯一触发点(4700~4720); rg 实证 RSS_STOP_BYTES 全库仅 1 个触发点(fetchPage 准入段), halt(checkMemoryHalt/采集堆口径/throw 快速失败)与本暂停窗口路径物理分离未混淆; mini-services/** 零改动, 3 个 Go 引擎任务与 dev server 未触碰(3000=200/3032 health ok 复测)
+- [R53-2c-1] R18-c 边界关闭(runner.ts 恢复路径): reconcileResumeSetsWithDb 之后新增重入队剔除 —— 遍历 rt.discoveredBookUrls, 未进 completedBookUrls(未标记完结跳过)的书从集合 delete 并计数, >0 时置 rt.dirtyDiscovered=true + info 日志「其中 N 本未采完(连载/中断)不在完结跳过集合, 将重新入队增量复查(书籍页→目录 diff→仅补缺失章节; 修前跨重启被永久跳过)」; 修前行为=已发现未采完的书(含在库连载书)被发现循环 L1283 无条件跳过, 跨重启永不复查, 与恢复日志「连载书增量检查新章节」承诺矛盾(生产实测: 仙侠天恋 9415 章任务中断后增量重跑 0 待采直接完成)
+- [R53-2c-2] 正确性自查(代码路径): ①重入队书被列表循环 L1283 has() 不命中→add 回 discoveredBookUrls+dirty→入 bookQueue→meta 循环 L1449 completedBookUrls.has 不命中→crawlOneBookMeta: isOngoingRecheck(在 ongoingBookUrls)走末章对比(末章未变 L2098 直接 return ok/变了增量)或中断书走 existChapters/existUrlMap 目录 diff(plan.creates 仅缺失章 fetched:false, L2294 正文队列仅 !c.fetched 旧章)→仅补缺失章节, 已采内容零重抓, 增量语义不变 ②同轮(非重启)行为逐字节不变: 剔除只在恢复路径执行一次, 本轮 discovery 循环 has() 跳过原样 ③completedBookUrls 成员保留在 discoveredBookUrls 内(发现循环继续跳过=完结书整体跳过语义不破坏, 连书籍页请求都省下; 即便未来对账从 completed 剔除空壳, 对账同步从 discovered 剔除, 重采链不漏) ④剔除置于对账之后: 对账剔除的书不计入重入队数, 对账 fail-open 也不阻断本剔除 ⑤脏位: 剔除点置 dirtyDiscovered(saveProgress L2781 才会序列化缩减后集合, 否则 DB 持旧全集); ongoing/completed 集合本剔除不触碰, 其 dirty 装载语义原样 ⑥中断窗口安全: 剔除后若进程在发现循环中途再次中断, 未被重新发现的连载书仍在 ongoingBookUrls(独立持久化)且已不在 discoveredBookUrls → 下轮发现循环自然重新入队, 「未采完书永久跳过」不变式在两条路径都成立
+- [R53-2c-3] progress.discovered 防倒退(runner.ts L1309): 独立计数与集合分离(TaskMonitor「已发现 N 本」), 恢复轮 urls.length 只含重入队+新增, 直接赋值会把上轮落库值写小(UI 倒退) → 改 Math.max(Number(progress.discovered)||0, urls.length); 同轮内 urls.length 单调递增且冷启动从 0 起, 与直接赋值逐字节等价(Number()||0 兜底 DB JSON 脏值不产出 NaN); 恢复日志原样保留装载计数, 重入队数量走补充日志(不混排)
+- [R53-2c-4] RSS 护栏双条件校准(fetcher.ts): 新增 RSS_HEAP_FLOOR_MB=400(FETCH_RSS_HEAP_FLOOR_MB 可覆盖, Math.max(0,·) 允许置极小值等效退回单条件旧行为), 唯一触发点 L4730 改 `rss > RSS_STOP_BYTES && mem.heapUsed > RSS_HEAP_FLOOR_BYTES`(单次 memoryUsage() 复用 rss+heapUsed 两读数); Bun dev 基线 RSS ~2.0~2.3GB 不向 OS 归还(heapUsed 仅 116~307MB)→空转不再误报(修前每窗口恒触发暂停 8000ms=dev.log 刷屏+任务无谓降速 4 倍); 真实采集压测(R52-6 四大部头)heapUsed 远超 400MB 仍会触发, 4GB 沙箱 R52-6 RSS≈2.2GB+ OOM 兑底保护面保留; 日志双指标化(RSS>高水位 且 heapUsed>地板); 配置摘要一次性日志/头注两处注释同步双条件语义+ Bun RSS 不归还特性+halt/暂停路径区分说明; FETCH_RSS_STOP_MB/FETCH_RSS_PAUSE_MS 环境变量语义与取值钳制不动; R8-19 heapUsed 1.5GB 背压与采集堆 halt 链零改动
+- [R53-2c-5] 门禁: bunx tsc --noEmit 0 错; bun run lint 0 错; verify-r51-const-template.ts 39/39; verify-r51-4-chapter-reorder.ts 33/33; 改动仅 runner.ts(+48/-4)/fetcher.ts(+31/-4) 两文件, git diff 其余脏文件(mini-services 二进制/seed 规则/builtin-rules)均本轮之前已存在, 未触碰
+
+Stage Summary:
+- R18-c 边界关闭: 范围/列表任务跨重启续采时「已发现未采完(连载/中断)」的书从 discoveredBookUrls 重入队, 走书籍页→目录 diff→仅补缺失章节的既有增量管线; 完结书整体跳过/同轮去重/对账 fail-open 语义逐字节不变; 仙侠天恋类「中断后增量重跑 0 待采直接完成」根因消除, 行为与恢复日志文案一致
+- RSS 护栏校准: RSS 兑底暂停改双条件门(RSS>2100 且 heapUsed>400, 均可环境变量覆盖), Bun dev 基线空转不再恒触发误报, 真实压测/OOM 兑底保护面保留; halt(采集堆熔断)与暂停窗口两路径未混淆
+- 门禁: tsc 0 / lint 0 / verify 39/39+33/33 全绿; 服务态 3000=200/3032 health ok(Go 任务运行中未受影响)
+---
+Task ID: R53（主控收口）
+Agent: Z.ai Code 主控
+Task: ①三站大部头切Go引擎批量续采 ②R52-c P3择优 ③推送GitHub ④⑤审查修复 ⑥清理
+
+Work Log:
+- [环境] 沙箱重置清空工作区: go-sdk 丢失(scripts/install-go.sh 恢复)/node_modules 缓存失效(bun install+prisma generate 恢复)/dev.log+agent-ctx/r52-site-audit.md 未跟踪件被清/**DB 整库清空(35 规则/8 书/万章全失)**
+- [③推送] 新 token 生效: 先推 R52 存量 65 提交(b0075c2..0d0bcc0, 与远端同血统快进), 轮末再推本轮增量(0d0bcc0..3106d72)
+- [①Go续采] DB 重建链: login→import-builtin(35 规则)→按 R52 档案重建 3 任务(yueyouxs bookIds 23070+23069/xyetianlian range fenlei/1/1/xbqg777 bookIds 34807+34808, 全 engine=go)→三任务 running 正文落库 errs=0; crawler-go 双实例抢端口按 PPID 协议清理保单例
+- [①事故链A-CF] xbqg777 内容页触发 Cloudflare「Just a moment...」403(R52-a 档案只测了书页/列表): hostGate 降额→熔断→章节保持未采集(设计行为); 处置=降速续采(1线程 1.5~4s 间隔)后 CF 放行, 增量自动补 136+749 章
+- [①事故链B-能力拒绝] 三任务规则种子携带非缺省 browserFallbackStatus[403,429,503](缺 412)→Go capability fail-closed 拒绝→静默回退 TS→dev RSS 2.2GB→**OS OOM 两连杀 dev server**; 修复=8 规则(bqg713/cuoceng/jpxs123/shoujixs/wuxiaworld/xbqg777/xyetianlian/yueyouxs)三层归一化(builtin-rules.ts+8 seed 脚本+DB 原位更新保 ruleId); 期间 perl $1429 吞变量损坏 builtin-rules.ts 两次(git checkout 恢复后用精确文本替换完成)
+- [②P3择优] Go 侧 6 项(R53-2a 断连主控核验+gofmt 恢复+R53-2a2 补 5 测试 312 行): sticky 键剥端口(u.Hostname 对齐 TS)/代理误责豁免(proxyChannelError 不喂 host 连败链)/非 403/429 4xx 不换镜像/封面下载前移 skipContent 短路前(完结书增量跳过也有封面)/appendNeedDedup 跨片去重/accountContentTotal 重入记账状态机; TS 侧(R53-2b): 空正文 contentDone 虚计(runner 对齐 Go pipeline 口径)+go-callback 五状态条件写竞态封死+trim/7位N 与 403 回调重试核实无差异+遗留④autoRefresh 按 engine 分流 goEngineControl(动态 import 防环)+遗留⑤TaskMonitor blocked/rateLimited chips+2s 实时 sync
+- [④⑤审查抓虫] 生产实证三连: ①R9-d-9 幽灵清扫器误杀 Go 任务(R53-3: engine='go' 行改查引擎 /task/{id}/status——在跑跳过/不存在标 interrupted/不可达本轮放弃, select 补 engine 字段) ②**完结书增量跳过 P1(R53-4): go-callback 建书回调只看 chapterCount>0+完结状态即 skipContent=true, 751 章未采的完结书被整本跳过且任务秒 done(content 0/0); 修复=加 unfetchedCount===0 必要条件, 实证重启后精确续采 751/749 缺失章** ③范围续采恢复「跳过已发现未采完书」R18-c 关闭(R53-2c: 恢复路径剔除非完结已发现书重入队增量复查)+RSS 护栏双条件校准(RSS>2100 且 heap>400MB 才暂停, 消除 Bun 基线 2GB 恒触发误报)
+- [预览实证] 站群 Site 配置同遭 DB 清空→公开页「站点加载失败」→重建默认站点(localhost/aijjxs 主题)→/book/1.html 书籍页→在线阅读第1章全链渲染(agent-browser 实拍); 移动端/页脚粘底布局常规复核通过
+- [⑥清理] runner.ts.orig 合并残留 git rm; verify-r49-9-cover.ts 陈旧哨兵(bqg616 已迁域, 覆盖面被 39 向量哨兵包含)归档 scripts/archive/; dev.log.crash-oom.bak OOM 取证归档 agent-ctx/archive/r52-oom/; .tmp-* 瞬态脚本清除
+
+Stage Summary:
+- ①②③④⑤⑥ 全闭环: 三站大部头稳定运行于 Go 引擎(RSS 12~26MB vs dev 2GB+, OOM 根除)+P3 择优 8 修 2 核+生产级 P1(R53-4 完结书跳过)与幽灵清扫误杀双修复+推送 GitHub 两批
+- 门禁: tsc 0/lint 0/verify 39+33/go vet+test 全绿(+R53-2a2 新增 5 测试)/gofmt 合规; 引擎 health ok(rssMB 26, 2 running+1 paused-flip)
+- 遗留: ①engine='go' 任务 stop 撞引擎 404 未回落 TS 原路径(control 语义缺口) ②引擎 contents 回调偶发超时重试成功(lastError 残留"%!w(<nil>)"格式瑕疵) ③xbqg777 CF 态势需长观测(降速参数已配) ④curl_cffi 缺失致 TS impersonate 桥不可用(TLS 指纹议题与 Go 引擎无关) ⑤TaskMonitor chips 零值隐藏设计未在真实 blocked>0 场景实证 ⑥万古神帝 4236 章 0 填充等大部头继续增量(以 Task 表终态为准)

@@ -17,6 +17,7 @@ import { saveChapterTxt, saveCoverWebp, deleteBookTxt, ensureDirs } from './stor
 import { smartCategory, smartCompleteDetect } from './smart'
 import { fetchSuggestKeywords, mergeSuggestWords } from './suggest'
 import { sliceCodePoints } from '@/lib/utils' // [R25-5a] 码点截断(UTF-16 slice 会斩半 emoji 代理对)
+import { goTaskStatus } from './go-engine' // [R53-3] 幽灵清扫引擎感知: Go 任务的存活判据在引擎侧
 // [R34-2a-5] 书号采集: 与 API 规范化/UI 计数共用同一纯函数模块
 // [R35-2a-5] 书号范围: 范围校验(parseBookIdRange)与序列展开(buildBookIdQueueFromRange)同模块扩展
 import {
@@ -439,11 +440,11 @@ export class TaskRunner {
   /** R9-d-9: 单轮回收扫描 —— 见 ensureGhostSweeper 注 */
   async reclaimGhostRunningTasks(): Promise<number> {
     let reclaimed = 0
-    let rows: Array<{ id: string; updatedAt: Date }> = []
+    let rows: Array<{ id: string; updatedAt: Date; engine: string }> = []
     try {
       rows = await db.task.findMany({
         where: { status: 'running' },
-        select: { id: true, updatedAt: true },
+        select: { id: true, updatedAt: true, engine: true },
         take: 500,
       })
     } catch {
@@ -451,9 +452,28 @@ export class TaskRunner {
     }
     const now = Date.now()
     for (const t of rows) {
-      if (this.isRunning(t.id)) continue // 本进程真实在跑
+      if (this.isRunning(t.id)) continue // 本进程真实在跑(含 go 任务的 TS 回退运行)
       const updated = t.updatedAt instanceof Date ? t.updatedAt.getTime() : new Date(t.updatedAt).getTime()
       if (Number.isFinite(updated) && now - updated < 60_000) continue // 60s 宽限(状态写在途窗口)
+      // [R53-3] 引擎感知分派: engine='go' 的任务在 TS 运行时必然 isRunning=false(引擎隔离进程),
+      // updatedAt 陈旧也不能作幽灵判据(引擎侧长批次/全书目录解析窗口可静默超 60s —— R53 生产
+      // 实测: 仙侠天恋 1838 章任务被本 sweeper 依陈旧快照误标 paused, 引擎仍在采)。故 Go 任务
+      // 以引擎真实运行态为准: 在跑/暂停 → 活跃跳过; 明确不存在(随引擎重启丢失) → interrupted;
+      // 引擎不可达 → 本轮放弃(不可达≠死亡, 误标会杀活任务)。TS 任务维持既有 updatedAt 判据。
+      if (t.engine === 'go') {
+        let st: Awaited<ReturnType<typeof goTaskStatus>> | null = null
+        try {
+          st = await goTaskStatus(t.id)
+        } catch { st = null }
+        if (!st || st.ok !== true) continue // 引擎不可达/超时: 本轮跳过, 下轮再看
+        if (st.exists) continue // 引擎持有(在跑或暂停): 状态由引擎回调权威写, 不代写
+        try {
+          await db.task.update({ where: { id: t.id }, data: { status: 'interrupted' } })
+          reclaimed++
+          await this.log(t.id, 'warn', '检测到 Go 引擎侧任务丢失(引擎重启/崩溃后未自动恢复), 已标 interrupted, 可点击继续恢复(增量续采)')
+        } catch { /* P2025 任务已删等: 忽略 */ }
+        continue
+      }
       try {
         await db.task.update({ where: { id: t.id }, data: { status: 'paused' } })
         reclaimed++
@@ -1043,8 +1063,10 @@ export class TaskRunner {
       // 创建的 TaskRuntime, 初始为空 Set(冷启动场景)。已运行过的任务从 DB progress 装载已发现/
       // 已采集 URL 列表 → Set, 让范围任务重启时按 Set 跳过已处理的书籍(免再抓书籍页/目录/正文)。
       // recrawlMode==='full' 任务启动时清空两 Set(完全覆盖重采语义: 用户明确要重采全部书籍);
-      // 增量模式保留 Set 让续采只处理新增书籍(已发现未采完的书同被跳过 —— R18-c 已知边界
-      // 留档: 在库连载书增量复查跨重启不触发, 与发现循环跳过同口径)
+      // 增量模式保留 Set 让续采只处理新增书籍。[R53-2c][R18-c 关闭] 装载后下方对"已发现未采完
+      // (未进 completedBookUrls)"的书做重入队剔除 —— 修前这些书(含在库连载书)跨重启被发现
+      // 循环永久跳过, 与下方恢复日志"连载书增量检查新章节"的承诺矛盾(生产实测: 仙侠天恋
+      // 9415 章任务中断后增量重跑 0 待采直接完成)
       if (cfg.task.recrawlMode === 'full') {
         rt.discoveredBookUrls = new Set<string>()
         rt.completedBookUrls = new Set<string>()
@@ -1092,6 +1114,34 @@ export class TaskRunner {
           // 会把"库里没有的书"永远跳过(用户报告: 重启后不续采而是跳过)。fail-open: 对账
           // 失败保留原 Set, 不因对账把任务搞崩
           await this.reconcileResumeSetsWithDb(taskId, rt)
+          // [R53-2c][R18-c 关闭] 重入队剔除: 已发现但未进 completedBookUrls(未标记完结跳过)
+          // 的书从 discoveredBookUrls 移除, 使其被本轮列表发现循环重新发现并入队 —— 修前
+          // 这些书(在库连载书/中断未采完的书)被发现循环无条件跳过, 跨重启永不复查, 与上方
+          // 恢复日志"连载书增量检查新章节"承诺矛盾(生产实测: 仙侠天恋 9415 章任务中断后
+          // 增量重跑 0 待采直接完成)。重入队后增量语义不变: 书籍页→目录→与 bookLastChapters
+          // 末章对比(连载书, 末章未变直接跳过正文)或 existUrlMap 按库内已有章节去重(中断书),
+          // 只补缺失章节, 已采内容零重抓。completedBookUrls 成员保留在集合内(发现循环继续
+          // 跳过 = 完结书整体跳过语义不破坏, 连书籍页抓取都省下)。仅在恢复路径执行一次,
+          // 同轮运行内发现循环的去重跳过逐字节不变。对账放在其后: 对账剔除的书(库中不存在/
+          // 空壳完结)已从 discovered 移除, 不计入重入队数; 对账 fail-open 也不阻断本剔除
+          let requeueCount = 0
+          for (const u of rt.discoveredBookUrls) {
+            if (!rt.completedBookUrls.has(u)) {
+              rt.discoveredBookUrls.delete(u) // Set 迭代中删除当前元素安全(ES2015+ 迭代器语义)
+              requeueCount++
+            }
+          }
+          if (requeueCount > 0) {
+            // 剔除必须置 dirty, 否则 saveProgress 跳过序列化, DB progress 仍持旧全集
+            // (下次重启重复剔除幂等无害, 但落库态与内存态脱节; 重入队书随后被列表循环
+            // 重新 add 时也会置 dirty, 本处前置置位保中间快照一致)
+            rt.dirtyDiscovered = true
+            await this.log(
+              taskId,
+              'info',
+              `其中 ${requeueCount} 本未采完(连载/中断)不在完结跳过集合, 将重新入队增量复查(书籍页→目录 diff→仅补缺失章节; 修前跨重启被永久跳过)`,
+            ).catch(() => {})
+          }
         }
       }
       // ---------- 发现书籍URL ----------
@@ -1243,9 +1293,10 @@ export class TaskRunner {
             // feat-contentproxy-resume(范围任务续采): 已发现过的书籍 URL 不再加入 bookQueue
             // (节省后续书籍页/目录/正文抓取; 已采集过的书籍会被 completedBookUrls 跳过整本)
             // 本地 Set 用于本轮内去重(同一 URL 在多页/同页重复出现只入队一次); 跨任务重启时
-            // 由 progress.discoveredBookUrls 装载。注意:"续采只处理新增书籍"是刻意口径 ——
-            // 已发现未采完的书(含在库连载书的跨重启增量复查)同样被本跳过挡住, 属 R18-c
-            // 已知边界留档(其 feat-combo-theme-incremental 增量复查跨重启不触发)
+            // 由 progress.discoveredBookUrls 装载。[R53-2c][R18-c 关闭] 跨重启的"已发现未采完"
+            // 书(连载/中断)已在恢复路径从 discoveredBookUrls 剔除 → 本跳过对其不再命中,
+            // 重新发现并入队走增量复查; 本轮内(非重启)已发现书仍被本跳过挡住(同轮去重语义
+            // 逐字节不变), 完结书(completedBookUrls 成员)跨重启同样保留在集合内被跳过
             let newlyDiscovered = 0
             let alreadyDiscovered = 0
             for (const u of pageUrls) {
@@ -1275,7 +1326,12 @@ export class TaskRunner {
                 listFields.set(u, { name: it.fields.name, author: it.fields.author, intro: it.fields.intro, category: it.fields.category })
               }
             }
-            progress.discovered = urls.length
+            // [R53-2c] Math.max 防跨轮倒退: progress.discovered 是独立计数(与 discoveredBookUrls
+            // 集合分离, TaskMonitor 显示"已发现 N 本")。恢复轮 urls.length 只含重入队+新增,
+            // 直接赋值会把上轮已落库的更大值写小(UI 倒退); 同轮内 urls.length 单调递增且冷
+            // 启动从 0 起, Math.max 与直接赋值逐字节等价(仅恢复轮防倒退生效)。Number()||0
+            // 兜底 progress 载体损坏(DB JSON 脏值)时退化为 0 起算, 不产出 NaN
+            progress.discovered = Math.max(Number(progress.discovered) || 0, urls.length)
             await this.saveProgress(taskId, progress, stats)
             // 跳过日志用单条汇总, 避免万级 URL 逐条刷日志(每条 taskLog 落 SQLite + 上限 1500 字符裁切)
             const skipHint = alreadyDiscovered > 0 ? ` 跳过已发现 ${alreadyDiscovered} 本` : ''

@@ -1270,6 +1270,7 @@ export const BUILTIN_RULES: BuiltinRule[] = [
         "waitMs": 500,
         "browserFallbackStatus": [
           403,
+          412,
           429,
           503
         ],
@@ -1470,6 +1471,7 @@ export const BUILTIN_RULES: BuiltinRule[] = [
         "waitMs": 500,
         "browserFallbackStatus": [
           403,
+          412,
           429,
           503
         ],
@@ -2861,6 +2863,7 @@ export const BUILTIN_RULES: BuiltinRule[] = [
         "waitMs": 500,
         "browserFallbackStatus": [
           403,
+          412,
           429,
           503
         ]
@@ -4231,6 +4234,7 @@ export const BUILTIN_RULES: BuiltinRule[] = [
         "waitMs": 500,
         "browserFallbackStatus": [
           403,
+          412,
           429,
           503
         ],
@@ -5007,6 +5011,7 @@ export const BUILTIN_RULES: BuiltinRule[] = [
         "waitMs": 2000,
         "browserFallbackStatus": [
           403,
+          412,
           429,
           503
         ]
@@ -5343,6 +5348,7 @@ export const BUILTIN_RULES: BuiltinRule[] = [
         "waitMs": 500,
         "browserFallbackStatus": [
           403,
+          412,
           429,
           503
         ],
@@ -5705,6 +5711,7 @@ export const BUILTIN_RULES: BuiltinRule[] = [
         "waitMs": 500,
         "browserFallbackStatus": [
           403,
+          412,
           429,
           503
         ],
@@ -5888,6 +5895,7 @@ export const BUILTIN_RULES: BuiltinRule[] = [
         "waitMs": 500,
         "browserFallbackStatus": [
           403,
+          412,
           429,
           503
         ],

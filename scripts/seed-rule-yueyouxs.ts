@@ -92,7 +92,7 @@ const rule: RuleSeed = {
       timeout: 20000,
       retries: 2,
       waitMs: 500,
-      browserFallbackStatus: [403, 429, 503],
+      browserFallbackStatus: [403, 412, 429, 503],
       hostGateLimit: 2,
       hostGateConcurrency: 2,
       globalConcurrency: 6,

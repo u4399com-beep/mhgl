@@ -78,7 +78,7 @@ const rule: RuleSeed = {
       timeout: 25000,
       retries: 2,
       waitMs: 2000,
-      browserFallbackStatus: [403, 429, 503],
+      browserFallbackStatus: [403, 412, 429, 503],
     },
     clean: {
       removeSelectors: [

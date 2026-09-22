@@ -86,7 +86,7 @@ const rule = {
       timeout: 20000,
       retries: 2,
       waitMs: 500,
-      browserFallbackStatus: [403, 429, 503],
+      browserFallbackStatus: [403, 412, 429, 503],
     },
     clean: {
       removeSelectors: ['script', 'style', 'iframe', 'ins', 'noscript'],

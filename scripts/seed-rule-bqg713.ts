@@ -127,7 +127,7 @@ const rule: RuleSeed = {
       timeout: 20000,
       retries: 2,
       waitMs: 500,
-      browserFallbackStatus: [403, 429, 503],
+      browserFallbackStatus: [403, 412, 429, 503],
       // ── R21-b: 正文诱饵根治链(deqixs degrade-native 契约) ──
       // contentProxyUrl 双重职责: ①toc 合成的 loopback /unlock URL 的 SSRF 豁免键
       // ②引擎逐 fetch 探测(自指双包裹→404→降级直连) —— 探测失败是契约的一部分。

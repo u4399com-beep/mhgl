@@ -262,15 +262,22 @@ async function handleBook(ctx: CallbackCtx, taskId: string, p: Record<string, un
   }
 
   // 增量决策(契约 §2 book 行): skipContent = 增量模式 && 完结(smartCompleteDetect/status 判定) && 已有章节
+  // [R53-4] ★必须同时「无未采章」: 修前只看 chapterCount>0 —— 中断/熔断留下的 fetched=false
+  // 空内容章(R53 生产实测: 我在万界送外卖 751/2228 未采)在重跑时被误判整本跳过, 增量续采
+  // 永不恢复且任务秒 done(content 0/0)。新增章不在此判定面(建书时 TOC 尚未解析, 新章由
+  // chapters 回调 needUrls 兜底)
   let skipContent = false
   let lastChapterUrl: string | undefined
   if (task.recrawlMode !== 'full') {
-    const chapterCount = await db.chapter.count({ where: { bookId } })
-    if (chapterCount > 0 && (detectedStatus === 'completed' || existing?.status === 'completed')) {
+    const [chapterCount, unfetchedCount] = await Promise.all([
+      db.chapter.count({ where: { bookId } }),
+      db.chapter.count({ where: { bookId, fetched: false } }),
+    ])
+    if (chapterCount > 0 && unfetchedCount === 0 && (detectedStatus === 'completed' || existing?.status === 'completed')) {
       skipContent = true
       const last = await db.chapter.findFirst({ where: { bookId }, orderBy: { idx: 'desc' }, select: { url: true } })
       lastChapterUrl = last?.url || undefined
-      await taskLog(taskId, 'info', `完结书增量跳过: 《${bookName}》已有 ${chapterCount} 章, 通知 Go 引擎跳过正文阶段`)
+      await taskLog(taskId, 'info', `完结书增量跳过: 《${bookName}》已有 ${chapterCount} 章且无未采章, 通知 Go 引擎跳过正文阶段`)
     }
   }
   return reply({ ok: true, bookId, skipContent, ...(lastChapterUrl ? { lastChapterUrl } : {}) })
