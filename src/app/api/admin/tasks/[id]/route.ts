@@ -7,7 +7,9 @@ import { normalizeTaskData, validateTaskPair } from '../_shared'
 // [R50-1] 书号上限按 engine 取值(ts 2000 / go 100000), 三方(API/UI/范围校验)同口径
 import { bookIdMaxCountForEngine } from '@/lib/book-ids'
 // [R51-3-b] 删除 engine='go' 任务前先停 Go 侧(与 batch delete 同口径; isRunning 只反映 TS runtime)
-import { goTaskControl } from '@/lib/crawl/go-engine'
+// [R53-2b][R51 遗留⑤] goTaskStatus: 运行中 Go 任务的 blocked/rateLimited 实时透传(见 GET 内注记)
+import { goTaskControl, goTaskStatus } from '@/lib/crawl/go-engine'
+import { syncGoStatusStats } from '../_go-control'
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   return withGuard(async () => {
@@ -22,6 +24,19 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     // (phase/booksDone/contentTotal 等), URL 集合零消费; 运行时续采读写走 runner 直连
     // DB, 与本瘦身完全隔离
     const slim = slimTaskProgressJson(task.progress)
+    // [R53-2b][R51 遗留⑤] Go 任务运行中: blocked(拦截页命中)/rateLimited(429,503 收到) 仅在
+    // 控制面动作(start/resume)时经 syncGoStatusStats 透传一次, 运行中数值停滞 —— 本路由是
+    // TaskMonitor(2s 轮询)唯一数据源, 也是这两键的唯一实时展示面。此处 fire-and-forget 拉
+    // Go status 同步透传(不阻塞本响应, 下一 tick 读到新值; Go 不可达/任务不在册静默跳过;
+    // 仅 engine==='go' && status==='running' 门控, 终态/暂停任务零额外控制面请求)。写面
+    // ≤1 次/2s 单行 json_patch, 与 Go progress 回调(≥1 次/秒)同量级。
+    if (task.engine === 'go' && task.status === 'running') {
+      void goTaskStatus(id)
+        .then((st) => {
+          if (st.ok && st.exists) return syncGoStatusStats(id, st.stats)
+        })
+        .catch(() => {})
+    }
     if (!slim.truncated) return ok({ ...task, live: TaskRunner.instance.isRunning(id) })
     return ok({ ...task, progress: slim.progress, progressTruncated: true, live: TaskRunner.instance.isRunning(id) })
   })

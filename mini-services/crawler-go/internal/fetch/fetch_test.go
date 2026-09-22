@@ -11,9 +11,11 @@ package fetch
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"reflect"
 	"strings"
 	"sync"
@@ -280,5 +282,195 @@ func TestMirrorStickyReorder(t *testing.T) {
 	group = c.mirrorGroup("http://main.com/c")
 	if group[0] != "http://main.com/c" {
 		t.Fatalf("整组耗尽清 sticky 后应回原序: %v", group)
+	}
+}
+
+// ---------------- [R53-2a] 六项 P3 修复单测 ----------------
+
+// TestProxyChannelErrorExempt [R53-2a](代理误责):
+// ①纯逻辑: proxyChannelError 经 errors.As 可打标识别(含 fmt.Errorf %w 包装链),
+//
+//	普通网络错误/HTTP 状态壳不误判 —— rawFetch 据此豁免 gate.noteFailure 的判定面;
+//
+// ②集成(生产 rawFetch 真实分支): 死代理通道失败 → 目标 host 闸零喂连败+代理入失败冷却;
+//
+//	③对照: 无代理直连死端口 → 普通错误照常喂闸(豁免不误伤真实站点故障)
+func TestProxyChannelErrorExempt(t *testing.T) {
+	// ① 纯逻辑: errors.As 打标/豁免判定
+	inner := errors.New("dial tcp 127.0.0.1:9: connect: connection refused")
+	pxy := &proxyChannelError{err: inner}
+	if !strings.Contains(pxy.Error(), "代理通道失败") {
+		t.Fatalf("proxyChannelError 消息应带通道语义: %q", pxy.Error())
+	}
+	if !errors.Is(pxy, inner) {
+		t.Fatal("proxyChannelError.Unwrap 应透出底层网络错误")
+	}
+	wrapped := fmt.Errorf("抓取: %w", pxy)
+	var hit *proxyChannelError
+	if !errors.As(wrapped, &hit) || hit != pxy {
+		t.Fatal("包装链中的 proxyChannelError 应被 errors.As 识别")
+	}
+	// 豁免判定面(errors.As 命中 → 跳过 gate.noteFailure): 负样本不误判
+	var probe *proxyChannelError
+	if errors.As(error(inner), &probe) {
+		t.Fatal("普通网络错误不应被识别为代理通道失败")
+	}
+	if errors.As(error(&httpStatusError{code: 503}), &probe) {
+		t.Fatal("HTTP 状态壳不应被识别为代理通道失败")
+	}
+
+	// ② 集成: 死代理(先建后关的 httptest 端口, 连接必拒) → rawFetch 豁免目标 host 闸。
+	// 目标须为非回环(pickProxy 对回环目标豁免直连, 代理层不可达): 用 TEST-NET-3
+	// 文档段 IP 字面量(RFC 5737, 非私网/链路本地, ssrfCheck 放行, 无 DNS 依赖)
+	deadSrv := httptest.NewServer(http.NewServeMux())
+	deadProxyURL := deadSrv.URL // 先取地址后关: 端口即刻拒绝, 沙箱环境稳定
+	deadSrv.Close()
+	cfg := rule.FetchConfig{Engine: "http", UaMode: "fixed", Timeout: 2000, Retries: 0,
+		HostGateLimit: 3, GlobalConcurrency: 2, AllowLoopback: true, ProxyURL: deadProxyURL}
+	c := New(cfg)
+	defer c.Close()
+	if _, err := c.Fetch(context.Background(), "http://203.0.113.1/page", ""); err == nil {
+		t.Fatal("死代理下抓取应失败")
+	} else {
+		var pe *proxyChannelError
+		if !errors.As(err, &pe) {
+			t.Fatalf("代理通道失败应打标 proxyChannelError 上抛: %v", err)
+		}
+	}
+	g1 := c.gateFor("203.0.113.1")
+	g1.mu.Lock()
+	fails := g1.fails
+	g1.mu.Unlock()
+	if fails != 0 {
+		t.Fatalf("代理通道失败不应喂目标 host 连败链: fails=%d, want 0", fails)
+	}
+	c.mu.Lock()
+	cooled := len(c.proxyFailedUntil)
+	c.mu.Unlock()
+	if cooled != 1 {
+		t.Fatalf("死代理应记入代理自身失败冷却: %d 条, want 1", cooled)
+	}
+
+	// ③ 对照: 无代理直连死端口 → 普通网络错误照常喂闸(豁免不误伤真实失败)
+	cfg2 := rule.FetchConfig{Engine: "http", UaMode: "fixed", Timeout: 2000, Retries: 0,
+		HostGateLimit: 3, GlobalConcurrency: 2, AllowLoopback: true}
+	c2 := New(cfg2)
+	defer c2.Close()
+	if _, err := c2.Fetch(context.Background(), deadProxyURL+"/page", ""); err == nil {
+		t.Fatal("直连死端口应失败")
+	} else {
+		var pe *proxyChannelError
+		if errors.As(err, &pe) {
+			t.Fatalf("直连失败不应打标 proxyChannelError: %v", err)
+		}
+	}
+	u2, _ := url.Parse(deadProxyURL)
+	g2 := c2.gateFor(strings.ToLower(u2.Host))
+	g2.mu.Lock()
+	fails2 := g2.fails
+	g2.mu.Unlock()
+	if fails2 != 1 {
+		t.Fatalf("直连网络失败应喂目标 host 连败链: fails=%d, want 1", fails2)
+	}
+}
+
+// TestStickyKeyStripsPort [R53-2a](端口 sticky 键): mirrorGroup sticky 键基改用
+// Hostname()(剥端口, TS new URL(url).hostname 口径):
+// ①口径组合断言: u.Host 带端口/Hostname() 不带端口, registrableDomain 对 "host:port"
+//
+//	走含 ':' 原样返回臂 → 修前键基=完整 host:port 与注册域键永不相交
+//
+// ②带端口 URL 命中剥端口写入的 sticky ③同站异端口互享 ④子域+端口互享 ⑤clear 清键
+func TestStickyKeyStripsPort(t *testing.T) {
+	// ① Host/Hostname 口径 + registrableDomain 组合断言(修前键基歧义的根因面)
+	u, err := url.Parse("http://main.com:8080/a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u.Host != "main.com:8080" || u.Hostname() != "main.com" {
+		t.Fatalf("Host/Hostname 口径异常: %q / %q", u.Host, u.Hostname())
+	}
+	if registrableDomain("main.com:8080") != "main.com:8080" {
+		t.Fatalf("含 ':' 的 host:port 应原样返回(修前 sticky 键基): %q", registrableDomain("main.com:8080"))
+	}
+	if registrableDomain("main.com") != "main.com" {
+		t.Fatalf("注册域键基应为 eTLD+1: %q", registrableDomain("main.com"))
+	}
+
+	// ② 带端口 URL 的 sticky 查找与剥端口写入互认(修前查 "main.com:8080" 永不命中)
+	c := New(rule.FetchConfig{MirrorDomains: "m1.com,m2.com", GlobalConcurrency: 2})
+	defer c.Close()
+	group := c.mirrorGroup("http://main.com:8080/a")
+	want := []string{"http://main.com:8080/a", "http://m1.com/a", "http://m2.com/a"}
+	if !reflect.DeepEqual(group, want) {
+		t.Fatalf("带端口 URL 初始组序 = %v, want %v", group, want)
+	}
+	c.noteMirrorSuccess("main.com", "m2.com") // rawFetch 传 u.Hostname() 口径写入
+	group = c.mirrorGroup("http://main.com:8080/b")
+	if group[0] != "http://m2.com/b" {
+		t.Fatalf("带端口 URL 应命中注册域 sticky 键: %v", group)
+	}
+	// ③ 端口无关: 同站不同端口共享 sticky(键基不含端口)
+	if g := c.mirrorGroup("http://main.com:9090/c"); g[0] != "http://m2.com/c" {
+		t.Fatalf("异端口应共享同键 sticky: %v", g)
+	}
+	// ④ 子域+端口: 同注册域子域经端口 URL 亦互享(注册域口径一致)
+	c.noteMirrorSuccess("www.main.com", "m1.com")
+	if g := c.mirrorGroup("http://api.main.com:8443/d"); g[0] != "http://m1.com/d" {
+		t.Fatalf("子域+端口应共享注册域 sticky: %v", g)
+	}
+	// ⑤ clear 清键: 带端口入参按剥端口口径清理, 组序回原序
+	c.clearMirrorSticky("main.com")
+	if g := c.mirrorGroup("http://main.com:8080/e"); g[0] != "http://main.com:8080/e" {
+		t.Fatalf("clear 后应回原序: %v", g)
+	}
+}
+
+// Test4xxShellNoMirrorSwitch [R53-2a](400 壳不喂降额链+非 403/429 的 4xx 不换镜像):
+// 400 错误壳产 httpStatusError{400} 快速失败(修前按成功返回壳体送解析层); 同候选重试
+// 耗尽后不轮换镜像(镜像站 0 命中); 400 属目标站自身故障, 照常喂 host 连败链
+func Test4xxShellNoMirrorSwitch(t *testing.T) {
+	var hits1, hits2 atomic.Int64
+	mux1 := http.NewServeMux()
+	mux1.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
+		hits1.Add(1)
+		http.Error(w, "bad request shell", http.StatusBadRequest)
+	})
+	srv1 := httptest.NewServer(mux1)
+	t.Cleanup(srv1.Close)
+	mux2 := http.NewServeMux()
+	mux2.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
+		hits2.Add(1)
+		_, _ = w.Write([]byte(fmt.Sprintf("<html><head><title>镜像页</title></head><body>%s</body></html>", strings.Repeat("内容。", 120))))
+	})
+	srv2 := httptest.NewServer(mux2)
+	t.Cleanup(srv2.Close)
+	u1, _ := url.Parse(srv1.URL)
+	u2, _ := url.Parse(srv2.URL)
+
+	cfg := rule.FetchConfig{Engine: "http", UaMode: "fixed", Timeout: 2000, Retries: 0,
+		HostGateLimit: 3, GlobalConcurrency: 2, AllowLoopback: true, MirrorDomains: u2.Host}
+	c := New(cfg)
+	defer c.Close()
+	if _, err := c.Fetch(context.Background(), srv1.URL+"/page", ""); err == nil {
+		t.Fatal("400 错误壳应判失败(修前按成功返回)")
+	} else {
+		var he *httpStatusError
+		if !errors.As(err, &he) || he.code != 400 {
+			t.Fatalf("应返回 httpStatusError{400}: %v", err)
+		}
+	}
+	if hits1.Load() != 1 {
+		t.Fatalf("主站命中 = %d, want 1(Retries=0 同候选不重试)", hits1.Load())
+	}
+	if hits2.Load() != 0 {
+		t.Fatalf("镜像站命中 = %d, want 0(400 不可切换镜像)", hits2.Load())
+	}
+	g := c.gateFor(strings.ToLower(u1.Host))
+	g.mu.Lock()
+	fails := g.fails
+	g.mu.Unlock()
+	if fails != 1 {
+		t.Fatalf("400 应喂目标 host 连败链(与代理误责豁免相区分): fails=%d, want 1", fails)
 	}
 }

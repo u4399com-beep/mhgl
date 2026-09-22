@@ -247,7 +247,14 @@ func (t *Task) processBook(bookURL string) bool {
 	t.logf("success", "建书回调完成: 《%s》 bookId=%s skipContent=%v lastChapterUrl=%s",
 		bookName, dec.BookID, dec.SkipContent, util.TruncateLog(dec.LastChapterURL, 120))
 
-	// skipContent=true(完结书且增量模式) → 整本跳过(契约 §2: 本毕, 不进正文/封面阶段)
+	// ---- 2b. 封面下载([R53-2a](审计 R52-c「封面跳过面」) 移至 book 回调后/skipContent 短路前) ----
+	// 对齐 TS 元数据段口径(runner.ts crawlOneBookMeta: 封面段在建库前后必然尝试, 对
+	// skipContent=true 完结书与空 needUrls 已存书同样下载): 修前 Go 仅在正文阶段完成后
+	// 下载 —— 完结书增量跳过/全量已存/正文熔断弃书三类书永远没有封面(首次入库的完结
+	// 书封面永久缺失)。封面失败不影响书的完成(装饰性资源, warn 降级)语义不变
+	t.downloadCover(bookURL, parsed.Cover)
+
+	// skipContent=true(完结书且增量模式) → 整本跳过(契约 §2: 本毕, 不进正文阶段)
 	if dec.SkipContent {
 		t.logf("info", "增量跳过(完结书): 《%s》", bookName)
 		t.bookFinish(true)
@@ -331,10 +338,7 @@ func (t *Task) processBook(bookURL string) bool {
 		return true
 	}
 
-	// ---- 8. 封面下载(仅进入正文阶段的书; skipContent/空 needUrls 书已有封面) ----
-	t.downloadCover(bookURL, parsed.Cover)
-
-	// ---- 9. 书收尾(成功) ----
+	// ---- 8. 书收尾(成功; 封面已前移至 book 回调后下载, 见 processBook 2b 段) ----
 	t.bookFinish(true)
 	return false
 }
@@ -352,9 +356,13 @@ func (t *Task) extractRuleField(htmlStr string, fr *rule.FieldRule) string {
 }
 
 // sendChapters chapters 回调: 全书目录分片(每片 ≤5000, 契约 §2 {seq,final});
-// 累加各片 needUrls(Next.js 重排+建章后返回的实际待抓列表)
+// 累加各片 needUrls(Next.js 重排+建章后返回的实际待抓列表)。
+// [R53-2a](审计 R52-c「appendChapterSlice 无去重」) 累积面保序去重: 同片内去重由 Next.js
+// 承担(契约 seq≥2「同片内 URL 去重」), 跨片/回调重叠重复在此兜底 —— 防同章双抓双计
+// (contentDone 虚高 + contents 回调重复项)
 func (t *Task) sendChapters(bookURL string, items []rule.TocItem) ([]string, error) {
 	var need []string
+	seen := make(map[string]struct{}, len(items))
 	total := len(items)
 	emptySent := false
 	for start, seq := 0, 1; start < total || !emptySent; start, seq = start+TocChunkSize, seq+1 {
@@ -376,13 +384,48 @@ func (t *Task) sendChapters(bookURL string, items []rule.TocItem) ([]string, err
 		if err != nil {
 			return nil, err
 		}
-		need = append(need, dec.NeedURLs...)
+		need = appendNeedDedup(need, seen, dec.NeedURLs)
 		emptySent = true // 空目录也发一次(items=[], final=true)让 Next.js 记录
 		if final {
 			break
 		}
 	}
 	return need, nil
+}
+
+// appendNeedDedup needURLs 累积去重追加(保序, 首现优先; 纯函数供单测)
+func appendNeedDedup(need []string, seen map[string]struct{}, urls []string) []string {
+	for _, u := range urls {
+		if _, dup := seen[u]; dup {
+			continue
+		}
+		seen[u] = struct{}{}
+		need = append(need, u)
+	}
+	return need
+}
+
+// accountContentTotal contentTotal 书粒度记账(R51-2-b #9 判重 + [R53-2a] 重入重算;
+// 调用方已持 t.mu; 记账规则纯状态机, 单测见 TestContentTotalResumeAccounting):
+//
+//   - 首次进入某书正文阶段: 记录总量基线(contentTotalBookBase=当前 contentTotal)与
+//     done 快照(contentDoneAtBookEntry=当前 contentDone), contentTotal += len(needURLs)
+//   - 同书重入(auto-pause→resume 整书重跑): 本书贡献重建为
+//     「(contentDone-done快照) + 本轮 len(needURLs)」, contentTotal = 基线 + 新贡献
+//
+// 典型增量续跑(重跑 needURLs=首跑剩余)新贡献=原贡献, 总量不变(R51-2-b #9 语义保持);
+// 重跑 needURLs 含新增章/全量重采章(full 模式)时总量正确抬升, done 不再越 total;
+// 站点章节回撤时总量如实回落。done 语义不变: 仅 contents 回调成功章累计
+func (t *Task) accountContentTotal(bookURL string, needCount int) {
+	if t.contentTotalBook != bookURL {
+		t.contentTotalBookBase = t.contentTotal
+		t.contentDoneAtBookEntry = t.contentDone
+		t.contentTotalBook = bookURL
+		t.contentTotal += needCount
+		return
+	}
+	contribution := (t.contentDone - t.contentDoneAtBookEntry) + needCount
+	t.contentTotal = t.contentTotalBookBase + contribution
 }
 
 // crawlContentBatches 正文批次循环(契约 §5):
@@ -395,12 +438,12 @@ func (t *Task) sendChapters(bookURL string, items []rule.TocItem) ([]string, err
 func (t *Task) crawlContentBatches(bookURL, bookName, tocURL string, needURLs []string, titleMap map[string]string) bool {
 	t.setPhase("content", fmt.Sprintf("正文采集: 《%s》 %d 章", bookName, len(needURLs)))
 	t.mu.Lock()
-	// R51-2-b #9: contentTotal 书粒度记账 —— auto-pause→resume 整书流水线重跑时,
-	// 同一本书二次进入正文阶段不重复累加(防总量虚增; 契约 §5 needUrls 累计口径)
-	if t.contentTotalBook != bookURL {
-		t.contentTotalBook = bookURL
-		t.contentTotal += len(needURLs)
-	}
+	// R51-2-b #9 + [R53-2a](审计 R52-c「contentTotal 续跑漂移」): contentTotal 书粒度记账 ——
+	// auto-pause→resume 整书流水线重跑时按「本书已采(done 快照增量)+本轮 needURLs」
+	// 重算本书总量贡献, 修两类漂移: ①修前书粒度判重只防重复累加, 重跑 needURLs 含
+	// 新增章/全量重采章时总量偏低(done 可越 total); ②站点章节变动/空正文重试等使
+	// 重跑 needURLs ≠ 首跑剩余时总量与实际工作量脱钩。详见 accountContentTotal
+	t.accountContentTotal(bookURL, len(needURLs))
 	t.mu.Unlock()
 	t.sendProgress(true)
 	t.logf("info", "正文队列: 《%s》 %d 章需要采集", bookName, len(needURLs))

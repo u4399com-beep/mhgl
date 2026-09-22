@@ -606,6 +606,26 @@ export class TaskRunner {
         const t = await db.task.findUnique({ where: { id: taskId } })
         if (!t || !t.autoRefresh || this.isRunning(taskId) || !['done', 'error'].includes(t.status)) return
         await this.log(taskId, 'info', `⟳ 自动刷新触发, 重新开始采集「${t.name}」`)
+        // [R53-2b][R51 遗留④] 引擎感知直启: engine='go' 走 Go 控制面启动(_go-control 的
+        //  goEngineControl('start') —— 与操作员 control/batch 路由完全同路径: capability 校验/
+        //  Go 内 paused 转 resume/409 竞态转 resume/markGoStarted, 不可达/能力不符/TXT 存储
+        //  返回 ts-fallback), 修前一律走下方 this.control('start') 经 TS TaskRunner 直启 ——
+        //  Go 任务丢失进程隔离(大部头 OOM 治本面)。动态 import: _go-control 静态依赖本模块
+        //  (TaskRunner), 静态 import 会成环; 触发时刻懒加载两侧模块均已就绪。TS 任务路径逐字节不变。
+        if (t.engine === 'go') {
+          const { goEngineControl } = await import('@/app/api/admin/tasks/_go-control')
+          const go = await goEngineControl(t, 'start')
+          if (go.kind === 'ok') return
+          if (go.kind === 'fail') {
+            // R9-d-10 同口径: 启动失败重排一次同间隔定时(触发时复核存在/autoRefresh/终态,
+            //  不会无限硬敲; 典型失败=Go 可达但状态查询被拒/409 转恢复仍失败)
+            await this.log(taskId, 'warn', `⟳ 自动刷新启动失败: ${go.message}`)
+            this.scheduleAutoRefresh(taskId, clampedMin, t.name)
+            return
+          }
+          // ts-fallback: 与控制路由同语义 —— 落回下方 TS 原路径启动(Go 不可达/能力不符/TXT 存储时
+          //  goEngineControl 已记 TaskLog warn「回退 TS 引擎」)
+        }
         const res = await this.control(taskId, 'start')
         if (!res.ok) {
           await this.log(taskId, 'warn', `⟳ 自动刷新启动失败: ${res.message}`)
@@ -2561,6 +2581,18 @@ export class TaskRunner {
                   plainLen = plainFb
                 }
               }
+            }
+            // [R53-2b][R52-c P3 空正文 contentDone 虚计] 对齐 Go pipeline.crawlChapter(R52-5 口径):
+            //  空正文不入库/不计 contentDone/不计 doneCount, 章节保持 fetched=false 由下轮增量重试
+            //  承担; 不喂连败链(抓取成功即归零, 空正文属内容质量问题非真实失败, 对齐 Go chapterOK)。
+            //  修前空正文章节照样落库(fetched=true)+done++ → 进度虚高且永失重试机会; Go 侧同款
+            //  修于 contents 回调发送端(契约 §2 contents 行「空正文章节不入回调不计 contentDone」),
+            //  本处对齐后两侧口径一致。检查点取清洗+trafilatura 兜底之后: 兜底可救回解析为空的
+            //  正文, 清洗后仍为空才判空(Go 无 clean 链判解析原文, TS 多一道清洗, 清洗致空同样无入库价值)。
+            if (!cleaned.trim()) {
+              await this.log(ctx.taskId, 'warn', `章节正文为空(不入库不计完成, 增量重试可恢复): ${q.url.slice(0, 120)}`)
+              consecutiveErrs = 0
+              return
             }
             const chId0 = q.chId || ctx.idMap.get(q.url)
             let rel: string | null = null

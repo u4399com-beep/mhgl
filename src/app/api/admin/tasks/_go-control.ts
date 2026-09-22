@@ -41,8 +41,11 @@ async function writeStatus(taskId: string, data: Record<string, unknown>): Promi
 const GO_STATUS_STATS_KEYS = ['blocked', 'rateLimited'] as const
 
 /** Go status → Task.stats 白名单透传(Go-owned 绝对值覆盖; json_patch 不可用时 RMW 降级,
- *  与 go-callback stats kind 的 mergeTaskJsonAtomically 同语义双通道) */
-async function syncGoStatusStats(taskId: string, raw: unknown): Promise<void> {
+ *  与 go-callback stats kind 的 mergeTaskJsonAtomically 同语义双通道)。
+ *  [R53-2b][R51 遗留⑤] 导出复用: 任务详情 GET 路由(api/admin/tasks/[id])对运行中 Go 任务
+ *  fire-and-forget 轮询 Go status 后调用本函数透传, 监控面板的 blocked/rateLimited 才能随
+ *  采集实时推进(修前仅控制面动作 start/resume 时透传一次, 运行中数值停滞) */
+export async function syncGoStatusStats(taskId: string, raw: unknown): Promise<void> {
   if (!raw || typeof raw !== 'object') return
   const s = raw as Record<string, unknown>
   const patch: Record<string, number> = {}

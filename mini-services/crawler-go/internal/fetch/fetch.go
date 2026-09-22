@@ -643,7 +643,11 @@ func (c *Client) mirrorGroup(rawURL string) []string {
 	if err != nil {
 		return group
 	}
-	curHost := strings.ToLower(u.Host)
+	// [R53-2a](审计 R52-c「端口 sticky 键」) Hostname() 剥端口: TS mirrorStickyKeyFor 用
+	// new URL(url).hostname(不含端口)作键基 —— 修前取 u.Host(含端口), registrableDomain
+	// 对 "host:port" 走 IP/IPv6/单标签原样返回臂 → 键=完整 host:port, 与 noteMirrorSuccess/
+	// clearMirrorSticky 的注册域键口径不一致(带端口 URL 的 sticky 永不命中/互享)
+	curHost := strings.ToLower(u.Hostname())
 	for _, d := range strings.Split(c.cfg.MirrorDomains, ",") {
 		d = strings.ToLower(strings.TrimSpace(d))
 		if d == "" || d == curHost {
@@ -684,9 +688,11 @@ func urlHostOf(rawURL string) string {
 }
 
 // noteMirrorSuccess 记录镜像成功域 sticky(key=注册域 eTLD+1, R51-4 对齐 TS registrableDomainOf;
-// 值仍为完整候选 host, 重排时按 host 全等匹配组内条目)
-func (c *Client) noteMirrorSuccess(primaryHost, candHost string) {
-	key := registrableDomain(primaryHost)
+// 值仍为完整候选 host, 重排时按 host 全等匹配组内条目)。
+// [R53-2a] primaryHostname 形参应为剥端口 hostname(rawFetch 传 u.Hostname())——
+// 注册域键基不含端口(TS mirrorStickyKeyFor 同口径)
+func (c *Client) noteMirrorSuccess(primaryHostname, candHost string) {
+	key := registrableDomain(primaryHostname)
 	if key == "" || candHost == "" {
 		return
 	}
@@ -695,9 +701,10 @@ func (c *Client) noteMirrorSuccess(primaryHost, candHost string) {
 	c.mu.Unlock()
 }
 
-// clearMirrorSticky 整组耗尽即清 sticky(防死镜像钉死; key=注册域同 noteMirrorSuccess)
-func (c *Client) clearMirrorSticky(primaryHost string) {
-	key := registrableDomain(primaryHost)
+// clearMirrorSticky 整组耗尽即清 sticky(防死镜像钉死; key=注册域同 noteMirrorSuccess,
+// [R53-2a] 入参为剥端口 hostname)
+func (c *Client) clearMirrorSticky(primaryHostname string) {
+	key := registrableDomain(primaryHostname)
 	if key == "" {
 		return
 	}
@@ -825,8 +832,10 @@ func (c *Client) rawFetch(ctx context.Context, rawURL, refererURL string, direct
 		return rawResult{}, ctx.Err()
 	}
 	primaryHost := ""
+	primaryHostname := "" // [R53-2a] 剥端口 hostname(TS new URL(url).hostname 口径) — mirrorSticky 键基
 	if u, err := url.Parse(reqURL); err == nil {
 		primaryHost = strings.ToLower(u.Host)
+		primaryHostname = strings.ToLower(u.Hostname())
 	}
 	gate := c.gateFor(primaryHost)
 	if err := gate.acquire(ctx); err != nil {
@@ -845,6 +854,9 @@ func (c *Client) rawFetch(ctx context.Context, rawURL, refererURL string, direct
 	group := c.mirrorGroup(reqURL)
 	attempts := 1 + c.cfg.Retries
 	var lastErr error
+	// [R53-2a] 非 403/429 的 4xx(400/401/405/412...)不可切换镜像(TS isMirrorSwitchableError
+	// 仅 403/5xx 可切换): 同候选退避重试耗尽后快速失败, 不再轮换镜像
+	failNoMirror := false
 	for mi, cand := range group {
 		for a := 0; a < attempts; a++ {
 			if err := ctx.Err(); err != nil {
@@ -854,16 +866,30 @@ func (c *Client) rawFetch(ctx context.Context, rawURL, refererURL string, direct
 			if err == nil {
 				gate.noteSuccess()
 				if len(group) > 1 {
-					c.noteMirrorSuccess(primaryHost, urlHostOf(cand)) // 成功域 sticky
+					c.noteMirrorSuccess(primaryHostname, urlHostOf(cand)) // 成功域 sticky
 				}
 				return res, nil
 			}
-			gate.noteFailure()
+			// [R53-2a](代理误责) 代理通道层失败不喂目标 host 连败/降额链 —— 故障归属代理
+			// 自身(已在 doOnce 内 markProxyFailed), 目标站健康状态未被本次请求证明; TS 侧
+			// 代理循环同样只记代理账, hostgate 只见最终直连/成功结果。重试/镜像语义不变
+			// (网络层失败在 TS isMirrorSwitchableError 下可切换镜像)
+			var pxyErr *proxyChannelError
+			if !errors.As(err, &pxyErr) {
+				gate.noteFailure()
+			}
 			lastErr = err
 			var httpErr *httpStatusError
-			if errors.As(err, &httpErr) && (httpErr.code == 404 || httpErr.code < 400) {
-				// 404/3xx: 换镜像无意义, 直接返回错误(TS 镜像 404 不切换口径)
-				return rawResult{}, err
+			if errors.As(err, &httpErr) {
+				if httpErr.code == 404 || httpErr.code < 400 {
+					// 404/3xx: 换镜像无意义, 直接返回错误(TS 镜像 404 不切换口径)
+					return rawResult{}, err
+				}
+				// [R53-2a](400 壳不喂降额链) 其余非 403/429 的 4xx: 同候选退避重试已按下方
+				// 既有路径进行, 但不换镜像 —— 对齐 TS isMirrorSwitchableError(仅 403/5xx)
+				if httpErr.code >= 400 && httpErr.code < 500 && httpErr.code != 403 && httpErr.code != 429 {
+					failNoMirror = true
+				}
 			}
 			// 退避: 400ms×2^a 指数, 钳 8s, 保留抖动
 			boff := backoffBase << uint(a)
@@ -886,10 +912,16 @@ func (c *Client) rawFetch(ctx context.Context, rawURL, refererURL string, direct
 			}
 			gateHeld = true
 		}
+		// [R53-2a] 不可切换 4xx(400/401/405/412...): 同候选重试已耗尽, 快速失败
+		// 不轮换镜像(与 TS isMirrorSwitchableError 口径一致); sticky 保持不清
+		// (镜像组未被真正逐个证伪)
+		if failNoMirror {
+			return rawResult{}, lastErr
+		}
 	}
 	// 整组耗尽: 清 sticky(防死镜像钉死)
 	if len(group) > 1 {
-		c.clearMirrorSticky(primaryHost)
+		c.clearMirrorSticky(primaryHostname)
 	}
 	if lastErr == nil {
 		lastErr = errors.New("抓取失败")
@@ -912,6 +944,18 @@ func (r rawResult) bodyText() string { return string(r.body) }
 type httpStatusError struct{ code int }
 
 func (e *httpStatusError) Error() string { return fmt.Sprintf("HTTP %d", e.code) }
+
+// proxyChannelError 代理通道层失败(经代理出口的拨号/连接未成功, 无 HTTP 状态):
+// [R53-2a](审计 R52-c「代理误责」) client.Do 失败且本次走了代理时打标 —— 代理通道故障
+// 已记在代理自身账上(markProxyFailed 指数冷却), rawFetch 据此豁免目标 host 的
+// gate.noteFailure(不计连败/不降额)。TS 口径对齐: fetcher.ts 代理轮换循环对网络层失败
+// 只 markProxyFailed+换下一条/降级直连, hostgate 只见最终成功/直连结果, 代理通道失败
+// 从不喂 reportHostFailure —— 修前 Go 把死代理的失败记到健康目标站头上, 连败 3 次即
+// 把无辜站点降额至 1 并发+放宽准入节奏(采集速率被代理故障绑架)
+type proxyChannelError struct{ err error }
+
+func (e *proxyChannelError) Error() string { return "代理通道失败: " + e.err.Error() }
+func (e *proxyChannelError) Unwrap() error { return e.err }
 
 // parseRetryAfter 解析 Retry-After(整数秒与 HTTP 日期双形态; 对齐 TS parseRetryAfterHeaderMs)
 // ok=false = 缺失/非法(调用方兜底 30s); HTTP 日期已过期返回 0(<1s 噪声底 → 兜底 30s)
@@ -1030,6 +1074,9 @@ func (c *Client) doOnce(ctx context.Context, rawURL, refererURL string, extraHea
 	if err != nil {
 		if pu != nil {
 			c.markProxyFailed(pu) // 代理失败指数冷却
+			// [R53-2a](代理误责) 打标代理通道失败: rawFetch 据此豁免目标 host
+			// 连败计数(故障归属代理自身, 见 proxyChannelError 注)
+			return rawResult{}, &proxyChannelError{err}
 		}
 		return rawResult{}, err // 网络层/超时 → 触发重试与镜像切换
 	}
@@ -1055,7 +1102,13 @@ func (c *Client) doOnce(ctx context.Context, rawURL, refererURL string, extraHea
 		// 404 语义对齐 TS !res.ok: 资源不存在即失败, 不交解析层(R51-2-b #8)
 		return res, &httpStatusError{code: 404}
 	}
-	if resp.StatusCode == 403 || resp.StatusCode == 429 || resp.StatusCode >= 500 {
+	// [R53-2a](审计 R52-c「400 壳不喂降额链」) 非 2xx 全量失败口径(对齐 TS fetchHttp
+	// `!res.ok` 抛错): 修前仅 404/403/429/5xx 产状态错误, 其余 4xx(400/401/405/412...)
+	// 按成功返回 —— 错误壳/拦截壳被当正常内容送进解析层, 且上层 noteSuccess 把目标站
+	// 连败链归零(TS 对同响应抛错并喂 reportHostFailure 降额链)。修后其余非 2xx 同产
+	// httpStatusError(含无 Location 的 3xx 终态); 403/429/5xx 走既有重试/镜像/限流链,
+	// 其余 4xx 在 rawFetch 侧不换镜像(TS isMirrorSwitchableError 口径)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return res, &httpStatusError{code: resp.StatusCode}
 	}
 	return res, nil

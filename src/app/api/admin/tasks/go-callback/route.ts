@@ -640,18 +640,22 @@ export async function POST(req: Request) {
           // 契约 §2 status 行: Task.status 迁移(paused 保留进度)
           const status = asStr(payload.status, 20)
           if (!GO_STATUSES.includes(status)) return reply({ ok: false, error: `非法 status: ${status || '(空)'}` })
-          // [R51-3-b] 'running' 改条件写: Go 侧 start/status 回调与操作员 pause/终态写并发时,
-          //  修前无条件 update 会把刚落地的 paused/error/done/stopped 覆写回 running(标签漂移);
-          //  条件限定非终态集(pending/running/paused/interrupted), 其他状态保持原 update 口径
-          if (status === 'running') {
-            await db.task
-              .updateMany({ where: { id: taskId, status: { in: ['pending', 'running', 'paused', 'interrupted'] } }, data: { status } })
-              .catch(() => {})
-          } else {
-            await db.task.update({ where: { id: taskId }, data: { status } }).catch(() => {})
-          }
+          // [R53-2b][R52-c P3 两端异步状态写竞态] 全状态条件写(R51-3-b 'running' 先例统一扩全):
+          //  Go 异步回调与 TS 控制面(_go-control markGoStarted/pause 条件写/stop writeStatus)、
+          //  ghost sweeper(recovery interrupted)并发写 Task.status, 迟到/重试回调乱序到达会以
+          //  旧状态覆写新状态(标签漂移): ① 迟到 paused 覆写 done/error/stopped → 终态任务复活成
+          //  paused 僵尸(autoRefresh 复核只认 done/error, 自愈链静默断头); ② 迟到 done 覆写操作员
+          //  stop 落地的 stopped → scheduleAutoRefresh 复核恰好放行, 用户已停止的任务被定时器拉起
+          //  (违背操作意图, 与 runner serializeCrashStatus「操作员表态优先」同语义)。统一口径:
+          //  任一 status 回调仅允许覆写非终态集(pending/running/paused/interrupted), 终态↔终态
+          //  互不覆写(重复终态回调本就幂等无写面)。覆写未落地(count=0)时跳过其后 autoRefresh
+          //  排定 —— done 状态前提不在库, 排定即悬空; 响应仍 {ok:true}, Go 侧重试无收益
+          //  (与 R52-5「4xx 确定性失败不重试」同思路)。
+          const landed = await db.task
+            .updateMany({ where: { id: taskId, status: { in: ['pending', 'running', 'paused', 'interrupted'] } }, data: { status } })
+            .catch(() => null)
           if (asStr(payload.note, 500)) await taskLog(taskId, 'info', asStr(payload.note, 500))
-          if (status === 'done' && ctx.task.autoRefresh) {
+          if (status === 'done' && landed !== null && landed.count > 0 && ctx.task.autoRefresh) {
             // [R51-3-b] autoRefresh 遗留①闭环: done 后自动重排下一轮采集(v1 仅记日志提示手动重开)。
             //  scheduleAutoRefresh 内部钳制间隔 [5,1440]min, 触发时复核 任务存在/autoRefresh/运行态/
             //  终态 后调 control('start') 重启; 'stopped' 状态天然不参与自动刷新(R3-14 同口径)

@@ -15,6 +15,7 @@ import (
 	"math/rand"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -490,4 +491,123 @@ func TestNeedUrlsEmptySkips(t *testing.T) {
 	if info.Progress.ContentTotal != 0 || info.Progress.ContentDone != 0 {
 		t.Fatalf("needUrls 空不应进入正文阶段: %d/%d", info.Progress.ContentDone, info.Progress.ContentTotal)
 	}
+}
+
+// ---------------- [R53-2a] 六项 P3 修复单测 ----------------
+
+// TestAppendNeedDedup [R53-2a](appendChapterSlice 无去重)needURLs 累积保序去重:
+// ①空入参零值安全 ②无重复全量追加 ③片内重复首现优先 ④跨片重复兜底跳过 ⑤保序断言
+func TestAppendNeedDedup(t *testing.T) {
+	// ① 空: 空 urls 追加零影响
+	seen := map[string]struct{}{}
+	if got := appendNeedDedup(nil, seen, nil); len(got) != 0 {
+		t.Fatalf("空输入应返回空切片: %v", got)
+	}
+	// ② 无重复: 全量追加且保序
+	seen = map[string]struct{}{}
+	got := appendNeedDedup(nil, seen, []string{"u1", "u2", "u3"})
+	if !reflect.DeepEqual(got, []string{"u1", "u2", "u3"}) {
+		t.Fatalf("无重复追加 = %v, want [u1 u2 u3]", got)
+	}
+	// ③ 片内重复: 同一 urls 内首现优先, 重复项丢弃
+	seen = map[string]struct{}{}
+	got = appendNeedDedup(nil, seen, []string{"u1", "u2", "u1", "u3", "u2"})
+	if !reflect.DeepEqual(got, []string{"u1", "u2", "u3"}) {
+		t.Fatalf("片内去重 = %v, want [u1 u2 u3]", got)
+	}
+	// ④ 跨片重复: 上一片已入 seen 的 URL 在下一片被跳过(跨片/回调重叠重复兜底)
+	seen = map[string]struct{}{}
+	need := appendNeedDedup(nil, seen, []string{"u1", "u2"})
+	need = appendNeedDedup(need, seen, []string{"u2", "u3", "u1"})
+	if !reflect.DeepEqual(need, []string{"u1", "u2", "u3"}) {
+		t.Fatalf("跨片去重 = %v, want [u1 u2 u3]", need)
+	}
+	// ⑤ seen 状态随追加推进: 续接追加仍去重, 全序列保序
+	need = appendNeedDedup(need, seen, []string{"u3", "u4"})
+	if !reflect.DeepEqual(need, []string{"u1", "u2", "u3", "u4"}) {
+		t.Fatalf("续接追加 = %v, want [u1 u2 u3 u4]", need)
+	}
+}
+
+// TestContentTotalResumeAccounting [R53-2a](contentTotal 续跑漂移)accountContentTotal
+// 书粒度记账状态机: 首入记基线+done 快照并累加; 重入按「已采增量+本轮 needURLs」重算
+// (典型续跑总量不变/含新增章总量抬升/站回撤如实回落); 换书重置基线快照
+func TestContentTotalResumeAccounting(t *testing.T) {
+	// 直接构造裸 Task(包内白盒; accountContentTotal 契约调用方持 t.mu, 依约持锁)
+	t.Run("首入记账", func(t *testing.T) {
+		tt := &Task{}
+		tt.mu.Lock()
+		defer tt.mu.Unlock()
+		tt.contentTotal = 5 // 前书贡献存量
+		tt.contentDone = 2  // 前书已采
+		tt.accountContentTotal("bookA", 10)
+		if tt.contentTotal != 15 {
+			t.Fatalf("首入应累加总量: contentTotal=%d, want 15", tt.contentTotal)
+		}
+		if tt.contentTotalBook != "bookA" || tt.contentTotalBookBase != 5 || tt.contentDoneAtBookEntry != 2 {
+			t.Fatalf("首入应记录基线+快照: book=%q base=%d snapshot=%d",
+				tt.contentTotalBook, tt.contentTotalBookBase, tt.contentDoneAtBookEntry)
+		}
+	})
+	t.Run("典型续跑总量不变", func(t *testing.T) {
+		tt := &Task{}
+		tt.mu.Lock()
+		defer tt.mu.Unlock()
+		tt.accountContentTotal("bookX", 10) // 首入: base=0 total=10
+		tt.contentDone = 4                  // auto-pause 前已采 4 章
+		tt.accountContentTotal("bookX", 6)  // resume 重跑: needURLs=剩余 6
+		// contribution = (4-0)+6 = 10 = 原贡献 → 总量不变(R51-2-b #9 语义保持)
+		if tt.contentTotal != 10 {
+			t.Fatalf("典型续跑总量应不变: contentTotal=%d, want 10", tt.contentTotal)
+		}
+		if tt.contentTotalBookBase != 0 || tt.contentDoneAtBookEntry != 0 {
+			t.Fatalf("同书重入不应漂移基线/快照: base=%d snapshot=%d",
+				tt.contentTotalBookBase, tt.contentDoneAtBookEntry)
+		}
+	})
+	t.Run("重入含新增章总量抬升", func(t *testing.T) {
+		tt := &Task{}
+		tt.mu.Lock()
+		defer tt.mu.Unlock()
+		tt.accountContentTotal("bookX", 10) // 首入: total=10
+		tt.contentDone = 4
+		tt.accountContentTotal("bookX", 8) // 重跑 needURLs=剩余 6+新增 2
+		// contribution = 4+8 = 12 → 总量抬升, done 不再越 total(修前总量偏低)
+		if tt.contentTotal != 12 {
+			t.Fatalf("含新增章重入应抬升总量: contentTotal=%d, want 12", tt.contentTotal)
+		}
+		if tt.contentDone > tt.contentTotal {
+			t.Fatalf("done 不应越 total: %d/%d", tt.contentDone, tt.contentTotal)
+		}
+	})
+	t.Run("站回撤回落", func(t *testing.T) {
+		tt := &Task{}
+		tt.mu.Lock()
+		defer tt.mu.Unlock()
+		tt.accountContentTotal("bookX", 10) // 首入: total=10
+		tt.contentDone = 4
+		tt.accountContentTotal("bookX", 2) // 站点章节回撤, 重跑仅剩 2 章待采
+		// contribution = 4+2 = 6 → 总量如实回落(修前虚高维持 10)
+		if tt.contentTotal != 6 {
+			t.Fatalf("站回撤应如实回落: contentTotal=%d, want 6", tt.contentTotal)
+		}
+	})
+	t.Run("换书重置基线", func(t *testing.T) {
+		tt := &Task{}
+		tt.mu.Lock()
+		defer tt.mu.Unlock()
+		tt.accountContentTotal("bookA", 10) // bookA 首入: total=10
+		tt.contentDone = 10                 // bookA 采完
+		tt.accountContentTotal("bookB", 5)  // bookB 首入: base=10 snapshot=10
+		if tt.contentTotal != 15 || tt.contentTotalBook != "bookB" ||
+			tt.contentTotalBookBase != 10 || tt.contentDoneAtBookEntry != 10 {
+			t.Fatalf("换书首入应重置基线/快照: total=%d book=%q base=%d snapshot=%d",
+				tt.contentTotal, tt.contentTotalBook, tt.contentTotalBookBase, tt.contentDoneAtBookEntry)
+		}
+		tt.contentDone = 12                // bookB 已采 2 章
+		tt.accountContentTotal("bookB", 3) // bookB 续跑: 剩余 3
+		if tt.contentTotal != 15 {         // contribution=(12-10)+3=5 → 总量不变
+			t.Fatalf("bookB 典型续跑总量应不变: contentTotal=%d, want 15", tt.contentTotal)
+		}
+	})
 }

@@ -22,10 +22,12 @@ import {
   CirclePlay,
   CircleStop,
   Clock,
+  Gauge,
   Loader2,
   PauseCircle,
   RefreshCw,
   ScrollText,
+  ShieldAlert,
   Terminal,
   Timer,
   XCircle,
@@ -562,9 +564,27 @@ export function TaskMonitor({ taskId, onBack }: TaskMonitorProps) {
               <StatChip label="封面" value={stats.coversSaved || 0} tone="text-amber-400 border-amber-500/30 bg-amber-500/10" />
               <StatChip label="下拉词" value={stats.suggestWords || 0} tone="text-rose-400 border-rose-500/30 bg-rose-500/10" />
               <StatChip label="错误" value={stats.errors || 0} tone="text-red-400 border-red-500/30 bg-red-500/10" />
-              {/* [R51-4] Go-owned 观测统计(仅 Go 任务经 status 透传后有值): 条件渲染避免 TS 任务/零值噪音 */}
-              {(stats.blocked || 0) > 0 && <StatChip label="拦截页" value={stats.blocked || 0} tone="text-orange-400 border-orange-500/30 bg-orange-500/10" />}
-              {(stats.rateLimited || 0) > 0 && <StatChip label="限流" value={stats.rateLimited || 0} tone="text-yellow-400 border-yellow-500/30 bg-yellow-500/10" />}
+              {/* [R51-4 接线 + R53-2b 遗留⑤补全] Go-owned 观测统计(仅 Go 任务经 status 透传后有值):
+                  零值/TS 任务隐藏(条件渲染避免噪音); 图标+title 提示(拦截页=反爬挑战壳命中数,
+                  限流=429/503 收到数); 配色 orange/yellow 与既有 chips 同族 */}
+              {(stats.blocked || 0) > 0 && (
+                <StatChip
+                  label="拦截页"
+                  value={stats.blocked || 0}
+                  tone="text-orange-400 border-orange-500/30 bg-orange-500/10"
+                  icon={<ShieldAlert className="h-3 w-3" aria-hidden />}
+                  title="拦截页命中数: 源站反爬挑战/验证码壳被识别的次数(Go 引擎统计, 运行中实时透传)"
+                />
+              )}
+              {(stats.rateLimited || 0) > 0 && (
+                <StatChip
+                  label="限流"
+                  value={stats.rateLimited || 0}
+                  tone="text-yellow-400 border-yellow-500/30 bg-yellow-500/10"
+                  icon={<Gauge className="h-3 w-3" aria-hidden />}
+                  title="限流命中数: 源站 429/503 限流响应收到次数(Go 引擎统计, 运行中实时透传)"
+                />
+              )}
 
             </div>
           </CardContent>
@@ -678,9 +698,12 @@ function ProgressRow({ label, pct, hint }: { label: string; pct: number; hint?: 
   )
 }
 
-function StatChip({ label, value, tone }: { label: string; value: number; tone: string }) {
+function StatChip({ label, value, tone, icon, title }: { label: string; value: number; tone: string; icon?: React.ReactNode; title?: string }) {
+  // [R53-2b] icon/title 可选扩展(既有 7 个调用点不传, 零视觉回归): icon 为 lucide 小图标,
+  // title 走原生 title 属性悬停提示(反反爬指标口径说明)
   return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs ${tone}`}>
+    <span title={title} className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs ${tone}`}>
+      {icon}
       {label}
       <span className="font-semibold">{fmtNum(value)}</span>
     </span>

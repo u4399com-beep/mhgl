@@ -111,10 +111,17 @@ type Task struct {
 	contentTotal int
 	// R51-2-b #10: contentTotal 按书粒度记账(auto-pause→resume 整书重跑时,
 	// 只对首次进入正文阶段的书累加, 防重复累加虚增总量)
-	contentTotalBook string
-	currentBook      string
-	lastError        string
-	stats            Stats
+	// [R53-2a](审计 R52-c「contentTotal 续跑漂移」)升级为重入重算: 另记录本书首次进入
+	// 正文阶段时的总量基线与 done 快照(contentTotalBookBase/contentDoneAtBookEntry),
+	// 重入时按「已采增量+本轮 needURLs」重建本书贡献 —— 典型续跑(重跑 needURLs=剩余)
+	// 总量不变; 重跑含新增章/全量重采章时总量正确抬升, done 不再越 total。实现见
+	// accountContentTotal(pipeline.go)
+	contentTotalBook       string
+	contentTotalBookBase   int
+	contentDoneAtBookEntry int
+	currentBook            string
+	lastError              string
+	stats                  Stats
 
 	// ---- 生命周期 ----
 	running   bool
