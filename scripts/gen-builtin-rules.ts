@@ -168,7 +168,20 @@ process.on('unhandledRejection', (e) => {
 async function main(): Promise<void> {
   const mod = (await import(target)) as Record<string, unknown>
   ;(globalThis as unknown as { __heisGenMod?: Record<string, unknown> }).__heisGenMod = mod
-  // 兜底: 若脚本 main 未执行(未知守卫形态), 从导出中拼信封(写入时 flush 会再取一次)
+  // [R52-a2] 竞态修复: 种子 main() 是「模块体内 fire-and-forget 调用」, 动态 import 只等待
+  // 模块体求值完成, 不等待 main() 的 await 链结束 —— 桩环境下全部 Promise 均微任务级解析,
+  // child 的 main().then(flush+exit) 可能抢在目标 main() 完成前执行(当前 bun 1.3.x 对
+  // kanunu8 这类「≥2 个顺序 testSection await」的种子实测触发: 信封丢失/提前 exit 0)。
+  // 修法: import 后等待记账长度稳定(50ms 采样 ×3 次不变)再返回, 让位给目标 main 的
+  // 微任务链; 无记账种子 ~150ms 收敛, 硬顶 5s 防悬挂。兜底: exit 劫持内的 flush 语义不变。
+  let last = -1
+  let stable = 0
+  for (let i = 0; i < 100; i++) {
+    const n = stub.__capture.length
+    if (n === last) { stable++; if (stable >= 3) break } else { stable = 0 }
+    last = n
+    await new Promise((r) => setTimeout(r, 50))
+  }
 }
 
 main().then(

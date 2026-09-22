@@ -1311,6 +1311,203 @@ export const BUILTIN_RULES: BuiltinRule[] = [
     },
   },
   {
+    key: "cuoceng",
+    name: "错层小说网(m.cuoceng.com)·移动站UUID书号采集",
+    description: "m.cuoceng.com 错层小说网移动版(R52-a 2026-09-21 实测)。纯静态 SSR/UTF-8/https; Cloudflare 在位但未启用 challenge(curl 直连全 200)。URL 形态: 列表 /book/finish/{page}.html(全本榜 100 页×20 本) | 书籍 /book/{UUID}.html(★UUID 书号, 不可用 mode=bookIds, 必须 mode=list) | 章节 /book/{书UUID}/{章UUID}.html | 目录 /book/chapter/{书UUID}.html(500 章/页, 分页 /book/chapter/{UUID}/{页}.html, nextLink=a#linkNext)。列表 div.bookbox/书籍 h1.booktitle+.booktag 组(a.red 作者/a.blue 分类/span.red 状态)/正文 #content 单页全章。书籍页目录仅内嵌最新 3 条(倒序), 全量走 tocLink 指向独立目录页。简介尾部「本书由错层小说为您呈现…」推广句由 replaceFrom/clean 段清除。反爬态势: CF 未启用 challenge → 推荐引擎 TS/Go 皆可(engine=http); 若 CF 收紧可切 browser(TS 引擎渲染)。",
+    enabled: true,
+    source: "scripts/seed-rule-cuoceng.ts",
+    config: {
+      "list": {
+        "enabled": true,
+        "urlTemplate": "https://m.cuoceng.com/book/finish/{page}.html",
+        "itemSelector": {
+          "type": "css",
+          "expression": "div.bookbox"
+        },
+        "fields": {
+          "bookUrl": {
+            "type": "css",
+            "expression": ".bookname a",
+            "attr": "href"
+          },
+          "name": {
+            "type": "css",
+            "expression": ".bookname a",
+            "attr": "text"
+          },
+          "author": {
+            "type": "css",
+            "expression": ".author",
+            "attr": "text",
+            "replaceFrom": "^作者：",
+            "replaceTo": ""
+          },
+          "wordCount": {
+            "type": "regex",
+            "expression": "字数：([0-9.]+万)"
+          },
+          "latestChapter": {
+            "type": "css",
+            "expression": ".cat a",
+            "attr": "text"
+          },
+          "intro": {
+            "type": "css",
+            "expression": ".update",
+            "attr": "text",
+            "replaceFrom": "^简介：",
+            "replaceTo": ""
+          }
+        },
+        "pagination": {
+          "enabled": true,
+          "maxPages": 2
+        }
+      },
+      "book": {
+        "enabled": true,
+        "fields": {
+          "name": {
+            "type": "css",
+            "expression": "h1.booktitle",
+            "attr": "text"
+          },
+          "author": {
+            "type": "css",
+            "expression": ".booktag a.red",
+            "attr": "text"
+          },
+          "category": {
+            "type": "css",
+            "expression": ".booktag a.blue",
+            "attr": "text"
+          },
+          "wordCount": {
+            "type": "css",
+            "expression": ".booktag span.blue",
+            "attr": "text"
+          },
+          "status": {
+            "type": "css",
+            "expression": ".booktag span.red",
+            "attr": "text"
+          },
+          "latestChapter": {
+            "type": "css",
+            "expression": "a.bookchapter",
+            "attr": "text"
+          },
+          "intro": {
+            "type": "css",
+            "expression": "p.bookintro",
+            "attr": "text",
+            "replaceFrom": "本书由错层小说为您呈现[\\s\\S]*$",
+            "replaceTo": ""
+          },
+          "cover": {
+            "type": "css",
+            "expression": ".bookcover img",
+            "attr": "src"
+          }
+        }
+      },
+      "toc": {
+        "enabled": true,
+        "tocLink": {
+          "type": "css",
+          "expression": "dd a[href*=\"/book/chapter/\"]",
+          "attr": "href"
+        },
+        "itemSelector": {
+          "type": "css",
+          "expression": "div.chapterlist dd"
+        },
+        "fields": {
+          "title": {
+            "type": "css",
+            "expression": "a",
+            "attr": "text"
+          },
+          "url": {
+            "type": "css",
+            "expression": "a",
+            "attr": "href"
+          }
+        },
+        "pagination": {
+          "enabled": true,
+          "nextLink": {
+            "type": "css",
+            "expression": "a#linkNext",
+            "attr": "href"
+          },
+          "maxPages": 5,
+          "joinWith": ""
+        }
+      },
+      "content": {
+        "enabled": true,
+        "fields": {
+          "content": {
+            "type": "css",
+            "expression": "#content",
+            "attr": "html"
+          }
+        },
+        "pagination": {
+          "enabled": false,
+          "maxPages": 1
+        }
+      },
+      "fetch": {
+        "engine": "http",
+        "uaMode": "mobile",
+        "autoCookie": true,
+        "referer": true,
+        "refererChain": true,
+        "timeout": 20000,
+        "retries": 2,
+        "waitMs": 500,
+        "browserFallbackStatus": [
+          403,
+          429,
+          503
+        ],
+        "hostGateLimit": 2,
+        "hostGateConcurrency": 2,
+        "globalConcurrency": 6
+      },
+      "clean": {
+        "removeSelectors": [
+          "script",
+          "style",
+          "iframe",
+          "ins",
+          "noscript"
+        ],
+        "adPatterns": [
+          "错层小说.*?呈现",
+          "(www\\.)?cuoceng\\.(com|org)\\S*",
+          "(www\\.)?[a-z0-9-]+\\.(com|net|cc|org|info|top|xyz|vip|site)(\\/\\S*)?"
+        ],
+        "whitelist": [
+          "p",
+          "br",
+          "b",
+          "strong",
+          "em",
+          "i",
+          "u",
+          "h1",
+          "h2",
+          "h3"
+        ],
+        "normalize": true,
+        "plainText": false
+      }
+    },
+  },
+  {
     key: "dafengdagengren",
     name: "大奉打更人 (dafengdagengren.com)",
     description: "dafengdagengren.com GBK 笔趣阁模板站(与 daweixs.com 同平台同模板)。WAF: nginx 403 双 Set-Cookie 挑战(server_name_session 会话 Cookie 为关键凭证), 引擎 http 层 autoCookie 挑战重试链原生破解(首访种 Cookie 二连过, 无需浏览器)。dd-c 改版适配: 分类路径加 xiaoshuo 后缀, 旧列表源 /paihangbang/ 上游恒 502 已弃用, 列表改用 /xuanhuanxiaoshuo/ 分类页 ul.txt-list-row5 li(30 本/页, /list/1_N.html 第 N≥2 页但首页路径独立无法 {page} 表达)。书籍页 .info h1+作者 regex+.info .desc / 目录 #section-list li a / 正文 #content(纵横转载源带捧场月票灌水块, 已清洗; <br>×3 段间折叠+第N/M页页码/本章未完引流行剥离 R21-f2-3, 章内翻页关闭防并章)。",
@@ -2698,7 +2895,6 @@ export const BUILTIN_RULES: BuiltinRule[] = [
       }
     },
   },
-  // [R30-2-2] kanunu8 条目按 2025-09-16 全站活体考据重写(列表正则白名单/书籍页三代兼容/清洗加强), 与 scripts/seed-rule-kanunu8.ts 同步手改本条目; 勿以生成器整文件覆盖(会回退 ratelimit-demo [R28-4-L8] 漂移修复)
   {
     key: "kanunu8",
     name: "努努书坊(www.kanunu8.com)·中文综合书坊采集",
@@ -3754,7 +3950,7 @@ export const BUILTIN_RULES: BuiltinRule[] = [
   {
     key: "ratelimit-demo",
     name: "模拟源站·校准演示 (127.0.0.1:3040)",
-    description: "极限校准演示规则(zz-a 校准系统实战, ab-a): 四段指向本机模拟源站 scripts/ratelimit-site.ts(127.0.0.1:3040, standard 档 60req/60s 窗+2s 突发窗 6+429×5→临时封60s)。HTML 四段 css 型选择器: list=/list/{page}(8本) / book=#maininfo / toc=#toc dd(60章) / content=#content。用途: calibrate-all 全量校准 + 校准参数落库后真实采集任务端到端验证。⚠ 源站仅本地 3040 常驻, 生产环境无此站。[R28-4-L8] fetch 段已补 allowLoopback=true: 修前该规则经规则测试面板/采集任务走 fetchPage → assertSafeTarget 必拒(\"回环 127.0.0.0/8 未启用 allowLoopback\")四段恒 502, 仅 calibrate(原生 fetch 不经守卫)可用, 差异未声明易误判引擎故障; 补后测试面板/任务链路与 calibrate 同为可用(仅放行 loopback, 私网/元数据仍硬拒)。",
+    description: "极限校准演示规则(zz-a 校准系统实战, ab-a): 四段指向本机模拟源站 scripts/ratelimit-site.ts(127.0.0.1:3040, standard 档 60req/60s 窗+2s 突发窗 6+429×5→临时封60s)。HTML 四段 css 型选择器: list=/list/{page}(8本) / book=#maininfo / toc=#toc dd(60章) / content=#content。用途: calibrate-all 全量校准 + 校准参数落库后真实采集任务端到端验证。⚠ 源站仅本地 3040 常驻, 生产环境无此站。",
     enabled: true,
     source: "scripts/seed-rule-ratelimit-demo.ts",
     config: {
@@ -3865,13 +4061,10 @@ export const BUILTIN_RULES: BuiltinRule[] = [
       },
       "fetch": {
         "engine": "http",
+        "allowLoopback": true,
         "uaMode": "rotate",
         "autoCookie": true,
         "referer": true,
-        // [R28-4-L8] 补 allowLoopback 声明: 四段源站是本机 127.0.0.1:3040 模拟站, 无此声明
-        // 经规则测试面板/采集任务的 fetchPage 链路会被 SSRF 守卫必拒(仅 calibrate 可用);
-        // sanitize 白名单显式接受该字段(types.ts allowLoopback), 仅放宽 loopback
-        "allowLoopback": true,
         "timeout": 20000,
         "retries": 2,
         "waitMs": 500,
@@ -3898,6 +4091,181 @@ export const BUILTIN_RULES: BuiltinRule[] = [
         ],
         "normalize": true,
         "plainText": true
+      }
+    },
+  },
+  {
+    key: "shoujixs",
+    name: "手机小说(shoujixs.net)·杰奇WAP模板GBK站采集",
+    description: "www.shoujixs.net 手机小说(杰奇 WAP 模板系, R52-a 2026-09-21 实测)。纯静态 SSR, ★GBK 编码(meta 与实际字节一致; 引擎 fetcher 自动升级 gb18030 解码), https, 无反爬直连 200。URL 形态: 列表 /{分类缩写}_{page}.html(如 /xhqh_1.html) | 书籍 /shoujixs_{数字id}/ (亦兼容 mode=bookIds 模板 /shoujixs_{bookId}/) | 章节 /shoujixs_{书id}_{章id}.html。目录: 书籍页内嵌 #lbks(最新 8 章倒序 + 正文前 80 章), 全量目录分页 /shoujixs_{id}_{页}/(80 章/页), tocLink 取书籍页内 select[name=pageselect] 首个 option value(★镜像域 www.shoujixsw.com, 实测同内容), 目录翻页 nextLink=span.right a。正文 #zjny 单页全章。封面占位: 无封面书统一 nocover.jpg(站点真实占位, 非反爬)。★镜像域: www.shoujixsw.com ≡ www.shoujixs.net(实测 200 同源), fetch.mirrorDomains 互为故障切换。反爬态势: 无 → 推荐引擎 TS/Go 皆可(engine=http, GBK 解码引擎层内置)。",
+    enabled: true,
+    source: "scripts/seed-rule-shoujixs.ts",
+    config: {
+      "list": {
+        "enabled": true,
+        "urlTemplate": "https://www.shoujixs.net/xhqh_{page}.html",
+        "itemSelector": {
+          "type": "css",
+          "expression": "div.item"
+        },
+        "fields": {
+          "bookUrl": {
+            "type": "css",
+            "expression": ".image a",
+            "attr": "href"
+          },
+          "name": {
+            "type": "css",
+            "expression": "dl dt a",
+            "attr": "text"
+          },
+          "author": {
+            "type": "css",
+            "expression": "dl dt span",
+            "attr": "text"
+          },
+          "intro": {
+            "type": "css",
+            "expression": "dl dd",
+            "attr": "text"
+          },
+          "cover": {
+            "type": "css",
+            "expression": ".image img",
+            "attr": "src"
+          }
+        },
+        "pagination": {
+          "enabled": true,
+          "maxPages": 2
+        }
+      },
+      "book": {
+        "enabled": true,
+        "fields": {
+          "name": {
+            "type": "css",
+            "expression": "#muluzuoceh h1",
+            "attr": "text"
+          },
+          "author": {
+            "type": "regex",
+            "expression": "作者：([^<]+)"
+          },
+          "wordCount": {
+            "type": "regex",
+            "expression": "字数：([0-9.]+万字)"
+          },
+          "latestChapter": {
+            "type": "regex",
+            "expression": "最新章节：<a[^>]*>([^<]+)</a>"
+          },
+          "intro": {
+            "type": "css",
+            "expression": "#shojixsinto p",
+            "attr": "text"
+          },
+          "cover": {
+            "type": "css",
+            "expression": "#fmimg img",
+            "attr": "src"
+          }
+        }
+      },
+      "toc": {
+        "enabled": true,
+        "tocLink": {
+          "type": "css",
+          "expression": "select[name=\"pageselect\"] option",
+          "attr": "value"
+        },
+        "itemSelector": {
+          "type": "css",
+          "expression": "#lbks dl dd"
+        },
+        "fields": {
+          "title": {
+            "type": "css",
+            "expression": "a",
+            "attr": "text"
+          },
+          "url": {
+            "type": "css",
+            "expression": "a",
+            "attr": "href"
+          }
+        },
+        "pagination": {
+          "enabled": true,
+          "nextLink": {
+            "type": "css",
+            "expression": "span.right a",
+            "attr": "href"
+          },
+          "maxPages": 5,
+          "joinWith": ""
+        }
+      },
+      "content": {
+        "enabled": true,
+        "fields": {
+          "content": {
+            "type": "css",
+            "expression": "#zjny",
+            "attr": "html"
+          }
+        },
+        "pagination": {
+          "enabled": false,
+          "maxPages": 1
+        }
+      },
+      "fetch": {
+        "engine": "http",
+        "uaMode": "rotate",
+        "autoCookie": true,
+        "referer": true,
+        "refererChain": true,
+        "timeout": 20000,
+        "retries": 2,
+        "waitMs": 500,
+        "browserFallbackStatus": [
+          403,
+          429,
+          503
+        ],
+        "hostGateLimit": 2,
+        "hostGateConcurrency": 2,
+        "globalConcurrency": 6,
+        "mirrorDomains": "www.shoujixs.net,www.shoujixsw.com"
+      },
+      "clean": {
+        "removeSelectors": [
+          "script",
+          "style",
+          "iframe",
+          "ins",
+          "noscript",
+          "a"
+        ],
+        "adPatterns": [
+          "www\\.shoujixsw?\\.com\\S*",
+          "(www\\.)?[a-z0-9-]+\\.(com|net|cc|org|info|top|xyz|vip|site)(\\/\\S*)?"
+        ],
+        "whitelist": [
+          "p",
+          "br",
+          "b",
+          "strong",
+          "em",
+          "i",
+          "u",
+          "h1",
+          "h2",
+          "h3"
+        ],
+        "normalize": true,
+        "plainText": false
       }
     },
   },
@@ -4682,6 +5050,340 @@ export const BUILTIN_RULES: BuiltinRule[] = [
     },
   },
   {
+    key: "x33yq",
+    name: "33言情小说网 (x33yq.org)·代理池采集",
+    description: "x33yq.org 33言情(杰奇家族 alistbox 变体, UTF-8)。列表=/sort/{1..18}/{page}(页码1基), div[id=alistbox] 条目(.pic 封面/.title h2 a 书名/.title span 作者/.info .intro/.info .sys 最新章); 书页 h1.f21h+.box_intro(简介/封面 img.x33yq.org); 目录链 .btopt a→/read/{bid}/(全量单页 #list dl dd); 正文 #content。\n⚠ 源站需大陆出口 IP(R43 实测: 香港直连/cloak 均拒绝, CN 代理 120.232.115.170 HTTP 200) — needsProxy=true+proxyCountries=CN 走代理池自动匹配; 已单本试采验证。",
+    enabled: true,
+    source: "scripts/seed-rule-x33yq.ts",
+    config: {
+      "list": {
+        "enabled": true,
+        "urlTemplate": "https://www.x33yq.org/sort/1/{page}",
+        "itemSelector": {
+          "type": "css",
+          "expression": "div[id='alistbox']"
+        },
+        "fields": {
+          "name": {
+            "type": "css",
+            "expression": ".title h2 a",
+            "attr": "text",
+            "replaceFrom": "[《》]",
+            "replaceTo": ""
+          },
+          "bookUrl": {
+            "type": "css",
+            "expression": ".pic a",
+            "attr": "href"
+          },
+          "author": {
+            "type": "css",
+            "expression": ".title span",
+            "attr": "text",
+            "replaceFrom": "^作者[:：]\\s*",
+            "replaceTo": ""
+          },
+          "intro": {
+            "type": "css",
+            "expression": ".info .intro",
+            "attr": "text"
+          },
+          "latestChapter": {
+            "type": "css",
+            "expression": ".info .sys a",
+            "attr": "text"
+          },
+          "cover": {
+            "type": "css",
+            "expression": ".pic img",
+            "attr": "src"
+          }
+        },
+        "pagination": {
+          "enabled": false,
+          "maxPages": 1
+        }
+      },
+      "book": {
+        "enabled": true,
+        "fields": {
+          "name": {
+            "type": "css",
+            "expression": "h1.f21h",
+            "attr": "text",
+            "replaceFrom": "\\s*作者:.*$",
+            "replaceTo": ""
+          },
+          "author": {
+            "type": "css",
+            "expression": "h1.f21h em a",
+            "attr": "text"
+          },
+          "intro": {
+            "type": "css",
+            "expression": ".box_intro div.intro",
+            "attr": "text",
+            "replaceFrom": "^\\s*关于.*?[：:]\\s*",
+            "replaceTo": ""
+          },
+          "cover": {
+            "type": "css",
+            "expression": ".box_intro .pic img",
+            "attr": "src"
+          },
+          "status": {
+            "type": "regex",
+            "expression": "小说状态[：</b>\\s]{0,20}(连载|已完成|完本)",
+            "attr": "1",
+            "flags": "i"
+          }
+        }
+      },
+      "toc": {
+        "enabled": true,
+        "tocLink": {
+          "type": "css",
+          "expression": ".btopt a",
+          "attr": "href"
+        },
+        "itemSelector": {
+          "type": "css",
+          "expression": "#list dl dd"
+        },
+        "fields": {
+          "title": {
+            "type": "css",
+            "expression": "a",
+            "attr": "text"
+          },
+          "url": {
+            "type": "css",
+            "expression": "a",
+            "attr": "href"
+          }
+        },
+        "pagination": {
+          "enabled": false,
+          "maxPages": 1
+        }
+      },
+      "content": {
+        "enabled": true,
+        "fields": {
+          "content": {
+            "type": "css",
+            "expression": "#content",
+            "attr": "html"
+          }
+        },
+        "pagination": {
+          "enabled": false,
+          "maxPages": 1
+        }
+      },
+      "fetch": {
+        "engine": "http",
+        "uaMode": "custom",
+        "customUa": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+        "timeout": 30000,
+        "retries": 2,
+        "needsProxy": true,
+        "proxyCountries": "CN",
+        "hostGateLimit": 2
+      },
+      "clean": {
+        "removeSelectors": [
+          "script",
+          "style",
+          ".wudu-bar",
+          ".bottem",
+          ".bottem1",
+          ".con_top",
+          ".toolbar"
+        ],
+        "adPatterns": [],
+        "whitelist": [],
+        "normalize": true,
+        "plainText": false
+      }
+    },
+  },
+  {
+    key: "xbqg777",
+    name: "新笔趣阁(xbqg777.com)·bqg家族静态站采集",
+    description: "www.xbqg777.com 新笔趣阁(bqg 家族近亲, R52-a 2026-09-21 实测)。纯静态 SSR HTML/UTF-8/https/无反爬, 直连即可。URL 形态: 列表 /{分类}?page={page}(★查询参数分页, 如 /ds?page=2) | 书籍 /{数字id}(无 .html 后缀, 亦兼容 mode=bookIds 模板 /{bookId}) | 章节 /{书id}/{章id}。列表 div.cls .card(容器唯一 <a> 即书链)/书籍 .detail(作者 .zuthor/状态 .state)/目录内嵌 div.chapter ol li a(616 章全量)/正文 article#article。★占位封面陷阱预警: 封面在 cdn.biquge7.top/www.biquge7.top/imgs/{id}.jpg; 实测真实 id 全 200 且图各异、不存在 id 返 404(当日陷阱未复现), 但 bqg 家族历史上有「不存在封面恒 200 返同一默认图」行为 —— 若入库封面 md5 高度重复, 先核查 CDN 是否退化再调规则。反爬态势: 无 → 推荐引擎 TS/Go 皆可(engine=http)。",
+    enabled: true,
+    source: "scripts/seed-rule-xbqg777.ts",
+    config: {
+      "list": {
+        "enabled": true,
+        "urlTemplate": "https://www.xbqg777.com/ds?page={page}",
+        "itemSelector": {
+          "type": "css",
+          "expression": "div.cls .card"
+        },
+        "fields": {
+          "bookUrl": {
+            "type": "css",
+            "expression": "a",
+            "attr": "href"
+          },
+          "name": {
+            "type": "css",
+            "expression": ".title",
+            "attr": "text"
+          },
+          "author": {
+            "type": "css",
+            "expression": ".author",
+            "attr": "text"
+          },
+          "intro": {
+            "type": "css",
+            "expression": ".des",
+            "attr": "text"
+          },
+          "cover": {
+            "type": "css",
+            "expression": ".cover img",
+            "attr": "src"
+          }
+        },
+        "pagination": {
+          "enabled": true,
+          "maxPages": 2
+        }
+      },
+      "book": {
+        "enabled": true,
+        "fields": {
+          "name": {
+            "type": "css",
+            "expression": ".detail .title",
+            "attr": "text"
+          },
+          "author": {
+            "type": "css",
+            "expression": ".zuthor",
+            "attr": "text",
+            "replaceFrom": "^作者：",
+            "replaceTo": ""
+          },
+          "status": {
+            "type": "css",
+            "expression": ".state",
+            "attr": "text",
+            "replaceFrom": "^状态：",
+            "replaceTo": ""
+          },
+          "latestChapter": {
+            "type": "css",
+            "expression": ".upcont a",
+            "attr": "text"
+          },
+          "intro": {
+            "type": "css",
+            "expression": ".des .text",
+            "attr": "text",
+            "replaceFrom": "最新章节由网友提供[\\s\\S]*$",
+            "replaceTo": ""
+          },
+          "cover": {
+            "type": "css",
+            "expression": ".detail .cover img",
+            "attr": "src"
+          }
+        }
+      },
+      "toc": {
+        "enabled": true,
+        "itemSelector": {
+          "type": "css",
+          "expression": "div.chapter ol li"
+        },
+        "fields": {
+          "title": {
+            "type": "css",
+            "expression": "a",
+            "attr": "text"
+          },
+          "url": {
+            "type": "css",
+            "expression": "a",
+            "attr": "href"
+          }
+        },
+        "pagination": {
+          "enabled": false,
+          "maxPages": 1
+        }
+      },
+      "content": {
+        "enabled": true,
+        "fields": {
+          "content": {
+            "type": "css",
+            "expression": "article#article",
+            "attr": "html"
+          }
+        },
+        "pagination": {
+          "enabled": false,
+          "maxPages": 1
+        }
+      },
+      "fetch": {
+        "engine": "http",
+        "uaMode": "rotate",
+        "autoCookie": true,
+        "referer": true,
+        "refererChain": true,
+        "timeout": 20000,
+        "retries": 2,
+        "waitMs": 500,
+        "browserFallbackStatus": [
+          403,
+          429,
+          503
+        ],
+        "hostGateLimit": 2,
+        "hostGateConcurrency": 2,
+        "globalConcurrency": 6
+      },
+      "clean": {
+        "removeSelectors": [
+          "script",
+          "style",
+          "iframe",
+          "ins",
+          "noscript"
+        ],
+        "adPatterns": [
+          "本站所有小说为转载作品.*$",
+          "笔趣阁免费提供.*?在线阅读。",
+          "章节由网友上传",
+          "(www\\.)?biquge7\\.top\\S*",
+          "(www\\.)?xbqg777\\.com\\S*",
+          "(www\\.)?[a-z0-9-]+\\.(com|net|cc|org|info|top|xyz|vip|site)(\\/\\S*)?"
+        ],
+        "whitelist": [
+          "p",
+          "br",
+          "b",
+          "strong",
+          "em",
+          "i",
+          "u",
+          "h1",
+          "h2",
+          "h3"
+        ],
+        "normalize": true,
+        "plainText": false
+      }
+    },
+  },
+  {
     key: "xjp",
     name: "新键盘小说网 (xinjianpan.com)·直连+var c解密代理正文",
     description: "新键盘小说网(xinjianpan.com) biquge2023 仿站: list/book/toc 三段直连 + content 段走外置解密代理。正文层双层: #chaptercontent SSR 前半 + var c(base64, 每章恒定) 加密后半由 get20260103.js 客户端解密注入; 解密算法已破(s=atob(c); n=parseInt(s[8:11]); payload=s[11+n:len-n]; '-'→PHA+, '_'→8L3A+ 标记膨胀; atob→UTF-8), 超出声明式引擎表达力 → mini-services/xjp-proxy(端口 3015)承载(章节页抓取+双层合并+HTML→纯文本)。 toc url 字段以 attr=onclick + replaceFrom 前置代理前缀(站点章节锚为 javascript:;+onclick 形态, 引擎 javascript: 过滤器要求必须先提取); 代理只接受 xinjianpan /txt/{code}/{page}.html 形态(防开放代理)。类名带部署哈希尾缀, 选择器一律 [class^=] 前缀匹配。 代理启动: cd mini-services/xjp-proxy && bun run start; /health 自检 selfTestOk/upstreamReachable。",
@@ -4863,6 +5565,371 @@ export const BUILTIN_RULES: BuiltinRule[] = [
         ],
         "normalize": true,
         "plainText": true
+      }
+    },
+  },
+  {
+    key: "xyetianlian",
+    name: "仙侠天恋(xyetianlian.com)·杰奇WAP模板http站采集",
+    description: "www.xyetianlian.com 仙侠天恋(R52-a 2026-09-21 实测)。杰奇 WAP 模板系纯静态 SSR, ★仅 http 无 https, UTF-8(meta 与实际字节一致; 部分页面无视请求头恒返 gzip, 引擎 bun fetch/curl --compressed 均自动解压无影响)。无反爬, 直连 200。URL 形态: 列表 /fenlei/{分类}/{page}.html | 书籍 /yt{数字id}/ 或拼音 slug(混合形态, 不适用 mode=bookIds) | 章节 /{slug}/{章id}.html。目录内嵌书籍页 div.listmain dl(最新 12 条倒序 + 正文卷全量, 1646 dd 实测) —— 无 tocLink, 引擎书籍页兜底提取, 倒序头部由章节重排归位。正文 #content 单页全章。书籍页/正文尾部推广文案(无弹窗推荐地址/转载作品声明)由 clean 段清除。反爬态势: 无 → 推荐引擎 TS/Go 皆可(engine=http)。",
+    enabled: true,
+    source: "scripts/seed-rule-xyetianlian.ts",
+    config: {
+      "list": {
+        "enabled": true,
+        "urlTemplate": "http://www.xyetianlian.com/fenlei/1/{page}.html",
+        "itemSelector": {
+          "type": "css",
+          "expression": "div.item"
+        },
+        "fields": {
+          "bookUrl": {
+            "type": "css",
+            "expression": ".image a",
+            "attr": "href"
+          },
+          "name": {
+            "type": "css",
+            "expression": "dl dt a",
+            "attr": "text"
+          },
+          "author": {
+            "type": "css",
+            "expression": "dl dt span",
+            "attr": "text"
+          },
+          "intro": {
+            "type": "css",
+            "expression": "dl dd",
+            "attr": "text"
+          },
+          "cover": {
+            "type": "css",
+            "expression": ".image img",
+            "attr": "src"
+          }
+        },
+        "pagination": {
+          "enabled": true,
+          "maxPages": 2
+        }
+      },
+      "book": {
+        "enabled": true,
+        "fields": {
+          "name": {
+            "type": "css",
+            "expression": "div.info h2",
+            "attr": "text"
+          },
+          "author": {
+            "type": "regex",
+            "expression": "作者：([^<]+)"
+          },
+          "category": {
+            "type": "regex",
+            "expression": "分类：([^<]+)"
+          },
+          "status": {
+            "type": "regex",
+            "expression": "状态：([^<]+)"
+          },
+          "wordCount": {
+            "type": "regex",
+            "expression": "字数：([0-9]+)"
+          },
+          "latestChapter": {
+            "type": "css",
+            "expression": ".small .last a",
+            "attr": "text"
+          },
+          "intro": {
+            "type": "css",
+            "expression": "div.intro",
+            "attr": "text",
+            "replaceFrom": "^简介：",
+            "replaceTo": ""
+          },
+          "cover": {
+            "type": "css",
+            "expression": "div.info .cover img",
+            "attr": "src"
+          }
+        }
+      },
+      "toc": {
+        "enabled": true,
+        "itemSelector": {
+          "type": "css",
+          "expression": "div.listmain dl dd"
+        },
+        "fields": {
+          "title": {
+            "type": "css",
+            "expression": "a",
+            "attr": "text"
+          },
+          "url": {
+            "type": "css",
+            "expression": "a",
+            "attr": "href"
+          }
+        },
+        "pagination": {
+          "enabled": false,
+          "maxPages": 1
+        }
+      },
+      "content": {
+        "enabled": true,
+        "fields": {
+          "content": {
+            "type": "css",
+            "expression": "#content",
+            "attr": "html"
+          }
+        },
+        "pagination": {
+          "enabled": false,
+          "maxPages": 1
+        }
+      },
+      "fetch": {
+        "engine": "http",
+        "uaMode": "rotate",
+        "autoCookie": true,
+        "referer": true,
+        "refererChain": true,
+        "timeout": 20000,
+        "retries": 2,
+        "waitMs": 500,
+        "browserFallbackStatus": [
+          403,
+          429,
+          503
+        ],
+        "hostGateLimit": 2,
+        "hostGateConcurrency": 2,
+        "globalConcurrency": 6
+      },
+      "clean": {
+        "removeSelectors": [
+          "script",
+          "style",
+          "iframe",
+          "ins",
+          "noscript",
+          "a"
+        ],
+        "adPatterns": [
+          "作者：.*?所写的《.*?》无弹窗免费全文阅读为转载作品,?章节由网友发布。",
+          "无弹窗推荐地址：\\S*",
+          "无弹窗.*?阅读",
+          "何以笙箫默小说小说推荐阅读：.*?$",
+          "(www\\.)?xyetianlian\\.com\\S*",
+          "(www\\.)?[a-z0-9-]+\\.(com|net|cc|org|info|top|xyz|vip|site)(\\/\\S*)?"
+        ],
+        "whitelist": [
+          "p",
+          "br",
+          "b",
+          "strong",
+          "em",
+          "i",
+          "u",
+          "h1",
+          "h2",
+          "h3"
+        ],
+        "normalize": true,
+        "plainText": false
+      }
+    },
+  },
+  {
+    key: "yueyouxs",
+    name: "神马小说(sma.yueyouxs.com)·移动站静态HTML采集",
+    description: "sma.yueyouxs.com 神马小说移动子域 WAP 站(R52-a 2026-09-21 实测)。纯静态 SSR HTML/UTF-8/无反爬(无 WAF 无 UA 过滤), 直连即可。URL 形态: 列表 /l/s/29/{page}.html(男生必读榜, {page} 分页) | 书籍 /b/{数字id}.html(亦兼容 mode=bookIds 模板 /b/{bookId}.html) | 目录 /c/{id}.html(单页全量) | 章节 /r/{书id}/{章id}.html(整章 5 段 div.section 全内联, 无正文翻页)。★列表项无 <a> 标签: 跳转在容器 onclick 属性里(newWebView/gotoPage), bookUrl 用 regex 从 item html 提取(/b/\\d+\\.html)。书籍页作者/分类/字数为「作者：xx」文本段, 用 regex 提取; 目录页底部上一页/下一页是 JS 展示分页(数据全量内联), 规则不翻页。正文 div.book 整体提取(attr html)后靠 clean 段去 h2 段标题/下载广告块(.wanzheng-dl/.dibu-dl)/「（本章未完，请翻页）」占位行。反爬态势: 无 → 推荐引擎 TS/Go 皆可(engine=http 纯 HTTP 链路, 无需浏览器)。",
+    enabled: true,
+    source: "scripts/seed-rule-yueyouxs.ts",
+    config: {
+      "list": {
+        "enabled": true,
+        "urlTemplate": "https://sma.yueyouxs.com/l/s/29/{page}.html",
+        "itemSelector": {
+          "type": "css",
+          "expression": "div.v-list-item"
+        },
+        "fields": {
+          "bookUrl": {
+            "type": "regex",
+            "expression": "(/b/[0-9]+\\.html)"
+          },
+          "name": {
+            "type": "css",
+            "expression": ".v-title",
+            "attr": "text"
+          },
+          "author": {
+            "type": "css",
+            "expression": ".v-author",
+            "attr": "text",
+            "replaceFrom": "\\u00a0",
+            "replaceTo": ""
+          },
+          "intro": {
+            "type": "css",
+            "expression": ".v-intro",
+            "attr": "text"
+          },
+          "cover": {
+            "type": "css",
+            "expression": ".v-cover-img",
+            "attr": "src"
+          },
+          "wordCount": {
+            "type": "css",
+            "expression": ".v-words",
+            "attr": "text"
+          }
+        },
+        "pagination": {
+          "enabled": true,
+          "maxPages": 2
+        }
+      },
+      "book": {
+        "enabled": true,
+        "fields": {
+          "name": {
+            "type": "css",
+            "expression": "p.face-info-title",
+            "attr": "text"
+          },
+          "author": {
+            "type": "regex",
+            "expression": "作者：([^<]+)"
+          },
+          "category": {
+            "type": "regex",
+            "expression": "分类：([^<]+)"
+          },
+          "wordCount": {
+            "type": "regex",
+            "expression": "字数：([^<]+)"
+          },
+          "status": {
+            "type": "css",
+            "expression": ".content-tag .content-label",
+            "attr": "text"
+          },
+          "intro": {
+            "type": "css",
+            "expression": "#intro",
+            "attr": "text"
+          },
+          "cover": {
+            "type": "css",
+            "expression": ".face .face-cover img",
+            "attr": "src"
+          }
+        }
+      },
+      "toc": {
+        "enabled": true,
+        "tocLink": {
+          "type": "css",
+          "expression": "a[href^=\"/c/\"]",
+          "attr": "href"
+        },
+        "itemSelector": {
+          "type": "css",
+          "expression": "ul.catalog_ls li"
+        },
+        "fields": {
+          "title": {
+            "type": "css",
+            "expression": "a",
+            "attr": "text"
+          },
+          "url": {
+            "type": "css",
+            "expression": "a",
+            "attr": "href"
+          }
+        },
+        "pagination": {
+          "enabled": false,
+          "maxPages": 1
+        }
+      },
+      "content": {
+        "enabled": true,
+        "fields": {
+          "content": {
+            "type": "css",
+            "expression": "div.book",
+            "attr": "html"
+          }
+        },
+        "pagination": {
+          "enabled": false,
+          "maxPages": 1
+        }
+      },
+      "fetch": {
+        "engine": "http",
+        "uaMode": "mobile",
+        "autoCookie": true,
+        "referer": true,
+        "refererChain": true,
+        "timeout": 20000,
+        "retries": 2,
+        "waitMs": 500,
+        "browserFallbackStatus": [
+          403,
+          429,
+          503
+        ],
+        "hostGateLimit": 2,
+        "hostGateConcurrency": 2,
+        "globalConcurrency": 6
+      },
+      "clean": {
+        "removeSelectors": [
+          "script",
+          "style",
+          "iframe",
+          "ins",
+          "noscript",
+          "h2",
+          ".wanzheng-dl",
+          ".dibu-dl",
+          "div[style*=\"padding:0 10px\"]",
+          "a"
+        ],
+        "adPatterns": [
+          "（本章未完，请翻页）",
+          "（本章完）",
+          "万本小说\\s*永久免费读",
+          "页面篇幅有限.*?算我输！",
+          "(www\\.)?yueyouxs\\.com\\S*",
+          "(www\\.)?[a-z0-9-]+\\.(com|net|cc|org|info|top|xyz|vip|site)(\\/\\S*)?"
+        ],
+        "whitelist": [
+          "p",
+          "br",
+          "b",
+          "strong",
+          "em",
+          "i",
+          "u",
+          "h1",
+          "h2",
+          "h3"
+        ],
+        "normalize": true,
+        "plainText": false
       }
     },
   },

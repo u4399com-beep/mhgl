@@ -1,15 +1,15 @@
 # HEIS · 小说采集与发布系统（Next.js 16 + Prisma/SQLite）
 
-> 📖 **零基础安装部署图文教程（手把手 + 截图 + 21 条 FAQ）**：**[docs/INSTALL-GUIDE.md](./docs/INSTALL-GUIDE.md)** ｜ 🛠 生产运维手册：**[DEPLOY.md](./DEPLOY.md)**
+> 📖 **安装部署图文教程（R52 重写：真实截图 + 架构图 + TS/Go 双引擎 + Docker/裸机生产 + FAQ）**：**[docs/INSTALL-GUIDE.md](./docs/INSTALL-GUIDE.md)** ｜ 🛠 部署速查卡：**[DEPLOY.md](./DEPLOY.md)**
 
-规则驱动的小说采集与发布系统：管理端配置站点规则与采集任务，引擎按规则抓取（多引擎降级链）、清洗、落库；前台站群（书城/书籍详情/阅读页/搜索）直接消费库内数据。
+规则驱动的小说采集与发布系统（Next.js 16 + Bun + Prisma/SQLite）：管理端配置站点规则与采集任务，经典 TS / Go（端口 3032，独立进程内存隔离）双采集引擎按规则抓取（多引擎降级链）、清洗、落库；前台站群（书城/书籍详情/阅读页/搜索）直接消费库内数据。
 
 ## 功能特性
 
 - **采集引擎**（`src/lib/crawl/`）：规则四段（列表/详情/目录/正文）解析、CSS/正则/JSON 字段提取、`{page}`/`{offset:N}` 占位符翻页、编码识别（GBK 等）、正文清洗（广告模式/去壳页）、分卷排序、并发限速 + HostGate、**规则级出口代理池**（http/socks5h 逗号分隔多条轮换≤10，仅国内 IP 可达站点如 77shuku.info 必配）、封面本地化（webp）。
 - **多引擎反反爬降级链**：native HTTP（curl 链）→ 代理池轮换 → 中继桥（3011）→ Scrapling 桥（3012，static/stealthy/playwright）→ Obscura 本地 chromium 反检测渲染，按站点防护级别自动降级。
 - **站级签名/解密代理**：对 token/签名/AES 类站点以外置 mini-service 承载（见下表），引擎 `tokenUrl` 钩子对接。
-- **管理端**：站点规则 CRUD + 在线测试、**内置规则库一键导入**（**27 条**实测站点规则，幂等覆盖可恢复出厂）、任务（单书/批量/实时采集/定时增量 autoRefresh）、书籍/章节管理（批量删除等不可恢复操作带输入确认门槛）、TXT 下载、站群与 SEO（伪静态 6 预设、站点级「自动生成 TDK」一键铺底）、统计看板（仪表盘卡片可开关显示）、**违禁词过滤**（对采集入库内容做屏蔽词/敏感词过滤，mask/remove 双模式）、**规则极限校准**（对模拟源站实测安全并发与速率，一键写回推荐参数）。
+- **管理端**：站点规则 CRUD + 在线测试、**内置规则库一键导入**（**35 条**实测站点规则，幂等覆盖可恢复出厂）、任务（单书/批量/实时采集/定时增量 autoRefresh）、书籍/章节管理（批量删除等不可恢复操作带输入确认门槛）、TXT 下载、站群与 SEO（伪静态 6 预设、站点级「自动生成 TDK」一键铺底）、统计看板（仪表盘卡片可开关显示）、**违禁词过滤**（对采集入库内容做屏蔽词/敏感词过滤，mask/remove 双模式）、**规则极限校准**（对模拟源站实测安全并发与速率，一键写回推荐参数）。
 - **前台**：多主题站群（**8 配色 × 8 风格 × 8 布局 = 512 套组合主题 + 9 套精选**，含笔趣阁经典、霹雳书屋仿站、久久小说 aijjxs 复刻；非法主题 ID 自动回退默认主题）、阅读页、搜索、sitemap、**6 预设伪静态 URL**（纯数字/字母数字/目录式/无后缀/紧凑双段/动态查询，宽容解析永不断链）、**全链自动 TDK**（标题/描述/关键词 + canonical + JSON-LD 逐页生成，伪静态直达页 SSR 直出）。
 - **任务可靠性**：任务状态机（pending/running/paused/stopped/done/error）、暂停续采、服务重启自动回收 running → paused 不丢进度、增量重采跳过已采、dev 模式 OOM 自愈守护（`.zscripts/dev-watchdog.sh`）。
 
@@ -63,7 +63,7 @@ bash .zscripts/dev.sh                # 一键启动(主应用 + 8 个 mini-servi
 | 3016 | `cloak-browser` | 独立反检测浏览器服务（puppeteer-extra stealth 三档隐身；采集引擎未把它接入自动降级链，属可选增强） | `cd mini-services/cloak-browser && bun run dev`（需本机 chromium） |
 | 3017 | `qidian-proxy` | 起点中文(镜像API)目录签名载荷解码 + 正文转换代理（仅起点规则正文链路需要，正文还需配置 QD_YWKEY/QD_YWGUID 凭证） | `cd mini-services/qidian-proxy && bun run start` |
 
-- 主应用**不启动任何小服务也能正常跑**：内置 27 条规则中仅 5 条站点规则依赖对应代理；依赖对照表与排错见 [docs/INSTALL-GUIDE.md](./docs/INSTALL-GUIDE.md) 8.7 节；
+- 主应用**不启动任何小服务也能正常跑**：内置 35 条规则绝大多数可直连采集，个别站点规则依赖对应代理小服务；依赖对照与排错见 [docs/INSTALL-GUIDE.md](./docs/INSTALL-GUIDE.md) 第 6.7 节；
 - **Docker 部署时 5 个 bun 代理（3010/3011/3013/3014/3015）已随主容器共置**，零配置；仅 Python 版 `scrapling-bridge` 不进默认镜像（可选增强，`--profile stealthy`，见 DEPLOY.md）；`cloak-browser`(3016) 与 `qidian-proxy`(3017) 不在容器内共置，本地开发按需启动；
 - ⚠ 请勿把 3010~3017 端口暴露到不受信任的网络（`fetch-relay` 与 `scrapling-bridge` 源码钉死仅绑 127.0.0.1）。
 
@@ -98,7 +98,7 @@ Dockerfile docker-compose.yml install.sh docker-entrypoint.sh   # 生产部署(�
 ### scripts/ 约定
 
 - `verify-ss-a-docker.ts` / `verify-kk-b-docker.ts` / `verify-ll-a-docker.ts`：三套 Docker 断言资产（断言计数 + `process.exit` 码），CI 级质量关，长期保留。
-- `seed-rule-*.ts`：单站真实采集规则幂等入库脚本；`gen-builtin-rules.ts`：从各 seed-rule-* 汇总生成 `src/lib/crawl/builtin-rules.ts`（管理端「内置规则库」对话框的 **27 条**数据源）。
+- `seed-rule-*.ts`：单站真实采集规则幂等入库脚本；`gen-builtin-rules.ts`：从各 seed-rule-* 汇总生成 `src/lib/crawl/builtin-rules.ts`（管理端「内置规则库」对话框的 **35 条**数据源）。
 - `seed.ts`：全新库演示数据种子（分类 15 / 默认站点 / 示例规则 3 条 / 演示书 6 本，空库守卫，可重复执行）。
 - `ratelimit-site.ts`：本地模拟源站（规则极限校准的探测目标，端口 3040）。
 - `archive/`：历史轮次验证脚本归档（只移不删，不参与 tsc/lint 质量门），见 `archive/README.md`。

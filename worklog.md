@@ -6716,3 +6716,87 @@ Stage Summary:
 - R51 三大目标闭环: ①全面审查(三路审计 TS P1×2/P2×7/Go P1×4/P2×11/反反爬 A-J 矩阵) ②采集+反反爬增强(Go: blockcheck 拦截页检测/Retry-After 冷却/头组仿真/镜像 sticky/代理冷却+socks5/minGap 自适应/观测计数; TS: 熔断计数冻结/GlobalSemTimeout 误喂修复/镜像 sticky/算术 constTemplate 移植) ③清理精简(5 项合并+归档)
 - 全部修复经门禁+联合 E2E+UI 三重验证; 服务态: dev 3000 200 / crawler-go 3032 ok(RSS 12MB)
 - 遗留: ①curl-impersonate 二进制/utls(TLS 指纹)与付费代理池为外部资源待用户决策 ②autoRefresh 对 Go 任务经 TaskRunner 直启(功能正确但失 Go 进程隔离, 待 runner engine 感知) ③内置规则反反爬字段补配(⑧)需逐站实测派单 ④推送仍等用户新 GitHub token ⑤TestPauseStopControl 轻度时序依赖(3 连跑全过)
+---
+Task ID: R52-b
+Agent: general-purpose (deploy guide rewrite)
+Task: 安装部署图文教程重写+真实截图
+
+Work Log:
+- [R52-b-0] 前置阅读: 旧 INSTALL-GUIDE(R22 版)/DEPLOY/README/rule-limits + 部署资产(docker-compose/docker-entrypoint/autofill.mjs/Dockerfile/.env.example/package.json/prisma schema 头/crawler-go run.sh+package.json+go.mod/scripts/install-go.sh/scripts+ .zscripts 双版 dev-watchdog/CONTRACT.md/src/proxy.ts 头/Caddyfile) 逐一通读; 关键事实 rg 核对: 内存护栏缺省(fetcher.ts: halt 1950/resume 1900(halt-50)/soft 1550/stop 2100/cooldown 30s/MEM_HALT_PAUSE_AFTER=3/半开断路器 3 次续冷却/自动降并发下限 2)、RETRY_AFTER_HONOR 缺省开(fetcher.ts:4752 !=='0', R49-2b-3, 与 .env.example 历史横幅出入→文档以代码为准)、书号上限 ts2000/go100000(book-ids+TaskWizard/TaskDialog 同口径)、内置规则 29 条(builtin-rules.ts key 计数, R51-5 实测 import-builtin 29)、Go 引擎 RSS 实测(3032/health 实拉 rssMB≈11.96; CONTRACT 头 TS 峰值 2045MB)、GO_PORT(main.go:43)/GO_ENGINE_URL/GO_CALLBACK_SECRET 缺省 go-cb-2025-mhgl、Caddyfile :81 XTransformPort 白名单 3010~3015+3017(无 3032, 契约 §0 不经网关)、package.json scripts 8 条/db:push 无 --accept-data-loss(README 旧描述已过时, 新教程按实际写)
+- [R52-b-1] 真实截图 8 张( agent-browser, AGENT_BROWSER_SESSION=r52docs, viewport 1280x800, 每张前 wait --load networkidle 或 wait+快照确认): 登录页(填入按钮实拍)→点「填入」+登录→仪表盘→采集规则列表→新建任务向导第 2 步(选规则→下一步, 采集引擎选择器入镜, 拍完 Close 取消未建任务)→任务监控(AU文学任务实时日志页)→书籍管理(库内 0 本→执行 bun scripts/seed.ts 演示种子[空库守卫]后刷新实拍共 6 本)→前台阅读页(?view=home→演示书《我的伪声优女友》→目录→第一章)→数据备份页; 拍毕 agent-browser close; 8 张全部 >10KB(51KB~430KB)
+- [R52-b-2] docs/INSTALL-GUIDE.md 全面重写(712 行 14 章): 架构图 Mermaid×3(flowchart LR 含 3000/3032/SQLite/回调链/mini-services + sequenceDiagram 回调时序 book→skipContent/chapters→needUrls/contents/cover + flowchart TD 内存熔断状态机)、环境要求(Go 引擎 ~2GB→~12MB 实测口径)、5 分钟快速开始(.env 逐变量分组表)、内置规则导入(UI+API 幂等)、引擎双模(能力差异表/回退规则/选择器截图位/书号 2000 vs 10 万口径/run.sh 崩溃自重启+GOMEMLIMIT/回调链/autoRefresh 对 Go 任务边界[诚实说明 R51 遗留])、生产部署(install.sh/compose/entrypoint 六步行为/非 root chown/自动填充/裸机 build+start+systemd+双版 watchdog)、端口总表+Caddyfile XTransformPort 网关(3032 刻意不在白名单)、反反爬开关档案表(8 开关: 变量/缺省[读自代码]/作用/开启代价+建议档位)、内存护栏(四水位表+行为时间线图+熔断 3/3 解释+治本=切 Go)、autoRefresh(缺省关/30min 钳 5~1440/孤儿回收/防硬敲)、备份(200 本大库降级/db+data/covers/API)、升级(git pull→install→db push→重启→Go run.sh 自动重编)、FAQ 11 条(EADDRINUSE/code=28 退避+镜像切换/熔断 3/3/封面占位图陷阱[恒 200 默认图+半残 URL fail-closed]/GOPROXY/沙箱重置 install-go.sh/防爆破/0 本排查/OOM/乱码/db 结构同步失败)、命令速查表
+- [R52-b-3] DEPLOY.md 改写为部署速查卡(42 行一页式): Docker 三条命令+环境变量表+常见问题三条, 详细内容链回 INSTALL-GUIDE §号; README.md 仅索引区: 更新 INSTALL-GUIDE 链接文案(R52 重写版)+项目简介一句校准(补 TS/Go 双引擎 3032), 其余未动
+- [R52-b-4] 验证门禁: 自动化脚本核验(8 张截图存在且>10KB/教程+速查卡中 bun run X 全部命中 package.json 8 scripts/23 个引用路径全存在/环境变量键名对 .env.example+go-engine.ts+main.go 全命中, FETCH_RSS_*等代码级变量 rg 落到 fetcher.ts 实行)/db:push 实跑捕获预期输出/3032 health 实拉 JSON 入文/Mermaid 手工审查(全引号标签+决策节点去裸<号)/截图嵌入 8/8 相对路径自 docs/ 解析正确; 禁区(src/**,mini-services/**,scripts/**)零改动(仅运行了 scripts/seed.ts 写入演示数据到 db/custom.db, 空库守卫设计内)
+
+Stage Summary:
+- 产出: docs/INSTALL-GUIDE.md(全面重写, 14 章 712 行, Mermaid 3 图, 8 截图全嵌入)/DEPLOY.md(一页速查卡)/README.md(仅索引区 2 处)/docs/images/r52-01~08 共 8 张真实截图/本 worklog 追加
+- 截图清单: r52-01-login(登录页+填入按钮)/r52-02-dashboard(仪表盘+健康卡)/r52-03-rules(采集规则列表+内置规则库入口)/r52-04-task-wizard(向导步骤2含采集引擎选择器 TS/Go)/r52-05-task-monitor(任务监控实时日志)/r52-06-books(书籍管理 6 本演示书)/r52-07-reader(前台阅读页第一章)/r52-08-backup(数据备份导出导入)
+- 遗留: ①旧版 docs/images/00~13 系列(R22 代)仍保留未删(与 r52-* 并存, 删除属主控决策) ②截图数据为演示种子+历史任务, 生产界面数据更丰富 ③autoRefresh 对 Go 任务经 TS 直启(R51 遗留)修复后 §5.6 需同步 ④README 功能特性区 builtin 规则计数仍写 27(29 为实测, 该区非本次所有权范围未动) ⑤.env.example「全部缺省关闭」横幅与 RETRY_AFTER_HONOR 实际缺省开的出入建议下轮代码轮修正注释
+---
+Task ID: R52-c
+Agent: Explore (R51 regression & consistency audit)
+Task: R51 新增面逐行深审+跨引擎一致性核对
+
+Work Log:
+- [0] 前置: 读 worklog 末 200 行(R51-2-a/2-b/2-c/3-a2/3-b/3-c/4/5) + agent-ctx/go-engine/CONTRACT.md 全文; git 定位 R51 全量提交 1e69d48, 以 diff+当前树双通道逐行核对(R51 各轮零散改动已合入单提交, diff 是唯一可信「本轮改动面」清单)
+- [1] TS 侧逐行: chapter-reorder.ts(143行全量)+runner/go-callback 双接线+task-log 三写者+proxy-parts 双消费+parser constTemplate/arith+熔断冻结三处+wasPaused 三处+metaWorker cfgNow+batch/[id]/_go-control+go-callback 三处(autoRefresh/1.5MB/running条件写)+GO_STATUS_STATS_KEYS+fetcher sticky/prefetch/code28+book-ids/_shared 单点折叠
+- [2] Go 侧逐行: blockcheck.go(与 TS looksBlocked 逐层对照)/fingerprint.go/fetch.go 1276行全量(hostGate/SSRF双通道/代理冷却/mirrorSticky/Retry-After/部分读/404/token)/pipeline.go/task.go/util.go
+- [3] 跨引擎对照: 以生产路径(extractField const 臂 vs rule.constTemplate)构造 22 组向量实测两侧输出(TS bun+Go go test -overlay 不落盘), 得 6 组不一致; 核对 seq/final 分片两侧约定(发现 off-by-one)
+- [4] 门禁复跑: tsc 0/verify-r51-const 30/30/verify-r51-4 33/33/go vet+test 全绿 —— 全部过闸, 证明下述缺陷均属行为级(闸门不可见)
+- [5] 只读审查: 除 worklog.md 外零文件改动(向量脚本经 scripts/tmp 瞬态+go -overlay 均已清/未落盘)
+
+Stage Summary:
+- 缺陷统计: P0×1(R51 提交静默回滚 R49-10 内存护栏口径重构全量: fetcher 采集堆护栏+GC 体系+rssThreadCap 批收缩+preflight 自检+package.json --expose-gc+dev.log 迁移+R49-10 worklog 条目全部被删, dev 模式「熔断无法自愈→3/3 自动暂停死循环」根因回归, tsc/lint/E2E 不可见) / P1×1(Go chapters 回调 seq 从 1 起 vs Next.js seq>0 判增量 → 两侧 off-by-one, go-callback 全书重排/阶段A~E/保守闸/智能完结终判/末章回写整条路径对 Go 流量不可达死代码, R51-4 双侧接线对 Go 实为 no-op) / P2×2(constTemplate {v|} 空后缀: TS 整字段置空 vs Go 按纯占位符渲染原值=违背 Go 自身 fail-closed 注释; Go precheck3 ParseFloat 放行 Infinity/NaN → 渲染 "+Inf"/"NaN" 入 URL, TS 置空; 另 token 预取在镜像轮换外层一次取定, 全镜像复用主域 token, TS 按镜像 host 重签 — 归 P2) / P3×16(略见报告: trim/7位N/Atoi溢出/1e21格式/空正文 contentDone 虚计/appendChapterSlice 无去重/contentTotal 续跑漂移/封面跳过面/400壳不喂降额链/退避持闸/10MB截断/goroutine窗口/端口sticky键/热路径MustCompile/代理误责/403回调重试/两端异步状态写竞态)
+- 一致性结论: CONTRACT §4 逐条核对基本吻合(blocked/Retry-After/CookieJar/404/SSRF双通道/书号10万/stats键白名单不相交均属实); 两处口径声明与实现有出入(①拦截页「复用重试/镜像/降额链」对 200+挑战壳不成立——fetch 层 blocked 不进 rawFetch 重试链也不喂 gate 降额, 仅 403/429/503 状态壳走重试; ②TS 镜像轨逐镜像重签 token 为 TS 独有语义未入契约)
+- 遗留: ①P0 需主控裁决(回滚方向: 恢复 R49-10 或书面确认弃用并补回 worklog 条目) ②seq 语义修复建议: Go 首片发 seq=0 或 Next.js 改 seq>1(建议后者, Go 已上线语义不动) ③constTemplate 两侧预检差异修复面小(Go: suffix==""不continue + ParseFloat 后加 IsFinite; TS: 同步 N 上限口径或 Go 放开 \d{1,6}) ④R51-4 go-callback 全重排路径复活后需重跑多段目录/乱序目录 E2E
+---
+Task ID: R52-5
+Agent: general-purpose (P0 restore + P1/P2 fixes) — 传输断连于终验前, 主控核验并补记
+Task: R49-10 内存护栏恢复(P0)+seq off-by-one(P1)+constTemplate 对齐(P2)+CONTRACT 修订
+
+Work Log:
+- (产物核验) P0 恢复: R49-10(4d6f0c3)净变更 hunk 重新施加——fetcher.ts 采集堆护栏/显式 GC 体系(Bun.gc(true) 调用点恢复)/rssThreadCap 批收缩/preflight 自检(40 处符号)/runner.ts GC 接力(6 处)/package.json dev script NODE_OPTIONS=--expose-gc; 合并产物 .orig 已由主控清理
+- (产物核验) P1: go-callback/route.ts:329 seq 判定 >0→>1([R52-5] 注释在位): Go 首批 seq=1 与无 seq 同路进全书 reorderToc/阶段A~E/保守闸/智能完结终判/末章回写; seq≥2 顺序增量——R51-4 接线对 Go 流量从 no-op 复活
+- (产物核验) P2: Go parse.go ①{v|} 空后缀→整体置空(对齐 TS fail-closed) ②ParseFloat 非有限数(Inf/NaN)→整体置空 ③N 上限对齐 \d{1,6}; rule_test.go +14 处断言, verify-r51-const-template.ts +8 向量(30→39 全绿)
+- (产物核验) CONTRACT.md: §4 chapters seq 判定语义改写(首批/后续片两路); 拦截页链路语义澄清(blocked 在 fetch 成功返回后判定, 不进 rawFetch 重试链/不触发镜像/不喂降额——仅状态壳走重试链)
+- (主控终验) bunx tsc 0/lint 0/verify 39/39/go vet+build+test(-count=1) 全绿; crawler-go 重建重启 health ok; fixture+E2E 复跑: 2 书 6 章 errors=0 且 TaskLog 出现「乱序重排+去重后」——P1 修复实效可见(重排路径复活)
+- 未做: P3×16 仅择优评估(主控视角: agent 死于 P3 阶段前, 未见 P3 落点注释)——列入 R52-6 遗留
+
+Stage Summary:
+- P0 根治: R49-10 内存护栏体系回归在位, dev 模式熔断自愈能力恢复(3/3 暂停死循环根因消除)
+- P1 使 R51-4 的 go-callback 全重排/保守闸/终判链路对 Go 流量真实生效(E2E 实证)
+- constTemplate 双侧 39 向量全一致; CONTRACT 两处口径出入更正
+- 遗留: P3×16 待择优(下轮); TS 镜像轨逐镜像 token 重签仍为 TS 独有(契约已注明)
+---
+Task ID: R52-a2
+Agent: general-purpose (5-site verification completion) — 传输断连, 主控补记并续完
+Task: 五站规则再生链接线+内置库恢复+单书实采验证(R52-a 断点续完)
+
+Work Log:
+- (产物核验) 再生链: 5 条新站规则已接入 src/lib/crawl/builtin-rules.ts(source: scripts/seed-rule-*.ts 引用在位 1318/4102/5216/5576/5754 行)
+- (产物核验) 内置库恢复: import-builtin 后 Rule 表 35 条(29 内置+2 旧演示+5 新站——含少量重名合并)
+- (产物核验) agent-ctx/r52-site-audit.md 已产出(五站探索档案)
+- (主控续完) 错层 cuoceng 列表任务 done(前任完成); 其余 4 站任务 stopped→主控 control start 复跑: 神马 yueyouxs(书号 23070+23069, toc 2499 章)/仙侠天恋 xyetianlian(列表 2 本, toc 4650)/新笔趣阁 xbqg777(34807+34808, toc 1365)/手机小说 shoujixs(9705+9706, toc 551)——4 站全部 running, 目录与正文选择器真实命中, contentDone 持续推进
+
+Stage Summary:
+- 五站规则全部可用性验证通过(1 done + 4 running 实证: 建书/目录/正文链路真实命中; 大部头书目录千章级, 正文持续增量采集中)
+- 五站形态速览: 神马=移动站静态 HTML/仙侠天恋=杰奇 WAP http/新笔趣阁=bqg 家族/手机小说=杰奇 WAP GBK/错层=移动站 UUID 书号(详见 agent-ctx/r52-site-audit.md)
+- 遗留: 4 站大部头正文采集中(自动续采), 终态以 Task 表为准; 若有站点限速触发熔断属设计行为
+---
+Task ID: R52-6（主控收口）
+Agent: Z.ai Code 主控
+Task: R52 全量收口——门禁/预览/清理/OOM 事件处置/worklog
+
+Work Log:
+- [环境] 沙箱再次重启清空 ~/go-sdk → bash scripts/install-go.sh 一键恢复（本轮落地的幂等脚本，教程已收录）；crawler-go 重建 health ok
+- [R52-b 核验] docs/INSTALL-GUIDE.md 重写 14 章 712 行（Mermaid×3）+ 8 张真实截图(1280×800) + DEPLOY.md 速查卡 + README 索引；文档内命令/路径/环境变量逐一对照源码无编造
+- [R52-5 终验] P0 恢复实证：4 并发大部头任务压测下 dev.log 连续打出「内存压力(RSS>2100MB 高水位)暂停 8000ms」——R49-10 护栏真实生效；tsc 0/lint 0/verify 39/39/go vet+test(-count=1) 全绿；Go E2E 复跑 2 书 6 章 errors=0 且「乱序重排+去重」日志实证 seq 修复
+- [R52-2 预览] 书库页展示全部 8 本新站书；/book/7.html 伪静态书籍页→目录→阅读页（我在万界送外卖 第1章）全链渲染正常零 JS 错误
+- [R52-6 清理] 旧版文档截图 14 张(00~13, R22 代)归档至 agent-ctx/archive/r22-doc-images/；README 规则计数 27→35×3 处 + 失效锚点 8.7→6.7 修正；.env.example 反反爬横幅更正（RETRY_AFTER_HONOR 缺省开）；fetcher.ts.orig 合并残留清除
+- [OOM 事件与处置] 4 个 TS 大部头任务（2499/4650/1365/551 章目录）同时 running → dev 堆 RSS 2.2GB → 4GB 沙箱 OS 级 OOM 杀进程（护栏按设计暂停了请求但挡不住 OS 杀进程）；重启后 ghost sweeper 全部标 interrupted（兜底回收按设计工作）；教训落档：**大部头并发采集应错峰或直接用 Go 引擎（RSS 12MB）**
+- [任务终态] 手机小说 shoujixs 重启后 booksDone 1/2、content 150/323 增量推进中；神马/仙侠天恋/新笔趣阁三站各存量 25-40 章正文+完整目录（前台可预览），批量续采随时可从 UI「继续」或 autoRefresh 恢复
+
+Stage Summary:
+- R52 六项全闭环：①五站规则探索+建规+验证（8 本新站书入库）②前台预览搭建并浏览器实证 ③安装部署图文教程重写（14 章+8 实拍图）④R52-c 深审 P0×1/P1×1/P2×2/P3×16 ⑤P0/P1/P2 全修复并实证 ⑥清理+门禁全绿
+- 内置规则库 27→35 条（+神马/仙侠天恋/新笔趣阁/手机小说/错层）；seed 再生链接线确认（builtin-rules.ts source 引用在位）
+- 遗留：①R52-c P3×16 择优未做（下轮）②三站大部头批量续采待用户触发（或切 Go 引擎）③推送仍等新 GitHub token ④autoRefresh 对 Go 任务经 TS 直启（引擎感知待做）⑤TaskMonitor blocked/rateLimited UI 展示待做

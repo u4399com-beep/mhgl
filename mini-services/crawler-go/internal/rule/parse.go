@@ -24,6 +24,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
@@ -132,12 +133,32 @@ func isAllDigits(s string) bool {
 	return true
 }
 
+// reCache 热路径正则编译缓存: rule 提供的 pattern 在每章每字段提取时反复使用
+// [R52-5 P3](审计 R52-c「热路径 MustCompile 提包级」): regexExtract/regexExtractAll/
+// safeReplaceAll 修前每次调用都 regexp.Compile(同 pattern 反复编译); 缓存后同 pattern
+// 仅编译一次。键=完整 pattern(含 flags 前缀); 值=*regexp.Regexp(仅缓存编译成功者,
+// 失败者不缓存每次重试编译, 行为与修前一致)。pattern 集合受规则数约束(有界, 逐任务
+// 至多几十条), 无需淘汰
+var reCache sync.Map // string -> *regexp.Regexp
+
+func compileCached(pattern string) (*regexp.Regexp, error) {
+	if v, ok := reCache.Load(pattern); ok {
+		return v.(*regexp.Regexp), nil
+	}
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return nil, err
+	}
+	reCache.Store(pattern, re)
+	return re, nil
+}
+
 // safeReplaceAll 安全整串替换: 单遍扫描 + $ 占位符展开; 逐匹配耗时超预算或匹配数
 // 超上限时返回 ""(调用方保持原文不替换)。语义对齐 parser.ts safeReplaceAll
 // R51-2-b #4: FindAllSubmatchIndex 上限化(replaceMaxMatches+1) — 零宽正则×10MB 页
 // 原 -1 无界预分配可达数百 MB 峰值; 匹配数上限化后预算内存 ~3MB 且超限语义不变(fail-closed)
 func safeReplaceAll(input, src, replaceTo string) string {
-	re, err := regexp.Compile(src)
+	re, err := compileCached(src)
 	if err != nil {
 		return ""
 	}
@@ -210,7 +231,7 @@ func regexExtract(htmlStr string, rule *FieldRule) string {
 	if !regexRuntimeSafe(rule.Expression) {
 		return ""
 	}
-	re, err := regexp.Compile(jsFlagsToGo(rule.Flags) + rule.Expression)
+	re, err := compileCached(jsFlagsToGo(rule.Flags) + rule.Expression)
 	if err != nil {
 		return ""
 	}
@@ -235,7 +256,7 @@ func regexExtractAll(htmlStr string, rule *FieldRule) []string {
 	if !regexRuntimeSafe(rule.Expression) {
 		return nil
 	}
-	re, err := regexp.Compile(jsFlagsToGo(rule.Flags) + rule.Expression)
+	re, err := compileCached(jsFlagsToGo(rule.Flags) + rule.Expression)
 	if err != nil {
 		return nil
 	}
@@ -846,11 +867,17 @@ func urlVars(u string) map[string]string {
 // arithPlaceholderIncomplete 预检(R49-9): 渲染前扫描, 任何算术后缀残缺(如 {v|/}、
 // {v|*2}、{v|/1.5})或未闭合({v|/1000 无右括号}) → 整体置空 fail-closed。
 // 整体置空 = 整个字段值为空串, 防止残缺模板渲染出错误 URL 参与抓取。
+// [R52-5 P2 对齐 TS parser.ts](审计 R52-c): ①空后缀 {v|} 与残缺同口径整体置空 —— 修前
+// 按"纯占位符"渲染原值, 违背本段 fail-closed 注释(TS 预检2 对空后缀置空整字段);
+// ②ParseFloat 放行 Infinity/NaN 修后非有限数也整体置空(TS Number.isFinite 同口径),
+// 防 "+Inf"/"NaN" 渲染进 URL; ③N 上限对齐 TS \d{1,6}(1~6 位整数, 修后 7 位 N
+// 预检即整体置空且 Atoi 溢出面闭合)。
 var constTplRe = regexp.MustCompile(`\{([a-zA-Z0-9_.]+)(\|([^{}]*))?\}`)
 
 // arithSuffixRe: 仅 / +- 三算子(原字符类误含 ~ 字面量 — R51-2-b P3: 统一 fail-closed,
-// {v|~N} 预检即整体置空而非预检放行后 default 分支置空)
-var arithSuffixRe = regexp.MustCompile(`^([-/+])([0-9]+)$`)
+// {v|~N} 预检即整体置空而非预检放行后 default 分支置空);
+// [R52-5] N 上限 1~6 位对齐 TS CONST_TPL_RE 渲染能力(\d{1,6})
+var arithSuffixRe = regexp.MustCompile(`^([-/+])([0-9]{1,6})$`)
 var danglingArithRe = regexp.MustCompile(`\{[a-zA-Z0-9_.]+\|[^{}]*$`)
 
 func constTemplate(expr string, vars map[string]string) string {
@@ -861,8 +888,11 @@ func constTemplate(expr string, vars map[string]string) string {
 	// 预检 2: 已闭合但后缀残缺/未知算子/非整数 N → 整体置空
 	for _, m := range constTplRe.FindAllStringSubmatch(expr, -1) {
 		suffix := m[3]
-		if suffix == "" {
-			continue // 普通 {var} 占位符, 无预检需求
+		// [R52-5] 区分口径: m[2]=="" 才是纯 {var}(无管道); {v|}(管道+空后缀)是残缺形态,
+		// 与 TS 预检2(CONST_TPL_SUFFIX_RE 捕获后 CONST_TPL_ARITH_RE 校验失败)同口径置空 ——
+		// 修前以 suffix=="" 判纯占位符, {v|} 漏过预检被渲染成原值
+		if m[2] == "" {
+			continue // 纯 {var} 占位符, 无预检需求
 		}
 		if !arithSuffixRe.MatchString(suffix) {
 			return ""
@@ -874,15 +904,25 @@ func constTemplate(expr string, vars map[string]string) string {
 	for _, m := range constTplRe.FindAllStringSubmatch(expr, -1) {
 		key := m[1]
 		suffix := m[3]
-		if suffix == "" {
-			continue
+		if m[2] == "" {
+			continue // [R52-5] 纯 {var}(无管道)无预检需求; {v|} 空后缀属残缺不再跳过
 		}
 		raw, ok := vars[key]
 		if !ok || raw == "" {
 			return "" // 缺变量 → 整体置空
 		}
-		if _, err := strconv.ParseFloat(raw, 64); err != nil {
+		raw = strings.TrimSpace(raw) // [R52-5 P3] 对齐 TS 预检3 String(raw).trim()(仅算术臂; 纯 {var} 不 trim)
+		if raw == "" {
+			return "" // 空白值(trim 后空) → 整体置空
+		}
+		f, err := strconv.ParseFloat(raw, 64)
+		if err != nil {
 			return "" // 非数 → 整体置空
+		}
+		// [R52-5 P2] 非有限数(Infinity/+Inf/NaN) → 整体置空(TS Number.isFinite 同口径):
+		// Go ParseFloat 接受这些字面量, 修前会渲染 "+Inf"/"NaN" 入 URL
+		if math.IsInf(f, 0) || math.IsNaN(f) {
+			return ""
 		}
 		if strings.HasPrefix(suffix, "/") {
 			if n, _ := strconv.Atoi(suffix[1:]); n == 0 {
@@ -894,20 +934,23 @@ func constTemplate(expr string, vars map[string]string) string {
 		m := constTplRe.FindStringSubmatch(full)
 		key := m[1]
 		suffix := m[3]
-		if suffix == "" {
-			// 普通 {var}: 未命中 → 空串(TS 语义)
+		if m[2] == "" {
+			// 纯 {var}(无管道): 未命中 → 空串(TS 语义)
+			// [R52-5] 判定改 m[2]: {v|} 空后缀已被预检2置空不会到达本分支;
+			// 修前以 suffix=="" 判纯占位符, {v|} 会在此被渲染成原值
 			return vars[key]
 		}
 		// 算术占位符: fail-closed 语义
 		op := suffix[0:1]
 		n, _ := strconv.Atoi(suffix[1:])
 		raw, ok := vars[key]
-		if !ok || raw == "" {
-			return "" // 缺变量 → 整体置空(由外层检查保证, 此处兜底)
+		if !ok || strings.TrimSpace(raw) == "" {
+			return "" // 缺变量/空白值 → 整体置空(由外层检查保证, 此处兜底)
 		}
+		raw = strings.TrimSpace(raw) // [R52-5 P3] 对齐 TS 渲染臂 String(v).trim()(仅算术臂)
 		val, err := strconv.ParseFloat(raw, 64)
-		if err != nil {
-			return "" // 非数字 → 整体置空
+		if err != nil || math.IsInf(val, 0) || math.IsNaN(val) {
+			return "" // 非数字/非有限数 → 整体置空([R52-5] 补 IsInf/IsNaN 兜底)
 		}
 		var result float64
 		switch op {
@@ -927,12 +970,44 @@ func constTemplate(expr string, vars map[string]string) string {
 	})
 }
 
-// formatArithResult 结果格式化: 整数值不带小数点; 非整数值保留必要精度
+// formatArithResult 结果格式化(对齐 TS String(result)=JS Number→String 语义):
+// 整值且 |x|<1e15 → 无小数点整数; 1e-6 ≤ |x| < 1e21 → 固定小数('f' 最短精度);
+// 其余(含 ≥1e21 大数与 <1e-6 极小值)→ JS 形态科学计数("1e+21"/"1e-7", 指数无前导零)。
+// [R52-5 P3](审计 R52-c「1e21 格式」): 修前非整值一律 'f' → 22 位大数与 JS "1e+21"
+// 分叉(同 ID 两侧产出不同 URL)
 func formatArithResult(f float64) string {
-	if f == math.Trunc(f) && math.Abs(f) < 1e15 {
+	abs := math.Abs(f)
+	if f == math.Trunc(f) && abs < 1e15 {
 		return strconv.FormatInt(int64(f), 10)
 	}
+	if abs != 0 && (abs >= 1e21 || abs < 1e-6) {
+		return jsFloatFormat(f)
+	}
 	return strconv.FormatFloat(f, 'f', -1, 64)
+}
+
+// jsFloatFormat JS Number 科学计数形态: mantissa + 'e' + 符号 + 无前导零指数
+// (Go 'e' 指数至少 2 位 "1e-07", JS 为 "1e-7" —— 手工重组)
+func jsFloatFormat(f float64) string {
+	s := strconv.FormatFloat(f, 'e', -1, 64)
+	i := strings.IndexByte(s, 'e')
+	if i < 0 {
+		return s
+	}
+	mant, exp := s[:i], s[i+1:]
+	sign := "+"
+	switch exp[0] {
+	case '+':
+		exp = exp[1:]
+	case '-':
+		sign = "-"
+		exp = exp[1:]
+	}
+	exp = strings.TrimLeft(exp, "0")
+	if exp == "" {
+		exp = "0"
+	}
+	return mant + "e" + sign + exp
 }
 
 // ---------------- 提取上下文与统一提取 ----------------

@@ -49,6 +49,21 @@ function main() {
   expect(render('https://example.com/static.jpg', { v: '1' }), 'https://example.com/static.jpg', '无占位符 → 原样(既有语义不变)')
   expect(render('p{v}p', { v: '9' }), 'p9p', '纯 {name} 命中(既有语义不变)')
 
+  console.log('[A2] R52-5 P2 双侧对齐向量(TS/Go 逐组一致: Go rule_test.go 同名用例)')
+  // a. 空后缀 {v|}: TS 整字段置空(fail-closed); Go 修前按纯占位符渲染原值, 修后同置空
+  expect(render('https://x/img/{v|}.jpg', { v: '42' }), '', '空后缀 {v|} → 整体置空(fail-closed, 对齐 Go)')
+  // b. 非有限数: TS Number.isFinite 拒绝; Go 修前 ParseFloat 放行渲染 "+Inf"/"NaN", 修后同置空
+  expect(render('https://x/img/{v|/1000}/a.jpg', { v: 'Infinity' }), '', 'Infinity 输入 → 整体置空(对齐 Go)')
+  expect(render('{v|+5}', { v: '+Inf' }), '', '+Inf 输入 → 整体置空(对齐 Go)')
+  expect(render('https://x/img/{v|/1000}/a.jpg', { v: 'NaN' }), '', 'NaN 输入 → 整体置空(对齐 Go)')
+  expect(render('{v|-1}', { v: '-NaN' }), '', '-NaN 输入 → 整体置空(对齐 Go)')
+  // c. N 上限口径 \d{1,6}: 7 位 N TS 预检即整体置空; Go 修前 [0-9]+ 放行, 修后同置空; 6 位合法
+  expect(render('{v|/1234567}', { v: '1234567' }), '', '7位N {v|/1234567} → 整体置空(对齐 Go)')
+  expect(render('{v|/123456}', { v: '123456' }), '1', '6位N {v|/123456} 合法 → 1(对齐 Go)')
+  // [R52-5 P3] 算术臂值 trim(TS 既有 String(v).trim(); Go 修后同口径) 与 ≥1e21 大数 JS 科学计数
+  expect(render('{v|/1000}', { v: ' 42 ' }), '0', '算术臂值 trim → floor(42/1000)=0(对齐 Go)')
+  expect(render('{v|+0}', { v: '1e21' }), '1e+21', '1e21 大数 → JS String 科学计数形态(对齐 Go)')
+
   console.log('[B] arithPlaceholderIncomplete 预检布尔断言')
   expect(arithPlaceholderIncomplete('https://www.bqg616.cc/bookimg/{q.id|/1000}/{q.id}.jpg', { 'q.id': '123456' }), false, '合法算术模板 → false')
   expect(arithPlaceholderIncomplete('{v|/1000}', {}), true, '缺变量 → true')

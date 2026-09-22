@@ -42,6 +42,22 @@ func TestConstTemplateArithmetic(t *testing.T) {
 		{"未知算子整体置空", "{v|*2}", map[string]string{"v": "10"}, ""},
 		{"未闭合算术整体置空", "{v|/1000", map[string]string{"v": "10"}, ""},
 		{"普通占位符缺失置空该占位", "a{missing}b", map[string]string{"v": "1"}, "ab"},
+		// [R52-5 P2 对齐] 空后缀 {v|}: 与残缺同口径整体置空(TS 预检2 同语义; 修前渲染原值)
+		{"空后缀整体置空", "https://x/img/{v|}.jpg", map[string]string{"v": "42"}, ""},
+		// [R52-5 P2 对齐] Infinity: Go ParseFloat 接受但 TS Number.isFinite 拒绝 → 整体置空
+		{"Infinity整体置空", "https://x/img/{v|/1000}/a.jpg", map[string]string{"v": "Infinity"}, ""},
+		{"加Infinity整体置空", "{v|+5}", map[string]string{"v": "+Inf"}, ""},
+		// [R52-5 P2 对齐] NaN: 同上整体置空
+		{"NaN整体置空", "https://x/img/{v|/1000}/a.jpg", map[string]string{"v": "NaN"}, ""},
+		{"负NaN整体置空", "{v|-1}", map[string]string{"v": "-NaN"}, ""},
+		// [R52-5 P2 对齐] N 上限 1~6 位(对齐 TS \d{1,6}): 7 位 N 预检即整体置空
+		{"7位N整体置空", "{v|/1234567}", map[string]string{"v": "1234567"}, ""},
+		// 6 位 N 仍合法(上限内)
+		{"6位N合法", "{v|/123456}", map[string]string{"v": "123456"}, "1"},
+		// [R52-5 P3 对齐] 算术臂值 trim(" 42 " → 42, TS String(raw).trim 同口径; 纯 {var} 不 trim)
+		{"算术臂值trim", "{v|/1000}", map[string]string{"v": " 42 "}, "0"},
+		// [R52-5 P3 对齐] ≥1e21 大数: JS String(number) 科学计数形态(TS String(result) 同口径)
+		{"1e21大数科学计数", "{v|+0}", map[string]string{"v": "1e21"}, "1e+21"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

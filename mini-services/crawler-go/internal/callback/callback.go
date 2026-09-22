@@ -17,6 +17,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -51,6 +52,15 @@ const perAttemptTimeout = 30 * time.Second
 
 // retryDelays 失败重试间隔(契约 §0/§2: 3 次, 1s/2s/4s) —— 总计最多 4 次尝试
 var retryDelays = []time.Duration{time.Second, 2 * time.Second, 4 * time.Second}
+
+// permanentCallbackError 不可重试回调错误: HTTP 4xx(除 429) —— 鉴权失败(403 secret
+// 不匹配)/载荷非法(400/413)/路由不存在(404)等确定性失败, 重试无收益只会空烧 3 轮退避
+// [R52-5 P3](审计 R52-c「403 回调重试」): postOnce 打标, send/SendWithDecision 识别即
+// 快速失败返回; 429 仍走既有退避重试(限流是瞬时故障, 与 5xx/网络错误同口径)
+type permanentCallbackError struct{ err error }
+
+func (e *permanentCallbackError) Error() string { return e.err.Error() }
+func (e *permanentCallbackError) Unwrap() error { return e.err }
 
 // progressThrottle 节流窗口: progress 同类回调 ≥1 次/秒
 const progressThrottle = time.Second
@@ -189,6 +199,12 @@ func (c *Client) send(ctx context.Context, kind string, payload interface{}, thr
 				c.progMu.Unlock()
 			}
 			return nil
+		} else {
+			var perm *permanentCallbackError
+			if errors.As(err, &perm) {
+				// [R52-5 P3] 确定性 4xx: 不再退避重试, 立即上抛(调用方转 paused/错误处置)
+				return fmt.Errorf("回调失败(kind=%s, 不可重试): %w", kind, err)
+			}
 		}
 		lastErr = err
 	}
@@ -219,6 +235,12 @@ func (c *Client) SendWithDecision(ctx context.Context, kind string, payload inte
 		if err == nil {
 			return resp, nil
 		}
+		var perm *permanentCallbackError
+		if errors.As(err, &perm) {
+			// [R52-5 P3] 确定性 4xx: 不再退避重试, 立即上抛(book/chapters 回调失败
+			// 由 pipeline 转 pauseAuto, 语义不变, 仅省掉无收益的 3 轮退避)
+			return resp, fmt.Errorf("回调失败(kind=%s, 不可重试): %w", kind, err)
+		}
 		lastErr = err
 	}
 	return resp, fmt.Errorf("回调失败(kind=%s, 已重试 %d 次): %w", kind, len(retryDelays), lastErr)
@@ -244,7 +266,12 @@ func (c *Client) postOnce(ctx context.Context, kind string, body []byte) (Respon
 		return resp, fmt.Errorf("读响应失败: %w", err)
 	}
 	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
-		return resp, fmt.Errorf("HTTP %d: %s", httpResp.StatusCode, util.TruncateLog(string(raw), 120))
+		err := fmt.Errorf("HTTP %d: %s", httpResp.StatusCode, util.TruncateLog(string(raw), 120))
+		// [R52-5 P3] 4xx(除 429) → 不可重试快速失败(见 permanentCallbackError 注)
+		if httpResp.StatusCode >= 400 && httpResp.StatusCode < 500 && httpResp.StatusCode != http.StatusTooManyRequests {
+			return resp, &permanentCallbackError{err}
+		}
+		return resp, err
 	}
 	if err := json.Unmarshal(raw, &resp); err != nil {
 		return resp, fmt.Errorf("响应非 JSON(ok 缺失): %s", util.TruncateLog(string(raw), 120))

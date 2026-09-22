@@ -15,7 +15,7 @@
 | 网络路径 | 后端对后端直连 `127.0.0.1` | **不**经 Caddy 网关，无需 XTransformPort；浏览器永不直连 Go 服务 |
 
 - 回调鉴权：HTTP header `x-go-callback-secret`，值取 env `GO_CALLBACK_SECRET`，**缺省固定值 `go-cb-2025-mhgl`**（两侧一致实现：env 缺失用缺省值）。不匹配返回 403。
-- 两侧都要容忍对端短暂不可达：回调失败重试 3 次（间隔 1s/2s/4s），仍败则 Go 任务自动转 paused 并记本地日志。
+- 两侧都要容忍对端短暂不可达：回调失败重试 3 次（间隔 1s/2s/4s），仍败则 Go 任务自动转 paused 并记本地日志。**不可重试例外（R52-5）**：HTTP 4xx（除 429）属确定性失败（403=secret 不匹配/400/413=载荷非法/404=路由不存在），重试无收益，Go 侧首个 4xx 响应即快速失败上抛，不再退避重试；429 与 5xx/网络错误仍走既有退避。
 
 ## 1. Go 服务 HTTP API（监听 127.0.0.1:3032）
 
@@ -45,9 +45,9 @@ POST body：`{taskId:string, kind:string, payload:object}`（见各 kind）。�
 | `progress` | `{phase:'idle'\|'discovery'\|'book'\|'toc'\|'content'\|'done', phaseNote?, discovered?, booksDone?, booksTotal?, tocTotal?, contentDone?, contentTotal?, currentBook?, engineRssMB?}` | `{ok}` | merge 进 Task.progress JSON（仅覆盖出现的键）；throttle：同类回调 ≥1 次/秒 |
 | `stats` | `{booksCreated?, booksUpdated?, chaptersCreated?, chaptersUpdated?, coversSaved?, errors?}` | `{ok}` | merge 进 Task.stats |
 | `book` | `{bookUrl, name?, author?, category?, keywords?, intro?, coverUrl?, status?, latestChapter?}` | `{ok, bookId:string, skipContent:boolean, lastChapterUrl?:string}` | 建书/更新书；**skipContent=true**（完结书且增量模式）→ Go 整本跳过正文阶段 |
-| `chapters` | `{bookUrl, items:[{title, url, volume?}]}`（全书目录，单次回调；>5000 章分多次，Go 侧带 `{seq:n, final:bool}`） | `{ok, needUrls:string[]}` | Next.js 重排+建章记录后返回**实际需要抓正文的章节 URL 列表**（增量去重结果）。空数组 → Go 跳过该书正文阶段 |
-| `contents` | `{bookUrl, items:[{url, title?, contentHtml:string}]}`（批 ≤20 章） | `{ok}` | 清洗+落库章节正文 |
-| `cover` | `{bookUrl, b64:string, contentType:string}` | `{ok, coverPath?:string}` | Next.js sharp→webp 存盘并回写 Book.cover；b64 解码后 ≤10MB |
+| `chapters` | `{bookUrl, items:[{title, url, volume?}]}`（全书目录；>5000 章分多次，Go 侧带 `{seq:n, final:bool}`，**seq 从 1 起**） | `{ok, needUrls:string[]}` | Next.js 建章+增量决策后返回**实际需要抓正文的章节 URL 列表**。空数组 → Go 跳过该书正文阶段。**seq 判定语义（R52-5 修 off-by-one，改 Next 侧，Go 发送端 seq=1 起不变）**：`seq=1`（首批/单次回调）与无 seq 同路 —— 全书 `reorderToc` 重排+建缺+阶段A~E 重编号+阶段E 保守闸+智能完结终判+末章回写；`seq≥2`（后续片）→ 顺序增量追加（按 Go 给定序尾插建缺章，不重排既有章，同片内 URL 去重） |
+| `contents` | `{bookUrl, items:[{url, title?, contentHtml:string}]}`（批 ≤20 章；**空正文章节 Go 侧即剔除，不入回调不计 contentDone（R52-5）**） | `{ok}` | 清洗+落库章节正文（超长 >1.5MB 整章 skip 防截断残文） |
+| `cover` | `{bookUrl, b64:string, contentType:string}` | `{ok, coverPath?:string}` | Next.js sharp→webp 存盘并回写 Book.cover；b64 解码后 ≤10MB（响应体在 fetch 层即 ≤10MB：**超限报错不截断（R52-5，对齐 TS RangeError 语义）**，损图不再当完整封面入库） |
 
 - 回调顺序保证：同一 taskId 内 book → chapters → contents 串行产生；contents 可并发批（Go 侧按批顺序 POST 亦可乱序，Next.js 按 url 幂等 upsert）。
 - `book`/`chapters` 回调超时 30s；`contents` 回调超时 30s。
@@ -80,13 +80,13 @@ POST body：`{taskId:string, kind:string, payload:object}`（见各 kind）。�
 参考实现（TS 语义权威，移植对齐）：`src/lib/crawl/parser.ts`（parseList/parseBook/parseToc/parseContent/constTemplate/arithPlaceholderIncomplete/jsonGet/absolutize）+ `src/lib/crawl/types.ts`（FieldRule/PageRule/FetchConfig/CleanConfig）。arithPlaceholderIncomplete 归属更正（R51-3-b）：算术后缀渲染+预检两侧均有 —— TS parser.ts R51-3-b 已补实现（原 R51-2-b 审计发现的单侧漂移已闭环），Go parse.go 同语义（floor 整除/缺变量/除零/未知算子 fail-closed）。
 
 **支持（v1 全量）：**
-- 字段类型：`css`（attr: text/html/href/src/任意属性；stripTags；replaceFrom/replaceTo 支持正则；index 逗号分段）、`regex`（flags 缺省 gis、捕获组序号）、`json`（点路径 `data.list.0.name`，数字段=数组下标）、`const`（`{var}` 模板 + 算术后缀 `{var|/N}`/`{var|+N}`/`{var|-N}`，缺变量/除零整体置空 fail-closed，含 R49-9 arithPlaceholderIncomplete 预检语义）
+- 字段类型：`css`（attr: text/html/href/src/任意属性；stripTags；replaceFrom/replaceTo 支持正则；index 逗号分段）、`regex`（flags 缺省 gis、捕获组序号）、`json`（点路径 `data.list.0.name`，数字段=数组下标）、`const`（`{var}` 模板 + 算术后缀 `{var|/N}`/`{var|+N}`/`{var|-N}`；**fail-closed 预检（R49-9+R52-5 两侧一致）**：缺变量/空白值(trim 后空)/非数/非有限数(Infinity/NaN)/除零/未知算子/非整数 N/空后缀 `{v|}`/未闭合 → **整字段置空**；N 上限 1~6 位整数（`\d{1,6}`）；算术臂数值 trim（纯 `{var}` 不 trim）；结果格式化对齐 JS `String(number)`（整值无小数点，≥1e21/极小值科学计数 `1e+21` 形态））
 - 页面段：`list`（urlTemplate 支持 `{page}` 与 `{offset:N}`；itemSelector；fields）、`book.fields`、`toc`（itemSelector+fields+`tocLink`+pagination.nextLink/maxPages/joinWith）、`content`（selector+pagination 合并 joinWith）
-- fetch 配置：`uaMode`（rotate/fixed/custom：UA 池+同域钉扎；mobile/desktop 已支持：池子集筛选+指纹头组按 UA 家族自洽，R51-3-a 起不再报 unsupported）、`customUa`、`headers`、`cookies`（静态串：按目标 host 懒注入 CookieJar，同名键由服务端 Set-Cookie 覆盖/其余键保留）、`autoCookie`（Go http.Client CookieJar 恒开，直连+代理双路径接线）、`referer`、`refererChain`（目录页带书籍页 Referer、章节页带目录页 Referer、翻页带当前页）、`timeout`、`retries`（400ms×2^a 指数退避钳 8s+抖动；重试间重过闸）、`hostGateLimit`（per-host 在飞闸，缺省 3，连续失败降额至 1/连续成功回升；per-host minGap 准入节奏 max(200ms, interval/threads)，连败≥3 gap×1.5 钳 3s 自适应）、`globalConcurrency`（全局在飞，缺省 10）、`proxyUrl`（http/https/socks5 多条轮换；回环目标豁免直连；per-proxy 失败指数冷却 30s×2^n 钳 10min，全冷却回退直连+warn）、`contentProxyUrl`（`{url}` 替换；响应 JSON `{ok,content}` 或纯文本行→`<p>` wrap；失败降级直连）、`tokenUrl`/`tokenPattern`（`regex:` 前缀或 JSON 点路径）+`tokenInjection`（url 占位符 `{token}` 或 header）/`tokenHeaderName`、`allowLoopback`、`mirrorDomains`（镜像组故障切换 + 成功域 sticky：上次成功域重排首位，成功即记、整组耗尽即清）、`pathJitter`、`jitterMs`
-- 反反爬出口判定（R51-3-a）：**拦截页/挑战壳检测** —— STRONG_BLOCK_MARKERS 词表（语义权威=src/lib/crawl/fetcher.ts，两侧同步）+ 状态/WAF Server 头联合判定（403/429/503 + cloudflare/akamai/incapsula/sucuri）+ 极短页判定（<200B 或去标签可见文本<50）+ 合法 JSON 豁免 + 长页正常标题豁免；命中→`Result.Blocked`，编排层等价 httpStatusError{403} 计失败（复用重试/镜像/降额链、不计 chapterOK、内容不进 contents 回调）
+- fetch 配置：`uaMode`（rotate/fixed/custom：UA 池+同域钉扎；mobile/desktop 已支持：池子集筛选+指纹头组按 UA 家族自洽，R51-3-a 起不再报 unsupported）、`customUa`、`headers`、`cookies`（静态串：按目标 host 懒注入 CookieJar，同名键由服务端 Set-Cookie 覆盖/其余键保留）、`autoCookie`（Go http.Client CookieJar 恒开，直连+代理双路径接线）、`referer`、`refererChain`（目录页带书籍页 Referer、章节页带目录页 Referer、翻页带当前页）、`timeout`、`retries`（400ms×2^a 指数退避钳 8s+抖动；**退避 sleep 前 release、醒后重过闸（R52-5 合并 R51-3-a ⑥ 重试间 release+re-acquire：修前持闸空睡阻塞同 host 其他请求）**）、`hostGateLimit`（per-host 在飞闸，缺省 3，连续失败降额至 1/连续成功回升；per-host minGap 准入节奏 max(200ms, interval/threads)，连败≥3 gap×1.5 钳 3s 自适应）、`globalConcurrency`（全局在飞，缺省 10）、`proxyUrl`（http/https/socks5 多条轮换；回环目标豁免直连；per-proxy 失败指数冷却 30s×2^n 钳 10min，全冷却回退直连+warn）、`contentProxyUrl`（`{url}` 替换；响应 JSON `{ok,content}` 或纯文本行→`<p>` wrap；失败降级直连）、`tokenUrl`/`tokenPattern`（`regex:` 前缀或 JSON 点路径）+`tokenInjection`（url 占位符 `{token}` 或 header）/`tokenHeaderName`、`allowLoopback`、`mirrorDomains`（镜像组故障切换 + 成功域 sticky：上次成功域重排首位，成功即记、整组耗尽即清）、`pathJitter`、`jitterMs`
+- 反反爬出口判定（R51-3-a）：**拦截页/挑战壳检测** —— STRONG_BLOCK_MARKERS 词表（语义权威=src/lib/crawl/fetcher.ts，两侧同步）+ 状态/WAF Server 头联合判定（403/429/503 + cloudflare/akamai/incapsula/sucuri）+ 极短页判定（<200B 或去标签可见文本<50）+ 合法 JSON 豁免 + 长页正常标题豁免；命中→`Result.Blocked`，编排层等价 httpStatusError{403} 计失败（不计 chapterOK、内容不进 contents 回调）。**链路语义澄清（R52-5 更正，审计 R52-c）**：blocked 判定发生在 fetch 层**成功返回之后**（200+挑战壳在传输层是成功响应）——**不进 rawFetch 重试链、不触发镜像切换、不喂 hostGate 降额/连败链**（gate 记 noteSuccess）；仅真·403/429/503 状态壳在 doOnce 层产 httpStatusError 走重试/镜像/限流冷却链
 - **Retry-After 尊重**（R51-3-a）：429/503 解析 Retry-After（整数秒 + HTTP 日期双形态）；显式合法值 ≥1s 如实采纳、钳 120s 上限、缺失/非法/<1s 兜底 30s；per-host 限流冷却窗（冷却期 acquire 单 timer 阻塞等待，无轮询；重试链同窗等待）；stats 计 rateLimited
 - **HTTP 404 语义对齐 TS**（R51-3-a）：404 即失败（`!res.ok` 同口径），不交解析层、不计空正文入库
-- **token 预取不过闸**（R51-3-a）：prefetchToken 在全局/host 闸之前执行且自身不过闸（嵌套过闸死锁修复），按 host 缓存 TTL 5min；tokenUrl/contentProxyUrl 隐式 loopback 豁免（URL 校验 + 拨号级复检双通道）
+- **token 预取不过闸**（R51-3-a）：prefetchToken 在全局/host 闸之前执行且自身不过闸（嵌套过闸死锁修复），按 host 缓存 TTL 5min；tokenUrl/contentProxyUrl 隐式 loopback 豁免（URL 校验 + 拨号级复检双通道）。**已知 TS 独有语义（R52-5 注记，审计 R52-c P2）**：TS 镜像轨在镜像循环内逐镜像 host 重签 token（`{url}` 形态按镜像 URL 取签名）；Go 在镜像轮换外层一次取定（签名用原 URL），全镜像复用同一 token —— 依赖镜像按 host 重签 token 的规则勿配 Go 引擎（capability 无法表达，属已知分叉）
 - **SSRF 加固**：自定义 DialContext 拨号后复检 `conn.RemoteAddr()`（防 DNS rebinding TOCTOU）+ DNS 缓存 60s TTL
 - charset：Content-Type → HTML meta 自动探测，`golang.org/x/text` 解码（utf-8/gbk/gb18030/big5/shift-jis…）
 - clean 配置：Go 侧**不做**内容清洗（clean 传回 TS 侧执行）；但 `content` 字段解析后的原始 HTML 原样回调

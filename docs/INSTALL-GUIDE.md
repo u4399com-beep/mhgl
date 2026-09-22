@@ -1,1490 +1,716 @@
-# 小说采集系统 · 零基础安装部署图文教程（R22 升级版）
+# 小说聚合站 · 安装部署图文教程（R52 重写版）
 
-> **这份教程写给谁**：会开机、会打开浏览器，但**从没用过命令行 / Node / Git** 的你。
-> 不需要懂编程，只需要会一个动作：**复制 → 粘贴 → 回车**。跟着 0→10 章走完，你会得到一个能自动采集小说、前台可阅读、后台可视化管理的完整网站。
+> **这份教程写给谁**：从没碰过本项目的运维 / 新手开发者，到想把系统稳定跑在生产上的维护者。
+> 只需要会一个动作：**复制 → 粘贴 → 回车**；进阶章节（引擎双模 / 内存护栏 / 反反爬开关）则给运维一张"为什么"的地图。
 >
-> **每一步都会给你四样东西**：
-> ▶ **要执行的命令**（整段复制即可，命令上方都有一句话解释"这条命令是干什么的"）
-> ✔ **执行后应该看到什么**（示意输出，用来核对做对了没）
-> ✖ **报错了怎么办**（最常见的几种报错 + 对应解法）
-> ⚠ **容易踩的坑**（重要事情说三遍的地方会用 ⚠ 警示框标出）
+> **真实截图**：本文所有截图（`docs/images/r52-*.png`）均为 R52 轮在运行中的站点上以 1280×800 实拍的浏览器截图（数据为 `bun scripts/seed.ts` 演示种子 + 真实采集任务残留），非示意图。界面随版本可能有细微变化，以正文为准。
 >
-> 本文是**完整教程（主文档）**。生产运维深度内容见 [DEPLOY.md](../DEPLOY.md)，项目功能总览见 [README.md](../README.md)。
+> **核对声明**：文中出现的每条命令、每个环境变量、每个路径均已对照 `package.json`、`.env.example`、`docker-compose.yml`、`docker-entrypoint.sh`、`mini-services/crawler-go/run.sh`、`scripts/install-go.sh` 等仓库实文件逐项核实（R52）。详细生产运维背景另见 [DEPLOY.md](../DEPLOY.md)（部署速查卡），功能总览见 [README.md](../README.md)。
 
 **目录**
 
-- [第 0 章 这套系统是什么（一页看懂）](#第-0-章-这套系统是什么一页看懂)
-- [第 1 章 准备工作：服务器、Bun、Git](#第-1-章-准备工作服务器bungit)
-- [第 2 章 把代码拿到手上（3 种方式）](#第-2-章-把代码拿到手上3-种方式)
-- [第 3 章 安装依赖（bun install）](#第-3-章-安装依赖bun-install)
-- [第 4 章 配置 .env（系统的"设置文件"）](#第-4-章-配置-env系统的设置文件)
-- [第 5 章 初始化数据库（bun run db:push）](#第-5-章-初始化数据库bun-run-dbpush)
-- [第 6 章 启动系统（试用 / 生产 / Docker）](#第-6-章-启动系统试用--生产--docker)
-- [第 7 章 首次登录后台](#第-7-章-首次登录后台)
-- [第 8 章 开始采集：从 0 到第一本书](#第-8-章-开始采集从-0-到第一本书)
-- [第 9 章 日常运维：备份 / 日志 / 健康 / 升级](#第-9-章-日常运维备份--日志--健康--升级)
-- [第 10 章 FAQ 故障速查（21 条）](#第-10-章-faq-故障速查21-条)
-- [第 11 章 附录：目录树 / 端口表 / 环境变量表 / 命令速查卡](#第-11-章-附录目录树--端口表--环境变量表--命令速查卡)
+- [第 1 章 项目简介与架构（一页看懂）](#第-1-章-项目简介与架构一页看懂)
+- [第 2 章 环境要求](#第-2-章-环境要求)
+- [第 3 章 快速开始（5 分钟跑起来）](#第-3-章-快速开始5-分钟跑起来)
+- [第 4 章 初始化：导入内置规则库](#第-4-章-初始化导入内置规则库)
+- [第 5 章 采集引擎双模：经典 TS 引擎 vs Go 引擎](#第-5-章-采集引擎双模经典-ts-引擎-vs-go-引擎)
+- [第 6 章 生产部署（Docker 与裸机）](#第-6-章-生产部署docker-与裸机)
+- [第 7 章 反向代理与端口约定](#第-7-章-反向代理与端口约定)
+- [第 8 章 反反爬环境开关档案](#第-8-章-反反爬环境开关档案)
+- [第 9 章 内存护栏：熔断线与自动暂停](#第-9-章-内存护栏熔断线与自动暂停)
+- [第 10 章 定时与自动续采（autoRefresh）](#第-10-章-定时与自动续采autorefresh)
+- [第 11 章 备份与恢复](#第-11-章-备份与恢复)
+- [第 12 章 升级流程](#第-12-章-升级流程)
+- [第 13 章 故障排查 FAQ](#第-13-章-故障排查-faq)
+- [第 14 章 附录：常用命令速查表](#第-14-章-附录常用命令速查表)
 
 ---
 
-## 第 0 章 这套系统是什么（一页看懂）
+## 第 1 章 项目简介与架构（一页看懂）
 
-### 0.1 一句话介绍
+### 1.1 一句话介绍
 
-这是一套**小说采集与发布系统**：
+**规则驱动的小说采集与发布系统**（Next.js 16 + Bun + Prisma/SQLite，可选 Go 采集引擎）：
 
-- 你在**后台**配置「采集规则」（去哪个网站抓、怎么找书和章节）和「采集任务」（抓哪些页、几点抓、抓多快）；
-- 系统**自动**去目标网站抓小说 → 清洗掉广告和乱码 → 存进数据库；
-- **前台**就是一个漂亮的小说站（书城 / 书籍详情 / 阅读页 / 搜索），读者打开就能看，无需登录。
+- 你在**管理后台**配置「采集规则」（去哪个站抓、怎么找书和章节）与「采集任务」（抓哪些、几点抓、抓多快、用哪个引擎）；
+- 采集引擎按规则抓取 → 清洗（广告/违禁词/编码）→ 落入 **SQLite 单文件数据库**；
+- **前台站群**（书城 / 书籍详情 / 阅读页 / 搜索，多主题伪静态 + 全链 SEO）直接消费库内数据，读者免登录阅读。
 
-### 0.2 整体架构（一张图看懂）
+### 1.2 整体架构图
 
 ```mermaid
 flowchart LR
-    subgraph 读者与管理员
-        R[读者的浏览器<br/>书城 / 阅读页]
-        A[管理员的浏览器<br/>规则 / 任务 / 书籍管理]
+    subgraph clients["浏览器"]
+        R["读者<br/>书城 / 阅读页"]
+        A["管理员<br/>规则 / 任务 / 书籍管理"]
     end
-    subgraph 你的服务器["你的服务器（一台 2核4G 云主机即可）"]
-        M["Next.js 主应用（端口 3000）<br/>前台站群 + 后台管理 + 采集引擎<br/>SQLite 数据库 db/custom.db"]
-        S["mini-services<br/>8 个小帮手服务（端口 3010~3017）<br/>签名 / 解密 / 中继 / 隐身渲染"]
+
+    subgraph host["你的服务器（仅监听本机回环的组件见 §7 端口表）"]
+        GW["Caddy 网关 :81（可选）<br/>XTransformPort 白名单转发"]
+        APP["Next.js 主应用 :3000<br/>前台站群 + 管理后台<br/>+ 经典 TS 采集引擎（同进程）"]
+        GO["Go 采集引擎 crawler-go :3032<br/>独立进程 · GOMEMLIMIT=600MiB<br/>抓取 / 解析 / 任务编排"]
+        DB[("SQLite<br/>db/custom.db")]
+        MS["mini-services :3010~3017<br/>签名 / 解密 / 中继 / 隐身渲染代理"]
     end
-    T["目标小说站点（公网）"]
-    R -- "HTTP" --> M
-    A -- "HTTP" --> M
-    M <-- "127.0.0.1 本机直连（按需）" --> S
-    M -- "按规则抓取（可经出口代理）" --> T
+
+    R --> GW
+    A --> GW
+    GW -->|"默认反代"| APP
+    R -->|"直连（未配网关时）"| APP
+    A -->|"直连（未配网关时）"| APP
+    APP --> DB
+    APP -->|"POST /task/start<br/>control / status / capability"| GO
+    GO -->|"HTTP 回调 book/chapters/contents/cover…<br/>POST /api/admin/tasks/go-callback"| APP
+    APP -.->|"规则需要时"| MS
+    GO -.->|"tokenUrl / contentProxyUrl 按需"| MS
 ```
 
-不熟悉流程图没关系，同款 ASCII 版：
+三个关键设计，先建立印象（后文各章展开）：
 
-```text
-      读者的浏览器                    管理员的浏览器
-    ┌────────────┐                ┌────────────┐
-    │ 书城/阅读页 │                │ 规则/任务/  │
-    └──────┬─────┘                │ 书籍/设置  │
-           │      HTTP            └──────┬─────┘
-           ▼                             ▼
-    ┌─────────────────────────────────────────────────┐
-    │   Next.js 主应用        http://你的IP:3000        │
-    │   ├─ 前台站点 /?view=home（多主题站群）             │
-    │   ├─ 后台管理 /（密码登录）                        │
-    │   ├─ 采集引擎（抓取 → 解析 → 清洗 → 入库）          │
-    │   └─ SQLite 数据库  db/custom.db（单文件，★备份它）│
-    │                    ▲ 127.0.0.1 本机直连（按需）    │
-    │   mini-services  端口 3010~3017                   │
-    │   （8 个小帮手：签名/解密/中继/隐身渲染，第 6 章讲）  │
-    └──────────────────────┬──────────────────────────┘
-                           ▼  按规则抓取（可经出口代理）
-                    目标小说站点（公网）
-```
+1. **Next.js 是数据库的唯一写者**：无论 TS 引擎（进程内直接写库）还是 Go 引擎（把抓到的书/章/正文/封面经 HTTP 回调交回 Next.js 落库），持久化与**增量决策**（`skipContent` 跳过完结书、`needUrls` 只采新章）都收敛在主应用一侧——引擎随便崩、随便重启，库里数据与断点不乱。
+2. **TS 引擎与主应用同堆运行**（缺省，零配置）；**Go 引擎是独立进程**（端口 3032），采集内存与 Web 进程彻底隔离——这是第 9 章内存护栏的解法。
+3. **mini-services 是可选外挂**：29 条内置规则中仅少数签名/解密类站点（笔趣阁 3010 / 七猫 3013 / 得奇 3014 / 新键盘 3015 / 起点 3017）依赖对应代理，主应用不启动它们也能正常跑、正常采集绝大多数站点。
 
-**读法**：浏览器只跟 **3000 端口**的主应用打交道。主应用抓"普通网站"自己就能干；遇到"接口加密 / 只认浏览器"的少数站点，才会去叫同一台机器上 3010~3017 的小帮手服务。**不启动任何小帮手，主应用也照常能跑**（第 8 章有依赖对照表）。
+### 1.3 入口速览
 
-### 0.3 从零到能看书的完整旅程
-
-```mermaid
-flowchart TD
-    A["① 准备服务器<br/>装 Bun + Git（第 1 章）"] --> B["② 拿代码<br/>git clone 或下载 zip（第 2 章）"]
-    B --> C["③ 装依赖<br/>bun install（第 3 章）"]
-    C --> D["④ 改配置<br/>.env 设密码（第 4 章）"]
-    D --> E["⑤ 建数据库<br/>bun run db:push（第 5 章）"]
-    E --> F["⑥ 启动<br/>bash .zscripts/dev.sh（第 6 章）"]
-    F --> G["⑦ 登录后台<br/>浏览器打开 :3000（第 7 章）"]
-    G --> H["⑧ 导入规则 → 建站点 → 建任务<br/>（第 8 章）"]
-    H --> I["🎉 前台有书，读者可读<br/>日常运维见第 9 章"]
-```
-
-整个旅程 **6 条命令 + 后台点几下**，顺利的话 30~60 分钟走完。
-
-### 0.4 名词小词典（后面章节会反复出现）
-
-| 名词 | 大白话解释 |
+| 地址 | 用途 |
 | --- | --- |
-| **采集规则** | 抓取配方：去哪个网址、在网页的什么位置找书名/作者/章节/正文 |
-| **采集任务** | 按配方干活的工人：建好任务引擎就自动开抓，进度实时可看 |
-| **站点（站群）** | 前台"书店"的门面档案：绑定主题、标题(TDK)、域名；前台书城按站点渲染 |
-| **主题** | 前台的"装修风格"，8 配色 × 8 风格 × 8 布局 = 512 套组合 + 9 套精选，浏览器里点选预览 |
-| **伪静态 URL** | 前台网址的"长相"，如 `/book/1001.html`，6 种预设一键切换，旧链接永不断 |
-| **mini-service** | 同机小帮手服务（端口 3010~3017），负责特殊站点的签名/解密/中继/隐身渲染 |
-| **Prisma / db:push** | Prisma 是"数据库管家"，`db:push` 就是按图纸（schema.prisma）把表建好 |
-| **Bun** | 类似 Node.js 的 JavaScript 运行工具，本项目用它装依赖、跑服务 |
-
-### 0.5 装完你会得到两个网址
-
-| 地址 | 是什么 | 谁能看 |
-| --- | --- | --- |
-| `http://服务器IP:3000/` | **后台管理**（配规则、建任务、管书籍，需要密码） | 只有你 |
-| `http://服务器IP:3000/?view=home` | **前台站点**（书城/详情/阅读页） | 全网公开 |
-
-> 💡 截图在哪看：本教程在关键步骤附有真实截图（`docs/images/` 目录下 11 张），Markdown 阅读器（GitHub / VS Code / Typora）里直接显示；个别截图是旧版界面存图，以「界面随版本可能有细微变化，以正文与 ASCII 示意为准」为准。
+| `http://localhost:3000/` | 管理后台（仪表盘 / 规则 / 任务 / 书籍 / 备份 …） |
+| `http://localhost:3000/?view=home` | 前台站点（书城 / 阅读页 / 搜索） |
+| `http://127.0.0.1:3032/health` | Go 引擎健康检查（仅本机） |
 
 ---
 
-## 第 1 章 准备工作：服务器、Bun、Git
+## 第 2 章 环境要求
 
-### 1.1 硬件要求（重要：内存请给足 4GB）
-
-| 项目 | 最低 | **推荐** | 说明 |
-| --- | --- | --- | --- |
-| CPU | 1 核 | **2 核** | — |
-| 内存 | 2 GB（需加 swap） | **4 GB** | ⚠ 见下方警示框 |
-| 磁盘 | 5 GB | **10 GB+** | 代码+依赖约 1~2 GB，其余是数据库、封面、TXT 产物 |
-| 系统 | Ubuntu 22.04 / Debian 12（推荐） | 同左 | 其他主流 Linux 也可；Windows 建议装 WSL2；macOS 可本地试玩 |
-| 网络 | 能上网 | — | 国内服务器下载慢的解法在各章 ✖ 表格里 |
-
-> ⚠ **内存警示（本项目真实踩过的坑）**：
-> 1. `next build`（生产构建）峰值内存**超 2 GB**，2GB 机器会被系统直接杀掉进程（日志表现为 `Killed`）；
-> 2. `next dev`（开发模式）冷启动编译期也出现过 **2.2GB+ 内存尖峰触发系统 OOM** 的实录（进程被内核杀掉，表现为页面突然打不开）。
-> 所以：**4GB 内存起步最稳**；只有 2GB 时，要么加 2GB swap（[FAQ #14](#14-构建或运行中途日志出现-killed内存不足)），要么直接走第 6 章的 Docker 路线。
-
-> 💡 还没买服务器？买什么、怎么备案不在本教程范围。只提醒一句：**国内云服务器请到厂商控制台的"安全组/防火墙"放行 3000 端口**（第 7 章访问要用），SSH 的 22 端口一般默认放行。
-
-### 1.2 认识终端：所有命令都在这里敲（新手必读）
-
-**① 打开一个终端窗口**（在你自己的电脑上）：
-
-- Windows 10/11：开始菜单输入 `PowerShell`，回车（系统自带 ssh，不用装任何东西）。
-- macOS：启动台 → 其他 → 终端（Terminal）。
-
-**② 远程登录服务器**（把 `服务器IP` 换成你的真实公网 IP）：
-
-▶ 这条命令的意思：以 `root` 账号的身份，通过网络登录到你的服务器，之后输入的每条命令都在服务器上执行。
-
-```bash
-ssh root@服务器IP
-```
-
-✔ 第一次连接会看到：
-
-```text
-The authenticity of host '1.2.3.4' can't be established.
-Are you sure you want to continue connecting (yes/no/[fingerprint])?
-```
-
-手动输入 `yes` 回车，然后输入密码——**输入时屏幕不显示任何字符是正常的安全设计**，盲打完回车。看到命令行开头变成 `root@服务器:~#` 就连上了。**本章之后的所有命令都在这个窗口里输入。**
-
-✖ 常见报错：
-
-| 报错关键字 | 原因 | 解法 |
+| 项 | 要求 | 说明 |
 | --- | --- | --- |
-| `Connection refused` / 长时间卡住 | 服务器 22 端口没放行 | 云控制台"安全组"放行 TCP 22 |
-| `Permission denied` | 密码错，或厂商只给密钥登录 | 密码重试；密钥登录用 `ssh -i 密钥文件 root@IP` |
-| `ssh: command not found`（老 Windows） | 系统太老 | 改用 Windows Terminal / 装 OpenSSH，或用 Xshell 等图形工具 |
+| 操作系统 | **Linux 为主**（Ubuntu 22.04+ / Debian 12 等） | 生产推荐；macOS、Windows（WSL2）可用于开发体验 |
+| 运行时 | **Bun ≥ 1.3**（必装） | 安装：`curl -fsSL https://bun.sh/install | bash`（国内可 `npm i -g bun` 走 npmmirror） |
+| Go 工具链 | **可选**，Go 1.24+（仅 Go 引擎需要） | **一键安装：`bash scripts/install-go.sh`**（装到 `~/go-sdk`，幂等；go.dev 不可达自动回退国内镜像 golang.google.cn）。`go.mod` 要求的更新工具链会在首次构建时自动下载 |
+| Docker | 可选（生产推荐） | Docker 20.10+ 含 compose 插件（`docker compose version` 能出版本号） |
+| CPU / 磁盘 | 2 核 / 10GB+ | 镜像在部署机现场构建，x86_64 与 arm64 均可 |
+| 内存 | **2GB 可运行，4GB 从容** | 口径见下表 |
 
-**③ 新手三件套**（本教程用到的全部"编辑器技能"）：
+**内存口径（为什么要关心 Go 引擎）**：
 
-| 想做什么 | 怎么做 |
+| 场景 | 实测内存 |
 | --- | --- |
-| 编辑一个文件 | `nano 文件名` → 方向键移动 → 直接打字改 → `Ctrl+O` 回车保存 → `Ctrl+X` 退出 |
-| 粘贴命令 | 在终端里**鼠标右键**即粘贴（ssh 窗口通用）；别用 `Ctrl+V` |
-| 看当前在哪个目录 | 输入 `pwd` 回车；`ls` 列出当前目录的文件 |
+| dev 模式编译尖峰 | 2.2GB+（Turbopack 稳态基线 ~1.78GB，进程 kill 线 ~2.15GB） |
+| 经典 TS 引擎采集（与 dev server 同堆） | RSS 峰值 **~2GB**（实录 2045MB，会触到 1950MB 熔断线，见 §9） |
+| **Go 引擎采集**（独立进程） | **RSS ~12MB**（R51 实测 7.7→12MB；`GOMEMLIMIT=600MiB` 软硬顶兜底），可用 `curl http://127.0.0.1:3032/health` 实时查看 `rssMB` |
 
-### 1.3 安装 Bun（本系统的运行引擎）
-
-Bun 是类似 Node.js 的 JavaScript 运行工具，本项目用它装依赖、建数据库、启动服务。**按你的电脑系统选一条命令**：
-
-| 你的系统 | ▶ 执行（整段复制） | 这条命令在干什么 |
-| --- | --- | --- |
-| **Linux 服务器**（Ubuntu/Debian/CentOS 等，主线教程） | `curl -fsSL https://bun.sh/install \| bash` | 从 Bun 官网下载安装脚本并立即执行 |
-| **Linux（国内网络卡住时）** | `npm install -g bun`（需先有 npm/Node） | 走 npm 源安装，国内一般可达 |
-| **macOS** | 同 Linux 的 curl 命令，或 `brew install oven-sh/bun/bun` | Homebrew 安装 |
-| **Windows（仅本地试玩）** | PowerShell 里执行 `powershell -c "irm bun.sh/install.ps1 \| iex"` | 官方 PowerShell 安装脚本 |
-
-> ⚠ **Docker 路线可以完全不装 Bun**：如果你打算全程用第 6 章的 Docker 方式部署，服务器只需要 Docker（`bash install.sh` 会自动装）。Bun 只在"本机直跑"路线（6.2 / 6.3 / 6.4）中必需。本教程主线按"装 Bun"走。
-
-✔ Linux 安装成功的末尾几行（示意）：
-
-```text
-######################################################################## 100.0%
-bun was installed successfully!
-
-To get started, run:
-
-  source /root/.bashrc
-  bun --version
-```
-
-▶ 按提示让新工具生效并验证（第二条约 1 秒出结果属正常）：
-
-```bash
-# 第一条：重新加载终端配置，让刚装的 bun 命令被系统认识
-source ~/.bashrc
-# 第二条：查看 bun 版本号，能打印版本即安装成功
-bun --version
-```
-
-✔ 你会看到（示意）：
-
-```text
-1.3.x
-```
-
-✖ 常见报错：
-
-| 报错关键字 | 原因 | 解法 |
-| --- | --- | --- |
-| `curl: command not found` | 系统太干净没装 curl | `sudo apt update && sudo apt install -y curl` 后重跑 |
-| 装完 `bun: command not found` | 当前窗口没加载新 PATH | 关掉窗口重新 ssh 登录；或重跑 `source ~/.bashrc` |
-| 下载卡住 / 超时 | 国内访问 bun.sh 不稳 | 重试几次；或改走 `npm install -g bun`；或先给终端挂代理再装 |
-
-### 1.4 安装 Git（代码版本管理工具，拿代码用）
-
-▶ 按系统选一条（命令的意思：用系统自带的软件包管理器安装 git）：
-
-```bash
-# Ubuntu / Debian：
-sudo apt update && sudo apt install -y git
-# CentOS / RHEL：
-sudo yum install -y git
-# macOS：
-xcode-select --install
-# Windows：一般不需要（用 zip 下载方式可完全跳过 Git；要用则去 git-scm.com 下载安装包）
-```
-
-✔ 验证：
-
-```bash
-git --version
-```
-
-✔ 你会看到（示意）：`git version 2.34.1`
-
-> 💡 完全不想装 Git？可以——第 2 章的方式三（浏览器下载 zip 压缩包）不需要任何命令行就能拿到代码。
-
-### 1.5 阶段自检
-
-```text
-□ 能用 ssh 登录服务器（终端开头是 root@服务器:~#）
-□ bun --version 能打印版本号（Docker 路线可跳过）
-□ git --version 能打印版本号（或决定走 zip 下载）
-```
+> 结论：**2GB 小机器跑生产，请优先 Docker（或裸机 `bun run start` 生产模式，基线远低于 dev）+ 大范围采集切 Go 引擎**；dev 模式只适合本地试玩。
 
 ---
 
-## 第 2 章 把代码拿到手上（3 种方式）
+## 第 3 章 快速开始（5 分钟跑起来）
 
-三种方式**二选一**即可，得到的代码完全一样。推荐方式一。
-
-### 2.1 方式一：git clone（推荐）
-
-▶ 第一条命令的意思：把 GitHub 上的项目代码完整下载到服务器当前目录，并命名为 `novel-system`；第二条：进入这个目录（**之后所有命令都在这个目录里执行**）。
+### 3.1 拿到代码
 
 ```bash
 git clone https://github.com/u4399com-beep/heis.git novel-system
 cd novel-system
+# 没有外网 git 条件时：把整个项目目录拷贝到服务器亦可（部署资产都在仓库内）
 ```
 
-✔ 你会看到（进度条走完，示意）：
-
-```text
-Cloning into 'novel-system'...
-remote: Enumerating objects: 12345, done.
-Receiving objects: 100% (12345/12345), 8.90 MiB | 2.30 MiB/s, done.
-```
-
-之后终端开头应该是 `root@服务器:~/novel-system#`。
-
-✖ 常见报错：
-
-| 报错关键字 | 原因 | 解法 |
-| --- | --- | --- |
-| `git: command not found` | 没装 git | 回 [1.4 节](#14-安装-git代码版本管理工具拿代码用) 安装后重跑 |
-| 卡住 / `Connection timed out` | 国内直连 GitHub 不稳 | 重试几次；或用加速前缀（见 2.4）；或改方式三 |
-
-### 2.2 方式二：SSH 协议 clone（进阶，可跳过）
-
-SSH 方式适合有 GitHub 账号并配置了 SSH 密钥的用户（拉取私有仓库/免密）。没有密钥的话 HTTPS 方式（2.1）最简单，**新手直接跳过本节**。
-
-```bash
-git clone git@github.com:u4399com-beep/heis.git novel-system
-cd novel-system
-```
-
-✖ 报 `Permission denied (publickey)`：你还没把 SSH 公钥添加到 GitHub 账号（GitHub → Settings → SSH keys），或本机没有密钥（`ssh-keygen -t ed25519` 一路回车生成，`cat ~/.ssh/id_ed25519.pub` 查看公钥）。图省事就改回 2.1 的 HTTPS 方式。
-
-### 2.3 方式三：浏览器下载 zip（全程不用命令行拿代码）
-
-1. 在你自己电脑的浏览器打开：
-   `https://github.com/u4399com-beep/heis/archive/refs/heads/main.zip`
-   （打不开就在 URL 前加加速前缀：`https://ghfast.top/https://github.com/u4399com-beep/heis/archive/refs/heads/main.zip`）
-2. 把下载的 zip 传到服务器（宝塔面板"上传"、WinSCP 拖拽、或在你电脑终端执行 `scp main.zip root@服务器IP:/root/` 均可）。
-3. 回服务器终端解压并进入目录：
-
-```bash
-# 进入压缩包所在目录（假设在 /root）
-cd /root
-# 安装解压工具（没装过的话）
-sudo apt install -y unzip
-# 解压（会得到 heis-main 文件夹）
-unzip main.zip
-# 进入项目目录
-cd heis-main
-```
-
-### 2.4 国内加速速查
-
-| 场景 | 解法 |
-| --- | --- |
-| `git clone` 卡住 | 加速前缀：`git clone https://ghfast.top/https://github.com/u4399com-beep/heis.git novel-system`（前缀站失效就换 `https://gh-proxy.com/` 再试） |
-| zip 下载卡住 | 同上，URL 前加前缀 |
-| Docker 路线 | `install.sh` 已内置全套国内加速（自动换镜像站），无需手动配置 |
-
-### 2.5 阶段自检
-
-```bash
-# 查看当前目录内容
-ls
-```
-
-✔ 你应该至少能看到：`package.json`、`src/`、`prisma/`、`mini-services/`、`.env.example`、`install.sh`、`.zscripts/`。
-
-```text
-□ 项目目录就位（git clone 或 zip 解压），且已 cd 进去
-□ ls 能看到 package.json
-```
-
----
-
-## 第 3 章 安装依赖（bun install）
-
-### 3.1 执行
-
-▶ 这条命令的意思：按 `package.json` 里声明的"购物清单"，把项目需要的几百个第三方代码包（Next.js 框架、Prisma、cheerio 等）统一下载到项目下的 `node_modules/` 文件夹里。**只在首次安装和升级后需要跑。**
+### 3.2 安装依赖
 
 ```bash
 bun install
 ```
 
-✔ 你会看到（几十秒到几分钟，示意）：
-
-```text
-bun install v1.3.x (hash)
-Resolving dependencies
-Checked 57 installs across 512 packages (no changes)
-N packages installed
-```
-
-### 3.2 ✖ 常见报错（含国内镜像源加速）
-
-| 报错关键字 | 原因 | 解法 |
-| --- | --- | --- |
-| `bun: command not found` | Bun 没装好或没生效 | 重开终端重新 ssh；或 `source ~/.bashrc` |
-| 超时 / `ENOTFOUND` / 反复卡住 | 国内访问 npm 官方源不稳 | 先重跑一次（bun 有断点缓存）；仍不行按下面"镜像源加速"换国内源 |
-
-**镜像源加速（国内服务器专用）**：把依赖下载源切换到国内的 npmmirror 镜像站。
-
-▶ 这条命令的意思：在项目目录写一个 `bunfig.toml` 配置文件，告诉 bun"以后下载依赖都走国内镜像站"。
-
-```bash
-printf '[install]\nregistry = "https://registry.npmmirror.com"\n' > bunfig.toml
-bun install
-```
-
-> 💡 以后想换回官方源：删掉这个文件即可（`rm bunfig.toml`）。
-
-### 3.3 阶段自检
-
-```text
-□ bun install 无报错结束
-□ 项目目录多出了 node_modules/ 文件夹（ls 能看到）
-```
-
----
-
-## 第 4 章 配置 .env（系统的"设置文件"）
-
-`.env` 是环境配置文件：数据库放哪、后台密码是多少、要不要开代理，都写在这里。项目自带了一份**每行都带中文注释**的模板，复制一份即可：
-
-▶ 这条命令的意思：把模板 `.env.example` 复制一份，命名为 `.env`（Linux 里"没有输出=成功"）。
+### 3.3 配置 .env（系统的"设置文件"）
 
 ```bash
 cp .env.example .env
 ```
 
-### 4.1 编辑 .env
+`.env` 中不注释的项是核心常调项，逐个说明（与 `.env.example` 一一对应）：
 
-▶ 用 nano 打开（服务器自带的小编辑器）：
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `DATABASE_URL` | `file:./db/custom.db` | SQLite 库文件路径（相对项目根）。**数据全在这一个文件里，备份它**（见 §11）。Docker 部署由 compose 改写为 `file:/app/db/custom.db` |
+| `ADMIN_PASSWORD` | `audit-fix-2025` | 后台登录密码。**生产必改**；留空则回落编译期固定默认密码并在启动日志给 `[auth] ADMIN_PASSWORD 未设置` 警告 |
+| `SESSION_SECRET` | 空 → 编译期固定常量 | 登录会话签名密钥。生产建议设独立随机长串（`openssl rand -hex 32`） |
+| `LOG_LEVEL` | `info`（dev 为 `debug`） | `debug` / `info` / `warn` / `error` 四档结构化日志 |
+
+注释掉的项全部**可选**、未设时各模块回落缺省值（零回归），分组速览：
+
+| 分组 | 变量 | 何时需要 |
+| --- | --- | --- |
+| Docker 一键（install.sh 读） | `AUTO_FILL` `AUTO_FILL_RULES` `HOST_PORT` `WAIT_TIMEOUT` `REPO_URL` `INSTALL_DIR` `USE_CN_MIRROR` `REGISTRY_MIRRORS` `SKIP_REGISTRY_MIRROR` | 仅 Docker 部署（§6） |
+| Docker 构建参数 | `BUN_IMAGE` `NODE_IMAGE` `PYTHON_IMAGE` `NPM_REGISTRY` `PIP_INDEX_URL` `DEBIAN_MIRROR` `PLAYWRIGHT_DOWNLOAD_HOST` | 国内网络构建加速（§6.8 / §13） |
+| 反反爬增强开关 | `RETRY_AFTER_HONOR` `CHALLENGE_ESCALATE` `RESPONSE_SANITY` `FETCH_BINARY_RETRY` `FETCH_BODY_LEN_CHECK` `FETCH_AL_POOL` `HOSTGATE_PACE_PROFILE` `PROXY_HEALTH_SCORING` | 采集被拦时逐档开启（§8 有缺省值与代价表） |
+| 渲染链 / 桥地址 | `OBSCURA_CONCURRENCY` `OBSCURA_DEVID` `CLOAK_DEVID` `CLOAK_UA_POOL` `FETCH_RELAY_URL` `SCRAPLING_BRIDGE_URL` | 强 JS/CF 挑战站的隐身渲染调优 |
+| 采集引擎（Go） | `GO_ENGINE_URL`（缺省 `http://127.0.0.1:3032`）`GO_CALLBACK_SECRET`（缺省 `go-cb-2025-mhgl`）`GO_PORT` | 多主机分离部署才需要改 |
+| 起点中文代理 | `QD_YWKEY` `QD_YWGUID` `QD_UPSTREAM` | 仅起点规则的正文链路（代理进程级变量） |
+| 中继桥调优 | `RELAY_MAX_INFLIGHT`（缺省 32） `RELAY_BLOCK_PRIVATE` | fetch-relay 并发上限 / 多主机防 SSRF |
+| 多主机闸门 | `BRIDGE_KEY` | mini-services 跨机部署时设共享密钥；单机无需 |
+
+### 3.4 初始化数据库
 
 ```bash
-nano .env
+bun run db:push        # 等价 prisma db push，幂等
 ```
 
-nano 用法三句话：**方向键移动光标 → 直接打字修改 → `Ctrl+O` 回车保存，`Ctrl+X` 退出**。
+执行后应看到：
 
-### 4.2 必须认识的三行（新手改这几行就够了）
-
-打开后你会看到很多以 `#` 开头的行——**# 开头的行只是注释说明，不生效**。真正生效的是不带 # 的行，新手重点看这三行：
-
-```dotenv
-DATABASE_URL=file:./db/custom.db
-
-ADMIN_PASSWORD=audit-fix-2025
-SESSION_SECRET=
+```
+The database is already in sync with the Prisma schema.   # 首次为: 数据库创建成功类提示
+Running generate... ✔ Generated Prisma Client (v6.x.x)
 ```
 
-| 变量 | 填什么 | 它是什么意思 |
-| --- | --- | --- |
-| `DATABASE_URL` | **保持默认** `file:./db/custom.db` | SQLite 数据库文件的存放位置：项目目录下 `db/custom.db` 这一个文件。整个网站的书、章节、规则、任务、设置**全在这一个文件里**（★备份它）。不用改 |
-| `ADMIN_PASSWORD` | **改成你自己的强密码** | 后台登录密码。默认值 `audit-fix-2025` 随代码公开，等于全网都知道，**装完必须改**（第 7 章还有警告框）。示例：`ADMIN_PASSWORD=My#2026$Novel` |
-| `SESSION_SECRET` | 随便一串长随机字符 | 登录会话（Cookie）的签名密钥。留空也能跑（回落内置常量），生产建议设置。示例：`SESSION_SECRET=xk72nfd93hsa8df72nsd9f` |
+> 首次执行会自动创建 `db/custom.db` 并建好全部表；重复执行是空操作。**注意**：本仓库的 `bun run db:push` **不带** `--accept-data-loss`——遇破坏性结构变更 prisma 会明确报错并列出将删除的数据，绝不会静默毁库（强制重整方法见 §13 FAQ 11）。
 
-改完的样子（示意）：
+### 3.5 启动
 
-```dotenv
-ADMIN_PASSWORD=My#2026$Novel
-SESSION_SECRET=xk72nfd93hsa8df72nsd9f
+```bash
+bun run dev            # 开发模式：端口 3000，日志 tee 进 dev.log
+# 或一键带小服务：bash .zscripts/dev.sh（同时拉起 mini-services 下带 dev 脚本的服务，日志见 .zscripts/）
 ```
 
-> ✗ **两个小坑**：
-> 1. 密码里**别用空格和 `#` 字符**（`#` 会被当成注释开头）——用字母+数字+其他符号最省心；
-> 2. `.env` 文件名开头有个**点**，是隐藏文件，`ls` 看不到它，要 `ls -a` 才能看到。改完保存退出（Ctrl+O 回车，Ctrl+X）。
+看到 `Ready`（或 `Local: http://localhost:3000`）即启动成功。
 
-### 4.3 可选变量速览（不设置也有安全默认值，新手可全部不动）
+### 3.6 首次登录后台
 
-| 变量 | 干什么 | 什么时候需要 |
-| --- | --- | --- |
-| `LOG_LEVEL` | 日志详细程度：debug/info/warn/error | 排查问题时改 `debug` |
-| `OBSCURA_CONCURRENCY` | 隐身渲染页面池并发（默认 2） | 内存紧张时可调低 |
-| `FETCH_RELAY_URL` / `SCRAPLING_BRIDGE_URL` | 两个桥的地址（缺省已指向本机 3011/3012） | 仅多机分离部署需要改 |
-| `BRIDGE_KEY` | mini-services 共享密钥闸门 | 仅多机部署需要 |
-| `QD_YWKEY` / `QD_YWGUID` | 起点中文正文凭证（3017 代理进程变量） | 只采起点正文时需要 |
-| `FETCH_BINARY_RETRY` 等反反爬增强开关 | 全部缺省关，`=1` 才开启 | 高级玩法，见 `.env.example` 注释 |
+浏览器打开 `http://localhost:3000/`：
 
-> 💡 全部变量的权威注释就在 `.env.example` 文件本身；速查表见 [第 11 章附录 C](#c-环境变量速查表) 与 [DEPLOY.md](../DEPLOY.md)。
+![后台登录页](./images/r52-01-login.png)
 
-### 4.4 阶段自检
+- **dev / 沙箱模式下**，若生效密码就是公开默认值，登录页会直接显示提示并提供**「填入」**按钮（一键填入 `audit-fix-2025`），点「填入」→「登录」即可；
+- 自定义密码（`ADMIN_PASSWORD` 设过）**不会**被回显提示；
+- 登录接口内置防爆破：同 IP 60 秒窗口最多 5 次，超限返回 `Retry-After`，稍等再试。
 
-```text
-□ ls -a 能看到 .env（注意开头的点）
-□ 已修改 ADMIN_PASSWORD 为自己的强密码
-□ nano 保存退出没报错
-```
+登录后进入仪表盘：
+
+![仪表盘](./images/r52-02-dashboard.png)
+
+**改密码**：编辑 `.env` 的 `ADMIN_PASSWORD=你的强密码` → 重启进程生效（Docker 路线 compose 会自动透传该变量进容器，改完 `docker compose up -d` 重建，旧会话自动失效）。
+
+### 3.7 看一眼前台
+
+打开 `http://localhost:3000/?view=home`——空库时前台无书。想先看效果：`bun scripts/seed.ts` 写入演示数据（分类 15 / 默认站点 / 示例规则 3 条 / 演示书 6 本，**空库守卫**，库里已有书则自动跳过，可放心执行）。有书后的阅读页长这样：
+
+![前台阅读页](./images/r52-07-reader.png)
+
+> ✅ **5 分钟检查点**：能登录后台 + 前台能打开 = 部署成功。接下来两步把它变成"能自动采书的站"：§4 导入规则 → §5 建任务。
 
 ---
 
-## 第 5 章 初始化数据库（bun run db:push）
+## 第 4 章 初始化：导入内置规则库
 
-### 5.1 先搞懂：Prisma 在干嘛
+系统自带**实测站点规则库（29 条，`src/lib/crawl/builtin-rules.ts`）**，无需手写任何解析规则。
 
-项目用 **Prisma** 管理数据库。`prisma/schema.prisma` 文件就是数据库的"建筑图纸"：定义了有哪些表（书籍表 Book、章节表 Chapter、规则表 Rule、任务表 Task、站点表 Site……）、每个表有哪些列。`db:push` 就是**照着图纸把表建好**——首次运行会在 `db/` 目录创建 `custom.db` 文件并建全部表；以后代码升级改了图纸，再跑一次它就把差异同步上。
+**入口**：管理后台 → **采集规则** → 工具栏**「内置规则库」**按钮 → 预览清单 → 一键导入。
 
-### 5.2 执行
+![采集规则列表](./images/r52-03-rules.png)
 
-▶ 这条命令的意思：按图纸同步数据库结构（首次=建库建表）。
-
-```bash
-bun run db:push
-```
-
-✔ 你会看到（示意）：
-
-```text
-Environment variables loaded from .env
-Prisma schema loaded from prisma/schema.prisma
-Datasource "db": SQLite database "custom.db" at "file:./db/custom.db"
-
-✔ Generated Prisma Client (v6.x.x) to ./node_modules/@prisma/client in xxx ms
-
-Your database is now in sync with your schema. Done in xxx ms
-```
-
-看到 `Your database is now in sync` 就是成功。项目目录里会多出 `db/custom.db`——**这就是你的全部业务数据**。
-
-> ⚠ **两个后果警示**：
-> 1. `db:push` 内置 `--accept-data-loss` 参数——**全新安装无感知**；但以后升级新版本再跑它时，若新旧表结构有冲突性变更，可能删改旧数据。所以**升级前先备份**（[9.1 节](#91-备份与恢复)）。
-> 2. `bun run db:reset` 是**清空重建**数据库（所有书/章节/规则/任务全没），属于重置演示用途的破坏性命令，**生产数据上绝对不要执行**。
-
-### 5.3 ✖ 常见报错
-
-| 报错关键字 | 原因 | 解法 |
-| --- | --- | --- |
-| `unable to open database file` / `SQLite database error` | `db/` 目录不存在或无写权限 | `mkdir -p db data` 后重跑；仍不行 `sudo chown -R $(whoami) db data` |
-| `Environment variable not found: DATABASE_URL` | `.env` 没配置好 | 回第 4 章重做 `cp .env.example .env`；`ls -a` 确认文件名开头有点 |
-| `File not found` 类 | 没在项目目录里执行 | `cd ~/novel-system` 后重跑 |
-
-### 5.4 阶段自检（目录长这样）
+**API 等价方式**（脚本/自动化场景）：
 
 ```bash
-ls
+# 登录拿到会话 Cookie 后（heis_admin），幂等导入：
+curl -X POST http://localhost:3000/api/admin/rules/import-builtin -b "heis_admin=<你的会话>"
 ```
 
-```text
-novel-system/
-├── db/custom.db        ✔ 刚生成（约几十 KB，★它就是你的数据）
-├── node_modules/       ✔ 刚生成（bun install 装的依赖）
-├── data/               ✔ 建议顺手建好（封面/TXT 产物存放目录）
-├── .env                ✔ 你已编辑过（ls 看不到，ls -a 才看到）
-├── .env.example        ✔ 模板原件
-└── src/ mini-services/ prisma/ ...  （项目自带）
-```
+**幂等语义**：同名规则已存在则跳过，**绝不清空/覆盖你改过的规则**；可重复执行。
+
+> ⚠ 少数站点规则依赖本机 mini-service 代理（如笔趣阁 AES-token→3010、七猫双签名→3013、得奇签名→3014、新键盘解密→3015、起点正文→3017）。依赖缺失时该站任务会失败/降级，其余站点不受影响；代理启动方式见 §7 端口表「启动」列。
+>
+> ⚠ 采集合规红线：仅采集你有权访问的站点，控制频率（慢速档起步），遵守目标站 robots/服务条款；免责声明见 README。
 
 ---
 
-## 第 6 章 启动系统（试用 / 生产 / Docker）
+## 第 5 章 采集引擎双模：经典 TS 引擎 vs Go 引擎
 
-三种方式任选其一：
+### 5.1 为什么有两个引擎
 
-| 方式 | 适合谁 | 一句话 |
+TS 引擎与 Next.js **同堆运行**：dev 模式下 Web 进程基线就有 ~1.7GB，再叠加采集队列/正文缓冲，RSS 峰值实录 **2045MB**，会顶到 1950MB 熔断线（§9），任务频繁自动暂停。**Go 引擎（`mini-services/crawler-go`，端口 3032）把抓取/解析/编排搬进独立 Go 进程**（`GOMEMLIMIT=600MiB` 硬顶），Next.js 只负责落库与增量决策——采集内存占用从 ~2GB 降到 **~12MB**（§2 实测）。TS 引擎原样保留作缺省引擎（`engine='ts'`），零回归。
+
+### 5.2 能力差异表（契约：`agent-ctx/go-engine/CONTRACT.md`）
+
+| 维度 | 经典 TS 引擎（缺省） | Go 引擎 |
 | --- | --- | --- |
-| **6.2 试用模式（开发模式）** | 本地试玩、体验功能、跟着本教程走 | `bash .zscripts/dev.sh` 一键全拉起 |
-| **6.3 生产模式（本机直跑）** | 正式建站、已装 Bun | `bun run build` + `bun run start` |
-| **6.5 Docker 部署** | 正式建站、想要开机自启/免运维 | `bash install.sh`（自动装 Docker） |
+| 运行位置 | 与后台同进程（dev server / standalone node） | 独立进程 `crawler-go`（127.0.0.1:3032） |
+| 内存画像 | 与主应用同堆，采集期 RSS 可达 ~2GB | 独立进程 ~12MB（`GOMEMLIMIT=600MiB` 软顶） |
+| 规则四段解析（css/regex/json/const、翻页、GBK 等多 charset） | ✅ 全量 | ✅ 全量（与 TS 语义对齐，含算术占位符 `{var|/N}` fail-closed 预检） |
+| `xpath` 字段 | ✅ | ❌（capability 报 unsupported → 自动回退 TS） |
+| 浏览器渲染（`engine='browser'`/waitSelector/clickSelector） | ✅ | ❌（同上回退） |
+| `fetchMode='scrapling-*'` / `curlImpersonate` / 免费代理池 `needsProxy` | ✅ | ❌（同上回退） |
+| 正文 clean（广告清洗/违禁词） | ✅ 进程内 | 解析后原始 HTML 回调，**清洗仍在 TS 侧执行**（效果一致） |
+| 反反爬 | 多引擎降级链全量 | 拦截页/挑战壳检测、Retry-After 冷却、镜像 sticky、代理冷却、UA 指纹头组（持续对齐 TS） |
+| TXT 存储（storageMode=txt） | ✅ | ❌（选 Go 时自动回退 TS 引擎） |
+| 书号采集上限 | **2000** 本 | **100000** 本（10 万） |
+| 任务容错 | 熔断/断点续采/暂停续采（§9） | 回调失败重试 3 次（1s/2s/4s）→ 任务自动转 paused；Go 进程重启后任务态丢失，Next.js 重发 start 靠增量决策天然幂等续采 |
 
-### 6.2 试用模式：bash .zscripts/dev.sh（一键全拉起）
+**回退规则（零配置兜底）**：建任务/启动时若 Go 引擎**不可达**或规则含其**不支持的能力**，控制面自动回退 TS 引擎并在任务日志记 warn——选了 Go 不会让任务卡死。
 
-这个脚本会**按顺序自动做完下面这一串事**（你可以不理解细节，知道它会自己搞定就行）：
+### 5.3 在哪选引擎：新建任务向导
 
-```text
-┌─ bash .zscripts/dev.sh 自动执行流程 ──────────────────────────┐
-│ ① 检查 bun 是否安装（没装直接报错退出）                          │
-│ ② bun install         安装/校验依赖                            │
-│ ③ bun run db:push     建库建表（幂等，重复跑不毁数据）            │
-│ ④ bun run dev &       后台启动主应用（端口 3000，日志 tee 进    │
-│                       项目根目录 dev.log）                      │
-│ ⑤ 等待 3000 就绪      每秒探测一次，最多等 60 秒；就绪后 curl    │
-│                       健康检查通过                              │
-│ ⑥ 拉起 mini-services  扫描 mini-services/ 下 8 个服务，逐个      │
-│                       bun install + 后台启动，日志写             │
-│                       .zscripts/mini-service-<服务名>.log       │
-└────────────────────────────────────────────────────────────────┘
-```
+管理后台 → **采集任务** → 「新建任务」→ 向导**第 2 步「配范围」顶部即「采集引擎」选择器**：
 
-▶ 在项目目录执行：
+![新建任务向导（含采集引擎选择器）](./images/r52-04-task-wizard.png)
 
-```bash
-bash .zscripts/dev.sh
-```
+- **经典 TS 引擎**：与后台同进程，兼容全部规则能力（缺省）；
+- **Go 引擎（独立进程·内存隔离·支持 10 万书号）**：选它后"书号范围/列表"输入框的上限文案实时从 2000 → 100000（同口径校验：`bookIdMaxCountForEngine`，三方 UI/API/引擎一致；书号范围 `to-from+1 > 100000` 引擎直接拒绝启动，防误灌）。
 
-✔ 你会看到（节选，示意）：
+> 2000 上限的历史原因：TS 引擎与 dev server 同堆（队列/进度集合常驻堆内有 OOM 史）+ 单任务失控粒度防护；Go 引擎进程隔离后书号模式输入面放开到 10 万。
 
-```text
-==========================================
-[2026-xx-xx 12:00:00] Starting: bun install
-==========================================
-[BUN] Installing dependencies...
-...
-==========================================
-[2026-xx-xx 12:00:35] Waiting for Next.js dev server
-==========================================
-Next.js dev server is ready!
-...
-[bqg713-proxy] Started in background (PID: 12346)
-[qimao-proxy] Started in background (PID: 12347)
-...
-Mini-services startup completed. Started 8 service(s).
-Next.js dev server is running in background (PID: 12345).
-Use 'kill 12345' to stop it.
-```
-
-✔ 验证：浏览器打开 `http://服务器IP:3000/` 能看到登录页（第 7 章）。
-
-**怎么停**：按脚本最后提示执行 `kill 12345`（换成你屏幕上的 PID）。8 个小服务的日志在 `.zscripts/mini-service-*.log`，主应用日志在项目根目录 `dev.log`。
-
-> 💡 dev 模式 = Next.js 开发模式：页面热更新、便于体验，但**性能与安全性都不如生产模式**，正式建站请用 6.3 或 6.5。dev 模式下只要密码还是默认值，登录页会显示「预览模式固定密码」提示条（见 7.2）。
-
-✖ 常见报错：
-
-| 报错关键字 | 原因 | 解法 |
-| --- | --- | --- |
-| `ERROR: bun is not installed` | Bun 不在 PATH | `source ~/.bashrc`，或重开终端 |
-| 端口 3000 相关报错 | 被占用 | 见 [FAQ #1](#1-端口-3000-被占用了怎么办) |
-| `mini-service-scrapling-bridge` 日志报 Python 错 | 该桥是 Python 可选服务，未装 Python 环境 | 无害，忽略即可；其余 7 个服务照常（第 8.1 有依赖对照表） |
-
-### 6.3 生产模式：bun run build + bun run start（本机直跑）
-
-正式建站推荐。**两步**：
-
-▶ 第一步，构建（把源码编译成生产版本；首次约 1~5 分钟，屏幕滚大量日志属正常）：
+### 5.4 启动 Go 引擎（两条命令）
 
 ```bash
-bun run build
+# ① 首次安装 Go 工具链（幂等，已装且版本匹配则跳过）：
+bash scripts/install-go.sh
+#    → [install-go] 完成。run.sh 会自动把 ~/go-sdk/go/bin 加入 PATH
+
+# ② 启动（崩溃自重启循环；每次启动自动 go build 重编译）：
+cd mini-services/crawler-go && bash run.sh
+#    等价: bun run dev（package.json 的 dev 脚本就是 bash run.sh）
 ```
 
-✔ 你会看到（末尾，示意）：
+`run.sh` 做了三件事（行为契约）：
 
-```text
-▲ Next.js 16.x (Turbopack)
+1. `export PATH=$HOME/go-sdk/go/bin:$PATH` —— 使用一键安装的 Go；
+2. `export GOMEMLIMIT=600MiB` —— Go 运行时软内存顶（配合"每章处理完即弃"的内存策略）；
+3. `while true; do go build && 运行; 崩溃 1 秒后自动重启` —— **崩溃自重启**；改了 Go 代码或 `git pull` 升级后，kill 掉旧循环再 `bash run.sh` 即自动重编（§12）。
 
-Route (app)                              Size     First Load JS
-...
-✓ Compiled successfully
-```
-
-▶ 第二步，启动生产服务（前台后台全在 3000 端口）：
+验证健康：
 
 ```bash
-bun run start
+curl http://127.0.0.1:3032/health
+# {"engine":"go","ok":true,"rssMB":11.96,"tasks":{"paused":0,"running":0},"uptimeMs":…,"version":"1.0.0"}
 ```
 
-✔ 你会看到（示意）：
+### 5.5 回调链（数据如何安全落库）
 
-```text
-▲ Next.js 16.x
-- Local:   http://localhost:3000
-✓ Ready in 500ms
+Go 引擎抓到的每本书/目录/正文/封面，都经 HTTP 回调交回主应用（`POST /api/admin/tasks/go-callback`，请求头 `x-go-callback-secret` 校验，值取环境变量 `GO_CALLBACK_SECRET`，**两侧缺省固定 `go-cb-2025-mhgl`**）：
+
+```mermaid
+sequenceDiagram
+    participant G as Go 引擎 :3032
+    participant N as Next.js :3000（唯一写者）
+    G->>N: book 回调（书籍元数据）
+    N-->>G: bookId + skipContent（完结书且增量=整本跳过）
+    G->>N: chapters 回调（全书目录）
+    N-->>G: needUrls（增量去重后真正要抓的章节）
+    G->>N: contents 回调（批次正文，批 ≤20 章）
+    N->>N: 清洗（TS 侧）+ 落库
+    G->>N: cover 回调（封面 base64 → sharp 转 webp 存盘）
 ```
 
-**关掉 ssh 窗口服务就停了**——想长期运行，用 `nohup` 把它挂后台（通用 Linux 技巧）：
+语义要点：**回调失败自动重试 3 次（1s/2s/4s）仍败 → 任务转 paused 保留进度**；Go 侧重启不丢数据（重新 start 后 `skipContent`/空 `needUrls` 等价断点续采）；回调按 URL 幂等 upsert，乱序/重放安全。
+
+### 5.6 autoRefresh 与 Go 任务的当前边界（诚实说明）
+
+- Go 任务**完成（done）时**，若开了 autoRefresh，v1 只在任务日志里提示（不自动循环）；
+- autoRefresh 定时重开会**经 TS TaskRunner 直启** Go 任务（功能正确，但失去 Go 进程隔离）——长期大任务建议手动增量续跑，或接受该行为（R51 遗留项，后续轮次让 runner 感知 engine）。
+
+---
+
+## 第 6 章 生产部署（Docker 与裸机）
+
+### 6.1 方式选型
+
+| 方式 | 适合谁 | 内存 | 命令 |
+| --- | --- | --- | --- |
+| **A. Docker 一键**（推荐生产） | 想要开机自启、崩溃拉起、免环境折腾 | 构建 ≥4GB，运行期小 | `bash install.sh` |
+| B. Docker 手动 | 想看清每一步 | 同上 | `docker compose up -d --build` |
+| C. 裸机 Bun | 已装 Bun、需要 3012/3016/3017 等全套 mini-service 或调试引擎 | 生产运行 2GB 可跑（构建 ≥4GB） | `bun run build && bun run start` |
+
+三种方式**共用同一套数据形态**：SQLite 单文件 `db/custom.db` + `data/` 目录（Docker 下映射为宿主机 `./db`、`./data`）——换部署方式 = 搬这两个目录。
+
+### 6.2 Docker 一键（install.sh）
 
 ```bash
-# Ctrl+C 停掉前台进程后，改用这条启动：nohup = 挂后台不随窗口关闭退出，日志写进 server.log
-nohup bun run start > server.log 2>&1 &
-# 想停它：先找 PID 再杀
-# ps aux | grep server.js   →   kill 那个PID
-```
-
-> ⚠ 构建峰值内存超 2 GB：2 GB 机器请先加 swap 或改走 Docker 路径（见 [FAQ #14](#14-构建或运行中途日志出现-killed内存不足)）。
-> 💡 生产模式下登录页**不会**显示密码提示条；mini-services 也**不会**自动拉起——需要哪个按 8.1 单独启动。
-
-### 6.4 OOM 自愈守护（dev-watchdog，可选但推荐了解）
-
-**背景**：本项目在内存受限的机器上有过实录——`next dev` 冷启动编译期内存尖峰达到 2.2GB+，触发系统 OOM，next-server 进程被内核直接杀掉，表现是**页面突然 502 打不开**（过一会儿又好了，或一直打不开）。
-
-项目自带一个自愈守护脚本 `.zscripts/dev-watchdog.sh`，机制非常克制：
-
-```text
-┌─ dev-watchdog.sh 工作原理 ────────────────────────────────────┐
-│ 每 30 秒探测一次 http://127.0.0.1:3000/                        │
-│   ├─ 能访问 → 什么都不做（绝不碰健康实例，采集任务零中断）        │
-│   └─ 不能访问 → 自动重新拉起 bun run dev（自愈）                 │
-│ 结论：服务被 OOM 杀掉后，最多约 35 秒（30s 探测周期+拉起时间）    │
-│       自动恢复，无需人工干预                                     │
-└────────────────────────────────────────────────────────────────┘
-```
-
-▶ 启用方法（后台挂起运行；⚠ 脚本内写死了 `/home/z/my-project` 路径，若你的项目装在别处，先 `nano .zscripts/dev-watchdog.sh` 把路径改成你的项目目录）：
-
-```bash
-nohup bash .zscripts/dev-watchdog.sh >/dev/null 2>&1 &
-```
-
-> 💡 该守护主要服务于**开发模式**的稳定性；生产模式（bun run start）建议用 3.3 节的 nohup/tmux/systemd 或 Docker 的 `restart: unless-stopped`（Docker 路线自带崩溃自动拉起，无需此脚本）。
-
-### 6.5 Docker 部署（免运维首选）
-
-不想碰 Bun/构建细节？Docker 把一切打包成"开机自启的整体"：
-
-```bash
+git clone https://github.com/u4399com-beep/heis.git novel-system && cd novel-system
 bash install.sh
 ```
 
-脚本自动完成：检测（必要时自动安装）Docker → 国内网络自动配加速 → 构建镜像并启动 → 等健康检查（最长 5 分钟）→ 打印访问地址。装完默认**自动填充**：自动导入 7 条实测规则并开跑采集任务，约 20~40 分钟前台有书。不想自动采集：`AUTO_FILL=0 bash install.sh`。
+脚本自动：检测/安装 Docker（国内多级镜像源自适应）→ 预检 3000 端口 → `docker compose up -d --build` → 轮询健康检查（最长 5 分钟，失败打印日志与中文排查清单）→ 打印访问地址。**重复执行安全（幂等）**：已有容器自动重建，`./db`、`./data` 数据不受影响。
 
-✔ 你会看到（末尾，示意）：
-
-```text
-[完成] 小说管理系统部署完成!
-[信息] 访问地址:
-[信息]   本机      → http://localhost:3000          (后台管理首页)
-[信息]   前台站点  → http://localhost:3000/?view=home
-[信息] 数据都在宿主机当前目录: ./db (数据库) 与 ./data (采集产物), 备份 = 拷贝目录
-```
-
-Docker 路线的完整细节（非 root 容器权限、改端口、升级、卸载、自动填充开关、容器内共置的 5 个代理）全部见 **[DEPLOY.md](../DEPLOY.md)**，本教程不重复。
-
-### 6.6 放行防火墙端口
-
-云服务器除了"安全组放行 3000"（1.1 提过），系统防火墙如果开了也要放行：
-
-▶ 这条命令的意思：允许外部访问本机 3000 端口（没启用防火墙的话会提示 inactive，跳过即可）。
+### 6.3 Docker 手动
 
 ```bash
-sudo ufw allow 3000/tcp
+cd <项目目录>
+sudo mkdir -p ./db ./data && sudo chown -R 1001:1001 ./db ./data   # 非 root 容器（uid 1001）需要属主匹配
+docker compose up -d --build
+docker compose ps          # STATUS 出现 (healthy) 即就绪，约 40 秒预热
 ```
 
-✔ 你会看到：`Rule added`（或 `Firewall not active`——说明没开防火墙，无需此步）。
+compose 服务名 **`novel-system`**，要点（`docker-compose.yml`）：
 
----
+- 端口 `3000:3000`（宿主机被占改左侧，如 `"8080:3000"`）；
+- 数据卷 `./db:/app/db`（SQLite）与 `./data:/app/data`（封面/下载产物）；
+- `restart: unless-stopped`（崩溃自动拉起）+ `cap_drop: ALL` + `no-new-privileges` + 非 root（`USER app`, uid 1001）+ 日志轮转 `json-file max-size=20m max-file=5`；
+- 健康检查：镜像内 `node fetch http://127.0.0.1:3000/`，`interval 15s / timeout 5s / retries 5 / start_period 40s`；
+- 环境变量透传：`ADMIN_PASSWORD` / `SESSION_SECRET` / `AUTO_FILL` / `AUTO_FILL_RULES`（宿主机 `.env` 自动加载）。
 
-## 第 7 章 首次登录后台
+### 6.4 容器首启发生了什么（docker-entrypoint.sh）
 
-### 7.1 打开登录页
+1. **可写性预检**：`/app/db` 不可写（宿主机目录属主非 uid 1001）→ 日志给出 `sudo chown -R 1001:1001 ./db ./data` 指引；
+2. **建目录**：`/app/db`、`/app/data/{covers,novels,downloads}`、`/app/logs`；
+3. **幂等 `prisma db push`**：首启建库建表；重启时结构一致则空操作。**刻意不带 `--accept-data-loss`**——冲突性变更时报错但**继续启动**（绝不静默毁数据），日志给中文处理指引；
+4. **拉起 5 个共置采集代理**：`bqg713-proxy(3010)` / `fetch-relay(3011)` / `qimao-proxy(3013)` / `deqixs-proxy(3014)` / `xjp-proxy(3015)`（后台启动，失败只警告不阻断主服务）；
+5. **自动填充引导**（`AUTO_FILL=1` 时，见 6.5）；
+6. **前台启动** `node server.js`，SIGTERM/SIGINT 统一转发给全部子进程（`docker stop` 优雅退出）。
 
-在你自己电脑的浏览器（Chrome/Edge 均可）地址栏输入：
+> ⚠ Go 引擎（3032）**不在容器内共置**：纯 Docker 部署下容器内引擎无法访问宿主机回环的 3032。需要 Go 引擎时用裸机路线（C），或在容器内自行安装 Go 并挂载运行 crawler-go。
 
-```text
-http://服务器IP:3000/
-```
+### 6.5 自动填充：装完即有书（默认开启）
 
-屏幕上应该出现一个居中的登录卡片（ASCII 示意）：
-
-```text
-┌────────────────────────────────────────────┐
-│                                            │
-│           小说管理系统 · 登录                │
-│        请输入管理员密码以进入后台             │
-│                                            │
-│   密码                                     │
-│   ┌──────────────────────────────────┐     │
-│   │ ••••••••                         │     │
-│   └──────────────────────────────────┘     │
-│   [              登        录           ]  │
-│                                            │
-│   ⓘ 预览模式固定密码: audit-fix-2025 [填入]  │
-│      （仅 dev/预览模式显示，生产不显示）      │
-└────────────────────────────────────────────┘
-```
-
-![后台登录页](./images/01-login.png)
-
-*图：后台登录页真实截图（界面随版本可能有细微变化，以实际为准）*
-
-### 7.2 密码从哪里来（对照表）
-
-| 你的情况 | 登录密码 |
-| --- | --- |
-| 刚装完、什么都没改 | `audit-fix-2025`（程序内置默认密码；启动日志会有一条 `[auth] ADMIN_PASSWORD 未设置` 警告提醒你改） |
-| 第 4 章已在 `.env` 设置 `ADMIN_PASSWORD` | 你自己设置的那个 |
-| 本地 dev / 预览模式 | 默认值 `audit-fix-2025`；登录页下方显示「预览模式固定密码」提示与**填入**按钮，点一下自动填好 |
-
-> 💡 「预览模式固定密码」提示条的出现条件：**非生产运行**且**生效密码恰为公开默认值**。生产部署不显示；你一旦自定义了 `ADMIN_PASSWORD`，任何环境都不再提示（自定义密码永不回显，这是刻意的安全设计）。
-> 💡 登录有防爆破限流：同一 IP **60 秒内最多试 5 次**，超了会被暂时拒绝，等一分钟再试。
-
-✖ 常见报错：
-
-| 症状 | 原因 | 解法 |
-| --- | --- | --- |
-| 浏览器一直转圈打不开 | 安全组/防火墙没放行 3000 | 见 6.6 与 [FAQ #2](#2-服务器上-curl-得通但浏览器打不开) |
-| 突然 502 / 打不开但之前能开 | dev 进程被 OOM 杀（内存尖峰） | 配了 6.4 守护的等 ≤35 秒自动恢复；没配的手动重启或按 [FAQ #6](#6-页面偶发-502之后自动恢复oom-自愈) 排查 |
-| 提示密码错误 | 密码不对 | 对照上表；忘记密码见 [FAQ #3](#3-忘记后台密码怎么办) |
-
-### 7.3 ★ 装完第一件事：改密码
-
-> ⚠ **强烈警告**：默认密码 `audit-fix-2025` 随代码公开，**不改等于后台向全网敞开**。前台书城公开是设计如此，但后台能删书、改库，务必现在就改。
-
-▶ 在项目目录执行（把第 4 章那行改成你的强密码；当时没改的现在改）：
+健康检查通过后，容器内 `docker/autofill.mjs` 自动：① 把 7 个实测站点规则**幂等导入**（同名跳过，绝不清空你改过的规则）；② 为每站建「自动填充·」前缀任务并按状态机续跑（pending/paused/stopped/error → start；running/done → 跳过）；③ 完成后每 30 分钟增量续采。首次跑完约 20~40 分钟前台就有真实书籍可读。
 
 ```bash
-nano .env
-# 把 ADMIN_PASSWORD= 后面换成你的强密码，Ctrl+O 回车保存、Ctrl+X 退出
+docker compose logs -f | grep 自动填充    # 引导日志（[自动填充] 前缀）
+AUTO_FILL=0 bash install.sh               # 关闭自动填充
+AUTO_FILL_RULES=fanqie,qimao bash install.sh   # 只填充指定站点
 ```
 
-然后按你的启动方式重启生效：
+站点 key 对照：`fanqie`(番茄) / `qimao`(七猫) / `deqixs`(得奇) / `80ge`(八零) / `jhssd`(精华书阁) / `ttkan`(天天看) / `bqg713`(笔趣阁) 为默认 7 站；`pili`(霹雳书屋，依赖可选 scrapling 桥 `--profile stealthy`) 与 `xjp`(新键盘，6254 章大体量) 默认不参与，需 `AUTO_FILL_RULES=...,pili` 显式启用。
 
-```bash
-# 6.2 试用模式：
-kill 旧PID && bash .zscripts/dev.sh
-# 6.3 本机直跑：Ctrl+C（或 kill）停掉旧进程后
-bun run start
-# 6.5 Docker：
-docker compose up -d
-```
+### 6.6 裸机生产（Bun 路线，无 Docker）
 
-改完密码后旧的登录会话自动失效，用新密码重新登录即可。**会话有效期 12 小时**，到期重新登录属正常设计。
-
-### 7.4 认识后台（仪表盘 + 左侧导航）
-
-登录成功后进入**仪表盘**：顶部是统计卡片（书籍/章节等计数，可按需开关显示），中间有各支撑服务的健康灯（8.1 对应），左侧是全部功能导航：
-
-![仪表盘](./images/02-dashboard.png)
-
-*图：仪表盘与左侧导航真实截图（界面随版本可能有细微变化，以下方 ASCII 与正文为准）*
-
-```text
-┌────────────┬──────────────────────────────────────────────┐
-│ 左侧导航    │  仪表盘                                        │
-│            │  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌──────┐  │
-│ ▣ 仪表盘    │  │ 书籍 N  │ │ 章节 N  │ │ 规则 N  │ │任务 N│  │
-│ ☰ 采集规则  │  └─────────┘ └─────────┘ └─────────┘ └──────┘  │
-│ ☰ 采集任务  │                                                │
-│ ☰ 书籍管理  │  服务健康:  ●3000 主应用  ●3010  ●3011 …（绿灯=在线）│
-│ ☰ 分类管理  │                                                │
-│ ☰ 站群系统  │                                                │
-│ ☰ 友链链轮  │                                                │
-│ ☰ 主题模板  │                                                │
-│ ☰ TXT下载  │                                                │
-│ ☰ 系统设置  │                                                │
-│ ☰ 用户反馈  │                                                │
-│ ☰ 违禁词过滤│                                                │
-│ ☰ 数据备份  │                                                │
-│ ☰ SEO 体检 │                                                │
-└────────────┴──────────────────────────────────────────────┘
-```
-
-本教程接下来会用到：**采集规则 / 采集任务**（第 8 章）、**站群系统**（8.3 建站点）、**主题模板**（第 8 章末尾导览）、**数据备份**（第 9 章）。
-
----
-
-## 第 8 章 开始采集：从 0 到第一本书
-
-本章是全教程的核心，5 个小节按顺序做：
-
-```text
-8.1 导入内置规则  →  8.2 建站点  →  8.3 建采集任务  →  8.4 看着它跑  →  8.5 暂停/续采
-     （拿现成配方）    （前台门面）     （派工人干活）      （监控与排错）    （语义详解）
-```
-
-先记住两个词：
-
-- **采集规则** = 抓取配方（去哪个网址、在页面里怎么找书和章节）；
-- **采集任务** = 按配方干活的工人（建了任务引擎就自动开抓，进度实时可看）。
-
-### 8.1 第一步：导入内置规则（27 条实测配方，一键即用）
-
-系统自带 **27 条**针对真实站点调好的采集规则（77读书、番茄、七猫、得奇、笔趣阁系、起点中文、霹雳书屋、知轩藏书、茉莉小说、久久小说、WuxiaWorld……），不用你从零写。后台左侧导航 → **采集规则** → 顶部工具栏 → **内置规则库**：
-
-![采集规则列表](./images/03-rules-list.png)
-
-*图：采集规则列表页真实截图（工具栏含「内置规则库」「模板库」等按钮）*
-
-```text
-┌────────────────────────────────────────────────────┐
-│ 📚 内置规则库          [按名称 / 描述 / 来源搜索…]     │
-│                        27 / 27 条 · 已导入 0         │
-│ ┌──────────────────────┐  ┌──────────────────────┐  │
-│ │ 77读书 (77shuku.info) │  │ 番茄小说聚合API       │  │
-│ │ [配置]      [导 入]   │  │ [配置]      [导 入]   │  │
-│ └──────────────────────┘  └──────────────────────┘  │
-│ ┌──────────────────────┐  ┌──────────────────────┐  │
-│ │ 霹雳书屋(…) [已导入]  │  │ 七猫官方API (wtzw)    │  │
-│ │ [配置]  [重新导入]    │  │ [配置]      [导 入]   │  │
-│ └──────────────────────┘  └──────────────────────┘  │
-│              …（两列卡片，共 27 条）…                 │
-│                                    [ 全部导入 ]      │
-└────────────────────────────────────────────────────┘
-```
-
-操作三步：**搜索**（如输入「77」）→ 点卡片 **导入**（全要就点底部 **全部导入**，弹确认框再点一次）→ 规则立刻出现在规则列表里。
-
-> ⚠ **方向别搞反**：内置规则库导入是**覆盖式**的（同名先删后建，会重置你手改过的同名规则）；而 Docker 自动填充是**跳过式**的（同名已存在绝不动你的）。想把某条规则恢复出厂，对它点「重新导入」即可。
-
-> 💡 想要一条"自己的规则"（采别的网站）？三条路由易到难：① 导入最接近的内置规则再「编辑」微调；② 规则页工具栏「模板库」起步；③ 从零手写四段配置。规则编辑器每个页签右列都有**测试面板**，改一段测一段，字段语义详见 `docs/rule-limits.md`。
-
-### 8.2 第二步：建一个站点（前台书城的"门面"）
-
-**为什么需要**：前台书城按「站点」渲染——主题、标题(TDK)、书列表偏移都来自站点档案。不建站点，前台内容展示不完整。建一个只要 30 秒：
-
-后台左侧导航 → **站群系统** → 「新建站点」：
-
-| 字段 | 新手怎么填 |
-| --- | --- |
-| 名称 | 你的站名，如「书海文摘」 |
-| 域名 | 例 `www.a.com`（本地试玩可填 `localhost:3000`；含端口亦可） |
-| 主题 | 先默认，第 8 章末尾教你换 |
-| TDK 三栏 | 可先留空；填了前台 SEO 更好；有「自动生成 TDK」✨ 按钮一键铺底 |
-| 状态/默认站 | 保持开启；单站就勾「默认」 |
-
-保存后，前台 `http://服务器IP:3000/?view=home` 就有了自己的门面（书要等任务采回来）。
-
-### 8.3 第三步：建采集任务（四步向导逐格讲）
-
-后台 → **采集任务** → 右上角「新建任务」，弹出四步向导（步骤名：**选规则 → 配范围 → 调度 → 确认**）：
-
-![新建任务向导](./images/05-task-wizard.png)
-
-*图：新建采集任务向导真实截图（采集模式选择步）*
-
-```text
-┌────────────────────────────────────────────────────────────┐
-│ 新建采集任务     ①选规则 ── ②配范围 ── ③调度 ── ④确认        │
-├────────────────────────────────────────────────────────────┤
-│ 任务名称: [自动建议: 规则名-模式，可自行修改                ] │
-│                                                            │
-│ 采集模式:  ┌────────────┐ ┌────────────┐                     │
-│            │ ●单本采集   │ │ ○范围采集   │                   │
-│            └────────────┘ └────────────┘                     │
-│  单本: 直接指定一个书籍页地址                                  │
-│  范围: 遍历列表页翻页，批量发现书籍                             │
-│                                                            │
-│ 范围采集 → 列表页URL*: [https://…/list/1_{page}.html      ] │
-│           起止页:    [1] ~ [3]                              │
-│                                                            │
-│ 节奏档位:  (●) 慢速 1-2线程 / 3-5秒   ←新手推荐，最不易被封    │
-│           ( ) 标准 2-3线程 / 1-2秒                           │
-│           ( ) 快速 3-5线程 / 0.5-1秒                         │
-│                                                            │
-│ ☑ 自动增量续采  任务完成后每 [30] 分钟自动补采连载新章节        │
-│ 重采模式:  (●) 增量（跳过已采书/已采章） ( ) 全量（推倒重采）    │
-│                                                            │
-│                    [创建但不启动]   [创建并立即启动]           │
-└────────────────────────────────────────────────────────────┘
-```
-
-#### 8.3.1 单本采集 vs 范围采集（怎么选）
-
-| | 单本采集 | 范围采集 |
-| --- | --- | --- |
-| 适合 | 只想要某一本书 | 批量扫一批书 |
-| 要填什么 | 该书**详情页**的完整网址 | 规则的**列表页** URL + 起止页码 |
-| 工作方式 | 直接抓这一本书的详情→目录→正文 | 从列表页发现书 → 逐本抓取，自动翻页 |
-| 举例 | `https://www.xxx.com/book/88.html` | `https://www.xxx.com/sort/1_{page}.html`，页 1~3 |
-
-> ⚠ **范围模式下列表页 URL 是必填项（带 \* 号）**。不填、或填了不含占位符的地址，任务要么建不了、要么只采到一页。URL 默认取规则里的列表模板，可以不改；想扫别的分类/榜单就换成对应的列表地址。
-
-#### 8.3.2 列表页 URL 与两个占位符（翻页原理，本节看懂就能采任何站）
-
-列表页 URL 支持两个占位符，任务运行时会被**自动替换成真实页码**：
-
-| 占位符 | 含义 | 替换结果（第 1、2、3 页时） |
-| --- | --- | --- |
-| `{page}` | 直接替换为当前页号 | `1_{page}.html` → `1_1.html`、`1_2.html`、`1_3.html` |
-| `{offset:N}` | 替换为 `(页号-1)×N`（跳页偏移量） | `p_{offset:10}` → `p_0`、`p_10`、`p_20` |
-
-**为什么要第二个**？因为不同网站的翻页参数长得不一样：
-
-```text
-站点 A：第1页 /list/1_1.html   第2页 /list/1_2.html   → 页号直接编址 → 用 {page}
-站点 B：第1页 /list?start=0    第2页 /list?start=20   → 参数是"条数偏移"（每页20条）→ 用 {offset:20}
-站点 C：第1页 /top/p_0.html    第2页 /top/p_1.html   → 页号从 0 开始数 → 用 {offset:1}（0基页码恰好等于 页号-1）
-```
-
-> 💡 内置规则里「久久小说网 排行榜 (aijjxs.com toplist)」就是 `{offset:1}` 的真实用例（该站分页从 `p_0` 开始）。
-> ⚠ **只认这两个占位符**：写成 `{cat}`、`{页码}` 等其他花括号内容会被当**普通文字**原样发出去，请求必然 404。翻页原理一句话：任务按"起止页"逐页把占位符替换成地址 → 抓列表页 → 解析出本页所有书 → 继续下一页。
-
-#### 8.3.3 节奏档位（慢速起步，被封再说）
-
-| 档位 | 线程数 | 请求间隔 | 适合 |
-| --- | --- | --- | --- |
-| **慢速（新手默认）** | 1~2 | 3000~5000 ms | 最不易被封，绝大多数场景够用 |
-| 标准 | 2~3 | 1000~2000 ms | 站点没脾气、想快点 |
-| 快速 | 3~5 | 500~1000 ms | 容易被 403/429，被封了别抱怨 |
-
-线程/间隔也可以不选档位，直接手填随机区间（引擎在区间内随机取值，行为更像真人）。
-
-#### 8.3.4 三个智能开关（保持默认就行）
-
-| 开关 | 作用 |
-| --- | --- |
-| **智能分类** | 抓到一本书后，按书名+简介自动判断它属于哪个分类（玄幻/都市…），不用你手动归 |
-| **智能完结判断** | 自动判断书是连载中还是已完结，前台正确显示状态 |
-| **自动建议** | 自动补齐关键词等 SEO 字段 |
-
-#### 8.3.5 自动增量续采 & 重采模式
-
-| 选项 | 含义 | 新手建议 |
-| --- | --- | --- |
-| **自动增量续采** | 任务完成后，每隔 N 分钟自动再跑一次增量补采连载新章（间隔默认 30 分钟，可调 5~1440） | 连载站勾上 |
-| 重采模式=**增量** | 重跑/续采时**跳过**库里已有的书与章节，只补新的 | 默认，永远先用它 |
-| 重采模式=**全量** | 无视已有记录推倒重采（书会重新发现、章节重新抓） | 只在想刷新全站数据时用 |
-
-最后一步点 **「创建并立即启动」** 开跑（或「创建但不启动」先存着，以后在任务列表点 ▶ 启动）。
-
-### 8.4 第四步：看着它跑起来（进度与日志）
-
-任务列表里该任务状态会实时刷新（列表页约 3 秒轮询一次）：
-
-![采集任务页](./images/06-tasks.png)
-
-*图：采集任务列表真实截图（状态列实时刷新，行内含启动/暂停/停止/监控等按钮）*
-
-```text
-任务状态徽章:  pending(排队) → running(进行中，转圈动画) → done(完成) / error(出错)
-                                     ├── paused(已暂停，可继续)
-                                     └── stopped(已停止，终态)
-```
-
-点行内 **监控** 按钮看实时日志（发现了几本书、抓了多少章、有无报错）。日志分四级：`info`（流水）/ `success`（成功动作）/ `warn`（警告，如某章重试）/ `error`（失败，含原因）。开启自动增量续采的任务完成后会按间隔自动补采。
-
-### 8.5 暂停 / 停止 / 续采的准确语义（重要）
-
-任务状态机（mermaid，GitHub 可渲染）：
-
-```mermaid
-stateDiagram-v2
-    [*] --> pending : 创建
-    pending --> running : 点启动 ▶
-    running --> paused : 点暂停 ⏸（进度保留）
-    paused --> running : 点启动 ▶（从暂停处继续）
-    running --> done : 全部页/书完成
-    running --> error : 出错终止
-    running --> stopped : 点停止 ⏹（终态）
-    note right of running
-        服务重启时正在跑的任务
-        会被自动回收为 paused（不丢进度），
-        点启动即可续采
-    end note
-```
-
-| 动作 | 准确语义 |
-| --- | --- |
-| **暂停 ⏸** | 进入 `paused` 可恢复态，进度完整保留；点「启动」从断点继续 |
-| **停止 ⏹** | 进入 `stopped` 终态；想再跑就重新点「启动」（增量模式下自动跳过已采部分） |
-| **服务重启后** | 之前 `running` 的任务自动转为 `paused`（日志会提示"已自动回收为暂停，可点击继续恢复"），**不会**当作失败丢失 |
-| **增量续采** | 无论暂停恢复还是重新启动，增量模式都会对照数据库**跳过已采章节**，只抓缺的——放心反复启停 |
-
-### 8.6 采集 0 本书？先跑规则测试面板（排错第一站）
-
-任务跑完却没书，**先别怀疑人生**，按序排查：
-
-1. **规则测试面板**：采集规则 → 编辑该规则 → 每个页签（列表/书籍/目录/正文）右列都有测试面板 → 填一个示例 URL → **开始测试**。四段都能出数据，规则没问题；哪段空了就修哪段的选择器/正则。
-2. **看任务日志**：任务行「监控」→ 找红色 `error` 行，最常见的三种：`timeout`（网络/被墙，见 8.7 配代理）、`403/429`（被拦，降速或换引擎）、`0 results`（列表页结构不对，回测试面板）。
-3. **对照内置规则抄作业**：同类 CMS 的站点规则（如 GBK 直连站参考「飘天文学」）往往能直接套。
-
-> 💡 依赖代理的规则（bqg713/qimao/deqixs/xjp/qidian 五条）在对应 mini-service 没启动时会失败——对照 8.7 的表格把服务拉起来再重跑任务即可。
-
-### 8.7 出口代理与 mini-service 依赖对照
-
-**① 哪些规则需要哪个 mini-service**（27 条内置规则中只有 5 条依赖对应代理，其余 22 条直连即采）：
-
-| 端口 | 服务 | 干什么 | 哪条规则需要它 | 不启动会怎样 |
-| --- | --- | --- | --- | --- |
-| 3010 | `bqg713-proxy` | 笔趣阁 bqg713 AES-token 解锁转换 | 笔趣阁bqg713 1 条 | 仅该站失败 |
-| 3011 | `fetch-relay` | bun TLS 指纹中继（node+代理场景出路） | 引擎自动按需调用，通用增强 | 自动走 curl 链，多数站无感 |
-| 3012 | `scrapling-bridge`（Python，可选） | 隐身抓取三模式 | CF 强防护站备用路径（如霹雳书屋场景） | 引擎走内置 Obscura 渲染 |
-| 3013 | `qimao-proxy` | 七猫 API 双签名+AES 解密 | 七猫官方API 1 条 | 仅该站失败 |
-| 3014 | `deqixs-proxy` | 得奇正文三参数签名+GBK 解码 | 得奇小说网 1 条 | 仅该站正文失败 |
-| 3015 | `xjp-proxy` | 新键盘正文 var c 解密 | 新键盘小说网 1 条 | 仅该站正文失败 |
-| 3016 | `cloak-browser`（需 chromium） | 独立反检测浏览器（未接入自动降级链） | 无（可选增强工具） | 不启动无任何影响 |
-| 3017 | `qidian-proxy` | 起点镜像 API 目录解码+正文转换 | 起点中文 1 条（正文还需 `QD_YWKEY`/`QD_YWGUID` 凭证） | 仅该站目录/正文失败 |
-
-**怎么启动**：试用模式（6.2）已自动全拉起。生产模式下每个服务一条命令（目录名=服务名）：
-
-```bash
-# 例：启动 3010 笔趣阁代理；长期运行用 bun run start（开发调试用 bun run dev 有热重启）
-cd mini-services/bqg713-proxy  && bun run start && cd ../..
-# 其余同理：fetch-relay(3011) / qimao-proxy(3013) / deqixs-proxy(3014) / xjp-proxy(3015) / qidian-proxy(3017)
-# cloak-browser(3016) 用 bun run dev 启动（需本机有 chromium）
-```
-
-**怎么确认活着**：后台仪表盘的健康灯（绿=在线），或手动验证：
-
-```bash
-# 探测 3011 中继桥的健康自检接口（每个 mini-service 都有 /health）
-curl http://127.0.0.1:3011/health
-```
-
-✔ 你会看到（示意）：`{"ok":true,"service":"fetch-relay","port":3011,...}`
-
-> ⚠ **安全**：这 8 个服务默认只绑 127.0.0.1（仅本机可访问），**不要**把它们暴露到公网。
-
-**② "只认国内 IP"的站点（如 77读书）→ 给规则配出口代理**：
-
-1. 准备一个你有权使用的国内 IP 代理；
-2. 后台 → 采集规则 → 找到「77读书」→ 编辑 → 页签**反反爬设置** → **出口代理**输入框填入 → 保存。
-
-![规则编辑器](./images/04-rule-editor.png)
-
-*图：规则编辑器真实截图（四个页签对应采集链四段，右列为测试面板）*
-
-| 代理写法 | 说明 |
-| --- | --- |
-| `http://host:port` | HTTP 代理 |
-| `http://user:pass@host:port` | 带账号密码的 HTTP 代理 |
-| `socks5h://host:port` | SOCKS5 代理（域名由代理侧解析，推荐） |
-| 多条英文逗号分隔（≤10 条） | 构成轮换池，引擎逐次轮换 |
-
-### 8.8 门面三件套：换主题 / 伪静态 / SEO（10 分钟速览）
-
-- **换主题**：主题模板 → 9 套精选（含笔趣阁经典/霹雳书屋仿站）+ 512 套组合，点「前台预览」满意后到 站群系统 → 编辑站点 → 主题 里设为默认；写错 ID 前台自动回退默认主题，不会白屏。
-- **伪静态 URL**：系统设置 → 伪静态设置 → 6 张预设卡点选即存（如纯数字 `/book/1001.html`）；旧链接宽容解析永不断链。
-- **SEO**：页面级 TDK 全自动；站点级用 站群系统 → 编辑站点 → 「自动生成 TDK」✨ 一键铺底（生成≠保存，微调后点保存）。
-- 前台长这样：`http://服务器IP:3000/?view=home`（书城 / 详情 / 阅读页三张真实截图如下，旧版存图，随主题差异很大）：
-
-| 书城首页 | 书籍详情页 | 阅读页 |
-| --- | --- | --- |
-| ![前台书城](./images/07-home.png) | ![书籍详情](./images/08-book-detail.png) | ![阅读页](./images/09-reader.png) |
-
-### 8.9 采集常见报错速查
-
-| 症状 | 原因 | 解法 |
-| --- | --- | --- |
-| 测试结果 0 条 / 空列表 | 列表选择器或 URL 模板不对 | 浏览器"查看网页源代码"核对结构，改选择器再测 |
-| 大量 403 / 429 | 被目标站限流/拦截 | 降线程、拉大间隔；或规则页「校准」实测安全参数（见 [DEPLOY.md](../DEPLOY.md) 第六节）；注意合规采集 |
-| 全程 `timeout` | 目标站只认国内 IP | 按 8.7 配出口代理 |
-| 正文全是广告/乱码 | 站点特殊编码或需清洗 | 引擎内置 GBK 自动识别（内置规则飘天/茉莉即 GBK 站）；仍异常先绕开代理验证，再到「内容清洗」页签调 |
-| 某站总失败其他站正常 | 依赖的签名代理没启动 | 对照 8.7 表格启动对应端口服务，重跑任务 |
-| 任务列表 URL 报 404 | 占位符写错（用了 {cat} 之类） | 只认 `{page}` 和 `{offset:N}`，见 8.3.2 |
-
----
-
-## 第 9 章 日常运维：备份 / 日志 / 健康 / 升级
-
-### 9.1 备份与恢复
-
-**方式一：后台一键（推荐）**
-
-后台 → **数据备份** → **导出**（浏览器自动下载一个 JSON 全量快照，含站点/规则/任务/书籍/章节/设置）；恢复就在同页 **导入** 上传这个 JSON。
-
-> ⚠ **大库降级阈值 = 200 本**：书籍超过 200 本时，导出会自动降级为**仅书籍元数据（不含章节正文）**，防止几百 MB 的 JSON 撑爆内存——界面上会出现「大库模式」徽标提示。大库的完整备份请用方式二。
-
-**方式二：文件级（最彻底）**
-
-数据全部在 `db/custom.db` 与 `data/` 目录——停服后整体拷走即可：
-
-```bash
-# 1) 停服（保证 SQLite 落盘一致）：kill 掉服务进程；Docker 用户 docker compose down
-# 2) 整体拷贝
-cp -r db data /你的备份路径/
-# 3) 重启服务
-# 恢复：把目录放回原位再启动；Docker 用户注意属主：sudo chown -R 1001:1001 ./db ./data
-```
-
-### 9.2 日志排查地图（出问题先找对日志）
-
-| 日志 | 位置 | 记什么 |
-| --- | --- | --- |
-| **主应用日志（dev）** | 项目根目录 `dev.log` | 启动报错、HTTP 请求、服务端异常 |
-| **主应用日志（生产）** | `server.log`（`bun run start` 的 tee 输出；nohup 用户看你的重定向文件） | 同上 |
-| **Docker 日志** | `docker compose logs -f`（自动填充日志带 `[自动填充]` 前缀） | 容器内一切 |
-| **mini-service 日志** | `.zscripts/mini-service-<服务名>.log` | 8 个小服务的启动与运行报错 |
-| **任务日志** | 后台 → 采集任务 → 监控（存数据库，保留 30 天） | 采集流水：发现/抓取/失败明细 |
-| **看实时滚动** | `tail -f dev.log` 或 `tail -f .zscripts/mini-service-qimao-proxy.log` | 跟踪最新输出 |
-
-### 9.3 健康自检
-
-```bash
-# 主应用探活：返回 HTML 即活着
-curl -fsS http://127.0.0.1:3000/ >/dev/null && echo "主应用 OK"
-# 各 mini-service 自检接口（示例 3010，返回 {"ok":true,...} 即健康）
-curl http://127.0.0.1:3010/health
-```
-
-后台仪表盘的「服务健康灯」就是逐个探测这些地址的图形化版本。Docker 部署自带容器健康检查（`docker compose ps` 的 STATUS 列出现 `(healthy)` 即就绪）。
-
-### 9.4 更新升级（先备份！）
-
-无论哪种部署，升级前先 [9.1 备份](#91-备份与恢复)。
-
-**本机直跑（Bun）路线：**
+以 `package.json` 实际 scripts 为准：
 
 ```bash
 cd ~/novel-system
-git pull                 # 拉新代码（zip 部署的用新包覆盖目录）
-bun install              # 依赖可能有更新
-bun run db:push          # 数据库结构增量同步（升级前已备份！）
-# 然后重启：kill 旧进程 → bun run build && bun run start（生产）
-#          或 kill 后重跑 bash .zscripts/dev.sh（试用）
+bun install            # 依赖（升级后重跑）
+bun run db:push        # 建库建表（幂等；不带 --accept-data-loss，升级前先备份 §11）
+bun run build          # 生产构建（Turbopack 峰值超 2GB；产出 standalone 并拷入 static/public）
+bun run start          # NODE_ENV=production 运行 .next/standalone/server.js，日志 tee 进 server.log
 ```
 
-**Docker 路线（更省事）：**
+生产常驻三选一：
 
 ```bash
-cd ~/novel-system
-git pull
-bash install.sh          # 幂等：自动重建镜像与容器，数据不受影响
+# ① nohup（最简单）：
+nohup bun run start > server.log 2>&1 &
+# ② tmux / screen：tmux new -s novel 里跑 bun run start，Ctrl+B D 脱离，tmux attach -t novel 回来
+# ③ systemd（开机自启，按实际用户/路径改）：
+#    /etc/systemd/system/novel.service → ExecStart=/root/.bun/bin/bun run start
+#    WorkingDirectory=/root/novel-system → Restart=on-failure
+#    sudo systemctl daemon-reload && sudo systemctl enable --now novel
 ```
 
-- 升级只替换程序，`db/`、`data/` 数据不受影响；
-- Docker 路线容器首启自动做数据库增量同步（刻意不带 `--accept-data-loss`，绝不静默毁数据）；
-- 升级后记得重启你手动拉起的 mini-services（`kill` 旧进程再 `bun run start`；试用模式直接重跑 `bash .zscripts/dev.sh` 全家桶）。
+**dev 看门狗（可选，仅 dev 模式）**：`scripts/dev-watchdog.sh`（15 秒 `ss` 探测 3000 端口，仅端口死亡时 `bun run dev` 拉起，日志进 `/tmp/main-dev-restart.log`）与 `.zscripts/dev-watchdog.sh`（30 秒 curl 探测版）二选一：
 
-### 9.5 磁盘与数据增长
+```bash
+nohup bash scripts/dev-watchdog.sh >/dev/null 2>&1 &   # ⚠ 脚本内写死 /home/z/my-project，项目在别处先改路径
+```
 
-- 封面图片在 `data/covers/`，TXT 下载产物在 `data/downloads/`，正文都在 `db/custom.db` 单文件里；
-- 磁盘紧张时优先检查 `data/` 与数据库体积（`du -sh db data`）；删除不要的书在后台「书籍管理」批量操作（不可恢复操作有输入确认门槛）。
+生产模式的进程守护请优先用 systemd `Restart=on-failure`（或 Docker 的 `restart: unless-stopped`），watchdog 是 dev 期 OOM 自愈的兜底。
+
+### 6.7 mini-services 常驻（裸机路线）
+
+裸机路线下 mini-services 不会自动拉起（`dev.sh`/容器才会）。用到哪个按需启动（目录名=服务名）：
+
+```bash
+cd mini-services/bqg713-proxy  && nohup bun run start >/dev/null 2>&1 & cd ../..
+# 其余: fetch-relay(3011) qimao-proxy(3013) deqixs-proxy(3014) xjp-proxy(3015) qidian-proxy(3017)
+# cloak-browser(3016) 用 bun run dev（需本机 chromium）；scrapling-bridge(3012) 需按其说明装 Python venv
+```
+
+### 6.8 Docker 构建（国内网络可选加速）
+
+国内服务器一键脚本默认零配置自适应（Docker 安装源 / 镜像加速器 / 基础镜像站 / 构建期依赖源全自动切换）；手动部署需要时经环境变量覆盖：`USE_CN_MIRROR=1`（强制国内）、`NPM_REGISTRY`（如 `https://registry.npmmirror.com`）、`BUN_IMAGE`/`NODE_IMAGE`（基础镜像直指镜像站，如 `docker.m.daocloud.io/oven/bun:1`）等——全部变量见 `.env.example` 注释。首次构建 3~10 分钟属正常；内存不足 2GB 构建可能被 OOM 杀（日志 `Killed`），加 swap 或换 4GB 机器。
 
 ---
 
-## 第 10 章 FAQ 故障速查（21 条）
+## 第 7 章 反向代理与端口约定
 
-先查速查索引，再翻对应条目。更深的运维问题（Docker 细节/校准/国内镜像全链路）见 [DEPLOY.md](../DEPLOY.md)。
-
-| # | 症状 | 一句话解法 |
-| --- | --- | --- |
-| 1 | 端口 3000 被占用 | 查占用 kill 旧进程，或改端口 |
-| 2 | 浏览器打不开（curl 得通） | 安全组/防火墙放行 3000 |
-| 3 | 忘记后台密码 | 改 `.env` 的 `ADMIN_PASSWORD` 重启，无需旧密码 |
-| 4 | 登录老失效 / 一直失败 | 12h 会话到期；限流 5 次/60 秒；检查 Cookie |
-| 5 | database is locked / SQLITE_BUSY | 起了两份服务共用一个库，停掉多余进程 |
-| 6 | 页面偶发 502 又自动恢复 | OOM 杀进程+自愈守护拉起（或没守护时手动重启） |
-| 7 | 采集 0 本书 | 按 8.6：测试面板 → 任务日志 → 抄内置规则 |
-| 8 | 正文乱码（GBK 站） | 引擎自动识别；先绕开代理验证，再调清洗 |
-| 9 | 403 / 412 / 429 被拦 | 降速；配出口代理；换引擎（scrapling/浏览器） |
-| 10 | mini-service 挂了 | 进对应目录单独重启（8.7） |
-| 11 | 仪表盘健康灯红 | 对照 8.7 依赖表，不需要就无视 |
-| 12 | 前台书城是空的 | 还没采到书/没建站点 |
-| 13 | 时间差 8 小时 | 时区问题，设置服务器/容器时区 |
-| 14 | 日志出现 `Killed` | 内存不足 OOM，加内存或 swap |
-| 15 | bun install 网络失败 | npmmirror 镜像源（3.2） |
-| 16 | git clone 慢/失败 | 加速前缀 / zip 方式（2.4） |
-| 17 | 备份 JSON 特别大或失败 | >200 本触发大库降级，用文件级备份（9.1） |
-| 18 | 想换端口 | Docker 改 compose ports；直跑改启动参数 |
-| 19 | Docker 报 permission denied | sudo 或加入 docker 组 |
-| 20 | 升级后任务"消失"了 | 变成了 paused（重启回收），点启动续采 |
-| 21 | 起点规则采不了正文 | 需 3017 代理+起点凭证，镜像可用性以实际为准 |
-
----
-
-### #1 端口 3000 被占用了怎么办
-
-查谁占用了：
-
-```bash
-# 列出占用 3000 端口的进程和 PID（没有 lsof 就用第二条）
-lsof -i :3000
-ss -ltnp | grep 3000
-```
-
-- 是自己之前起的旧进程 → `kill 那个PID` 后重启；
-- 想换端口：**Docker 部署**编辑 `docker-compose.yml` 把 `ports` 的 `"3000:3000"` **左侧**改成空闲端口（如 `"8080:3000"`）后 `docker compose up -d`，用 `http://IP:8080` 访问；**本机直跑**改 `package.json` 里 dev/start 的 `-p 3000` 端口参数。
-
-### #2 服务器上 curl 得通但浏览器打不开
-
-云服务器**安全组**或系统防火墙没放行 3000：厂商控制台 → 安全组 → 添加"TCP 3000 允许"；系统防火墙 `sudo ufw allow 3000/tcp`。地址别漏端口 `http://IP:3000/`。
-
-### #3 忘记后台密码怎么办
-
-密码只来自 `.env`（或 Docker 环境变量）里的 `ADMIN_PASSWORD`，**没有**存在数据库里。直接改它然后重启即可，**不需要旧密码**：
-
-```bash
-nano .env                # 把 ADMIN_PASSWORD= 换成新密码
-# Docker: docker compose up -d 重建生效
-# 本机直跑: 重启 bun run start
-```
-
-### #4 登录后过一会儿又要重新登录 / 登录一直失败
-
-- 会话有效期 **12 小时**，到期重新登录是正常设计；
-- 登录一直失败：密码不对（对照 #3 的来源查），或浏览器禁了 Cookie（本站登录依赖 Cookie，允许即可）；
-- 试太多次被限流：同 IP 60 秒 5 次上限，等一分钟再试；
-- 改过 `ADMIN_PASSWORD` 后旧会话自动失效，用新密码登录即可。
-
-### #5 数据库报错 database is locked / SQLITE_BUSY
-
-SQLite 是单文件数据库，同一时间只应有一个进程在写。最常见原因：**起了两份服务共用同一个 `db/custom.db`**（比如 dev 和生产同时跑、或两个终端各起了一份）。解法：`ps aux | grep -E "next|server.js"` 找出多余进程，停掉只留一份。改表结构前先备份数据库文件。
-
-### #6 页面偶发 502，之后自动恢复（OOM 自愈）
-
-**现象**：后台/前台突然打不开（502/连接拒绝），过半分钟又自己好了。
-**原因**：dev 模式编译期内存尖峰触发系统 OOM，next-server 进程被内核杀掉；如果 6.4 的自愈守护在跑，≤35 秒内自动拉起。
-**处理**：① 临时手动恢复——重跑 `bash .zscripts/dev.sh`（或 nohup `bun run dev`）；② 长期方案——启用 6.4 守护脚本，或换生产模式 `bun run build && bun run start`（生产运行期内存平稳得多）；③ 根治——内存加到 4GB，并清理机器上无关的吃内存进程（如遗留的无头浏览器进程）。
-
-### #7 采集 0 本书怎么排查
-
-严格按 8.6 的顺序：**规则测试面板**逐段测 → **任务监控日志**找红色 error → 对照内置同类规则抄配置。再补三个高频原因：范围模式列表 URL 没带占位符（8.3.2）；依赖的签名代理没启动（8.7 表格）；目标站只认国内 IP 没配代理（8.7 ②）。
-
-### #8 采回来的正文乱码（GBK 站）
-
-引擎已内置 GBK 等编码自动识别，正常无需配置（内置规则里的飘天文学、茉莉小说就是 GBK 站）。仍乱码时按序排查：① 该规则走了代理 → 先绕开代理验证（代理转码是乱码最常见来源）；② 只有该站乱码 → 到规则编辑器「内容清洗」页签看是否有适配性清洗规则可调；③ 对照同类 GBK 站内置规则抄作业。
-
-### #9 采集大量 403 / 412 / 429 / 被封
-
-按序收紧或升级：① 降线程、拉大间隔（慢速档起步）；② 用规则页的「校准」实测该站安全参数（模拟源站机制见 [DEPLOY.md](../DEPLOY.md) 第六节）；③ "只认国内 IP"的站配出口代理（8.7）；④ 个别硬骨头站在规则「反反爬设置」里把 fetchMode 换成 scrapling 引擎（static/stealthy/playwright，需 3012 桥）或浏览器引擎；⑤ 尊重目标站 robots 与服务条款，控制频率合规采集。
-
-### #10 mini-service 挂了怎么单独重启
-
-```bash
-# 以 3013 七猫代理为例：看日志定位报错
-tail -50 .zscripts/mini-service-qimao-proxy.log
-# 找到旧进程并杀掉（换端口号查其他服务）
-lsof -i :3013            # 记下 PID
-kill 那个PID
-# 进目录重启（长期运行用 start，调试用 dev）
-cd mini-services/qimao-proxy && nohup bun run start >/dev/null 2>&1 & cd ../..
-# 验证
-curl http://127.0.0.1:3013/health
-```
-
-### #11 仪表盘健康灯有红的
-
-先确认你**是否真的需要**那个服务（对照 8.7 依赖表——红的不在依赖清单里就无所谓）；需要的话按 #10 重启；端口被占用用 `lsof -i :301x` 查占用者；Docker 用户注意 3010/3011/3013/3014/3015 容器内自动拉起，3012/3016/3017 不在容器内（见 [DEPLOY.md](../DEPLOY.md)）。
-
-### #12 仪表盘健康灯全绿，但前台书城是空的
-
-两种可能：① 还没采到任何书——到「采集任务」页看有没有任务在跑/已完成，没任务就按第 8 章建一个；② 没建站点——前台按站点渲染，按 8.2 建一个（Docker 自动填充用户看 `docker compose logs -f | grep 自动填充`，首采约 20~40 分钟）。
-
-### #13 时间显示差 8 小时（时区）
-
-后台/日志的时间取**服务器系统时钟**。本机直跑：`sudo timedatectl set-timezone Asia/Shanghai` 一步到位（装系统时选了中国时区则无需）。Docker：容器默认 UTC，日志时间慢 8 小时属显示差异、不影响功能；介意的话在 `docker-compose.yml` 的 `environment:` 段加一行 `- TZ=Asia/Shanghai` 后 `docker compose up -d`（若仍未生效说明镜像缺 tzdata，可用进阶方式补装）。
-
-### #14 构建或运行中途，日志出现 `Killed`（内存不足）
-
-被系统 OOM 杀了（构建峰值超 2 GB；dev 编译尖峰实录 2.2GB+）。解法按序：① 加大内存到 4 GB 重跑；② 临时加 2 GB swap（通用 Linux 技巧，下面四条命令依次执行）后重跑；③ 改走 Docker 路径。
-
-```bash
-sudo fallocate -l 2G /swapfile
-sudo chmod 600 /swapfile
-sudo mkswap /swapfile
-sudo swapon /swapfile
-```
-
-### #15 bun install 网络失败
-
-重跑一次（bun 有断点缓存）；仍失败按 3.2 写 `bunfig.toml` 切 npmmirror 镜像源；有代理的话给终端挂代理再跑。
-
-### #16 git clone 慢 / 失败
-
-加速前缀（`https://ghfast.top/` 前缀，失效换 `https://gh-proxy.com/`）；或 zip 下载方式（2.3）；Docker 路线 `install.sh` 自动内置加速回退。
-
-### #17 备份 JSON 特别大或导出失败
-
-书超过 **200 本**触发大库降级（仅导出元数据不含正文，界面有「大库模式」徽标）——这是防内存爆掉的刻意设计。要完整备份用文件级方式：停服拷 `db/` `data/`（9.1 方式二）。
-
-### #18 想换端口
-
-见 **#1**。
-
-### #19 Docker 命令报 permission denied
-
-```bash
-sudo bash install.sh               # 临时方案
-sudo usermod -aG docker "$USER"    # 长期方案：加入 docker 组
-# 加入组后退出重新登录才生效
-```
-
-### #20 升级/重启后任务不见了？
-
-没丢。服务重启时正在跑的任务会被自动回收为 **paused**（可恢复暂停态，防止进度丢失），任务列表里状态是「已暂停」，点 ▶ 启动即续采；增量模式下自动跳过已采章节（语义详见 8.5）。
-
-### #21 起点中文规则采不了正文
-
-起点正文链路依赖：① 3017 `qidian-proxy` 在跑；② 该代理进程环境变量配置了起点小程序凭证 `QD_YWKEY` / `QD_YWGUID`（在其目录以 `QD_YWKEY=<key> QD_YWGUID=<guid> bun run start` 启动；`/health` 的 `credentialsConfigured` 字段可诊断）；③ 上游镜像可达（历史镜像曾出现证书过期失效，若镜像 404/TLS 报错请等待仓库更新镜像地址）。列表/书籍/目录三段不依赖代理，正常可采。
-
----
-
-## 第 11 章 附录：目录树 / 端口表 / 环境变量表 / 命令速查卡
-
-### A. 项目目录结构树
-
-```text
-novel-system/                     ← 项目根目录
-├── .env                          ← 你的配置（第 4 章，从模板复制，不入版本库）
-├── .env.example                  ← 配置模板（每个变量带中文注释）
-├── bunfig.toml                   ← （可选）bun 镜像源配置（3.2 创建）
-├── package.json                  ← 项目命令清单（dev/build/start/db:push 等）
-├── prisma/
-│   └── schema.prisma             ← 数据库"建筑图纸"（Book/Chapter/Rule/Task/Site…）
-├── db/
-│   └── custom.db                 ← ★SQLite 数据库单文件（你的全部业务数据，备份它）
-├── data/                         ← 采集产物（不入版本库）
-│   ├── covers/                   ←    封面图片（webp 本地化）
-│   └── downloads/                ←    TXT 下载成品
-├── src/
-│   ├── app/                      ← Next.js 页面与 API（admin/public/download）
-│   ├── components/               ← 界面组件（admin/ 后台 + public/ 前台 + ui/ 组件库）
-│   └── lib/
-│       ├── crawl/                ← 采集引擎（fetcher 抓取/parser 解析/runner 调度/
-│       │                            cleaner 清洗/builtin-rules 内置 27 条规则…）
-│       ├── auth.ts               ← 后台鉴权（密码校验/会话）
-│       └── backup.ts             ← 备份共享常量（大库阈值 200）
-├── mini-services/                ← 8 个小帮手服务（各自独立 package.json）
-│   ├── bqg713-proxy/             ←   3010 笔趣阁 token 代理
-│   ├── fetch-relay/              ←   3011 bun 中继桥
-│   ├── scrapling-bridge/         ←   3012 Python 隐身桥（可选）
-│   ├── qimao-proxy/              ←   3013 七猫签名代理
-│   ├── deqixs-proxy/             ←   3014 得奇签名代理
-│   ├── xjp-proxy/                ←   3015 新键盘解密代理
-│   ├── cloak-browser/            ←   3016 反检测浏览器（可选）
-│   ├── qidian-proxy/             ←   3017 起点转换代理
-│   └── _shared/                  ←   公共服务器骨架（/health 自检等）
-├── .zscripts/
-│   ├── dev.sh                    ← 一键启动脚本（第 6 章）
-│   ├── dev-watchdog.sh           ← OOM 自愈守护（30s 探测）
-│   ├── dev.log / mini-service-*.log ← 运行日志（第 9 章）
-│   └── *.sh                      ← 构建/安装辅助脚本
-├── docs/
-│   ├── INSTALL-GUIDE.md          ← 本教程
-│   ├── rule-limits.md            ← 规则字段极限手册
-│   └── images/                   ← 教程截图（11 张）
-├── install.sh                    ← Docker 一键安装脚本
-├── docker-compose.yml / Dockerfile / docker-entrypoint.sh  ← Docker 部署三件套
-├── scripts/                      ← 种子/校验/工具脚本（seed.ts 演示数据等）
-└── dev.log / server.log          ← 运行日志（dev/start 模式 tee 生成）
-```
-
-### B. 端口总表
+### 7.1 端口总表
 
 | 端口 | 服务 | 绑定 | 说明 |
 | --- | --- | --- | --- |
-| **3000** | Next.js 主应用（前台+后台+采集引擎） | 0.0.0.0 | 唯一需要对外暴露的端口 |
-| 3010 | bqg713-proxy（笔趣阁 token） | 127.0.0.1 | ⚠ 勿暴露公网 |
-| 3011 | fetch-relay（bun 中继桥） | 127.0.0.1 | ⚠ 勿暴露公网 |
-| 3012 | scrapling-bridge（Python 隐身桥，可选） | 127.0.0.1 | ⚠ 勿暴露公网 |
-| 3013 | qimao-proxy（七猫签名） | 127.0.0.1 | ⚠ 勿暴露公网 |
-| 3014 | deqixs-proxy（得奇签名） | 127.0.0.1 | ⚠ 勿暴露公网 |
-| 3015 | xjp-proxy（新键盘解密） | 127.0.0.1 | ⚠ 勿暴露公网 |
-| 3016 | cloak-browser（反检测浏览器，可选） | 127.0.0.1 | ⚠ 勿暴露公网 |
-| 3017 | qidian-proxy（起点转换） | 127.0.0.1 | ⚠ 勿暴露公网 |
-| 3040 | ratelimit-site.ts（规则校准模拟源站） | 127.0.0.1 | 仅校准时临时启动 |
+| **3000** | Next.js 主应用（后台+前台） | 全部接口 | 对外仅暴露这一个端口即可 |
+| **3032** | **Go 采集引擎 crawler-go** | **仅 127.0.0.1**（`GO_PORT` 可覆盖） | **仅内网/本机**——浏览器永不直连，控制面与回调都是服务器内部后端对后端；`GO_ENGINE_URL` 可指向远程（多主机分离才需要） |
+| 3010 | bqg713-proxy（AES-token） | 127.0.0.1 | 笔趣阁规则正文链路 |
+| 3011 | fetch-relay（TLS 指纹中继） | 127.0.0.1 | 引擎降级链出路 |
+| 3012 | scrapling-bridge（Python，可选） | 127.0.0.1 | 强 JS/CF 站备用路径（源码钉死仅绑回环） |
+| 3013 | qimao-proxy（双签名+AES） | 127.0.0.1 | 七猫官方 API 规则 |
+| 3014 | deqixs-proxy（三参数签名） | 127.0.0.1 | 得奇正文链路 |
+| 3015 | xjp-proxy（var c 解密） | 127.0.0.1 | 新键盘正文链路 |
+| 3016 | cloak-browser（可选） | 127.0.0.1 | 反检测浏览器（独立增强，未接入自动降级链） |
+| 3017 | qidian-proxy（起点正文） | 127.0.0.1 | 仅起点规则正文链路（还需 `QD_YWKEY`/`QD_YWGUID`） |
+| 3040 | ratelimit-site（校准模拟源站） | 本地 | 规则极限校准的探测目标，**仅本地测试** |
+| 81 | Caddy 网关（可选） | 按需 | 见 7.2 |
 
-### C. 环境变量速查表
+> ⚠ 3010~3017 全部只绑 127.0.0.1，**勿映射公网**（fetch-relay / scrapling-bridge 源码层钉死回环）。
 
-**核心三项（.env，新手必看）**
+### 7.2 Caddyfile XTransformPort 网关（仓库自带）
 
-| 变量 | 默认 | 说明 |
-| --- | --- | --- |
-| `DATABASE_URL` | `file:./db/custom.db` | SQLite 库文件位置，不用改 |
-| `ADMIN_PASSWORD` | 空 → 回落 `audit-fix-2025` | 后台密码，**生产必改** |
-| `SESSION_SECRET` | 空 → 内置常量 | 会话签名密钥，建议设随机长串 |
+根目录 `Caddyfile` 监听 **:81**，做两件事：
 
-**Docker 一键脚本相关（详见 DEPLOY.md）**
+- **默认**：所有请求反代到 `localhost:3000`（透传 X-Forwarded-For 等标准头）；
+- **白名单转发**：URL 带 `?XTransformPort=N` 且 N ∈ {3010, 3011, 3012, 3013, 3014, 3015, 3017} 时反代到对应 mini-service——这是**显式逐端口白名单**（SSRF 防御，R4A-8），杜绝了"任意端口代理"的攻击面。**3032（Go 引擎）刻意不在白名单**：它不经过网关、不对外，后端直连 127.0.0.1（契约 §0）。
 
-| 变量 | 默认 | 说明 |
-| --- | --- | --- |
-| `AUTO_FILL` | `1` | 装完自动导规则开任务；`=0` 关闭 |
-| `AUTO_FILL_RULES` | `fanqie,qimao,deqixs,80ge,jhssd,ttkan,bqg713` | 参与自动填充的站点 key |
-| `HOST_PORT` / `WAIT_TIMEOUT` / `REPO_URL` / `INSTALL_DIR` | — | 远程一键模式参数 |
-| `USE_CN_MIRROR` / `REGISTRY_MIRRORS` / `BUN_IMAGE` / `NODE_IMAGE` 等 | 空=自动 | 国内加速全家桶 |
-
-**高级可选（缺省全部回落安全默认值，完整注释见 `.env.example`）**
-
-| 组 | 变量 |
-| --- | --- |
-| 采集引擎反反爬增强（8 个开关，全部缺省关，`=1` 开） | `FETCH_BINARY_RETRY` `FETCH_BODY_LEN_CHECK` `RETRY_AFTER_HONOR` `CHALLENGE_ESCALATE` `RESPONSE_SANITY` `FETCH_AL_POOL` `HOSTGATE_PACE_PROFILE` `PROXY_HEALTH_SCORING` |
-| 渲染层开关与并发 | `OBSCURA_CONCURRENCY`（渲染页池并发，缺省 2）`OBSCURA_DEVID` `CLOAK_DEVID` `CLOAK_UA_POOL`（均缺省关） |
-| 桥地址（多机部署才改） | `FETCH_RELAY_URL` `SCRAPLING_BRIDGE_URL` `BRIDGE_KEY` |
-| 起点凭证 | `QD_YWKEY` `QD_YWGUID` `QD_UPSTREAM` |
-| 中继桥调优 | `RELAY_MAX_INFLIGHT`（缺省 32） `RELAY_BLOCK_PRIVATE` |
-| 日志 | `LOG_LEVEL`（debug/info/warn/error） |
-
-### D. 常用命令速查卡（打印贴墙版）
-
-```text
-┌─ 安装部署 ─────────────────────────────────────────────────────┐
-│ curl -fsSL https://bun.sh/install | bash   # 装 Bun            │
-│ git clone https://github.com/u4399com-beep/heis.git novel-system │
-│ cd novel-system                                # 进项目         │
-│ bun install                                    # 装依赖         │
-│ cp .env.example .env && nano .env              # 配置+改密码    │
-│ bun run db:push                                # 建库           │
-│ bash .zscripts/dev.sh                          # 一键启动(试用) │
-└────────────────────────────────────────────────────────────────┘
-┌─ 日常启停 ─────────────────────────────────────────────────────┐
-│ bash .zscripts/dev.sh          # 启动(试用,全家桶)              │
-│ bun run build && bun run start # 生产构建+启动                  │
-│ nohup bun run start > server.log 2>&1 &   # 生产挂后台         │
-│ kill <PID>                     # 停止(lsof -i :3000 查 PID)     │
-│ tail -f dev.log                # 看主应用日志                   │
-│ tail -f .zscripts/mini-service-qimao-proxy.log  # 看小服务日志   │
-│ curl http://127.0.0.1:3011/health               # 小服务健康    │
-│ nohup bash .zscripts/dev-watchdog.sh >/dev/null 2>&1 &  # OOM守护 │
-└────────────────────────────────────────────────────────────────┘
-┌─ 数据库 ───────────────────────────────────────────────────────┐
-│ bun run db:push                # 同步表结构(幂等;升级后跑)      │
-│ bun run db:generate            # 重新生成 Prisma Client         │
-│ ⚠ bun run db:reset            # 清空重建库(危险,勿在生产执行)   │
-└────────────────────────────────────────────────────────────────┘
-┌─ Docker ───────────────────────────────────────────────────────┐
-│ bash install.sh                # 一键安装/重建(幂等)            │
-│ docker compose ps              # 看健康状态                     │
-│ docker compose logs -f         # 看日志                         │
-│ docker compose restart         # 重启                           │
-│ docker compose down            # 停止(数据保留)                 │
-└────────────────────────────────────────────────────────────────┘
-┌─ 备份升级 ─────────────────────────────────────────────────────┐
-│ 后台→数据备份→导出/导入        # 一键备份(>200本降级为元数据)   │
-│ 停服后 cp -r db data 备份路径/  # 文件级备份                     │
-│ git pull && bun install && bun run db:push && 重启   # 升级四连 │
-└────────────────────────────────────────────────────────────────┘
+```bash
+caddy run --config Caddyfile     # http://<IP>:81 即网关入口
 ```
 
-### E. 三份文档怎么分工
+### 7.3 生产安全建议
 
-| 文档 | 定位 |
-| --- | --- |
-| **本教程（docs/INSTALL-GUIDE.md）** | 完整小白图文教程：从买服务器到前台看书，含 21 条 FAQ 与附录 |
-| **[DEPLOY.md](../DEPLOY.md)** | 生产部署专篇：Docker 交付物细节、非 root 加固、环境变量权威、进程守护、校准、深度 FAQ |
-| **[README.md](../README.md)** | 项目门面：功能总览、10 行快速开始、项目结构 |
+- 3000 不要裸奔公网：前置 Nginx/Caddy 做 HTTPS + IP 白名单/Basic Auth，或放内网；
+- 后台密码 + `SESSION_SECRET` 必设（§3.3）；登录接口自带 60s 窗 5 次防爆破；
+- 例行备份（§11）+ 日志轮转（Docker 已内置，裸机建议 logrotate server.log）。
 
-### F. 全程检查清单
+---
 
-```text
-□ 第 1 章  ssh 能登录服务器，bun --version / git --version 能出版本号
-□ 第 2 章  项目目录就位，ls 能看到 package.json
-□ 第 3 章  bun install 无报错，node_modules/ 存在
-□ 第 4 章  .env 存在且已改 ADMIN_PASSWORD / SESSION_SECRET
-□ 第 5 章  bun run db:push 成功，db/custom.db 已生成
-□ 第 6 章  服务已启动，浏览器能打开 http://IP:3000/；安全组已放行 3000
-□ 第 7 章  已用新密码登录后台；默认密码已弃用
-□ 第 8 章  已导入规则 → 建站点 → 建任务成功，前台能看到书
-□ 第 8 章  （按需）需要的小服务已启动、健康灯绿
-□ 第 9 章  会备份（后台导出 / 拷 db data）；知道升级四连命令
+## 第 8 章 反反爬环境开关档案
+
+采集引擎（`src/lib/crawl/fetcher.ts` / `hostgate.ts`）暴露一组 `=1` 开启的环境开关。**下表缺省值直接读自代码（R52 逐项核实）**——注意 `.env.example` 头部"全部缺省关闭"的横幅是历史口径，`RETRY_AFTER_HONOR` 已在 R49-2b-3 改为**缺省开启**（`=0` 显式退出），以本表为准：
+
+| 变量 | 缺省 | 作用 | 开启代价 |
+| --- | --- | --- | --- |
+| `RETRY_AFTER_HONOR` | **开**（`=0` 关闭） | 尊重 429/503 的 `Retry-After` 头：写入 per-host 限流冷却窗（钳 120s 上限；fetcher 级惩罚窗钳 20s），429/503 后同轮重试未结束前其他并发任务即受保护 | 基本为零（纯减伤） |
+| `CHALLENGE_ESCALATE` | 关（`=1` 开） | 响应体命中 CF 挑战页强指纹（cf-chl/turnstile/challenge-platform 等）时跳过 Cookie 重试，直接升级浏览器渲染 | 浏览器渲染资源开销；多敲盾页恶化 IP 信誉的隐患被消除 |
+| `RESPONSE_SANITY` | 关（`=1` 开） | 响应体健全性启发：长页无正文（纯 JS 壳/SPA 骨架）与乱码密度异常判为拦截，走降级/浏览器重渲染，防空壳正文入库；JSON API 站自动豁免 | 长页文本扫描的少量 CPU |
+| `FETCH_BINARY_RETRY` | 关（`=1` 开） | 封面等二进制资源瞬态失败（网络层/408/5xx）退避 800ms 重试一次 | 极小 |
+| `FETCH_BODY_LEN_CHECK` | 关（`=1` 开） | 响应体长度与声明校验（Content-Length 不符/截断检测） | 极小 |
+| `FETCH_AL_POOL` | 关（`=1` 开） | Accept-Language 方言池：按 host 确定性抽取 q 权重变体，弱化全局指纹 | 极小 |
+| `HOSTGATE_PACE_PROFILE` | 关（`=1` 开） | 请求节奏画像：连续被拦/慢响应时自动放缓 per-host 准入节奏 | 采集速度下降（换稳定性） |
+| `PROXY_HEALTH_SCORING` | 关（`=1` 开） | 代理池健康评分：按历史成败/延迟加权抽样（缺省纯随机） | 需已配置出口代理池才有意义 |
+
+**建议档位**：默认全关即可跑大多数站点；被 429/限流困扰 → 开 `RETRY_AFTER_HONOR`（缺省已开）+ `HOSTGATE_PACE_PROFILE`；遇到 CF 盾 → `CHALLENGE_ESCALATE`；采到空壳正文 → `RESPONSE_SANITY`。逐档开启观察，不要一次全开。
+
+> 另有一组内存护栏变量（`FETCH_RSS_HALT_MB` 等）在 §9 单独成表。
+
+---
+
+## 第 9 章 内存护栏：熔断线与自动暂停
+
+### 9.1 四条水位线（缺省值实测校准，env 可调）
+
+| 变量 | 缺省 | 含义 |
+| --- | --- | --- |
+| `FETCH_RSS_SOFT_MB` | 1550 | **软水位**：RSS 进入软~硬区间时，内存感知自动降并发（`FETCH_CONCURRENCY_AUTO` 缺省开）线性收紧有效并发至 ≥1/4（下限 2） |
+| `FETCH_RSS_HALT_MB` | **1950** | **硬熔断线**：触发即快速失败（抛 `MemoryHaltError`）+ 立即回收 Obscura 空闲浏览器上下文 + 进入冷却。显式 `≤0` 禁用；正值下限 512 |
+| `FETCH_RSS_RESUME_MB` | 1900（=halt−50） | **恢复水位**：冷却期满且 RSS 回落到此线以下才解除熔断（50MB 滞回带防抖动） |
+| `FETCH_RSS_STOP_MB` | 2100 | 旧 stop 层高水位兜底（仅 halt 被显式禁用时可触达；halt 缺省 1950 的依据 = kill 线 ~2.15GB 之下留 200MB 刹车距离） |
+| `FETCH_RSS_HALT_COOLDOWN_MS` | 30000 | 熔断冷却窗（钳 5s~5min） |
+| `FETCH_RSS_PAUSE_MS` | 8000 | 软水位背压单次暂停时长（钳 0.5s~60s） |
+
+> 缺省依据（fetcher.ts 注释原文口径）：dev 模式 Turbopack 稳态基线 ~1.78GB，距实测 kill 线 2.15GB 只有 ~370MB 采集增量预算 → halt 1950 留 200MB 刹车距离，resume 1900 必须高于基线否则熔断后永不解除。**生产 build 基线低得多，可用 env 收得更紧。**
+
+### 9.2 触发后发生了什么（行为时间线）
+
+```mermaid
+flowchart TD
+    A["RSS ≥ 1950MB"] --> B["硬熔断: 新请求立即失败<br/>(MemoryHaltError, 章节保持未采集)"]
+    B --> C["冷却 30s, 回收浏览器空闲上下文"]
+    C --> D{"冷却期满, RSS 回落到 1900MB 以下 ?"}
+    D -->|是| E["解除熔断, 采集恢复<br/>未采章节由增量重试补齐"]
+    D -->|否| F["续冷却(滞回防抖)"]
+    F -->|连续 3 次续冷却| G["半开断路器: 强制放行试探恢复"]
+    F --> D
+    A --> H["同一任务连续 3 次吃熔断(3/3)<br/>→ 任务自动转 paused"]
+    H --> I["autoRefresh 到点 / 手动启动<br/>增量续采, 已采部分不重跑"]
 ```
 
-> 💡 **Windows / macOS 想本地试玩？** Windows 建议装 WSL2（Ubuntu 子系统）后按本教程操作（Bun 也有原生 Windows 版，但采集引擎的 curl 链在 WSL2 内兼容性最好）；Mac 终端直接照做即可。生产环境仍建议用 Linux 服务器。
->
-> 遇到本教程没覆盖的问题：先查 [DEPLOY.md](../DEPLOY.md) FAQ，再考虑提 issue。
->
-> ⚖ **免责声明**：本项目仅供学习与研究，不得用于商业用途；采集请遵守目标站点服务条款与 robots 协议，控制频率合理使用；内容版权归原作者。完整声明见 [README.md](../README.md)。
+三个容易困惑的点：
+
+1. **为什么用"快速失败"而不是"等着"**：RSS 只涨不降时，等待=持槽占位继续堆积，与 OOM 赛跑必输；失败让 runner 跳过该页/章（**保持未采集状态**），熔断解除后增量重采可恢复，绝不写半截数据。
+2. **"熔断 3/3 自动暂停"**：连续 3 个列表页/书籍/章节吃 MemoryHaltError → 任务转 `paused`（不是 error）——替代"逐页空转烧完余页"，转 paused 后等恢复水位自动续采（autoRefresh）或手动点「启动」即可。
+3. **半开断路器**：若你把 halt 配到了进程基线以下（纯滞回会永久饿死采集），连续 3 次续冷却后强制放行——采集以低占空比推进而非完全停摆；RSS 若真又涨到熔断线会再次熔断重新计数。
+
+### 9.3 治本方案：大范围采集切 Go 引擎
+
+TS 护栏是"同堆时代的止血带"。**书号/范围大任务直接在向导里选 Go 引擎**（§5）：采集内存搬进独立进程（~12MB），Next.js 进程回到纯 Web 负载，熔断线基本不再触达。
+
+![任务监控（实时进度与日志）](./images/r52-05-task-monitor.png)
+
+---
+
+## 第 10 章 定时与自动续采（autoRefresh）
+
+任务向导**第 3 步「调度」**里：
+
+- **autoRefresh 开关**（缺省关）：勾选后任务进入终态（`done`/`error`）时，定时器在 `refreshIntervalMin` 分钟后自动**重新采集**——配合**增量重采**（缺省 `incremental`：已采章节跳过、连载书只补新章），形成"每 N 分钟自动追更"；
+- **间隔**：默认 30 分钟，可填 **5 ~ 1440**（分钟，超出范围向导拒绝提交）；
+- **重启自愈**：进程重启时 `running` 任务被回收为 `paused`（不丢进度，孤儿恢复机制接管），autoRefresh 任务的定时刷新由重启恢复逻辑重新排定；
+- **防硬敲**：熔断后 60s 冷却期内 autoRefresh 的重启请求会被拒绝（提示"熔断冷却中"），冷却过后自动放行——站点改版/被封时系统自愈节奏为 2~3 轮熔断 → paused → 等下一轮，不会无限硬敲故障源；
+- **Docker 自动填充任务**（§6.5）默认即 autoRefresh 每 30 分钟增量续采。
+
+---
+
+## 第 11 章 备份与恢复
+
+### 11.1 要备份什么
+
+| 数据 | 位置 | 说明 |
+| --- | --- | --- |
+| **业务数据库** | `db/custom.db`（SQLite 单文件） | 书/章/规则/任务/设置全部在此；Docker 下= 宿主机 `./db/` |
+| **封面** | `data/covers/*.webp` | 采集封面经 sharp 转 webp 落盘；Docker 下= `./data/covers/` |
+| TXT 下载产物 | `data/novels/`、`data/downloads/` | 再生型数据，可选备份 |
+
+书籍资产的后台视图（书籍管理，本文截图时库内为 6 本演示书）：
+
+![书籍管理](./images/r52-06-books.png)
+
+### 11.2 方式①：后台一键（管理 API）
+
+管理后台 → **数据备份**：
+
+![数据备份页](./images/r52-08-backup.png)
+
+- **导出**：JSON 全量快照（后台页面调用的管理 API 为 `POST /api/admin/backup`，恢复为 `/api/admin/backup/restore`）；
+- ⚠ **大库降级阈值 = 200 本**（常量 `BACKUP_BIG_BOOKS_THRESHOLD`）：书籍超 200 本时导出自动降级为**仅书籍元数据**（不含章节正文），界面亮「大库模式」徽标——防止数百 MB JSON 撑爆内存。大库请用方式②。
+
+### 11.3 方式②：文件级（最彻底，推荐例行化）
+
+```bash
+# Docker 路线：
+docker compose down                     # 先停服，保证 SQLite 落盘一致（裸机则 kill 进程）
+cp -r db data /你的备份路径/$(date +%F)/  # 整体拷走
+docker compose up -d                    # 再启动
+# 恢复：目录放回原位再启动；Docker 用户记得属主：sudo chown -R 1001:1001 ./db ./data
+```
+
+---
+
+## 第 12 章 升级流程
+
+### 12.1 裸机（Bun）路线
+
+```bash
+cd ~/novel-system
+# 0) 先备份（§11.3）
+git pull
+bun install                  # 依赖有变时生效
+bun run db:push              # 幂等结构同步（不带 --accept-data-loss；冲突性变更见 §13 FAQ 11）
+# 1) 重启主进程：systemd → systemctl restart novel；nohup → kill 旧 PID 后重跑 bun run start
+# 2) 升级 Go 引擎（如在使用）：
+#    kill 掉 crawler-go 的 run.sh 循环 → cd mini-services/crawler-go && bash run.sh
+#    （run.sh 每次启动都自动 go build —— 重启即重编，无需手动编译）
+# 3) 重启手动拉起的 mini-services 代理
+```
+
+### 12.2 Docker 路线
+
+```bash
+cd ~/novel-system && git pull && bash install.sh    # 幂等重建，./db ./data 数据不受影响
+# 等价: docker compose up -d --build
+```
+
+容器首启 entrypoint 自动做幂等 `prisma db push`（**刻意不带** `--accept-data-loss`，绝不静默毁数据）；遇冲突性变更见 §13 FAQ 11。
+
+### 12.3 回滚
+
+```bash
+git checkout <旧commit>     # 之后按同流程重建（bun install / db:push / 重启 或 compose 重建）
+# 数据目录不动；若新版本已做破坏性结构变更，用升级前的备份（§11.3）恢复 db/
+```
+
+---
+
+## 第 13 章 故障排查 FAQ
+
+**1. 启动报 `EADDRINUSE`（端口 3000 被占，dev.log 里也见过历史残留）**
+典型原因：**重复 dev**——上一次 `bun run dev` 没退干净（或 watchdog 已拉起一份），又手动起了一份。
+排查与处理：
+
+```bash
+ss -ltnp | grep 3000          # 或 lsof -i :3000，找到占用 PID
+kill <PID>                    # 杀掉旧实例后重启
+```
+
+> dev.log 里偶见的 `EADDRINUSE` 若时间戳久远，多为历史噪声，不代表当前服务异常（以 `curl -I http://127.0.0.1:3000/` 返回 200 为准）。
+
+**2. 任务日志大量 `curl 进程异常退出(code=28)` / timeout**
+这是 curl 轨的**超时**错误：源站慢或对你限速。引擎已内置自愈：403/429/503 惩罚记忆（429 优先尊重 `Retry-After`，其余指数退避 1.5s×2ⁿ 钳 20s，带抖动）；代理池失败冷却 30s×2ⁿ 钳 300s；配置了 `mirrorDomains` 的规则自动**镜像切换**（成功域 sticky 置顶，整组耗尽才清）。你能做的：任务节奏放慢（线程↓间隔↑）、给规则配出口代理、或换镜像域名。
+
+**3. 任务状态变 paused，日志见「内存硬熔断 3/3」**
+即 §9.2 的**熔断 3/3 自动暂停**（dev 模式大任务常态）。处理优先级：① 等自动——autoRefresh 到点增量续采；② 手动点「启动」续跑（已采部分不重跑）；③ **治本——切 Go 引擎**（采集内存 ~12MB，熔断不再触达）；④ 生产 build 基线低，也可用 `FETCH_RSS_HALT_MB` 收紧护栏。
+
+**4. 封面全是同一张"默认图"（占位图陷阱）**
+某些源站对**任意**封面 URL 恒回 `200 + 默认占位图`——HTTP 层完全合法，引擎如实落盘，结果是全站书共享一张图。对策：① 规则「书籍段」封面字段先用**四段测试面板**复验（多试几本书，看解析出的 coverUrl 是否真图）；② 书籍管理里发现雷同封面 → 修正字段表达式后增量重采；③ 半残占位符 URL（如 `bookimg//.jpg`）如今会被算术占位符预检 **fail-closed 拦截**（字段整体置空，宁缺勿假——R49-9 教训），若你看到大量空封面+占位图并存，多半是源站恒回占位图而非规则残缺；④ 清空封面字段即可回退前台主题的渐变占位封面（视觉可接受）。
+
+**5. Go 引擎构建报模块下载失败（`go build` 卡在 download / dial tcp 超时）**
+Go 模块/工具链经 `GOPROXY`（缺省 `https://proxy.golang.org,direct`）拉取，国内服务器直连易失败：
+
+```bash
+export GOPROXY=https://goproxy.cn,direct    # 国内镜像（写进 run.sh 前两行亦可）
+cd mini-services/crawler-go && bash run.sh
+```
+
+**6. 沙箱/环境重置后 Go 引擎没了（`go: command not found`）**
+沙箱重置会清空 `$HOME`（含 `~/go-sdk`）。**一键恢复：`bash scripts/install-go.sh`**（幂等：已装且版本匹配则跳过；go.dev 不可达自动回退 golang.google.cn）。装完直接 `bash run.sh`——脚本自己会把 `~/go-sdk/go/bin` 加进 PATH。
+
+**7. 登录不上后台**
+密码三选一：`.env` 的 `ADMIN_PASSWORD`；未设置时回落默认 `audit-fix-2025`（dev 登录页有「填入」按钮）；改密码后**必须重启进程**。连错多次触发 60s 窗 5 次防爆破 → 等 `Retry-After` 指示的时间再试。Docker 路线确认宿主机 `.env` 有该变量（compose 自动透传，改完 `docker compose up -d` 重建）。
+
+**8. 任务跑完采到 0 本**
+按序查：① 规则是否启用、任务规则选对；② 任务范围/书号模板是否渲染出真实 URL（任务日志前几行有"模板解析完成，共 N 本待采集"）；③ 该站规则是否依赖 mini-service 代理（§4 警示框清单）——代理没起则签名/解密类站点失败；④ 日志若见 blocked/429 → §8 开对应开关并放慢节奏；⑤ 用规则行的「测试」面板对列表段做单页解析验证。
+
+**9. 进程被杀（dmesg 见 global_oom / 构建日志 `Killed`）**
+内存不足。三招：① 加 swap（`fallocate -l 4G /swapfile` 标准流程）；② 生产模式跑（`bun run start` 基线远低于 dev）；③ 大任务切 Go 引擎。Docker 构建 OOM → 换 4GB 机器或加 swap 后重跑 `bash install.sh`。
+
+**10. 章节正文乱码**
+源站编码识别由引擎自动处理（UTF-8/GBK/GB18030/Big5 等，TS 用 iconv-lite、Go 用 golang.org/x/text 双侧一致）。仍乱码时：确认规则是否漏写 charset 字段；`RESPONSE_SANITY=1` 开启后乱码密度异常页会走浏览器重渲染自愈（§8）。
+
+**11. 日志出现 `[警告] 数据库结构同步失败`**
+升级后 schema 有**会波及旧数据**的冲突性变更，entrypoint/`db:push` 拒绝静默毁库。处理：
+
+```bash
+# 0) 先备份！  1) 明确确认可以删数据后，手动强制同步：
+docker compose down
+cp -r db db.bak.$(date +%F)
+docker compose run --rm --entrypoint node novel-system \
+  node node_modules/prisma/build/index.js db push --schema prisma/schema.prisma --accept-data-loss
+docker compose up -d
+# 裸机路线等价: bun run db:push --accept-data-loss（务必先备份）
+```
+
+另确认宿主机 `./db` 属主是 uid 1001（`sudo chown -R 1001:1001 ./db ./data`），否则 prisma 会报 `SQLITE_READONLY`——错误形态与结构变更不同，别混淆。
+
+---
+
+## 第 14 章 附录：常用命令速查表
+
+**开发 / 裸机（package.json scripts）**
+
+| 命令 | 作用 |
+| --- | --- |
+| `bun install` | 安装依赖 |
+| `bun run dev` | 开发模式启动（端口 3000，日志 tee 进 dev.log） |
+| `bash .zscripts/dev.sh` | 一键启动（主应用 + mini-services 带 dev 脚本的服务） |
+| `bun run build` | 生产构建（standalone，Turbopack 峰值 >2GB） |
+| `bun run start` | 生产启动（NODE_ENV=production，日志 tee 进 server.log） |
+| `bun run db:push` | 幂等同步数据库结构（不带 --accept-data-loss） |
+| `bun run db:generate` / `db:migrate` | 生成 Prisma Client / 迁移 |
+| `bun run db:reset` | ⚠ 清空重建数据库（危险，生产禁用） |
+| `bun run lint` ＋ `bunx tsc --noEmit` | 质量门（0 错 0 警 / 零类型错误） |
+
+**Go 引擎**
+
+| 命令 | 作用 |
+| --- | --- |
+| `bash scripts/install-go.sh` | 一键安装 Go 工具链到 ~/go-sdk（幂等，沙箱重置后恢复用） |
+| `cd mini-services/crawler-go && bash run.sh` | 启动 Go 引擎（自动重编 + 崩溃自重启；等价 `bun run dev`） |
+| `curl http://127.0.0.1:3032/health` | 健康检查（rssMB / tasks / version） |
+| `export GOPROXY=https://goproxy.cn,direct` | 国内模块源（构建失败时） |
+
+**Docker**
+
+| 命令 | 作用 |
+| --- | --- |
+| `bash install.sh` | 一键安装（幂等） |
+| `docker compose up -d --build` | 构建并后台启动 |
+| `docker compose ps` | 健康状态（(healthy) 即就绪） |
+| `docker compose logs -f` | 跟踪日志（`grep 自动填充` 看引导） |
+| `docker compose restart` / `down` | 重启 / 停止并删容器（数据保留） |
+| `sudo chown -R 1001:1001 ./db ./data` | 非 root 容器属主修正 |
+
+**工具 / 诊断**
+
+| 命令 | 作用 |
+| --- | --- |
+| `bun scripts/seed.ts` | 演示数据种子（空库守卫，可重复执行） |
+| `bun scripts/ratelimit-site.ts --port 3040 --profile standard` | 校准用模拟源站（lenient/standard/strict） |
+| `nohup bash scripts/dev-watchdog.sh &` | dev OOM 自愈守护（15s 端口探测；脚本内写死项目路径） |
+| `ss -ltnp \| grep 3000` | 查端口占用（EADDRINUSE 排查） |
+| `caddy run --config Caddyfile` | 启动 :81 网关（XTransformPort 白名单转发） |
+
+---
+
+> **文档维护说明**：本教程由 R52 轮全面重写（架构图含 Go 引擎 3032 与回调链、截图全部换为运行站实拍）。核对的权威来源：`package.json` / `.env.example` / `docker-compose.yml` / `docker-entrypoint.sh` / `docker/autofill.mjs` / `mini-services/crawler-go/{run.sh,package.json,go.mod}` / `scripts/install-go.sh` / `scripts/dev-watchdog.sh` / `agent-ctx/go-engine/CONTRACT.md` / `src/lib/crawl/{fetcher.ts,runner.ts,go-engine.ts}` / `src/lib/book-ids.ts` / `src/lib/backup.ts` / `Caddyfile`。数字口径（1950/1900/1550/2100、3/3、200/100000、29 条、RSS ~12MB 等）均可在上述文件中 rg 复核。

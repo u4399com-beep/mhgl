@@ -430,7 +430,11 @@ func (t *Task) crawlContentBatches(bookURL, bookName, tocURL string, needURLs []
 			go func(chapterURL string) {
 				defer wg.Done()
 				item, ok := t.crawlChapter(chapterURL, titleMap[chapterURL], tocURL)
-				if ok {
+				// [R52-5 P3] 空正文不入 results: 修前空正文章计入 contentDone(虚计)且
+				// 发往 contents 回调 —— Next.js 侧对空 contentHtml 本就 skip(章节保持
+				// fetched=false), 计数与回调双双虚高; 修后口径=仅真实落库章计入。
+				// 空正文属内容质量问题不喂连败链(crawlChapter 内 chapterOK 语义不变)
+				if ok && strings.TrimSpace(item.ContentHTML) != "" {
 					resMu.Lock()
 					results = append(results, item)
 					resMu.Unlock()
@@ -487,7 +491,9 @@ func (t *Task) crawlChapter(chapterURL, title, tocReferer string) (callback.Chap
 	parsed := rule.ParseContent(t.ctx, chapterURL, res.HTML, &t.ruleC.Content, t.pageFetch)
 	t.chapterOK() // 抓取成功即归零连败链(空正文为内容质量问题, 非真实失败)
 	if strings.TrimSpace(parsed.Content) == "" {
-		t.logf("warn", "章节正文为空(解析原样回调): %s", util.TruncateLog(chapterURL, 120))
+		// [R52-5 P3] 空正文: 不入 contents 回调/不计 contentDone(Next.js 侧对空
+		// contentHtml 本就 skip, 计入=虚计), 章节保持未采由增量重试承担
+		t.logf("warn", "章节正文为空(不入库不计完成, 增量重试可恢复): %s", util.TruncateLog(chapterURL, 120))
 	}
 	return callback.ChapterItem{URL: chapterURL, Title: title, ContentHTML: parsed.Content}, true
 }

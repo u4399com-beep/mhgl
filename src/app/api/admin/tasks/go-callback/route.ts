@@ -316,10 +316,17 @@ async function handleChapters(ctx: CallbackCtx, taskId: string, p: Record<string
   const isFull = task.recrawlMode === 'full'
   const existChapters = await loadExistChapters(bookId)
 
-  // [R50-1] 多段目录(契约 §2 >5000 章分多次带 seq/final): seq>0 视为顺序增量追加
+  // [R50-1] 多段目录(契约 §2 >5000 章分多次带 seq/final): seq>1 视为顺序增量追加
   //  (Go 按序切片, 不重排/不重编号; 仅首个/单次回调做全书 reorderToc + 重编号)
+  // [R52-5][P1 修复 seq off-by-one] 判定从 seq>0 改为 seq>1: Go 侧 sendChapters 固定从
+  //  seq=1 起发(pipeline.go `for start, seq := 0, 1; ...`), 修前首批(seq=1)即命中增量臂,
+  //  全书重排/阶段A~E/保守闸/智能完结终判/末章回写整条路径对 Go 流量不可达(R51-4 接线
+  //  对 Go 实为 no-op)。修后首批(seq=1)走下方全书重排路径, seq≥2 后续片走增量追加 ——
+  //  Go 已上线语义(首片=1)不动, 语义对齐改 Next 侧。
+  //  注: seq 仅由 Go 引擎携带(pipeline.go sendChapters 分片循环); TS 引擎(runner.ts)的目录
+  //  同步在进程内直连 chapter-reorder 完成, 不经本路由, 无 seq 概念, 本判定对 TS 流量零影响。
   const seq = asInt(p.seq) ?? 0
-  if (seq > 0) {
+  if (seq > 1) {
     const res = await appendChapterSlice(taskId, bookId, rawItems, existChapters, isFull)
     return reply({ ok: true, needUrls: res.needUrls })
   }
@@ -445,6 +452,10 @@ async function appendChapterSlice(
   isFull: boolean,
 ): Promise<{ needUrls: string[] }> {
   const existUrlMap = new Map(existChapters.filter((c) => c.url).map((c) => [c.url, c]))
+  // [R52-5 P3] 同片去重: 修前仅按 existUrlMap(本回调请求起点快照)判重 —— 同一片内重复
+  //  URL(源站目录重复项/分片边界重叠)会重复尾插建行; 跨片重复由每片重读 existChapters
+  //  天然覆盖, 此处只补片内窗口
+  const sliceSeen = new Set<string>()
   let tailIdx = existChapters.reduce((mx, c) => Math.max(mx, c.idx), 0)
   const needUrls: string[] = []
   let createdCount2 = 0
@@ -455,6 +466,8 @@ async function appendChapterSlice(
     const url = asStr(o.url, 2000)
     const volume = sliceCodePoints(asStr(o.volume, 150).trim(), 120)
     if (!title && !url) continue
+    if (url && sliceSeen.has(url)) continue // [R52-5 P3] 片内重复 URL 只建/决策一次
+    if (url) sliceSeen.add(url)
     const old = url ? existUrlMap.get(url) : undefined
     if (old) {
       if (volume && !old.volume) {

@@ -832,24 +832,23 @@ func (c *Client) rawFetch(ctx context.Context, rawURL, refererURL string, direct
 	if err := gate.acquire(ctx); err != nil {
 		return rawResult{}, err
 	}
-	defer gate.release()
+	// [R52-5 P3] 持闸所有权跟踪: 退避 sleep 前 release、醒后 re-acquire(合并 R51-3-a ⑥
+	// 「重试间 release+re-acquire」为一处) —— 修前退避 400ms~8s 期间持闸空睡, 同 host
+	// 其他请求被无谓阻塞; defer 按 gateHeld 精确释放一次, 防 acquire 中断路径重复 release
+	gateHeld := true
+	defer func() {
+		if gateHeld {
+			gate.release()
+		}
+	}()
 
 	group := c.mirrorGroup(reqURL)
 	attempts := 1 + c.cfg.Retries
 	var lastErr error
-	for _, cand := range group {
+	for mi, cand := range group {
 		for a := 0; a < attempts; a++ {
 			if err := ctx.Err(); err != nil {
 				return rawResult{}, err
-			}
-			if a > 0 {
-				// 重试间重过闸(R51-3-a ⑥): release+re-acquire 使重试链尊重
-				// Retry-After 冷却窗(acquire 单 timer 阻塞等待, 不轮询)与
-				// minGap 节奏 —— 429 后立刻重发只会再次撞限流
-				gate.release()
-				if err := gate.acquire(ctx); err != nil {
-					return rawResult{}, err
-				}
 			}
 			res, err := c.doOnce(ctx, cand, refererURL, extraHeaders, directOnly, gate, loopbackExempt)
 			if err == nil {
@@ -871,7 +870,21 @@ func (c *Client) rawFetch(ctx context.Context, rawURL, refererURL string, direct
 			if boff > backoffMax || boff <= 0 {
 				boff = backoffMax
 			}
+			// [R52-5 P3] 退避 sleep 前 release(醒后重过闸): 修前持闸空睡, 同 host 在飞被
+			// 无谓占住一档; 末轮(本候选最后一次尝试)不退避不重过闸 —— 错误即返回, 避免
+			// 无谓再吃一次 minGap/限流冷却等待(与修前时序一致)
+			gate.release()
+			gateHeld = false
+			if a == attempts-1 && mi == len(group)-1 {
+				break // 末候选末轮: 错误即返回, 不退避不重过闸(与修前返回时序一致)
+			}
 			_ = util.SleepCtx(ctx, boff+time.Duration(time.Now().UnixNano()%200)*time.Millisecond)
+			// 醒后重过闸(R51-3-a ⑥ 语义合并于此): acquire 内单 timer 阻塞等待, 尊重
+			// Retry-After 冷却窗与 minGap 节奏 —— 429 后立刻重发只会再次撞限流
+			if err := gate.acquire(ctx); err != nil {
+				return rawResult{}, err
+			}
+			gateHeld = true
 		}
 	}
 	// 整组耗尽: 清 sticky(防死镜像钉死)
@@ -1048,12 +1061,27 @@ func (c *Client) doOnce(ctx context.Context, rawURL, refererURL string, extraHea
 	return res, nil
 }
 
-// readBodyDecompressed 读响应体(≤10MB)+按 Content-Encoding 手动解压
+// bodyOverLimitError 响应体超 10MB 上限错误(对齐 TS RangeError 语义):
+// TS native/curl 两轨超限均 reject(截断 HTML 会被解析成半截正文/目录入库,
+// R4-2 同源缺陷), Go 修前 LimitReader 静默截断 —— 封面图截 10MB 后
+// len(data)>coverMaxBytes 守卫永不触发, 损图当完整封面入库
+type bodyOverLimitError struct{ size int }
+
+func (e *bodyOverLimitError) Error() string {
+	return fmt.Sprintf("响应体过大(%d > %d字节上限), 已中止(截断内容不入库)", e.size, maxBodyBytes)
+}
+
+// readBodyDecompressed 读响应体(≤10MB, 超限报错不截断)+按 Content-Encoding 手动解压
 // (请求已显式声明 Accept-Encoding: gzip, deflate → Transport 不自动解压)
+// [R52-5 P3] 修前 io.LimitReader(body, 10MB) 静默截断超限响应; 修后读 maxBodyBytes+1
+// 探测超限 → bodyOverLimitError 走上层既有重试/镜像切换/失败链(与 TS reject 口径一致)
 func readBodyDecompressed(resp *http.Response) ([]byte, error) {
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes+1))
 	if err != nil {
 		return raw, err
+	}
+	if len(raw) > maxBodyBytes {
+		return nil, &bodyOverLimitError{size: len(raw)}
 	}
 	switch strings.ToLower(strings.TrimSpace(resp.Header.Get("Content-Encoding"))) {
 	case "gzip":
@@ -1062,22 +1090,37 @@ func readBodyDecompressed(resp *http.Response) ([]byte, error) {
 			return nil, fmt.Errorf("gzip 解压失败: %v", zerr)
 		}
 		defer zr.Close()
-		return io.ReadAll(io.LimitReader(zr, maxBodyBytes))
+		return readAllCapped(zr)
 	case "deflate":
 		// deflate 双形态: zlib 包裹(常见)与裸 flate; 先试 zlib 失败回退裸 flate
 		if zr, zerr := zlib.NewReader(bytes.NewReader(raw)); zerr == nil {
-			if out, derr := io.ReadAll(io.LimitReader(zr, maxBodyBytes)); derr == nil {
+			if out, derr := readAllCapped(zr); derr == nil {
 				zr.Close()
 				return out, nil
+			} else if over := (*bodyOverLimitError)(nil); errors.As(derr, &over) {
+				zr.Close()
+				return nil, derr
 			}
 			zr.Close()
 		}
 		fr := flate.NewReader(bytes.NewReader(raw))
 		defer fr.Close()
-		return io.ReadAll(io.LimitReader(fr, maxBodyBytes))
+		return readAllCapped(fr)
 	default:
 		return raw, nil
 	}
+}
+
+// readAllCapped 解压流读取(≤10MB, 超限报错不截断)
+func readAllCapped(r io.Reader) ([]byte, error) {
+	out, err := io.ReadAll(io.LimitReader(r, maxBodyBytes+1))
+	if err != nil {
+		return out, err
+	}
+	if len(out) > maxBodyBytes {
+		return nil, &bodyOverLimitError{size: len(out)}
+	}
+	return out, nil
 }
 
 // seedJar 静态 Cookie 按 host 懒注入(每 host 首次请求时注入一次; jar 统一出口
