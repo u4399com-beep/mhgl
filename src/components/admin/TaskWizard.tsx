@@ -59,7 +59,7 @@ const EMPTY_FORM: TaskForm = {
   name: '',
   ruleId: '',
   mode: 'single',
-  engine: 'ts', // [R50-1] 缺省经典 TS 引擎(零回归)
+  engine: 'go', // [R50-1→R54] Golang-first: 新任务缺省 Go 引擎(独立进程内存隔离); TS 保留为显式选项与自动回退
   bookUrl: '',
   bookIds: '',
   bookIdFrom: '',
@@ -508,7 +508,7 @@ function Step2Range({
   const rangeTouched = form.bookIdFrom.trim() !== '' || form.bookIdTo.trim() !== ''
   return (
     <div className="space-y-4">
-      {/* [R50-1] 采集引擎选择(缺省经典 TS; Go 引擎书号上限放开到 10 万, 采集在独立进程执行) */}
+      {/* [R50-1→R54] 采集引擎选择(Golang-first: 缺省 Go 独立进程; TS 显式选择+能力不符自动回退) */}
       <div className="space-y-2">
         <Label className="text-xs font-medium text-zinc-300">采集引擎</Label>
         <RadioGroup
@@ -519,12 +519,12 @@ function Step2Range({
           <ModeTab
             active={form.engine !== 'go'}
             title="经典 TS 引擎"
-            desc="与后台同进程, 兼容全部规则能力(缺省)"
+            desc="与后台同进程, 兼容全部规则能力(显式选择, 能力不符时自动回退)"
             onClick={() => patch({ engine: 'ts' })}
           />
           <ModeTab
             active={form.engine === 'go'}
-            title="Go 引擎（独立进程·内存隔离·支持 10 万书号）"
+            title="Go 引擎（缺省·独立进程·内存隔离·支持 10 万书号）"
             desc="独立 Go 进程抓取/解析, 内存硬顶 600MB, 回调本后台落库; 暂不支持 TXT 存储"
             onClick={() => patch({ engine: 'go' })}
           />

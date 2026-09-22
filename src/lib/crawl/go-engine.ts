@@ -27,10 +27,13 @@ const CONTROL_TIMEOUT_MS = 3_000
 /** task/start 超时 10s(契约 §6-2; Go 侧 start 仅注册任务应快速返回) */
 const START_TIMEOUT_MS = 10_000
 
-/** 统一结果形态: ok=false 时 fallback=true 表示"应回退 TS 引擎", false 表示 Go 明确拒绝(不回退) */
+/** 统一结果形态: ok=false 时 fallback=true 表示"应回退 TS 引擎", false 表示 Go 明确拒绝(不回退)。
+ *  [R54] notFound=true 表示目标任务在引擎中不存在(404, 引擎重启后任务态丢失), 供控制面判定
+ *  "引擎侧已无运行体"—— stop/pause 语义可直接达成, 无需 fail 卡死或回退 TS */
 export interface GoResult {
   ok: boolean
   fallback?: boolean
+  notFound?: boolean
   reason?: string
 }
 
@@ -108,10 +111,14 @@ async function goFetch(path: string, init: RequestInit | undefined, timeoutMs: n
     if (!res.ok || body?.ok === false) {
       // 409(task already exists)属业务态, 非引擎故障, 不标记 fallback(调用方转 resume)
       const alreadyExists = res.status === 409
+      // [R54] 404(任务在引擎中不存在)同属业务态: 不标记 fallback(不应回退 TS), 单独打标供
+      //       控制面按"引擎侧已无运行体"收口(R53 遗留①: 修前 stop 撞 404 恒 fail)
+      const notFound = res.status === 404
       return {
         ok: false,
-        fallback: alreadyExists ? false : res.status >= 500,
+        fallback: alreadyExists || notFound ? false : res.status >= 500,
         alreadyExists,
+        notFound,
         reason: String(body?.error || `Go 引擎返回 HTTP ${res.status}`),
       }
     }

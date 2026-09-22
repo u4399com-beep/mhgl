@@ -22,7 +22,7 @@ export interface NormalizedTask {
   name: string
   // [R34-2a-3] 扩 'bookIds'(书号): bookUrl 复用存「书籍页 URL 模板」(必含 {bookId}), 零新增 URL 列
   mode: 'single' | 'range' | 'bookIds'
-  // [R50-1] 采集引擎: 'ts'(经典 TS 引擎, 缺省) | 'go'(独立 Go 进程); 白名单见 normalizeTaskData
+  // [R50-1] 采集引擎: 'go'(独立 Go 进程, [R54] 缺省) | 'ts'(经典 TS 引擎, 显式选择/自动回退); 白名单见 normalizeTaskData
   engine: 'ts' | 'go'
   bookUrl: string
   // [R34-2a-3] 书号原文(规范化后为换行分隔的去重书号列表; 非 bookIds 模式恒空串)
@@ -75,11 +75,13 @@ export function normalizeTaskData(
     out.mode = ['single', 'range', 'bookIds'].includes(body?.mode) ? body.mode : 'range'
   }
 
-  // [R50-1] 采集引擎白名单('ts'|'go', 缺省 'ts'): full 模式非法/缺省值一律归一 'ts'(与既有
-  //  枚举字段「白名单外落缺省」同风格); partial 模式仅显式携带且值合法时写入(非法值丢弃不动,
-  //  防编辑接口把存量 go 任务引擎静默改掉), engine 未设置的既有请求体零影响
+  // [R50-1] 采集引擎白名单('ts'|'go')。[R54] Golang-first 策略: full 模式缺省/非法值归一 'go'
+  //  (整体采集下沉 Go 引擎; TS 引擎保留为显式选项 + Go 不可达/能力不符/storageMode=txt 时
+  //  自动 ts-fallback, 见 _go-control.ts —— 显式 engine:'ts' 的既有调用方零影响)。
+  //  partial 模式仅显式携带且值合法时写入(非法值丢弃不动, 防编辑接口把存量 go 任务引擎静默改掉),
+  //  engine 未设置的既有请求体零影响
   if (full) {
-    out.engine = body?.engine === 'go' ? 'go' : 'ts'
+    out.engine = body?.engine === 'ts' ? 'ts' : 'go'
   } else if (body?.engine === 'go' || body?.engine === 'ts') {
     out.engine = body.engine
   }

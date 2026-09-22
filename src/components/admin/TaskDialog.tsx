@@ -49,7 +49,10 @@ const emptyForm: TaskForm = {
   name: '',
   ruleId: '',
   mode: 'single',
-  engine: 'ts', // [R50-1] 缺省经典 TS 引擎(零回归)
+  // [R50-1→R54-2b] Golang-first: 新建缺省 Go 引擎(与 TaskWizard EMPTY_FORM R54 翻转同口径 ——
+  //  修前本弹层新建路径缺省 'ts' 与向导不一致, 同一「新建任务」双入口双缺省; 编辑回显仍以
+  //  任务行原值为准不受影响, 存量任务引擎零改动)
+  engine: 'go',
   bookUrl: '',
   bookIds: '',
   bookIdFrom: '',
@@ -476,7 +479,8 @@ export function TaskDialog({ open, onOpenChange, task, onSaved }: TaskDialogProp
 
           <Separator className="bg-zinc-800" />
 
-          {/* [R50-1] 采集引擎(缺省经典 TS; Go 引擎书号上限放开到 10 万, 采集在独立进程执行) */}
+          {/* [R50-1→R54-2b] 采集引擎(新建缺省 Go 与向导同口径; 编辑回显任务行原值, 恒带提交
+              但值取自初始化=不静默改引擎; 显式点选才会改写) */}
           <div className="space-y-2">
             <Label className="text-xs font-medium text-zinc-300">采集引擎</Label>
             <RadioGroup
@@ -488,17 +492,23 @@ export function TaskDialog({ open, onOpenChange, task, onSaved }: TaskDialogProp
                 value="ts"
                 current={form.engine}
                 title="经典 TS 引擎"
-                desc="与后台同进程, 兼容全部规则能力(缺省)"
+                desc="与后台同进程, 兼容全部规则能力(显式选择, 能力不符时自动回退)"
                 onSelect={() => patch({ engine: 'ts' })}
               />
               <ModeCard
                 value="go"
                 current={form.engine}
-                title="Go 引擎（独立进程·内存隔离·支持 10 万书号）"
+                title="Go 引擎（缺省·独立进程·内存隔离·支持 10 万书号）"
                 desc="独立 Go 进程抓取/解析, 内存硬顶 600MB, 回调本后台落库; 暂不支持 TXT 存储"
                 onSelect={() => patch({ engine: 'go' })}
               />
             </RadioGroup>
+            {/* [R54-2b] 与 TaskWizard 同款提示: Go+TXT 组合启动时会被拒绝并自动回退 TS 引擎 */}
+            {form.engine === 'go' && form.storageMode === 'txt' && (
+              <p className="text-[10px] font-medium text-amber-400">
+                Go 引擎暂不支持 TXT 存储, 此组合启动时将自动回退经典 TS 引擎
+              </p>
+            )}
           </div>
 
           {/* 重采模式 + 存储模式 */}

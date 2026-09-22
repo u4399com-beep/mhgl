@@ -131,11 +131,15 @@ export async function goEngineControl(task: GoControlTask, act: 'start' | 'pause
       await taskLog(taskId, 'warn', `⚠ Go 引擎恢复失败(${r.reason || '未知原因'}), 本次启动回退 TS 引擎`)
       return { kind: 'ts-fallback' }
     }
-    if (!st.ok && !st.fallback) {
+    if (!st.ok && !st.fallback && !st.notFound) {
       // Go 可达但 status 查询被明确拒绝(罕见): 不盲目回退, 直接报错由操作员决策
       return { kind: 'fail', message: `Go 引擎状态查询失败: ${st.reason || '未知原因'}` }
     }
     // st.fallback(不可达/超时) 或 !exists(Go 重启后任务态丢失, 契约 §5: 重发 start 等价断点续采)
+    // [R54-2b] notFound(引擎对该路径回 HTTP 404)与 !exists 同语义 —— 任务不在册即无运行体,
+    //  直接走下方 start 重发(等价断点续采), 不因状态查询 404 卡死在 fail(与 pause/stop 的
+    //  notFound 收口同族; 契约 §1 现行 status 对不存在任务返 200+exists:false, 本臂为
+    //  控制面与 R53 遗留① 收口语义对齐的防御面)
     const startRes = await goTaskStart(task, ruleCfg)
     if (startRes.ok) {
       await markGoStarted(taskId)
@@ -172,6 +176,15 @@ export async function goEngineControl(task: GoControlTask, act: 'start' | 'pause
       await taskLog(taskId, 'warn', '⏸ 任务已暂停(Go 引擎, 在飞批次完成后挂起)')
       return { kind: 'ok' }
     }
+    // [R54] R53 遗留①同源收口: 引擎侧无此任务(404, 引擎重启后任务态丢失)时无运行体可暂停,
+    //  暂停语义已达成 —— 条件写 running→paused 落可恢复态(非 running 的行不动), 不再 fail
+    if (!r.ok && !r.fallback && r.notFound) {
+      await db.task
+        .updateMany({ where: { id: taskId, status: 'running' }, data: { status: 'paused' } })
+        .catch(() => {})
+      await taskLog(taskId, 'warn', '⏸ 任务已暂停(引擎侧无此任务: 引擎重启后状态丢失, 条件落 paused)')
+      return { kind: 'ok' }
+    }
     await taskLog(taskId, 'warn', `⚠ Go 引擎暂停失败: ${r.reason || '未知原因'}`)
     // [R51-3-b] Go 不可达(网络层 fallback)时交回 TS 原路径, 与 start 回退语义对齐 ——
     //  修前恒 fail: 控制体实际在 TS 侧(start 回退场景的任务)无法暂停, DB 卡死 running 只能等
@@ -187,6 +200,15 @@ export async function goEngineControl(task: GoControlTask, act: 'start' | 'pause
     TaskRunner.instance.cancelAutoRefresh(taskId)
     await writeStatus(taskId, { status: 'stopped' })
     await taskLog(taskId, 'warn', '⏹ 任务已停止(Go 引擎, 自动刷新已取消)')
+    return { kind: 'ok' }
+  }
+  // [R54] R53 遗留①收口: 引擎侧无此任务(404, 引擎重启后任务态丢失/重复 stop)时, "确保任务
+  //  不在运行"的停止语义已达成 —— 直接落 stopped 终态(与 stop 成功同收口, 含取消自动刷新),
+  //  修前恒 fail: DB 卡 running 只能等 5min ghost sweeper 兑底, 操作员无法主动止血
+  if (!r.ok && !r.fallback && r.notFound) {
+    TaskRunner.instance.cancelAutoRefresh(taskId)
+    await writeStatus(taskId, { status: 'stopped' })
+    await taskLog(taskId, 'warn', '⏹ 任务已停止(引擎侧无此任务: 引擎重启后状态丢失, 停止语义已达成)')
     return { kind: 'ok' }
   }
   await taskLog(taskId, 'warn', `⚠ Go 引擎停止失败: ${r.reason || '未知原因'}`)

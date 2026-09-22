@@ -427,7 +427,11 @@ export class TaskRunner {
    *  ② recoverOnBoot 之后因异常路径漏回收的 running 行; ③ 手工改库/外部写入的 running 行。
    *  判定精确: DB status==='running' 且本进程内 isRunning(id)===false 且 60s 宽限
    *  (cover control('start') 状态写在途窗口)未过 → 回收为 paused(与 recoverOnBoot 同语义,
-   *  保留"可点击继续恢复"的操作员预期)。正常在跑任务 rt.running 恒先于状态写置位, 不会误伤 */
+   *  保留"可点击继续恢复"的操作员预期)。正常在跑任务 rt.running 恒先于状态写置位, 不会误伤
+   *  [R54-2b] 写入改条件 updateMany(仅 status==='running' 命中): findMany 快照与写入之间的
+   *  控制面窗口(操作员 stop→notFound 收口落 stopped / Go 引擎回调写 paused/done 等)不得被
+   *  本 sweeper 以陈旧快照覆写 —— 与 recovery.ts 启动期孤儿回收的"条件写窄化竞态"同口径
+   *  (修前无条件 update 会把刚落的 stopped/paused 翻回 paused/interrupted, 双写冲突窗口) */
   private ensureGhostSweeper(): void {
     if (this.ghostSweepTimer) return
     const timer = setInterval(() => {
@@ -468,14 +472,19 @@ export class TaskRunner {
         if (!st || st.ok !== true) continue // 引擎不可达/超时: 本轮跳过, 下轮再看
         if (st.exists) continue // 引擎持有(在跑或暂停): 状态由引擎回调权威写, 不代写
         try {
-          await db.task.update({ where: { id: t.id }, data: { status: 'interrupted' } })
+          // [R54-2b] 条件写: 仅行仍处 running 时翻转 —— 并发控制面(如 stop 撞引擎 404 的
+          //  notFound 收口落 stopped/pause notFound 收口落 paused)与引擎回调先写的状态不覆盖
+          const upd = await db.task.updateMany({ where: { id: t.id, status: 'running' }, data: { status: 'interrupted' } })
+          if (upd.count !== 1) continue // 已被并发操作改写/删除: 放弃本行(幂等, 下轮不再匹配)
           reclaimed++
           await this.log(t.id, 'warn', '检测到 Go 引擎侧任务丢失(引擎重启/崩溃后未自动恢复), 已标 interrupted, 可点击继续恢复(增量续采)')
         } catch { /* P2025 任务已删等: 忽略 */ }
         continue
       }
       try {
-        await db.task.update({ where: { id: t.id }, data: { status: 'paused' } })
+        // [R54-2b] 同上: TS 分支同款条件写(防陈旧快照覆写并发 stop/pause 的终态/操作员意图)
+        const upd = await db.task.updateMany({ where: { id: t.id, status: 'running' }, data: { status: 'paused' } })
+        if (upd.count !== 1) continue // 已被并发操作改写/删除: 放弃本行
         reclaimed++
         await this.log(t.id, 'warn', '检测到孤儿运行态(进程内无活跃采集循环, 可能源于服务重启/备份导入), 已自动回收为暂停, 可点击继续恢复')
       } catch { /* P2025 任务已删等: 忽略 */ }
