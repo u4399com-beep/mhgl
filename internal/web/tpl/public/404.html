@@ -1,0 +1,13 @@
+{{define "content"}}
+<div class="ajx-404">
+  <div class="ajx-404-card">
+    <div class="ajx-404-code">404</div>
+    <h1>页面不存在</h1>
+    <p>{{if .Msg}}{{.Msg}}{{else}}你访问的页面不存在或已被移除{{end}}</p>
+    <div class="ajx-404-actions">
+      <a class="ajx-download-btn ajx-dl-read" href="{{.HomeHref}}" style="min-width:0">返回首页</a>
+      <a class="ajx-download-btn ajx-dl-toc" href="{{.SearchHref}}" style="min-width:0">搜索书籍</a>
+    </div>
+  </div>
+</div>
+{{end}}

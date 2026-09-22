@@ -1,0 +1,38 @@
+{{define "layout.html"}}<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<title>{{.Head.Title}}</title>
+<link rel="stylesheet" href="/static/css/admin.css?v=r55-3c3">
+</head>
+<body class="adm">
+<div class="adm-shell">
+  <aside class="adm-side">
+    <div class="adm-brand"><span class="adm-brand-mark">mh</span> mhgl 管理台</div>
+    <nav class="adm-nav" aria-label="分区导航">
+      {{range .Sections}}
+      <a class="adm-nav-item{{if eqStr $.Current .Key}} is-active{{end}}" href="/admin/{{.Path}}">{{.Label}}</a>
+      {{end}}
+    </nav>
+    <div class="adm-side-foot">
+      <a class="adm-nav-item" href="/" target="_blank" rel="noopener">查看前台 ↗</a>
+      <button class="adm-btn is-tiny is-ghost" id="adm-logout" type="button">退出登录</button>
+    </div>
+  </aside>
+  <div class="adm-body">
+    <header class="adm-topbar">
+      <h1 class="adm-page-title">{{.Label}}</h1>
+      <span class="adm-topbar-tag">Go 单体 · R55</span>
+    </header>
+    <main class="adm-main" id="adm-main" data-section="{{.Current}}">
+      {{block "content" .}}<div class="adm-state">加载中…</div>{{end}}
+    </main>
+    <footer class="adm-foot">mhgl Go 单体管理台 · 数据面 /api/admin/** · 前台 SSR aijjxs</footer>
+  </div>
+</div>
+<dialog class="adm-dialog" id="adm-dialog"></dialog>
+<script src="/static/js/admin.js?v=r55-3c3" defer></script>
+</body>
+</html>{{end}}

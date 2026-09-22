@@ -1,0 +1,19 @@
+{{define "content"}}
+<section class="adm-card">
+  <div class="adm-card-head">
+    <h2>书籍管理</h2>
+    <div class="adm-toolbar">
+      <input class="adm-input" id="book-q" type="search" placeholder="书名 / 作者 / 关键词" aria-label="搜索书籍">
+      <select class="adm-input is-select" id="book-cat" aria-label="分类筛选"><option value="">全部分类</option></select>
+      <button class="adm-btn is-tiny" id="book-search" type="button">搜索</button>
+      <button class="adm-btn is-primary is-tiny" id="book-new" type="button">＋ 新建书籍</button>
+    </div>
+  </div>
+  <div id="book-list" class="adm-state">加载中…</div>
+  <div class="adm-toolbar" style="margin-top:12px">
+    <button class="adm-btn is-tiny" id="book-prev" type="button">上一页</button>
+    <span class="adm-muted" id="book-pageinfo">-</span>
+    <button class="adm-btn is-tiny" id="book-next" type="button">下一页</button>
+  </div>
+</section>
+{{end}}

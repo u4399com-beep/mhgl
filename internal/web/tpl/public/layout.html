@@ -1,0 +1,62 @@
+{{define "layout.html"}}<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>{{.Head.Title}}</title>
+{{if .Head.Description}}<meta name="description" content="{{.Head.Description}}">{{end}}
+{{if .Head.Keywords}}<meta name="keywords" content="{{.Head.Keywords}}">{{end}}
+{{if .Head.Canonical}}<link rel="canonical" href="{{.Head.Canonical}}">{{end}}
+<meta property="og:type" content="{{.Head.OgType}}">
+<meta property="og:title" content="{{.Head.Title}}">
+{{if .Head.Description}}<meta property="og:description" content="{{.Head.Description}}">{{end}}
+{{if .Head.Canonical}}<meta property="og:url" content="{{.Head.Canonical}}">{{end}}
+{{with .Site}}{{if .geoRegion}}<meta name="geo.region" content="{{.geoRegion}}">{{end}}
+{{if .geoPlacename}}<meta name="geo.placename" content="{{.geoPlacename}}">{{end}}
+{{if .icbm}}<meta name="ICBM" content="{{.icbm}}">{{end}}{{end}}
+<link rel="stylesheet" href="/static/css/site.css?v=r55-3c3">
+</head>
+<body class="clone-aijjxs">
+<div class="ajx-topfloat">
+  <nav class="ajx-topfloat-nav" aria-label="分类导航">
+    <a class="ajx-tf-a" href="{{.HomeHref}}">首页</a>
+    {{range $cat := .NavCats}}<a class="ajx-tf-a" href="{{catHref $cat $.SiteID}}">{{$cat}}</a>{{end}}
+    <a class="ajx-tf-a" href="{{.FulltextHref}}">全站书库</a>
+    <a class="ajx-tf-a" href="{{.RankingHref}}">排行榜</a>
+  </nav>
+</div>
+<header class="ajx-top">
+  <div class="ajx-top-1">
+    <h1 class="ajx-logo">
+      {{siteTitle .Site}}
+      <small>快速找到你想要的TXT电子书</small>
+    </h1>
+    <div class="ajx-top-links">
+      <em>{{.CatCount}}</em> 个分类 ·
+      <a href="{{.FulltextHref}}">全站书库</a>
+      <a href="{{.RankingHref}}">排行榜</a>
+      <a href="{{.HistoryHref}}">阅读历史</a>
+      <span class="ajx-strong">{{siteTitle .Site}}</span>
+    </div>
+  </div>
+  <form class="ajx-search" action="/" method="get">
+    {{if .SiteID}}<input type="hidden" name="site" value="{{.SiteID}}">{{end}}
+    <input type="hidden" name="view" value="search">
+    <input type="search" name="q" aria-label="搜索全站" placeholder="输入书名 / 作者关键词…" value="{{.Q}}">
+    <button type="submit">搜索全站</button>
+  </form>
+</header>
+<main class="ajx-main">{{block "content" .}}<div class="ajx-empty">加载中…</div>{{end}}</main>
+<footer class="ajx-ft">
+  <div class="ajx-ft-links">
+    <a href="{{.HomeHref}}">网站简介</a> · <a href="{{.HomeHref}}">网站帮助</a> ·
+    <a href="{{.HomeHref}}">版权声明</a> · <a href="{{.HomeHref}}">网站地图</a> ·
+    <a href="{{.FulltextHref}}">全站书库</a> · <a href="{{.SearchHref}}">书库搜索</a>
+  </div>
+  {{if .Links}}<div class="ajx-ft-links">友情链接：{{range $i, $l := .Links}}{{if $i}} · {{end}}<a href="{{safeHref $l.url}}" rel="noopener" target="_blank">{{$l.name}}</a>{{end}}</div>{{end}}
+  <div>Copyright © {{siteTitle .Site}} All Rights Reserved</div>
+  <div>本站所有小说电子书均系网友上传，仅供书友之间免费下载预览！</div>
+</footer>
+<script src="/static/js/site.js?v=r55-3c3" defer></script>
+</body>
+</html>{{end}}

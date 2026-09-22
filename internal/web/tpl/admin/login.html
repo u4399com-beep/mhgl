@@ -1,0 +1,31 @@
+{{define "layout.html"}}<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<title>{{.Head.Title}}</title>
+<link rel="stylesheet" href="/static/css/admin.css?v=r55-3c3">
+</head>
+<body class="adm is-login">
+<div class="adm-login-wrap">
+  <div class="adm-login-card">
+    <span class="adm-login-icon" aria-hidden="true">🔐</span>
+    <h1>mhgl 管理台</h1>
+    <p class="adm-login-sub">请输入管理密码登录(5 次失败将限流 1 分钟)</p>
+    <form class="adm-login-form" id="adm-login-form" method="post" action="/api/auth/login">
+      <label class="adm-label">管理密码
+        <input class="adm-input" type="password" name="password" id="adm-login-pwd" autocomplete="current-password" required minlength="1" placeholder="管理密码">
+      </label>
+      <button class="adm-btn is-primary is-block" type="submit" id="adm-login-btn">登 录</button>
+      <div class="adm-form-error" id="adm-login-error" style="display:none"></div>
+    </form>
+    {{with .PreviewHint}}
+    <div class="adm-preview-hint"><span>开发预览提示: 当前未设 ADMIN_PASSWORD, 缺省密码</span><code>{{.}}</code></div>
+    {{end}}
+    <div class="adm-login-foot">mhgl Go 单体 · 登录后可管理采集任务/书籍/规则/站群</div>
+  </div>
+</div>
+<script src="/static/js/admin.js?v=r55-3c3" defer></script>
+</body>
+</html>{{end}}

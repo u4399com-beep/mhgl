@@ -1,0 +1,16 @@
+{{define "content"}}
+<section class="adm-card">
+  <div class="adm-card-head">
+    <h2>数据备份</h2>
+    <div class="adm-toolbar">
+      <button class="adm-btn is-tiny" id="bk-refresh" type="button">刷新统计</button>
+      <a class="adm-btn is-primary is-tiny" id="bk-download" href="/api/admin/backup" download="mhgl-backup.json">导出全表 JSON</a>
+    </div>
+  </div>
+  <div id="bk-stats" class="adm-state">加载中…</div>
+</section>
+<section class="adm-card">
+  <div class="adm-card-head"><h2>说明</h2></div>
+  <p class="adm-muted" style="margin:0">导出为各表 JSON 汇总(restore 暂缓, 见 PARITY)。建议大库导出前先停跑任务, 保证一致性快照。</p>
+</section>
+{{end}}

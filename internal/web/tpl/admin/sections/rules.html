@@ -1,0 +1,22 @@
+{{define "content"}}
+<section class="adm-card">
+  <div class="adm-card-head">
+    <h2>采集规则</h2>
+    <div class="adm-toolbar">
+      <button class="adm-btn is-tiny" id="rule-refresh" type="button">刷新</button>
+      <button class="adm-btn is-tiny" id="rule-import" type="button">导入内置规则</button>
+      <button class="adm-btn is-primary is-tiny" id="rule-new" type="button">＋ 新建规则</button>
+    </div>
+  </div>
+  <div id="rule-list" class="adm-state">加载中…</div>
+</section>
+<section class="adm-card">
+  <div class="adm-card-head"><h2>规则测试</h2></div>
+  <div class="adm-toolbar" style="margin:0 0 10px">
+    <select class="adm-input is-select" id="rule-test-id" aria-label="选择规则"></select>
+    <input class="adm-input is-grow" id="rule-test-url" type="url" placeholder="https://example.com/book/1.html" aria-label="测试 URL">
+    <button class="adm-btn is-tiny" id="rule-test-run" type="button">运行测试</button>
+  </div>
+  <div id="rule-test-result" class="adm-test-result">输入规则与目标 URL 后点击「运行测试」。</div>
+</section>
+{{end}}

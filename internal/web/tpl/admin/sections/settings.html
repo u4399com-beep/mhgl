@@ -1,0 +1,17 @@
+{{define "content"}}
+<section class="adm-card">
+  <div class="adm-card-head">
+    <h2>系统设置(Setting KV)</h2>
+    <div class="adm-toolbar">
+      <button class="adm-btn is-tiny" id="set-reload" type="button">重新加载</button>
+      <button class="adm-btn is-primary is-tiny" id="set-save" type="button">保存全部</button>
+    </div>
+  </div>
+  <p class="adm-muted" style="margin:0 0 12px">值为 JSON 形态(字符串/数字/布尔/对象)。留空键将被删除。代码内默认值兜底, 误删不致损。</p>
+  <div id="set-list" class="adm-state">加载中…</div>
+  <div class="adm-toolbar" style="margin-top:12px">
+    <input class="adm-input" id="set-new-key" placeholder="新增设置键, 如 seoTemplates" aria-label="新键名">
+    <button class="adm-btn is-tiny" id="set-add" type="button">添加键</button>
+  </div>
+</section>
+{{end}}

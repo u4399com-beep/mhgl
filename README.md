@@ -1,8 +1,23 @@
-# HEIS · 小说采集与发布系统（Next.js 16 + Prisma/SQLite）
+# mhgl · 小说聚合站（全栈 Golang 单体）
 
-> 📖 **安装部署图文教程（R52 重写：真实截图 + 架构图 + TS/Go 双引擎 + Docker/裸机生产 + FAQ）**：**[docs/INSTALL-GUIDE.md](./docs/INSTALL-GUIDE.md)** ｜ 🛠 部署速查卡：**[DEPLOY.md](./DEPLOY.md)**
+> 🏗️ **R55 架构声明**：项目已整体迁移为 **Golang 单体**——Web 服务/前台站群/后台管理/REST API/
+> 采集引擎/调度器编译为**一个 Go 二进制**（监听 :3000），Node.js/Next.js 运行时退役。
+> 数据库沿用 SQLite 原文件（零迁移）。TS 时代源码保留于 `src/`（仅作历史参照，不再参与运行时）。
+>
+> 📖 **安装部署教程（R55 Go 单体版）**：**[docs/INSTALL-GUIDE.md](./docs/INSTALL-GUIDE.md)**（上一版 Next.js 教程留档 docs/INSTALL-GUIDE-r52.bak.md）
+> 📋 **功能对齐矩阵**：**[agent-ctx/go-migration/PARITY.md](./agent-ctx/go-migration/PARITY.md)**
 
-规则驱动的小说采集与发布系统（Next.js 16 + Bun + Prisma/SQLite）：管理端配置站点规则与采集任务，经典 TS / Go（端口 3032，独立进程内存隔离）双采集引擎按规则抓取（多引擎降级链）、清洗、落库；前台站群（书城/书籍详情/阅读页/搜索）直接消费库内数据。
+## 架构（R55）
+
+```
+一个二进制 (.build/mhgl)  →  :3000
+├── cmd/server            装配入口(config/store/recovery/manager/http)
+├── internal/store        SQLite 直连(Prisma 格式兼容, 单写者 WAL)
+├── internal/crawl        采集引擎(原 crawler-go 并入: 反反爬/解析/编排 + bridge 直连持久化 + 调度)
+├── internal/api          /api/admin/** + /api/public/** JSON 面
+├── internal/web          前台 SSR(aijjxs 主题) + 后台管理(html/template + 原生 JS/CSS)
+└── internal/auth         HMAC Cookie 鉴权(与旧栈同源, 会话无缝)
+```
 
 ## 功能特性
 
@@ -17,12 +32,14 @@
 
 | 层 | 技术 |
 | --- | --- |
-| 框架 | Next.js 16（App Router）+ React 19 + TypeScript 5 |
-| 数据库 | Prisma ORM 6 + SQLite（单文件，零外部依赖） |
-| UI | Tailwind CSS 4 + shadcn/ui |
-| 运行时 | Bun 1.3+（开发/构建）；生产容器内为标准 node:22 |
-| 采集侧 | 引擎运行于 node/next 进程；7 个 Bun 单文件支撑服务（bqg713/qimao/deqixs/xjp/qidian 五个站点代理、fetch-relay 中继、cloak-browser 反检测渲染）+ 1 个可选 Python(Scrapling) 桥 |
-| 部署 | Docker 多阶段构建（bun 构建 standalone → node:22-slim 运行）+ docker compose |
+| 层 | 技术（R55 Go 单体） |
+| --- | --- |
+| 语言/运行时 | Go 1.24+（单二进制, 无 Node 依赖） |
+| HTTP | stdlib net/http（Go 1.22+ 方法+通配路由） |
+| 数据库 | modernc.org/sqlite（纯 Go 驱动, 无 cgo）+ SQLite 单文件 |
+| 模板/UI | html/template + 手写 CSS/原生 JS（前台 aijjxs 主题 + 深色管理台） |
+| 采集引擎 | 原 crawler-go 引擎代码级并入（goquery 解析 + R51~R54 反反爬体系全量保真） |
+| 部署 | 裸机 systemd / Docker 多阶段（golang 构建 → alpine 运行） |
 
 ## 快速开始
 

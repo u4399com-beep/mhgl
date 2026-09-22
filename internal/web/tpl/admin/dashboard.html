@@ -1,0 +1,20 @@
+{{define "content"}}
+<div class="adm-grid">
+  <section class="adm-card">
+    <div class="adm-card-head"><h2>统计概览</h2><button type="button" class="adm-btn is-ghost is-tiny" data-refresh="stats">刷新</button></div>
+    <div class="adm-stats" id="adm-stats" data-state="loading"><div class="adm-state">加载中…</div></div>
+  </section>
+  <section class="adm-card">
+    <div class="adm-card-head"><h2>运行健康</h2><button type="button" class="adm-btn is-ghost is-tiny" data-refresh="health">刷新</button></div>
+    <div id="adm-health" data-state="loading"><div class="adm-state">加载中…</div></div>
+  </section>
+  <section class="adm-card">
+    <div class="adm-card-head"><h2>运行中任务</h2><a class="adm-btn is-ghost is-tiny" href="/admin/tasks">全部任务</a></div>
+    <div id="adm-running" data-state="loading"><div class="adm-state">加载中…</div></div>
+  </section>
+  <section class="adm-card">
+    <div class="adm-card-head"><h2>最近日志</h2><button type="button" class="adm-btn is-ghost is-tiny" data-refresh="logs">刷新</button></div>
+    <div id="adm-logs" data-state="loading"><div class="adm-state">加载中…</div></div>
+  </section>
+</div>
+{{end}}

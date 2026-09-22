@@ -1,0 +1,18 @@
+{{define "content"}}
+<section class="adm-card">
+  <div class="adm-card-head">
+    <h2>代理池</h2>
+    <div class="adm-toolbar">
+      <button class="adm-btn is-tiny" id="proxy-refresh" type="button">刷新</button>
+      <button class="adm-btn is-tiny" id="proxy-harvest" type="button">触发采集</button>
+      <button class="adm-btn is-tiny" id="proxy-check" type="button">连通性检测</button>
+      <button class="adm-btn is-danger is-tiny" id="proxy-prune" type="button">清理失效</button>
+    </div>
+  </div>
+  <div id="proxy-stats" class="adm-state">加载中…</div>
+</section>
+<section class="adm-card">
+  <div class="adm-card-head"><h2>代理列表</h2></div>
+  <div id="proxy-list" class="adm-state">加载中…</div>
+</section>
+{{end}}

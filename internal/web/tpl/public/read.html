@@ -1,0 +1,61 @@
+{{define "content"}}
+<div class="ajx-read" data-page="read" data-book-id="{{.Book.id}}" data-chapter-id="{{.Chapter.id}}" data-chapter-title="{{.Chapter.title}}">
+  <div class="ajx-view-top">
+    <div class="ajx-sk-gb">
+      <div class="ajx-duset">
+        <b>背景</b>
+        <span class="ajx-skbglist" role="group" aria-label="背景色">
+          <a class="ajx-c" style="background:#cde4ff" href="javascript:void(0)" data-bg="#cde4ff" aria-label="背景 c1"></a>
+          <a class="ajx-c" style="background:#d8d8d8" href="javascript:void(0)" data-bg="#d8d8d8" aria-label="背景 c2"></a>
+          <a class="ajx-c" style="background:#cfe7d4" href="javascript:void(0)" data-bg="#cfe7d4" aria-label="背景 c3"></a>
+          <a class="ajx-c" style="background:#f2e7ab" href="javascript:void(0)" data-bg="#f2e7ab" aria-label="背景 c4"></a>
+          <a class="ajx-c" style="background:#f8f8f8" href="javascript:void(0)" data-bg="#f8f8f8" aria-label="背景 c5"></a>
+          <a class="ajx-c" style="background:#f4ced6" href="javascript:void(0)" data-bg="#f4ced6" aria-label="背景 c6"></a>
+        </span>
+        <b>字号</b>
+        <span class="ajx-fonts" role="group" aria-label="字号">
+          <a class="ajx-s" href="javascript:void(0)" data-fs="14">小</a>
+          <a class="ajx-s" href="javascript:void(0)" data-fs="17">中</a>
+          <a class="ajx-s" href="javascript:void(0)" data-fs="20">大</a>
+          <a class="ajx-s" href="javascript:void(0)" data-fs="22">加大</a>
+          <a class="ajx-s" href="javascript:void(0)" data-fs="24">极大</a>
+        </span>
+        <b>字体</b>
+        <select class="ajx-ffamily" id="ajx-ffamily" aria-label="字体">
+          <option value="">默认</option>
+          <option value='"SimSun","Songti SC",serif'>宋体</option>
+          <option value='"Microsoft YaHei","PingFang SC",sans-serif'>雅黑</option>
+          <option value='"KaiTi","Kaiti SC",serif'>楷体</option>
+          <option value='"SimHei","Heiti SC",sans-serif'>黑体</option>
+        </select>
+        <b>字体颜色</b>
+        <span class="ajx-ys" role="group" aria-label="字体颜色">
+          <a href="javascript:void(0)" data-ink="#27231f" style="color:#27231f">黑色</a>
+          <a href="javascript:void(0)" data-ink="#8c1f19" style="color:#8c1f19">红色</a>
+          <a href="javascript:void(0)" data-ink="#2c6b33" style="color:#2c6b33">绿色</a>
+          <a href="javascript:void(0)" data-ink="#174f8d" style="color:#174f8d">蓝色</a>
+          <a href="javascript:void(0)" data-ink="#6e4a2f" style="color:#6e4a2f">棕色</a>
+        </span>
+        <b>双击滚屏</b>
+        <span class="ajx-dushint">(再次双击停止滚屏)</span>
+      </div>
+    </div>
+  </div>
+  <div class="ajx-view-t">
+    <h1>{{.Book.name}}&nbsp;&nbsp;{{.Chapter.title}}</h1>
+    <div class="ajx-view-intro">{{.Book.author}} · {{or .Book.category "小说"}}</div>
+  </div>
+  <div class="ajx-view-content">
+    {{if .Chapter.content}}
+    <div id="view_content_txt" class="ajx-read-txt">{{readHTML (str .Chapter.content)}}</div>
+    {{else}}
+    <div id="view_content_txt" class="ajx-read-txt"><div class="ajx-empty">本章内容尚未采集, 请稍后再来或返回目录阅读其他章节。</div></div>
+    {{end}}
+  </div>
+  <div class="ajx-view-page">
+    {{if .PrevHref}}<a class="ajx-rl" id="ajx-prev" href="{{.PrevHref}}">上一章</a>{{else}}<span class="ajx-rl is-disabled" id="ajx-prev" aria-disabled="true">上一章</span>{{end}}
+    <a class="ajx-rl" href="{{.TocHref}}">目录</a>
+    {{if .NextHref}}<a class="ajx-rl" id="ajx-next" href="{{.NextHref}}">下一章</a>{{else}}<span class="ajx-rl is-disabled" id="ajx-next" aria-disabled="true">下一章</span>{{end}}
+  </div>
+</div>
+{{end}}

@@ -1,0 +1,49 @@
+{{define "content"}}
+<div class="ajx-full">
+  <main class="ajx-layout">
+    <section>
+      <div class="ajx-cen-main">
+        <div class="ajx-article-info">
+          <h1>全站书库</h1>
+        </div>
+        <div class="ajx-panel">
+          <div class="ajx-body">
+            {{if .Books}}
+            <ul class="ajx-lines ajx-books">
+              {{range .Books}}
+              <li class="ajx-line">
+                <span class="ajx-line-main">
+                  <span class="ajx-cat">{{or .category "小说"}}</span>
+                  <a href="{{bookHref (str .id) (num .num) $.SiteID}}" title="{{.name}}">{{.name}}</a>
+                </span>
+                <span class="ajx-author">{{.author}}</span>
+                <span class="ajx-date"><span>{{fmtWords .wordCount}}</span></span>
+              </li>
+              {{end}}
+            </ul>
+            {{else}}<div class="ajx-empty">暂无书籍</div>{{end}}
+          </div>
+        </div>
+        {{with .Pager}}
+        <div class="ajx-pager">
+          {{if .PrevURL}}<a class="ajx-pager-btn" href="{{.PrevURL}}">上一页</a>{{else}}<span class="ajx-pager-btn is-disabled">上一页</span>{{end}}
+          <span class="ajx-pager-info">第 {{.Page}} / {{.TotalPages}} 页 · 共 {{.Total}} 本</span>
+          {{if .NextURL}}<a class="ajx-pager-btn" href="{{.NextURL}}">下一页</a>{{else}}<span class="ajx-pager-btn is-disabled">下一页</span>{{end}}
+        </div>
+        {{end}}
+      </div>
+    </section>
+    <aside>
+      <article class="ajx-panel ajx-rank">
+        <h3 class="ajx-h3">书库导航</h3>
+        <div class="ajx-body">
+          <ul class="ajx-lines">
+            <li class="ajx-line"><a href="{{.HomeHref}}">返回首页</a></li>
+            <li class="ajx-line"><a href="{{.RankingHref}}">排行榜</a></li>
+          </ul>
+        </div>
+      </article>
+    </aside>
+  </main>
+</div>
+{{end}}

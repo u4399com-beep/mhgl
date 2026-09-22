@@ -6954,3 +6954,58 @@ Stage Summary:
 - ④⑤审查闭环: TS 侧 3 修复(清扫器双写/TaskDialog 缺省/start notFound)+Go 侧 7 修复(遗留②根因+removeIfSelf 竞态+pauseAuto 守卫等)+生产实证 2 缺陷即时修复(终态回调吞错/_ts-fallback 复盘)
 - ⑥清理整合: bootstrap-db.ts 一键恢复链固化(第二次 DB 清空经验)+tsc 存量撞名清零+run.sh 多实例抢端口按 PPID 协议再清一次
 - 遗留新增: 引擎重建窗口 ts-fallback 静默降级(操作纪律规避, 长期可在控制面加引擎健康预检)/CF 态势长观测(书籍页 tarpit+章节页 403 交替); 既有遗留沿用: TLS 指纹/付费代理池待决策/curl_cffi 缺失
+---
+Task ID: R55-2
+Agent: Z.ai Code 主控
+Task: 全栈 Golang 化(R55): 状态核实 + 架构定案 + 脚手架(PLAN/store/auth/config/main/接线缝)
+
+Work Log:
+- [R55-0 核实] git log 实证 R53/R54 已发生(R54=Golang-first 缺省翻转, 与本轮用户新指令区分): 本轮用户明确解除「Next.js 强约束」前提, 要求真全栈 Go 改写(Web/UI/DB 层整体 Golang 化); 工作树干净全已推 GitHub; dev(3000)/crawler-go(3032) 在跑; DB db/custom.db 137MB: Task=3(2 done+1 running 全 go)/Book=10(num 1~10)/Chapter=13279(91% 正文)/Rule=40/Site=1(localhost aijjxs)/Setting 空
+- [R55-1 定案] agent-ctx/go-migration/PLAN.md = 分工契约: 单二进制 Go 单体(module mhgl, stdlib mux + html/template + modernc.org/sqlite v1.59.0 纯Go驱动, 拉取已验证), DB 原文件直连零迁移; 实证口径: Prisma 在 SQLite 存 DateTime=INTEGER 毫秒/Boolean=0/1/cuid TEXT; 连接策略 SetMaxOpenConns(1) 单写者; 路由面: /=后台 /?view=*=前台 /book/{num}.html 伪静态 /p/{slug}.html PSEO; 鉴权 auth.ts 逐语义移植(cookie heis_admin/HMAC 12h/5次每分限流/preview-hint)
+- [R55-2 脚手架] go.mod(go1.26.0)+internal/config+internal/store(db.go 通用取数/ToMS/ToBool 转换, id.go cuid 形态, models.go Task/Book 强类型+条件写+MergeTaskJSON, chapters.go, settings.go KV, sites.go)+internal/auth(auth.go 全语义移植)+internal/api(router.go 注册点+auth.go 四端点)+internal/web(注册占位)+cmd/server/main.go(装配/recoverOnBoot running→paused 条件写/优雅退出 StopAll/debug.SetMemoryLimit 600MB/healthz RSS 自报)+scripts/dev-go.sh(增量构建); 冒烟 :3040+DB 副本(db/go-test.db)全绿: healthz RSS=7MB(对比 next-server 2GB), 登录 401/200/check/preview-hint=audit-fix-2025 全对
+- [R55-2 分工] 3-a=crawl(crawler-go 整体并入+go-callback 持久化语义桥+cleaner/sorter/smart 移植+管理器+autoRefresh); 3-b=api(admin+public JSON 面); 3-c=web(前台 aijjxs SSR+后台管理页); 文件所有权互斥(PLAN §4), store 扩展协议(前缀化新文件), 接线缝 internal/crawl/engine.go(TestRule/NewManager 桩, 3-a 整文件替换); 三代理并行派发, 联调端口 3041/3042/3043+各自 DB 副本, :3000/:3032/:3040 与 db/custom.db 禁触
+
+Stage Summary:
+- R55 脚手架闭环: 架构定案落盘(PLAN.md)+Go 单体可运行(冒烟全绿)+DB 直连兼容性实证(epoch-ms/0-1/cuid 口径写入代码契约)+三代理并行就绪
+- 关键决策: modernc.org/sqlite 纯Go(无 cgo)/stdlib mux(零路由依赖)/单连接单写者/内存限 600MB/鉴权 Cookie 与旧实现同源(旧会话可无缝续用)
+- 风险预控: 三大部头任务切换时 stop→重建→start 的收割顺序写进 PLAN §9 runbook; public/covers 已随沙箱丢失(封面路由须优雅回退)
+---
+Task ID: R55-3b2
+Agent: general-purpose (api 续作)
+Task: R55-3b Admin/Public REST API 审计+补全+门禁+curl 冒烟(前任 3-b 传输断连续作收口)
+
+Work Log:
+- [前置] 读 PLAN 全文+worklog 末 160 行; `go build ./internal/api/ ./internal/store/` 实证: store 报错全部位于 web_extra.go(3-c 所有权, 未动), api 包另有 8 处编译错误被依赖失败掩盖 —— 前任残留未收口半成品; router.go 实测 100 处 HandleFunc(admin 80+public 16+auth 4), builtin_rules.json 115KB 单行 35 条规则(name 唯一; 任务书「40 规则」实为 DB Rule=40, 内置库 35 与 R54 bootstrap 口径一致)
+- [审计] 通读 api 13 文件+api_extra.go 全量, 对照 PLAN §5 逐端点核对 TS 原件(tasks/_shared.ts+book-ids.ts、stats/health/settings route+SettingsSection、public 15 route、pseudostatic*.ts、banned-words*.ts、links.ts、cover/download/sitemap/feedback/resolve): 核心档全量在位 —— 任务 CRUD 校验口径(mode 白名单/bookIds 解析+去重+range 二选一/engine=go 上限 100000)、control 走 Deps.Tasks、rules/test 只调 crawl.TestRule 桩、import-builtin 按 name upsert 保 ruleId、stats 7 日曲线(countPerDay7d 本地自然日窄区间)、settings 键枚举、cover 防穿越+缺文件 404、feedback 同 IP 5 条/时、download 读最新 done、pseudostatic token 解析口径, 主体均已落盘; 缺口见[补全②]
+- [补全①编译收口×8] admin_books.go/admin_content.go/admin_taxonomy.go 各 1 处 QueryMap 三返回值误按两变量接收; admin_rules.go batch 未用变量 action 改 _; public_data.go 前任引用未定义的 randIntn/jsonUnmarshal(助手补上: math/rand 封装+json.Unmarshal 包装)+GetBookByNum 误按三返回值(实为 (*Book,error)); public_files.go 未用 import encoding/json 删除
+- [补全②语义缺口(对照 TS 原件逐一)] ①publicBook 响应形态: category 由对象改字符串(未分类兜底)+收敛为 TS 显式字段集(剥 sourceRuleId/storageMode/collectedAt/createdAt 管理面字段; sourceUrl 前任已剥) ②publicChapter 补违禁词过滤(R21-h-1 前任漏): 新建 banned_words.go 移植 applyBannedWordsToHtml(mask 星号≤6 与码点等长/remove 直删/长词优先排序/(?i) latin 不敏感/标签段不分词防破坏结构/空词表零开销直通)+配置 60s TTL 进程内缓存+保存即失效钩子(banned-words PUT 与 settings PUT key=bannedWords 两处, 对齐 TS invalidate 钩子); 顺手删 prev 章节死查询(同句重复两次) ③publicSearch 空 q 返回 {q,books} 不带 relatedTags 键(对齐 TS) ④sitemap 对齐 R15-a1-6/R27-2-7: 新增 siteQOf(显式 site→默认启用站→第一启用站)+appendSiteQ 全 loc 追加 site 参数(canonical 对齐)+legacy 单页模式(无 page/index: 首页 loc+PSEO 2000+books 5000+chapters 5000 独立查询互不挤占)+sitemapindex 补 <lastmod> 与显式 site 参数 ⑤pseudostatic.go 对齐 TS: CUID token 正则补 (?i)+parsePrettyPath 逐段 decodeURIComponent(url.PathUnescape, 非法编码保留原文)+.html/.htm 后缀剥离不区分大小写 ⑥normalizeTaskData mode 校验: 显式空串/非法值报错(删 m!="" 短路; 未提供仍回退 range, 对齐 TS includes 口径) ⑦proxyStats avgLatencyMs: AVG float64 Scan 进 int 静默失败恒 0 → Scan float64 再取整(冒烟实测 2589 非 0)
+- [门禁] gofmt -w 后 gofmt -l internal/api internal/store/api_extra.go 空; go vet 因 store/web_extra.go(3-c)编译错阻塞依赖链 → /tmp 等价副本(仅去 web_extra.go)对 internal/api+store+crawl `go vet` 0 错且 build 全过(等价于「api 包+store 除 web_extra 外编译通过」); 未写任何 *_test.go
+- [联调] cmd/server 依赖全仓 green(3-c web_extra 未收口)不可编译 → 临时 harness 经 `go build -overlay`(main.go 仅存 /tmp, 零仓库写入, 未提交)只挂 internal/api 面+stub TaskController, PORT=3042+DB 副本 db/go-test-api.db(cp 自 custom.db)冒烟
+- [curl 冒烟-admin 全绿] auth: bad pw 401/login 200+Set-Cookie/check authenticated:true/preview-hint=audit-fix-2025; stats(books20/chapters19728/rules40/tasks3+chaptersLast7d/booksLast7d 各 7 桶+recentTasks/recentBooks/categories/wordsByCategory)/health(healthy/db ok/runner running1/memory.rss>0); tasks 列表/详情(live+rule)/control 无效 action 400+不存在 id 404+真实 id 走 stub 返回「采集引擎尚未接入(3-a 待实现)」400/logs 200 条/PUT mode="" 400(新口径生效)/batch 无 ids 400+不存在 id 入 skipped; books 列表(total+_count.chapters/tags+category 对象)/搜索「黄金」1 命中/toc 分页+越界页钳回 1/keywords GET 20+POST manualTags added1+DELETE 200; rules 列表 40/builtin 35 全标 imported/import-builtin 跑两次 created35+updated35、规则总数恒 40(按 name upsert 保 ruleId 幂等实证)/test 桩形态 502 信封/非法 section 400; settings get 8 键默认值(download/pseudostatic/linkwheel/bannedWords/seoTemplates/proxyPool/theme_overrides/pseoAutoGenerate, 与 SettingsSection+links/banned-words/seo-tpl/proxy-pool/theme-overrides/pseo-server 枚举一致)/put 切 numeric 生效后还原; categories 列表+consolidate dryRun(5 类 0 merges)/sites 列表+auto-tdk(title 40 字截断)/links/feedback 管理(list stats+PUT status read)/downloads 创建真实起 goroutine/proxy-pool(stats alive84/total31058/avgLatencyMs=2589 修复后非 0)+prune; backup JSON 可解析(version1/counts.books20/data.books20/warnings 空); pseo 空态/banned-words get+put/seo-templates(默认 customized:false)/themes 11/themes override/seo-audit 空态
+- [curl 冒烟-public 全绿] books(book.category 字符串形态)/book(id 字段集=TS 显式集+最新 12 章+tocTotalPages)/chapter(键集+book 6 键+prev/next; 违禁词全链: remove 词「这小娘们怎么」配置后内容 3911→3493 词消失, mask「小娘」→'**', 清空词表 3911 原样恢复, 保存即生效实证)/search(空 q 仅 {q,books})/categories 5/tags 洗牌/related 6 本/keyword 空态/links(wheel 1 站+wheelEnabled)/sites(pseudoPreset+seoTpl+themeOverrides 三附加键在位)/resolve(/book/1.html→view:book, /read/1/1.html+alnum /read/b1/c3.html+compact /read/1_3.html→view:read, /book/9999.html→data:null)/cover(缺文件 404, ../ 穿越 400, 非法后缀 400)/feedback(6 连发 200×5+429 同 IP 5 条/时实证; 短内容 400; GET 405)/download 缺参 400/sitemap(page1 loc 带 ?site= 参数+index 带 lastmod+legacy 首页 loc; 切 numeric 预设后 loc=/book/3.html?site=… 即时生效)
+- [红线] 未动 internal/store/web_extra.go 与任何主控文件; 未写 db/custom.db(仅 cp 出 db/go-test-api.db 副本); 未 pkill 既有进程(:3000/:3032/:3040 未触); 临时 main 未入仓库(overlay 注入且存 /tmp); 导出面(Register/Deps/TaskController/auth 四端点语义)零改动; harness 进程已收割+web/downloads 测试产物已清
+
+Stage Summary:
+- 前任 R55-3b 残留收口完成: 8 处编译错全修(api 包在 store 除 web_extra 外独立编译通过), 100 端点(auth4+admin80+public16)齐备且按 TS 原件对齐语义/形态; 门禁 gofmt 空+vet 0(等价副本)+build 过
+- 本轮新增 internal/api/banned_words.go(违禁词引擎+TTL 缓存+失效钩子); 修改 10 文件: public_data/public_files/admin_books/admin_content/admin_rules/admin_taxonomy/admin_tasks/admin_ops/admin_dash/pseudostatic; internal/store/api_extra.go 零改动
+- TS 语义偏差留档(PARITY): ①settings GET 注入代码内默认值(TS 仅返 DB 行; PLAN「默认值在代码里」口径, 超集) ②bannedWords 默认带 enabled:false(TS DEFAULT 无该字段, 消费等价) ③public/links 链轮=启用站点直链(TS 随机指向站内书籍页, 简化档已注) ④feedback content 长度按 rune 计(TS 按 UTF-16 unit, CJK 等价) ⑤health 简化: healthy/unhealthy 二态+services 恒空(mini-services 退役) ⑥books keywords POST engines 恒空(外部 suggest 引擎退役, 简化档已注) ⑦adminSeoAudit 高级分析恒空态(简化档) ⑧proxy harvest/check 留痕不执行(外部工具触发)
+- 遗留: ①cmd/server 整体编译待 3-c web_extra.go 收口(本轮以等价副本验证 api 面) ②tasks control 对真实引擎的行为待 3-a NewManager 装配后复验(stub 仅验证路由/信封/404 分流/start 终态条件重置前置) ③rules/test 桩返回 502 待 3-a 实现 TestRule 后转为真实四段试采 ④db/go-test-api.db 副本内含冒烟写入(feedback×5/设置切换/download job), 主控联调可重新 cp 覆盖
+---
+Task ID: R55（主控收口）
+Agent: Z.ai Code 主控
+Task: ①全栈 Golang 化真实落地(用户解除 Next.js 强约束) ③④⑤审查修复 ⑥清理精简 ⑥主题逐页核实 ⑦规则噪声清洗审计 ⑧推送git
+
+Work Log:
+- [①迁移主体] 三代理并行(3a crawl/3b api/3c web, 均传输断连×1~2 由主控核收续作): crawler-go 引擎代码级并入 internal/crawl(fetch/rule/task/util/callback+clean756行/sorter884行/smart433行 移植)+bridge 直连持久化(go-callback 722行语义: book upsert/needUrls 增量决策/seq 重排/cover 存原格式/progress 节流合并)+api 100 端点(admin 80+public 16+auth4, builtin_rules.json 嵌入幂等导入)+web 28 模板(前台 aijjxs 13 页+后台 12 分区, 深色管理台+阅读控制条)
+- [①三大根因 bug] E2E 逐层实证修复: ①CrawlUpdateTaskStatusIfIn 参数序错位(id 与 allowed 互换)→全部状态迁移静默 0 行(pending 永不迁移) ②sorter.ReorderToc 值拷贝 bug(w := withNo[i] 应为指针)→重排输出全空壳(title/url 全丢)→needUrls 恒空→所有任务"0 章直通 done" ③CrawlCreateChapter 列值错位(13列12值必炸+url 槽硬编码 NULL)→章节行全断; 三修后 fixture E2E 全绿(三模式 done errors=0/5书15章全填充5814字/5封面/控制链/autoRefresh 5min 二轮闭环实测)
+- [①切换上线] 收割旧栈(引擎 0 在跑无任务损失)→kill next-server+crawler-go(run.sh 环按 PPID 断)→单体 :3000 上线(recoverOnBoot 收编 yueyouxs 幽灵 running→paused)→三大部头重启: yueyouxs 增量续采实证(穿入西游斗战佛→吞天神帝 624/2096, ~25章/分钟, RSS 17MB vs 旧栈2GB); package.json dev→scripts/dev-go.sh
+- [④⑥UI 实测] agent-browser 全链(截图 9 张 shots-cutover/): 首页/书籍页(万古神帝 4236章元信息)/阅读页(控制条)/后台登录/仪表盘(RSS 17.8MB+进度实时)/任务页(状态感知按钮)/日志查看器(恢复轨迹)/移动端 390px 无横向溢出; 切换后修 2 缺陷: 后台分区导航相对 href 误入公开 404(改绝对路径)+重启后 resume 对不在册任务报错(回落 Start 断点续采, engine.go [R55-修复])
+- [⑦噪声审计] 40/40 规则 clean 配置齐; 内容扫描: xyetianlian 杰奇WAP 站 1.06万章推广水印(请记住首发/手机阅读/最新章节/QQ群/97xiaoshu 等六形态)+xbqg777 少量 → 两规则 adPatterns 加固(防新增)+五轮洗扫 1.23万章(残留 3 章=0.015%, qq小写8章为 LIKE 大小写误报); 正文完整性抽查通过(万古神帝 平均 3486 字/章)
+- [⑥清理文档] README 头部/技术栈表改写 Go 单体+架构图; INSTALL-GUIDE.md 全量重写(Go 单体版: systemd/Docker/环境变量/FAQ; 旧版留档 INSTALL-GUIDE-r52.bak.md); PARITY.md(全量/简化/退役三档矩阵)+theme-audit.md(前台13页+后台12分区逐页核实+10主题迁移序列)
+- [⑧推送] 见 git log(本轮提交: 迁移主体+修复+文档)
+
+Stage Summary:
+- ①「整体改为 Golang」真实落地: Node 运行时退役, 单二进制 Go 单体承载 Web/API/UI/采集/调度全部职责, DB 原文件零迁移, 会话 Cookie 与旧栈同源无缝
+- 实测: E2E 全绿 + 生产三大部头单体续采(RSS 17MB)+UI 全链浏览器验证; TS 时代源码保留 src/(历史参照)推送 GitHub 保全
+- 采集+反反爬: 引擎代码级保真(R51~R54 资产零改动并入), 三大根因 bug(状态机/重排/建章)E2E 实证修复; 噪声清洗 1.06万→3 章残留
+- 遗留: 其余 10 主题 Go 移植序列(theme-audit.md)/PWA/backup restore/代理收割器并入/残余 3 章水印

@@ -1,0 +1,32 @@
+{{define "content"}}
+<div class="ajx-home">
+  <div class="ajx-cen-main">
+    <div class="ajx-article-info">
+      <h1>排行榜</h1>
+    </div>
+    <p class="ajx-dushint" style="margin:0 0 12px">更新榜 / 字数榜 / 新书榜 TOP60 · 每小时随采集更新 · <a href="{{viewHrefCategoryAll .SiteID}}">浏览全部分类</a></p>
+    {{range .Boards}}
+    <article class="ajx-panel" style="margin-bottom:14px">
+      <h3 class="ajx-h3">{{.Label}} <small style="font-size:13px;color:#b45309;margin-left:8px;font-weight:400">TOP60</small></h3>
+      <div class="ajx-body">
+        {{if .Books}}
+        <ul class="ajx-lines">
+          {{range $i, $b := .Books}}
+          <li class="ajx-line">
+            <span class="ajx-line-main">
+              <span class="ajx-no">{{add $i 1}}</span>
+              <span class="ajx-cat">{{or $b.category "小说"}}</span>
+              <a href="{{bookHref (str $b.id) (num $b.num) $.SiteID}}" title="{{$b.name}}">{{$b.name}}</a>
+            </span>
+            <span class="ajx-author">{{$b.author}}</span>
+            <span class="ajx-date"><span>{{fmtWords $b.wordCount}}</span></span>
+          </li>
+          {{end}}
+        </ul>
+        {{else}}<div class="ajx-empty">榜单暂无数据</div>{{end}}
+      </div>
+    </article>
+    {{end}}
+  </div>
+</div>
+{{end}}

@@ -1,0 +1,29 @@
+{{define "content"}}
+<section class="adm-card">
+  <div class="adm-card-head">
+    <h2>统计概览</h2>
+    <div class="adm-toolbar"><button class="adm-btn is-tiny" id="dash-refresh" type="button">刷新</button><span class="adm-muted" id="dash-updated"></span></div>
+  </div>
+  <div id="dash-stats" class="adm-state">加载中…</div>
+</section>
+<div class="adm-grid">
+  <section class="adm-card">
+    <div class="adm-card-head"><h2>运行健康</h2></div>
+    <div id="dash-health" class="adm-state">加载中…</div>
+  </section>
+  <section class="adm-card">
+    <div class="adm-card-head"><h2>最近任务</h2><div class="adm-toolbar"><a class="adm-btn is-tiny" href="/admin/tasks">全部任务 →</a></div></div>
+    <div id="dash-tasks" class="adm-state">加载中…</div>
+  </section>
+</div>
+<section class="adm-card">
+  <div class="adm-card-head">
+    <h2>最近任务日志</h2>
+    <div class="adm-toolbar">
+      <label class="adm-label is-check"><input type="checkbox" id="dash-log-auto" checked> 10s 自动刷新</label>
+      <span class="adm-muted" id="dash-log-task"></span>
+    </div>
+  </div>
+  <div id="dash-logs" class="adm-logview"><div class="adm-state">加载中…</div></div>
+</section>
+{{end}}

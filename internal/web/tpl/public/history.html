@@ -1,0 +1,16 @@
+{{define "content"}}
+<div class="ajx-home">
+  <section class="ajx-panel" style="max-width:760px;margin:24px auto 0;padding:18px">
+    <h3 class="ajx-h3">阅读历史</h3>
+    <div class="ajx-body">
+      <p class="ajx-dushint" style="margin:0 0 10px">阅读历史仅保存在本机浏览器(localStorage), 不上传服务器。</p>
+      <div id="ajx-history-empty" class="ajx-empty" style="display:none">暂无阅读历史, 去首页挑一本书开始阅读吧。</div>
+      <ul class="ajx-lines" id="ajx-history-list"></ul>
+      <div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap">
+        <a class="ajx-download-btn ajx-dl-read" href="{{.HomeHref}}" style="min-width:0">去逛首页</a>
+        <a class="ajx-download-btn ajx-dl-toc" href="{{.SearchHref}}" style="min-width:0">搜索书籍</a>
+      </div>
+    </div>
+  </section>
+</div>
+{{end}}

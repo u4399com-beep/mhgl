@@ -1,0 +1,71 @@
+{{define "content"}}
+<div class="ajx-search" style="max-width:960px;margin:0 auto;padding:0 14px 36px">
+  <header style="text-align:center;margin:24px 0 20px">
+    <span style="display:inline-flex;align-items:center;gap:6px;border:1px solid #cae8e3;background:#eef9f7;color:#0f766e;border-radius:999px;padding:4px 14px;font-size:12px">关键词专题</span>
+    {{if .Tag}}<h1 style="margin:12px 0 6px;font-size:30px;font-weight:800;color:#1f2937">{{.Tag}}</h1>
+    <p style="margin:0;font-size:13px;color:#6b7280">{{siteTitle .Site}} · 围绕“{{.Tag}}”精选的小说合集</p>{{else}}
+    <h1 style="margin:12px 0 6px;font-size:30px;font-weight:800;color:#1f2937">关键词专题</h1>
+    <p style="margin:0;font-size:13px;color:#6b7280">{{siteTitle .Site}} · 缺少关键词参数, 可从书籍详情页的关键词标签进入{{end}}</p>
+  </header>
+  {{if .Primary}}
+  <article class="ajx-panel" style="padding:18px">
+    <div class="ajx-detail">
+      <div class="ajx-pic">
+        <span class="ajx-cover ajx-cover-lg">
+          {{if .Primary.cover}}<img src="{{coverURL (str .Primary.cover)}}" alt="{{.Primary.name}} 封面" loading="lazy" onerror="this.remove()">{{end}}
+          <span class="ajx-cover-ph">{{.Primary.name}}</span>
+        </span>
+      </div>
+      <div class="ajx-kv">
+        <p style="font-size:12px;color:#b45309;font-weight:700;letter-spacing:.25em">主关键词书籍</p>
+        <h2 style="margin:4px 0 8px;font-size:24px;font-weight:800"><a href="{{.PrimaryBookHref}}" style="color:#1f2937">{{.Primary.name}}</a></h2>
+        <p><strong>作者：</strong>{{.Primary.author}}</p>
+        <p><strong>分类：</strong><a href="{{catIDHref (str .Primary.categoryId) .SiteID}}">{{or .Primary.category "未分类"}}</a></p>
+        <p><strong>状态：</strong>{{statusLabel (str .Primary.status)}}</p>
+        <p><strong>字数：</strong>{{fmtWords .Primary.wordCount}}</p>
+        <p><strong>最新：</strong>{{.Primary.latestChapter}}</p>
+        <p class="ajx-desc" style="margin-top:8px;color:#374151;font-size:14px">{{if .Primary.intro}}{{excerpt .Primary.intro 120}}{{else}}暂无简介{{end}}</p>
+        <div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap">
+          <a class="ajx-download-btn ajx-dl-read" href="{{.PrimaryBookHref}}" style="min-width:0">查看书籍详情</a>
+          <a class="ajx-download-btn ajx-dl-toc" href="{{tocHref (str .Primary.id) (num .Primary.num) .SiteID}}" style="min-width:0">章节目录</a>
+        </div>
+      </div>
+    </div>
+  </article>
+  {{else}}
+  <div class="ajx-panel" style="padding:18px"><div class="ajx-empty">{{if .Tag}}暂无与“{{.Tag}}”直接匹配的主打书籍{{else}}暂无可展示的关键词书籍{{end}}</div></div>
+  {{end}}
+  {{if .Others}}
+  <section style="margin-top:18px">
+    <article class="ajx-panel">
+      <h3 class="ajx-h3">其他相关书籍</h3>
+      <div class="ajx-body">
+        <ul class="ajx-lines">
+          {{range $i, $b := .Others}}
+          <li class="ajx-line">
+            <span class="ajx-line-main">
+              <span class="ajx-no">{{add $i 1}}</span>
+              <span class="ajx-cat">{{or $b.category "小说"}}</span>
+              <a href="{{bookHref (str $b.id) (num $b.num) $.SiteID}}" title="{{$b.name}}">{{$b.name}}</a>
+            </span>
+            <span class="ajx-author">{{$b.author}}</span>
+            <span class="ajx-date"><span>{{fmtWords $b.wordCount}}</span></span>
+          </li>
+          {{end}}
+        </ul>
+      </div>
+    </article>
+  </section>
+  {{end}}
+  {{if .Related}}
+  <section style="margin-top:18px">
+    <article class="ajx-panel">
+      <h3 class="ajx-h3">相关关键词</h3>
+      <div class="ajx-body ajx-tags">
+        {{range .Related}}<a href="{{viewHrefKeyword . $.SiteID}}">{{.}}</a>{{end}}
+      </div>
+    </article>
+  </section>
+  {{end}}
+</div>
+{{end}}

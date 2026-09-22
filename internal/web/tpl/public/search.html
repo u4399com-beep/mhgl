@@ -1,0 +1,43 @@
+{{define "content"}}
+<div class="ajx-search">
+  <main class="ajx-layout">
+    <section>
+      <div class="ajx-cen-main">
+        <div class="ajx-article-info">
+          {{if .Q}}<h1>「{{.Q}}」 的搜索结果</h1>{{else}}<h1>全站搜索</h1>{{end}}
+        </div>
+        {{if .Q}}
+        <div class="ajx-panel">
+          <div class="ajx-body">
+            {{if .Books}}
+            <ul class="ajx-lines ajx-books">
+              {{range .Books}}
+              <li class="ajx-line">
+                <span class="ajx-line-main">
+                  <span class="ajx-cat">{{or .category "小说"}}</span>
+                  <a href="{{bookHref (str .id) (num .num) $.SiteID}}" title="{{.name}}">{{.name}}</a>
+                </span>
+                <span class="ajx-author">{{.author}}</span>
+                <span class="ajx-date"><span>{{fmtWords .wordCount}}</span></span>
+              </li>
+              {{end}}
+            </ul>
+            {{else}}<div class="ajx-empty">未找到相关书籍, 换个关键词试试</div>{{end}}
+          </div>
+        </div>
+        <p class="ajx-dushint" style="margin-top:10px">共 {{.Total}} 条结果</p>
+        {{else}}<div class="ajx-empty">输入关键词开始搜索, 支持书名 / 作者 / 关键词。</div>{{end}}
+      </div>
+    </section>
+    <aside>
+      <article class="ajx-panel">
+        <h3 class="ajx-h3">相关阅读</h3>
+        <div class="ajx-body ajx-tags">
+          {{if .Tags}}{{range .Tags}}<a href="{{viewHrefKeyword (str .tag) $.SiteID}}">{{.tag}}</a>{{end}}
+          {{else}}<span class="ajx-meta">暂无相关词</span>{{end}}
+        </div>
+      </article>
+    </aside>
+  </main>
+</div>
+{{end}}

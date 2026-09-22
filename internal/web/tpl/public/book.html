@@ -1,0 +1,101 @@
+{{define "content"}}
+<div class="ajx-book-page">
+  <main class="ajx-layout">
+    <section>
+      <article class="ajx-panel">
+        <h3 class="ajx-h3">《{{.Book.name}}》</h3>
+        <div class="ajx-body ajx-detail">
+          <div class="ajx-pic">
+            <span class="ajx-cover ajx-cover-lg">
+              {{if .Book.cover}}<img src="{{coverURL (str .Book.cover)}}" alt="{{.Book.name}} 封面" loading="lazy" onerror="this.remove()">{{end}}
+              <span class="ajx-cover-ph">{{.Book.name}}</span>
+            </span>
+            <a class="ajx-copy-btn" href="{{.FulltextHref}}">全站书库</a>
+          </div>
+          <div class="ajx-kv">
+            <p><strong>书籍作者：</strong>{{.Book.author}}</p>
+            <p><strong>书籍分类：</strong><a href="{{catIDHref (str .Book.categoryId) .SiteID}}">{{or .Book.category "未分类"}}</a></p>
+            <p><strong>章节数量：</strong>{{.ChapterCount}} 章</p>
+            <p><strong>书籍大小：</strong>{{fmtKB .Book.wordCount}}</p>
+            <p><strong>写作进度：</strong><span class="ajx-sfwj">{{statusLabel (str .Book.status)}}</span></p>
+            <p><strong>上传时间：</strong>{{dateDay .Book.updatedAt}}</p>
+            <p><strong>下载方式：</strong>全本免费</p>
+          </div>
+        </div>
+      </article>
+      {{if .Tags}}
+      <article class="ajx-panel">
+        <h3 class="ajx-h3">作品标签</h3>
+        <div class="ajx-body ajx-tags">
+          {{range .Tags}}<a href="{{viewHrefKeyword . $.SiteID}}">{{.}}</a>{{end}}
+        </div>
+      </article>
+      {{end}}
+      <article class="ajx-panel ajx-intro-panel">
+        <h3 class="ajx-h3">内容简介</h3>
+        <div class="ajx-body"><div class="ajx-desc">{{if .Book.intro}}{{.Book.intro}}{{else}}暂无简介{{end}}</div></div>
+      </article>
+      <article class="ajx-panel">
+        <h3 class="ajx-h3">下载与说明</h3>
+        <div class="ajx-body">
+          {{if .ReadFirstHref}}<a class="ajx-download-btn ajx-dl-read" href="{{.ReadFirstHref}}">在线阅读全文</a>
+          {{else}}<span class="ajx-download-btn ajx-dl-read is-disabled" aria-disabled="true">在线阅读全文</span>{{end}}
+          <a class="ajx-download-btn ajx-dl-toc" href="{{.TocHref}}">查看完整目录</a>
+          <div class="ajx-tips">本站所有小说均可免费在线阅读与下载，注册会员可获取 TXT 全本电子书。</div>
+        </div>
+      </article>
+      {{if .LatestChapters}}
+      <article class="ajx-panel">
+        <h3 class="ajx-h3">最新章节</h3>
+        <div class="ajx-body">
+          <ul class="ajx-lines">
+            {{range .LatestChapters}}
+            <li class="ajx-line">
+              <span class="ajx-line-main">
+                <span class="ajx-cat">{{.idx}}</span>
+                <a href="{{chapterHref (str .id) (num $.Book.num) (num .idx) $.SiteID}}" title="{{.title}}">{{.title}}</a>
+              </span>
+            </li>
+            {{end}}
+          </ul>
+        </div>
+      </article>
+      {{end}}
+      <article class="ajx-panel">
+        <h3 class="ajx-h3">猜您喜欢</h3>
+        <div class="ajx-body ajx-grid2">
+          {{if .Recs}}
+          {{range .Recs}}
+          <div class="ajx-book-card">
+            <h4><span class="ajx-badge">{{or .category "小说"}}</span>
+              <a href="{{bookHref (str .id) (num .num) $.SiteID}}">{{.name}}</a>
+            </h4>
+            <div class="ajx-meta">{{.author}} · {{or .category "小说"}} · {{fmtKB .wordCount}} · {{dateDay .updatedAt}}</div>
+            <div class="ajx-desc">{{excerpt .intro 56}}…</div>
+          </div>
+          {{end}}
+          {{else}}<div class="ajx-meta">暂无推荐</div>{{end}}
+        </div>
+      </article>
+    </section>
+    <aside>
+      <article class="ajx-panel ajx-rank">
+        <h3 class="ajx-h3">热门{{or .Book.category "小说"}}下载</h3>
+        <div class="ajx-body">
+          {{if .SideRank}}
+          <ul class="ajx-lines">
+            {{range $i, $b := .SideRank}}
+            <li class="ajx-line">
+              <span class="ajx-no">{{add $i 1}}</span>
+              <a href="{{bookHref (str $b.id) (num $b.num) $.SiteID}}" title="{{$b.name}}">{{$b.name}}</a>
+              <span class="ajx-date">{{$b.author}}</span>
+            </li>
+            {{end}}
+          </ul>
+          {{else}}<div class="ajx-empty">暂无数据</div>{{end}}
+        </div>
+      </article>
+    </aside>
+  </main>
+</div>
+{{end}}

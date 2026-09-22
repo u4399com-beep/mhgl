@@ -1,0 +1,28 @@
+{{define "content"}}
+<div class="ajx-toc">
+  <div class="ajx-read-wrap">
+    <article class="ajx-read-panel">
+      <h1 class="ajx-read-title">{{.Book.name}}全文阅读</h1>
+      <div class="ajx-read-meta">
+        作者：{{.Book.author}}&nbsp; | &nbsp;大小：{{fmtWords .Book.wordCount}}&nbsp; | &nbsp;上传时间：{{dateDay .Book.updatedAt}}
+        <a href="{{.BookHref}}">书籍页</a>
+      </div>
+      {{if .Book.intro}}<div class="ajx-read-intro">内容提要：{{excerpt .Book.intro 120}}…</div>{{end}}
+      {{if .Chapters}}
+      <ul class="ajx-chapter-list">
+        {{range .Chapters}}
+        <li><a href="{{chapterHref (str .id) (num $.Book.num) (num .idx) $.SiteID}}" title="{{.title}}">{{.title}}</a></li>
+        {{end}}
+      </ul>
+      {{else}}<div class="ajx-empty">目录暂未收录, 请稍后再来</div>{{end}}
+      {{with .Pager}}
+      <div class="ajx-pager" style="margin-top:14px">
+        {{if .PrevURL}}<a class="ajx-pager-btn" href="{{.PrevURL}}">上一页</a>{{else}}<span class="ajx-pager-btn is-disabled">上一页</span>{{end}}
+        <span class="ajx-pager-info">第 {{.Page}} / {{.TotalPages}} 页</span>
+        {{if .NextURL}}<a class="ajx-pager-btn" href="{{.NextURL}}">下一页</a>{{else}}<span class="ajx-pager-btn is-disabled">下一页</span>{{end}}
+      </div>
+      {{end}}
+    </article>
+  </div>
+</div>
+{{end}}

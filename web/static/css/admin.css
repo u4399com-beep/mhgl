@@ -1,0 +1,151 @@
+/* ============================================================
+   后台管理台(admin.css) — 深色 zinc-950 基调, 琥珀/绿强调(不用蓝/靛紫)
+   布局: 左侧分区导航(≤900px 折叠为顶部横向滚动) + 卡片圆角 + 粘底页脚
+   ============================================================ */
+:root{
+  --bg:#09090b;--panel:#111113;--panel-2:#18181b;--line:#27272a;--line-2:#3f3f46;
+  --text:#e4e4e7;--muted:#a1a1aa;--dim:#71717a;
+  --amber:#f59e0b;--amber-soft:rgba(245,158,11,.14);
+  --green:#10b981;--green-soft:rgba(16,185,129,.14);
+  --red:#ef4444;--red-soft:rgba(239,68,68,.12);
+  --radius:12px;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body.adm{
+  margin:0;background:var(--bg);color:var(--text);
+  font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif;font-size:14px;line-height:1.6;
+}
+a{color:var(--amber);text-decoration:none}
+a:hover{text-decoration:underline}
+/* 壳: min-h-screen flex + footer 粘底 */
+.adm-shell{min-height:100vh;display:flex}
+.adm-body{flex:1;display:flex;flex-direction:column;min-width:0}
+.adm-main{flex:1;padding:18px;min-width:0}
+.adm-main-center{display:flex;align-items:center;justify-content:center}
+.adm-foot{flex-shrink:0;margin-top:auto;padding:14px 18px;border-top:1px solid var(--line);color:var(--dim);font-size:12px}
+
+/* ---- 侧栏 ---- */
+.adm-side{width:210px;flex-shrink:0;border-right:1px solid var(--line);background:var(--panel);display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow-y:auto}
+.adm-brand{display:flex;align-items:center;gap:10px;padding:16px 14px;font-weight:800;font-size:15px;border-bottom:1px solid var(--line)}
+.adm-brand-mark{display:inline-flex;width:30px;height:30px;align-items:center;justify-content:center;border-radius:9px;background:linear-gradient(135deg,var(--amber),#b45309);color:#1c1917;font-size:12px;font-weight:900}
+.adm-nav{display:flex;flex-direction:column;padding:8px;gap:2px}
+.adm-nav-item{display:flex;align-items:center;gap:8px;min-height:44px;padding:8px 12px;border-radius:9px;color:var(--muted);font-size:14px;text-decoration:none}
+.adm-nav-item:hover{background:var(--panel-2);color:var(--text);text-decoration:none}
+.adm-nav-item.is-active{background:var(--amber-soft);color:var(--amber);font-weight:600}
+.adm-side-foot{margin-top:auto;padding:8px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:2px}
+/* 移动端: 侧栏折叠为顶部横向滚动 */
+.adm-burger{display:none}
+
+/* ---- 顶栏 ---- */
+.adm-topbar{display:flex;align-items:center;gap:12px;padding:12px 18px;border-bottom:1px solid var(--line);background:var(--panel);position:sticky;top:0;z-index:20}
+.adm-page-title{margin:0;font-size:17px;font-weight:700}
+.adm-topbar-tag{margin-left:auto;font-size:12px;color:var(--green);background:var(--green-soft);border:1px solid rgba(16,185,129,.3);border-radius:999px;padding:2px 10px}
+
+/* ---- 卡片 ---- */
+.adm-card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;margin-bottom:16px;min-width:0}
+.adm-card-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+.adm-card-head h2{margin:0;font-size:15px;font-weight:700}
+.adm-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.adm-toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-left:auto}
+
+/* ---- 按钮/输入 ---- */
+.adm-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:44px;padding:8px 16px;border-radius:9px;border:1px solid var(--line-2);background:var(--panel-2);color:var(--text);font-size:14px;cursor:pointer;transition:filter .15s ease,background .15s ease}
+.adm-btn:hover{filter:brightness(1.15);text-decoration:none}
+.adm-btn.is-primary{background:linear-gradient(135deg,#d97706,#b45309);border-color:#b45309;color:#fff;font-weight:600}
+.adm-btn.is-danger{background:transparent;border-color:rgba(239,68,68,.5);color:var(--red)}
+.adm-btn.is-danger:hover{background:var(--red-soft)}
+.adm-btn.is-ghost{background:transparent}
+.adm-btn.is-tiny{min-height:32px;padding:4px 10px;font-size:12px}
+.adm-btn.is-block{width:100%}
+.adm-btn[disabled]{opacity:.45;cursor:not-allowed}
+.adm-input{min-height:44px;padding:8px 12px;border-radius:9px;border:1px solid var(--line-2);background:var(--panel-2);color:var(--text);font-size:14px;min-width:0}
+.adm-input:focus{outline:none;border-color:var(--amber);box-shadow:0 0 0 3px rgba(245,158,11,.18)}
+.adm-input.is-select{max-width:180px}
+.adm-input.is-grow{flex:1}
+textarea.adm-input{min-height:88px;resize:vertical}
+.adm-label{display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--muted)}
+.adm-label.is-check{flex-direction:row;align-items:center;gap:8px;font-size:14px;color:var(--text);min-height:44px}
+.adm-label input[type=checkbox]{width:18px;height:18px;accent-color:var(--amber)}
+.adm-muted{color:var(--dim);font-size:12px}
+
+/* ---- 表格 ---- */
+.adm-table{width:100%;border-collapse:collapse;font-size:13px}
+.adm-table th,.adm-table td{text-align:left;padding:10px 10px;border-bottom:1px solid var(--line);vertical-align:middle}
+.adm-table th{color:var(--dim);font-weight:600;font-size:12px;white-space:nowrap}
+.adm-table tr:hover td{background:rgba(255,255,255,.02)}
+.adm-table-wrap{overflow-x:auto}
+.adm-actions{display:flex;gap:6px;flex-wrap:wrap}
+
+/* ---- 徽标/进度 ---- */
+.adm-badge{display:inline-flex;align-items:center;padding:2px 9px;border-radius:999px;font-size:11px;font-weight:700;border:1px solid transparent;white-space:nowrap}
+.adm-badge.is-running{color:var(--green);background:var(--green-soft);border-color:rgba(16,185,129,.35)}
+.adm-badge.is-paused{color:var(--amber);background:var(--amber-soft);border-color:rgba(245,158,11,.35)}
+.adm-badge.is-done{color:var(--muted);background:rgba(255,255,255,.05);border-color:var(--line-2)}
+.adm-badge.is-error{color:var(--red);background:var(--red-soft);border-color:rgba(239,68,68,.4)}
+.adm-badge.is-pending,.adm-badge.is-stopped{color:var(--muted);background:transparent;border-color:var(--line-2)}
+.adm-badge.is-engine{color:#1c1917;background:linear-gradient(135deg,#fbbf24,#d97706)}
+.adm-progress{position:relative;height:8px;border-radius:999px;background:var(--panel-2);border:1px solid var(--line);overflow:hidden;min-width:90px}
+.adm-progress>span{position:absolute;inset:0;width:0;background:linear-gradient(90deg,var(--green),#34d399);border-radius:999px;transition:width .4s ease}
+.adm-progress-row{display:flex;align-items:center;gap:8px;min-width:160px}
+.adm-progress-txt{font-size:11px;color:var(--dim);white-space:nowrap}
+
+/* ---- 三态 ---- */
+.adm-state{padding:26px 12px;text-align:center;color:var(--dim);font-size:13px}
+.adm-state.is-error{color:var(--red)}
+.adm-empty{padding:26px 12px;text-align:center;color:var(--dim)}
+.adm-kv-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+.adm-stat{border:1px solid var(--line);border-radius:10px;background:var(--panel-2);padding:12px;text-align:center;min-width:0}
+.adm-stat b{display:block;font-size:20px;color:var(--amber);overflow:hidden;text-overflow:ellipsis}
+.adm-stat span{font-size:12px;color:var(--dim)}
+.adm-logview{max-height:340px;overflow:auto;border:1px solid var(--line);border-radius:9px;background:var(--panel-2);padding:8px;font-size:12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.adm-logline{padding:3px 6px;border-bottom:1px dashed var(--line);color:var(--muted);word-break:break-all}
+.adm-logline.is-error{color:var(--red)}
+.adm-logline.is-success{color:var(--green)}
+.adm-logline.is-warn{color:var(--amber)}
+.adm-test-result{border:1px solid var(--line);border-radius:9px;background:var(--panel-2);padding:10px;font-size:12px;font-family:ui-monospace,Menlo,monospace;white-space:pre-wrap;word-break:break-all;max-height:320px;overflow:auto}
+
+/* ---- 弹层 ---- */
+.adm-dialog{border:1px solid var(--line-2);border-radius:14px;background:var(--panel);color:var(--text);padding:18px;max-width:640px;width:calc(100vw - 32px)}
+.adm-dialog::backdrop{background:rgba(0,0,0,.6)}
+.adm-dialog h3{margin:0 0 14px;font-size:16px}
+.adm-dialog-form{margin:0}
+.adm-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.adm-form-2col{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.adm-dialog-foot{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
+.adm-form-error{margin-top:10px;padding:8px 12px;border:1px solid rgba(239,68,68,.4);background:var(--red-soft);color:var(--red);border-radius:9px;font-size:13px}
+
+/* ---- 登录页 ---- */
+.adm.is-login{background:radial-gradient(1200px 600px at 20% -10%,rgba(245,158,11,.12),transparent),var(--bg)}
+.adm-login-wrap{width:100%;display:flex;align-items:center;justify-content:center;padding:24px}
+.adm-login-card{width:100%;max-width:380px;background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:28px;box-shadow:0 12px 48px rgba(0,0,0,.45);text-align:center}
+.adm-login-icon{display:inline-flex;width:56px;height:56px;align-items:center;justify-content:center;border-radius:50%;border:1px solid rgba(245,158,11,.4);background:var(--amber-soft);font-size:26px;margin-bottom:12px}
+.adm-login-card h1{margin:0;font-size:18px}
+.adm-login-sub{color:var(--muted);font-size:13px;margin:8px 0 18px}
+.adm-login-form{display:flex;flex-direction:column;gap:12px;text-align:left}
+.adm-preview-hint{margin-top:14px;display:flex;align-items:center;justify-content:space-between;gap:8px;border:1px solid rgba(245,158,11,.4);background:var(--amber-soft);color:var(--amber);border-radius:9px;padding:8px 10px;font-size:12px}
+.adm-preview-hint code{font-family:ui-monospace,Menlo,monospace;font-weight:700}
+.adm-login-foot{margin-top:16px;font-size:11px;color:var(--dim)}
+
+/* ---- 响应式 ---- */
+@media (max-width: 900px){
+  .adm-shell{flex-direction:column}
+  .adm-side{width:100%;height:auto;position:static;border-right:0;border-bottom:1px solid var(--line)}
+  .adm-brand{border-bottom:0}
+  .adm-nav{flex-direction:row;overflow-x:auto;white-space:nowrap;scrollbar-width:none;padding:6px}
+  .adm-nav::-webkit-scrollbar{display:none}
+  .adm-nav-item{min-height:44px;flex-shrink:0}
+  .adm-side-foot{margin:0;border-top:0;flex-direction:row;padding:6px}
+  .adm-side-foot .adm-nav-item{flex-shrink:0}
+  .adm-side-foot .adm-btn{flex-shrink:0}
+  .adm-burger{display:inline-flex}
+  .adm-grid{grid-template-columns:1fr}
+  .adm-form-grid,.adm-form-2col{grid-template-columns:1fr}
+}
+/* 390px 无横向溢出兜底 */
+@media (max-width: 420px){
+  .adm-main{padding:12px}
+  .adm-toolbar{margin-left:0}
+  .adm-input.is-select{max-width:100%}
+  .adm-table th,.adm-table td{padding:8px 6px}
+}

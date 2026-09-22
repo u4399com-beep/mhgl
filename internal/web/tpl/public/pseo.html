@@ -1,0 +1,56 @@
+{{define "content"}}
+<div class="ajx-pseo" style="max-width:1000px;margin:0 auto;padding:0 14px 36px">
+  <nav class="ajx-crumb" aria-label="面包屑">
+    <a href="{{.HomeHref}}">首页</a><span>/</span>
+    <span>专题关键词</span><span>/</span>
+    <span aria-current="page" style="color:#374151">{{.Heading}}</span>
+  </nav>
+  <section class="ajx-pseo-hero">
+    <h1>{{.Heading}}</h1>
+    <div class="ajx-meta">
+      <span class="ajx-cat">关键词: {{.Row.keyword}}</span>
+      {{if .SiteName}}<span>{{.SiteName}}</span>{{end}}
+      {{if .Row.updatedAt}}<span>更新于 {{dateDay .Row.updatedAt}}</span>{{end}}
+    </div>
+  </section>
+  <section class="ajx-panel" style="margin-top:14px;padding:16px">
+    <p class="ajx-pseo-desc">{{if .Row.description}}{{.Row.description}}{{else}}{{.Row.keyword}} — {{.SiteName}}聚合相关小说资源，提供全文免费在线阅读。{{end}}</p>
+    {{with .Primary}}
+    <p class="ajx-pseo-desc">主打作品《{{.name}}》由 {{.author}} 创作，{{statusLabel (str .status)}}，全文约 {{fmtWords .wordCount}} 字{{if .latestChapter}}，最新章节「{{.latestChapter}}」{{end}}。{{if .intro}} 简介：{{excerpt .intro 150}}{{end}}</p>
+    {{end}}
+  </section>
+  <section style="margin-top:18px">
+    <h2 style="margin:0 0 12px;font-size:16px;font-weight:700;color:#1f2937">相关书籍推荐（{{len .Books}}）</h2>
+    {{if .BookViews}}
+    <div class="ajx-pseo-grid">
+      {{range .BookViews}}
+      <article class="ajx-panel ajx-pseo-card" style="padding:12px">
+        <span class="ajx-cover ajx-cover-sm">
+          {{if .Book.cover}}<img src="{{coverURL (str .Book.cover)}}" alt="{{.Book.name}} 封面" loading="lazy" onerror="this.remove()">{{end}}
+          <span class="ajx-cover-ph">{{.Book.name}}</span>
+        </span>
+        <div class="ajx-pseo-card-main">
+          <h4><a href="{{.BookHref}}">《{{.Book.name}}》</a></h4>
+          <p class="ajx-meta">{{.Book.author}}{{if .Book.category}} · {{.Book.category}}{{end}} · {{statusLabel (str .Book.status)}} · {{fmtWords .Book.wordCount}}字</p>
+          {{if .Book.intro}}<p class="ajx-desc">{{excerpt .Book.intro 76}}</p>{{end}}
+          <div class="ajx-pseo-actions">
+            <a class="ajx-cat" href="{{.BookHref}}">书籍页</a>
+            <a class="ajx-cat" href="{{.TocHref}}">章节目录</a>
+            {{if .Book.categoryId}}<a class="ajx-cat" href="{{catIDHref (str .Book.categoryId) $.SiteID}}">{{or .Book.category "分类"}}专区</a>{{end}}
+          </div>
+        </div>
+      </article>
+      {{end}}
+    </div>
+    {{else}}<div class="ajx-panel" style="padding:16px"><div class="ajx-empty">暂无相关书籍数据</div></div>{{end}}
+  </section>
+  <footer style="margin-top:22px;border-top:1px solid var(--line);padding-top:14px;font-size:12px;color:#6b7280">
+    <p style="margin:0 0 8px;font-weight:600;color:#374151">站内导航</p>
+    <div class="ajx-ft-links">
+      <a href="{{.HomeHref}}">网站首页</a>
+      <a href="{{.SearchHref}}">书库搜索</a>
+      {{range firstN 6 .BookViews}}<a href="{{.BookHref}}">{{.Book.name}}全文阅读</a>{{end}}
+    </div>
+  </footer>
+</div>
+{{end}}
