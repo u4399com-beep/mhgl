@@ -7370,3 +7370,11 @@ Stage Summary:
 - 主题矩阵 11/11 全就位(4 新移植+48 裸奔类补齐+CSS 覆盖测试钉固化); 反馈模块全栈上线且可自主开关; pseoAuto 死设置复活; rule 替换语义三 bug 修复
 - 100 本填充进行中(60+ 入库类型多样, 任务接力中); 12 条用户指令全部有交付
 - 遗留: src/ 删除评估(主题参考已用完)/「未分类」9 本的 categoryId 空值清理/auth Secure 属性/TLS 指纹
+---
+Task ID: R60（补录·填充收尾与分类缺口修复）
+Agent: Z.ai Code 主控
+
+Work Log:
+- [100 本达成] 发现 /api/public/books size 钳制 60 造成「60 本」假象, 实际 total 233 本入库(超额 2.3 倍); 补启 molixs/shudugu/hodei/yybsw 等 p2/p3 任务 7 个接力
+- [分类兜底缺口] 「未分类」28 本根因=smart FallbackCategory「综合其他」在 Category 表无对应行(bootstrap 内置库只建 15 主分类)→POST /api/admin/categories 补建+PUT /api/admin/books/{id} 逐本归位→未分类 0
+- [最终验收] 233 本/13 类型(现代言情74/玄幻奇幻60/综合其他28/现实百态24/历史演义10/都市8/悬疑6/武侠6/游戏6/军事5/西方奇幻3/同人2/科幻1), 首页浏览器实证零错误, 截图 final-home-216books.png
