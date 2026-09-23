@@ -172,14 +172,7 @@ func chapterTailMoves(existChapters []store.CrawlExistChapter, plan chapterSyncP
 // ① 量闸: staleCount > max(50, 30%×既有章节数); ② 签名闸: creates ≤ 10%×tocLen
 // (本轮目录 ≥90% 精确命中 = 前缀子集特征); 两闸同时命中才跳过删除(保留数据+告警)。
 func staleTailGuard(staleCount, baseline, createsLen, tocLen int) (skip bool, threshold int) {
-	threshold = maxInt(50, maxInt(0, baseline)*3/10)
+	threshold = max(50, max(0, baseline)*3/10)
 	truncatedSignature := tocLen > 0 && createsLen <= tocLen*10/100
 	return staleCount > threshold && truncatedSignature, threshold
-}
-
-func maxInt(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }

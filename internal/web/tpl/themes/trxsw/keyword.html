@@ -1,0 +1,52 @@
+{{define "content"}}{{/* trxsw 关键词专题页: Primary 书卡(alistbox 形态) + Others 卡列表 + place 词条墙 */}}
+<div class="trx-keyword">
+  <div id="trx-main">
+    <div id="trx-hotcontent">
+      <div class="trx-l">
+        <div class="trx-alist">
+          <h3 class="trx-alist-h3">关键词专题：{{if .Tag}}{{.Tag}}{{else}}缺少关键词参数{{end}}</h3>
+          <div class="trx-alist-body">
+            {{with .Primary}}
+            <div class="trx-alistbox">
+              <a class="trx-pic" href="{{$.PrimaryBookHref}}" aria-label="{{.name}}">
+                <div>{{if .cover}}<img src="{{coverURL (str .cover)}}" alt="{{.name}} 封面" onerror="this.remove()">{{end}}</div>
+              </a>
+              <div class="trx-info">
+                <div class="trx-title"><a href="{{$.PrimaryBookHref}}" title="{{.name}}">《{{.name}}》</a><span>作者：{{.author}}</span></div>
+                <div class="trx-sys">最新更新：{{or .latestChapter "暂无章节"}}</div>
+                <div class="trx-intro-list">{{if .intro}}{{excerpt .intro 88}}{{else}}暂无简介{{end}}</div>
+                <div class="trx-yuedu"><a href="{{$.PrimaryBookHref}}">查看书籍详情</a> <a href="{{tocHref (str .id) (num .num) $.SiteID}}">章节目录</a></div>
+              </div>
+              <div class="trx-clear"></div>
+            </div>
+            {{end}}
+            {{if .Others}}
+            {{range .Others}}
+            <div class="trx-alistbox">
+              <a class="trx-pic" href="{{bookHref (str .id) (num .num) $.SiteID}}" aria-label="{{.name}}">
+                <div>{{if .cover}}<img src="{{coverURL (str .cover)}}" alt="{{.name}} 封面" loading="lazy" onerror="this.remove()">{{end}}</div>
+              </a>
+              <div class="trx-info">
+                <div class="trx-title"><a href="{{bookHref (str .id) (num .num) $.SiteID}}" title="{{.name}}">《{{.name}}》</a><span>作者：{{.author}}</span></div>
+                <div class="trx-sys">最新更新：{{or .latestChapter "暂无章节"}}</div>
+                <div class="trx-intro-list">{{if .intro}}{{excerpt .intro 88}}{{else}}暂无简介{{end}}</div>
+                <div class="trx-yuedu"><a href="{{bookHref (str .id) (num .num) $.SiteID}}">开始阅读</a></div>
+              </div>
+              <div class="trx-clear"></div>
+            </div>
+            {{end}}
+            {{else}}<div class="trx-MessageDiv">暂无相关书籍</div>{{end}}
+            <div class="trx-clear"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    {{if .Related}}
+    <div class="trx-place">
+      <span>相关词：</span>
+      {{range .Related}}<a href="{{viewHrefKeyword . $.SiteID}}">{{.}}</a>{{end}}
+    </div>
+    {{end}}
+  </div>
+</div>
+{{end}}

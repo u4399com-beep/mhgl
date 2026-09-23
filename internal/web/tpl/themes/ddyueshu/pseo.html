@@ -1,0 +1,32 @@
+{{define "content"}}{{/* ddyueshu PSEO 落地页(.box_con 专题头 + 行式书目列表) */}}
+<div class="ddy-pseo">
+  <div id="ddy-main">
+    <div class="ddy-box-con">
+      <div class="ddy-con-top">{{.Heading}} - 关键词专题</div>
+      <div class="ddy-newscontent ddy-pseo-desc">
+        <p>{{if .Row.description}}{{.Row.description}}{{else}}{{.Row.keyword}} — {{.SiteName}}聚合相关小说资源, 提供全文免费在线阅读。{{end}}</p>
+        {{with .Primary}}<p>主打作品《{{.name}}》由 {{.author}} 创作{{if .intro}}，简介：{{excerpt .intro 120}}{{end}}。</p>{{end}}
+      </div>
+    </div>
+    <div class="ddy-box-con">
+      <div class="ddy-con-top">相关书籍推荐</div>
+      <div class="ddy-newscontent">
+        <div class="ddy-nc-l">
+          {{if .BookViews}}
+          <ul class="ddy-ul-list">
+            {{range .BookViews}}
+            <li>
+              <span class="ddy-s1">[{{or .Book.category "小说"}}]</span>
+              <span class="ddy-s2"><a href="{{.BookHref}}" title="{{.Book.name}}">{{.Book.name}}</a></span>
+              <span class="ddy-s3">{{.Book.author}}</span>
+              <span class="ddy-s5"><a href="{{.TocHref}}">目录</a></span>
+            </li>
+            {{end}}
+          </ul>
+          {{else}}<div class="ddy-box-con-inner">暂无相关书籍数据</div>{{end}}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{{end}}

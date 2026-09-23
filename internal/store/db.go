@@ -63,8 +63,36 @@ func (d *DB) pingAndSeed() error {
 			return fmt.Errorf("store: table %s missing/incompatible: %w", t, err)
 		}
 	}
+	d.ensureProxyIndexes()
 	log.Printf("[store] opened %s (mode=wal, maxConns=1)", d.path)
 	return nil
+}
+
+// ensureProxyIndexes FreeProxy 查询路径索引(R58-2c, IF NOT EXISTS 幂等, 每次 Open 自检):
+//
+//   - idx_freeproxy_alive_health: 采集主链路 AliveProxyAddrs(WHERE alive=1 AND healthScore>0
+//     ORDER BY healthScore DESC, lastCheckedAt DESC LIMIT 64 —— 不动其签名与语义, 只补索引)
+//     与管理列表 alive 过滤、定向清理 dead 规则(alive=0 AND healthScore<=0 AND lastCheckedAt<?);
+//   - idx_freeproxy_checked: check 校验器 stale/unchecked 选取(ORDER BY lastCheckedAt ASC /
+//     lastCheckedAt IS NULL)与定向清理 never 规则(lastCheckedAt IS NULL AND createdAt<?);
+//   - idx_freeproxy_protocol / idx_freeproxy_country: 管理列表等值过滤 + protocol 分组/国家
+//     top10 聚合。
+//
+// 表不存在(极简测试库)整段跳过; 极旧最小 schema 缺列时单条失败静默跳过, 不阻断启动
+// (生产库列集齐备, 建索引为一次性毫秒级成本)。
+func (d *DB) ensureProxyIndexes() {
+	var n int
+	if err := d.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type='table' AND name='FreeProxy'`).Scan(&n); err != nil || n == 0 {
+		return
+	}
+	for _, stmt := range []string{
+		`CREATE INDEX IF NOT EXISTS idx_freeproxy_alive_health ON "FreeProxy"(alive, healthScore, lastCheckedAt)`,
+		`CREATE INDEX IF NOT EXISTS idx_freeproxy_checked ON "FreeProxy"(lastCheckedAt, createdAt)`,
+		`CREATE INDEX IF NOT EXISTS idx_freeproxy_protocol ON "FreeProxy"(protocol)`,
+		`CREATE INDEX IF NOT EXISTS idx_freeproxy_country ON "FreeProxy"(country)`,
+	} {
+		_, _ = d.Exec(stmt)
+	}
 }
 
 // ---------------- 通用取数 ----------------

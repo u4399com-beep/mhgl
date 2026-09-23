@@ -65,7 +65,7 @@ body.clone-aijjxs a:hover{color:var(--brand);text-decoration:underline}
 
 /* ===== 列表行 ===== */
 .clone-aijjxs .ajx-lines{list-style:none;margin:0;padding:0}
-.clone-aijjxs .ajx-line{display:flex;justify-content:space-between;gap:10px;border-bottom:1px dashed var(--line);padding:7px 0;min-width:0}
+.clone-aijjxs .ajx-line{display:flex;justify-content:space-between;align-items:center;gap:10px;border-bottom:1px dashed var(--line);padding:7px 0;min-width:0}
 .clone-aijjxs .ajx-line:last-child{border-bottom:0}
 .clone-aijjxs .ajx-books .ajx-line{align-items:center;padding:9px 0}
 .clone-aijjxs .ajx-line-main{display:flex;align-items:center;gap:8px;min-width:0;flex:1}
@@ -100,6 +100,11 @@ body.clone-aijjxs a:hover{color:var(--brand);text-decoration:underline}
 .clone-aijjxs .ajx-cover img + .ajx-cover-ph{display:none}
 .clone-aijjxs .ajx-cover-lg{width:112px;height:148px;border:1px solid #d1d5db;background:#fff;padding:1px}
 .clone-aijjxs .ajx-cover-sm{width:90px;height:120px;border:1px solid #d1d5db;flex:0 0 auto}
+/* 列表行封面缩略图 [R58-2b] — 60×80(书封 3:4)行首嵌入, 小号 45×60 保留榜单/双列密度;
+   复用 ajx-cover 占位链(无图/图挂时文字占位回显), object-fit:cover 防拉伸 */
+.clone-aijjxs .ajx-line-cov{width:60px;height:80px;border:1px solid #d1d5db;border-radius:3px;flex:0 0 auto;background:#fff}
+.clone-aijjxs .ajx-line-cov-sm{width:45px;height:60px}
+.clone-aijjxs .ajx-line-cov .ajx-cover-ph{font-size:11px;letter-spacing:.08em;padding:2px}
 
 /* ===== 数据统计 hero ===== */
 .clone-aijjxs .ajx-hero{margin-top:14px;border:1px solid var(--line);border-radius:14px;background:linear-gradient(120deg,rgba(15,118,110,.12),rgba(180,83,9,.12));padding:18px}
@@ -242,6 +247,7 @@ body.clone-aijjxs a:hover{color:var(--brand);text-decoration:underline}
   .clone-aijjxs .ajx-line-main{gap:6px}
   .clone-aijjxs .ajx-cat{padding:3px 6px;font-size:10px}
   .clone-aijjxs .ajx-books .ajx-author{display:none}
+  .clone-aijjxs .ajx-books-2col .ajx-date{display:none}
   .clone-aijjxs .ajx-cen-main{padding:11px 12px}
   .clone-aijjxs .ajx-article-info h1{margin-bottom:10px;font-size:18px}
   .clone-aijjxs .ajx-duset{gap:6px}

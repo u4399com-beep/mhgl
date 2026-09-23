@@ -41,7 +41,8 @@
   <footer class="ss-footer">
     <div class="ss-ft-links">
       <a href="{{.HomeHref}}">网站首页</a> · <a href="{{.FulltextHref}}">全站书库</a> ·
-      <a href="{{.RankingHref}}">排行榜</a> · <a href="{{.SearchHref}}">书库搜索</a>
+      <a href="{{.RankingHref}}">排行榜</a> · <a href="{{.SearchHref}}">书库搜索</a> ·
+      <a href="/admin">管理</a>
       {{if .Links}} · {{range $i, $l := .Links}}{{if $i}} · {{end}}<a href="{{safeHref $l.url}}" rel="noopener" target="_blank">{{$l.name}}</a>{{end}}{{end}}
     </div>
     <p>{{siteTitle .Site}} · 本站所有小说均系网友上传, 如有侵权请联系删除</p>

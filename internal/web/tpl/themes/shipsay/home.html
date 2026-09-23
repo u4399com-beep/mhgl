@@ -62,7 +62,7 @@
       {{if .Books}}
       <ul class="ss-updates">
         {{range .Books}}
-        <li><span class="ss-cat">{{or .category "小说"}}</span><a href="{{bookHref (str .id) (num .num) $.SiteID}}">{{.name}}</a><a class="ss-gray" href="{{bookHref (str .id) (num .num) $.SiteID}}">{{or .latestChapter "最新章节"}}</a><span class="ss-gray">{{.author}} · {{dateShort .updatedAt}}</span></li>
+        <li><span class="ss-lcov">{{if .cover}}<img src="{{coverURL (str .cover)}}" alt="{{.name}} 封面" loading="lazy" onerror="this.remove()">{{end}}<span class="ss-lcov-ph">{{.name}}</span></span><span class="ss-cat">{{or .category "小说"}}</span><a href="{{bookHref (str .id) (num .num) $.SiteID}}">{{.name}}</a><a class="ss-gray" href="{{bookHref (str .id) (num .num) $.SiteID}}">{{or .latestChapter "最新章节"}}</a><span class="ss-gray">{{.author}} · {{dateShort .updatedAt}}</span></li>
         {{end}}
       </ul>
       {{else}}<p class="ss-empty">暂无数据</p>{{end}}

@@ -1,0 +1,27 @@
+{{define "content"}}{{/* ddyueshu 排行榜(真站 .rank/.tli 分榜块: 蓝边盒 40px 蓝头条 + 圆徽行) */}}
+<div class="ddy-ranking">
+  <div class="ddy-rank-tabs" role="tablist" aria-label="榜单切换">
+    {{range $bi, $b := .Boards}}<a role="tab"{{if eq $bi 0}} class="is-active"{{end}} href="#drank-{{.Key}}">{{.Label}}</a>{{end}}
+  </div>
+  <div class="ddy-rank">
+    {{range $bi, $board := .Boards}}
+    <div class="ddy-rank-block" id="drank-{{.Key}}">
+      <h2>{{.Label}}<small>TOP24 · 每小时随采集更新</small></h2>
+      {{if .Books}}
+      <ul class="ddy-tli">
+        {{range $i, $b := .Books}}
+        {{if lt $i 24}}
+        <li>
+          <em class="{{if lt $i 3}}ddy-em-top{{else}}ddy-em{{end}}">{{$i | add 1}}</em>
+          <a class="ddy-rank-a" href="{{bookHref (str $b.id) (num $b.num) $.SiteID}}" title="{{$b.name}}">{{$b.name}}</a>
+          <span>{{$b.author}}</span>
+        </li>
+        {{end}}
+        {{end}}
+      </ul>
+      {{else}}<div class="ddy-box-con-inner">榜单暂无书籍</div>{{end}}
+    </div>
+    {{end}}
+  </div>
+</div>
+{{end}}

@@ -1,0 +1,44 @@
+{{define "content"}}{{/* trxsw 分类页(33yq #alist 卡列表): h3 蓝条 + alistbox 封面卡×N + articlepage 分页 */}}
+<div class="trx-cat">
+  <div id="trx-main">
+    <div id="trx-conn">
+      <div id="trx-hotcontent">
+        <div class="trx-l">
+          <div class="trx-alist">
+            <h3 class="trx-alist-h3">{{.CatName}}小说列表</h3>
+            <div class="trx-alist-body">
+              {{if .Books}}
+              {{range .Books}}
+              <div class="trx-alistbox">
+                <a class="trx-pic" href="{{bookHref (str .id) (num .num) $.SiteID}}" aria-label="{{.name}}">
+                  <div>{{if .cover}}<img src="{{coverURL (str .cover)}}" alt="{{.name}} 封面" loading="lazy" onerror="this.remove()">{{end}}</div>
+                </a>
+                <div class="trx-info">
+                  <div class="trx-title"><a href="{{bookHref (str .id) (num .num) $.SiteID}}" title="{{.name}}">《{{.name}}》</a><span>作者：{{.author}}</span></div>
+                  <div class="trx-sys">最新更新：{{or .latestChapter "暂无章节"}}</div>
+                  <div class="trx-intro-list">{{if .intro}}{{excerpt .intro 88}}{{else}}暂无简介{{end}}</div>
+                  <div class="trx-yuedu"><a href="{{bookHref (str .id) (num .num) $.SiteID}}">开始阅读</a></div>
+                </div>
+                <div class="trx-clear"></div>
+              </div>
+              {{end}}
+              {{else}}<div class="trx-MessageDiv">暂无相关书籍</div>{{end}}
+              <div class="trx-clear"></div>
+            </div>
+            {{with .Pager}}
+            <div class="trx-articlepage">
+              <div class="trx-pagelink">
+                <a href="{{viewHrefCategoryAll $.SiteID}}">首页</a>
+                {{if .PrevURL}}<a class="trx-next" href="{{.PrevURL}}" rel="prev">上一页</a>{{end}}
+                <strong>{{.Page}} / {{.TotalPages}}</strong>
+                {{if .NextURL}}<a class="trx-next" href="{{.NextURL}}" rel="next">下一页</a><a class="trx-ngroup" href="{{.NextURL}}">尾页</a>{{end}}
+              </div>
+            </div>
+            {{end}}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{{end}}

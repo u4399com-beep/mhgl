@@ -48,7 +48,7 @@ func (t *Task) buildQueue() ([]string, error) {
 
 // buildBookIdsQueue 书号模式队列: 列表形态/范围形态互斥, 渲染后去重保序(契约 §5)。
 // 范围形态跨度校验(R51-2-b P1-4): to-from+1 > 10万 → error fail-closed(错误信息说明上限;
-// parseIDInt 溢出鈾 1<<62 直灌无上限 for 循环可砖化引擎 OOM 崩溃重启环)
+// parseIDInt 溢出钳 1<<62 直灌无上限 for 循环可砖化引擎 OOM 崩溃重启环)
 func (t *Task) buildBookIdsQueue() ([]string, error) {
 	template := t.info.BookURL // bookIds 模式 bookUrl 即模板(契约 §3)
 	if len(t.info.BookIds) > 0 {

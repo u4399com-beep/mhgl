@@ -146,32 +146,6 @@ WHERE sourceUrl=? OR (name=? AND author=?) ORDER BY createdAt ASC LIMIT 1`, sour
 	return bookFromMap(rows[0]), nil
 }
 
-// CrawlBookUpdate 回调更新书载体(字段选择性: 指针 nil = 不动该列)。
-// 增量路径: 分类不回写(既有分类保留)/检测无结论不覆写 status/coverUrl 缺失不覆盖。
-func CrawlBookUpdateOf(b *Book) *CrawlBookUpdate {
-	if b == nil {
-		return nil
-	}
-	u := &CrawlBookUpdate{
-		Name:         b.Name,
-		Author:       b.Author,
-		Intro:        b.Intro,
-		Status:       b.Status,
-		SourceURL:    b.SourceURL,
-		SourceRuleID: b.SourceRuleID,
-		StorageMode:  b.StorageMode,
-	}
-	if b.CategoryID.Valid {
-		v := b.CategoryID.String
-		u.CategoryID = &v
-	}
-	if b.CollectedAt.Valid {
-		v := b.CollectedAt.Int64
-		u.CollectedAt = &v
-	}
-	return u
-}
-
 // CrawlBookUpdate 书籍字段更新集(桥构造; 指针字段 nil=该列不动)
 type CrawlBookUpdate struct {
 	Name          string
@@ -486,7 +460,7 @@ func (d *DB) AliveProxyAddrs(limit int) ([]string, error) {
 		limit = 64
 	}
 	maps, err := d.QueryMaps(`SELECT protocol, host, port FROM "FreeProxy"
-		WHERE alive=1 AND healthScore>0 ORDER BY healthScore DESC, lastCheckedAt DESC LIMIT ?`, limit)
+                WHERE alive=1 AND healthScore>0 ORDER BY healthScore DESC, lastCheckedAt DESC LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
 	}

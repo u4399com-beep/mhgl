@@ -80,10 +80,12 @@ func (d Deps) baseData(r *http.Request, site map[string]any, head map[string]any
 	}
 }
 
-// navFloatCats 真站固定 15 分类锚(对齐 header/aijjxs.tsx FLOAT_NAV_FALLBACK; 站方固定文案非动态表)。
+// navFloatCats 导航 4 字归一分类锚(主控定稿顺序, 逐字固定): 与 Category 表(主控已改名)
+// 和 crawl 归一词表三方一致, catHref 以 cat:{锚名} 解析到同名分类页。
+// [R58-2b] 旧 15 锚(穿越/重生/古代架空…)与分类名完全脱节致全部“暂无相关书籍”, 故换 4 字口径。
 var navFloatCats = []string{
-	"穿越", "重生", "古代架空", "现代言情", "总裁豪门", "仙侠幻想", "同人衍生", "无限流",
-	"耽于纯美", "玄幻魔法", "都市异能", "历史军事", "网游小说", "惊悚悬疑", "文学名著",
+	"玄幻奇幻", "西方奇幻", "武侠江湖", "仙侠修真", "都市生活", "现代言情", "历史演义", "军事战争",
+	"游戏竞技", "科幻未来", "悬疑灵异", "体育竞技", "耽美纯爱", "同人衍生", "现实百态",
 }
 
 // pager 分页数据(上一页/下一页/计数)。
@@ -195,7 +197,7 @@ func (d Deps) renderHome(w http.ResponseWriter, r *http.Request, sp map[string][
 		st = name
 	}
 	if sd == "" {
-		sd = name + "每日更新热门小说，覆盖穿越、重生、都市、玄幻等主流分类；支持全站 TXT 免费下载与在线阅读。"
+		sd = name + "每日更新热门小说，覆盖玄幻奇幻、都市生活、现代言情等主流分类；支持全站 TXT 免费下载与在线阅读。"
 	}
 	canonical := "/"
 	if page > 1 {

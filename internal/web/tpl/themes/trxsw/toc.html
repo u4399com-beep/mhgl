@@ -1,0 +1,65 @@
+{{define "content"}}{{/* trxsw 目录页(笔趣阁家族 .box_con #list): 面包屑 + 侧栏书链 + 书信息 + 章节三列 dl + 分页 */}}
+<div class="trx-toc">
+  <div id="trx-main">
+    <div class="trx-box-con">
+      <div class="trx-con-top">
+        <a href="{{.HomeHref}}">首页</a> &gt; <a href="{{catIDHref (str .Book.categoryId) .SiteID}}">{{or .Book.category "小说"}}</a> &gt; <a href="{{.BookHref}}">{{.Book.name}}</a> &gt; {{.Book.name}}章节列表
+      </div>
+      {{if .SideRank}}
+      <div id="trx-sidebar">
+        <div class="trx-sidebartitle">妹纸们都在看：</div>
+        <div class="trx-sidebarlist">
+          {{range .SideRank}}<a href="{{bookHref (str .id) (num .num) $.SiteID}}" title="{{.name}}">{{.name}}</a>{{end}}
+        </div>
+      </div>
+      {{end}}
+      <div id="trx-maininfo">
+        <a class="trx-fmimg" href="{{.BookHref}}" aria-label="{{.Book.name}}">
+          <div>{{if .Book.cover}}<img src="{{coverURL (str .Book.cover)}}" alt="{{.Book.name}} 封面" onerror="this.remove()">{{end}}</div>
+        </a>
+        <div id="trx-info">
+          <a href="{{.BookHref}}"><h1>{{.Book.name}}</h1></a>
+          <p>作&nbsp;&nbsp;&nbsp;&nbsp;者：{{.Book.author}}</p>
+          <p>类&nbsp;&nbsp;&nbsp;&nbsp;别：{{or .Book.category "小说"}}({{.Book.name}})</p>
+          <p>动&nbsp;&nbsp;&nbsp;&nbsp;作：{{if .FirstChapter}}<a href="{{chapterHref (str .FirstChapter.id) (num .Book.num) (num .FirstChapter.idx) .SiteID}}">开始阅读</a>,{{end}}<a href="#trx-list"><span class="trx-red">直达底部↓</span></a></p>
+          <p>更新时间：{{dateDay .Book.updatedAt}}</p>
+          <p>最新连载：{{or .Book.latestChapter "暂无"}}</p>
+        </div>
+        <div id="trx-intro">
+          <p>《{{.Book.name}}》为作者{{.Book.author}}创作，{{siteTitle .Site}}为你第一时间提供{{.Book.name}}全文免费在线阅读。</p>
+          <p class="trx-introtxt">简介:{{if .Book.intro}}{{excerpt .Book.intro 80}}{{else}}暂无简介{{end}}</p>
+        </div>
+        <div class="trx-clear"></div>
+      </div>
+      <div class="trx-clear"></div>
+    </div>
+    <div class="trx-box-con">
+      <div id="trx-list">
+        {{if .Chapters}}
+        <dl>
+          <dt>《{{.Book.name}}》正文{{with .Pager}} · 第 {{.Page}} / {{.TotalPages}} 页{{end}}</dt>
+          {{range .Chapters}}<dd><a href="{{chapterHref (str .id) (num $.Book.num) (num .idx) $.SiteID}}" title="{{.title}}">{{.title}}</a></dd>{{end}}
+        </dl>
+        {{else}}<div class="trx-MessageDiv">目录暂未收录, 请稍后再来</div>{{end}}
+      </div>
+      {{with .Pager}}
+      {{if or .PrevURL .NextURL}}
+      <div class="trx-articlepage">
+        <div class="trx-pagelink">
+          {{if .PrevURL}}<a class="trx-next" href="{{.PrevURL}}" rel="prev">上一页</a>{{end}}
+          <strong>{{.Page}} / {{.TotalPages}}</strong>
+          {{if .NextURL}}<a class="trx-next" href="{{.NextURL}}" rel="next">下一页</a>{{end}}
+        </div>
+      </div>
+      {{end}}
+      {{end}}
+      <div class="trx-pages">
+        <div class="trx-pagelink">
+          <a href="{{.BookHref}}">返回书页</a>
+          {{if .FirstChapter}}<a href="{{chapterHref (str .FirstChapter.id) (num .Book.num) (num .FirstChapter.idx) .SiteID}}">开始阅读</a>{{end}}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{{end}}

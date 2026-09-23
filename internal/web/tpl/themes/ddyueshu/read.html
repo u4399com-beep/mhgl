@@ -1,0 +1,46 @@
+{{define "content"}}{{/* ddyueshu 阅读页(biquge 阅读版: .text_set 工具条 + .bookname 25px + 正文 + .page_nav) */}}
+<div class="ddy-read">
+  <div class="ddy-read-wrap">
+    <div data-page="read" data-book-id="{{.Book.id}}" data-chapter-id="{{.Chapter.id}}" data-chapter-title="{{.Chapter.title}}">
+      <div class="ddy-text-set" role="group" aria-label="阅读设置">
+        <b>字号：</b>
+        <a class="ajx-s ddy-fs" href="javascript:void(0)" data-fs="14">14px</a>
+        <a class="ajx-s ddy-fs" href="javascript:void(0)" data-fs="17">17px</a>
+        <a class="ajx-s ddy-fs" href="javascript:void(0)" data-fs="20">20px</a>
+        <b>背景：</b>
+        <span role="group" aria-label="背景色">
+          <a class="ajx-c ddy-c" style="background:#ffffff" href="javascript:void(0)" data-bg="#ffffff" aria-label="背景 白"></a>
+          <a class="ajx-c ddy-c" style="background:#f2e8c8" href="javascript:void(0)" data-bg="#f2e8c8" aria-label="背景 护眼"></a>
+          <a class="ajx-c ddy-c" style="background:#e3efe3" href="javascript:void(0)" data-bg="#e3efe3" aria-label="背景 淡绿"></a>
+          <a class="ajx-c ddy-c" style="background:#222222" href="javascript:void(0)" data-bg="#222222" aria-label="背景 夜间"></a>
+        </span>
+        <b>字色：</b>
+        <span class="ajx-ys" role="group" aria-label="字体颜色">
+          <a href="javascript:void(0)" data-ink="#333333" style="color:#333333">黑</a>
+          <a href="javascript:void(0)" data-ink="#555555" style="color:#555555">灰</a>
+          <a href="javascript:void(0)" data-ink="#459df5" style="color:#459df5">蓝</a>
+        </span>
+      </div>
+      <div class="ddy-path">
+        <a href="{{.HomeHref}}">{{.Book.name}}</a> &gt; <a href="{{.BookHref}}">《{{.Book.name}}》</a> &gt; {{.Chapter.title}}
+      </div>
+      <h1 class="ddy-ch-title">{{.Chapter.title}}</h1>
+      <div class="ddy-ch-content">
+        {{if .Chapter.content}}
+        <div id="view_content_txt" class="ddy-read-txt">{{readHTML (str .Chapter.content)}}</div>
+        {{else}}
+        <div id="view_content_txt" class="ddy-read-txt"><div class="ddy-box-con-inner">本章内容尚未采集, 请稍后再来或返回目录阅读其他章节。</div></div>
+        {{end}}
+      </div>
+      <dl class="ddy-page-nav">
+        <dd>
+          {{if .PrevHref}}<a id="ajx-prev" href="{{.PrevHref}}" rel="prev">上一章</a>{{else}}<span class="ddy-nope" id="ajx-prev" aria-disabled="true">上一章</span>{{end}}
+          <a href="{{.TocHref}}">章节目录</a>
+          <a href="{{.BookHref}}">返回书页</a>
+          {{if .NextHref}}<a id="ajx-next" href="{{.NextHref}}" rel="next">下一章</a>{{else}}<span class="ddy-nope" id="ajx-next" aria-disabled="true">下一章</span>{{end}}
+        </dd>
+      </dl>
+    </div>
+  </div>
+</div>
+{{end}}

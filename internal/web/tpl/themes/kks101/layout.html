@@ -42,6 +42,7 @@
     <a href="{{.HomeHref}}">最新更新</a>
     <a href="{{.FulltextHref}}">完本小說</a>
     <a href="{{.KeywordHref}}">熱門標籤</a>
+    <a href="/admin">管理</a>
     {{if .Links}}{{range $i, $l := .Links}}<a href="{{safeHref $l.url}}" rel="noopener" target="_blank">{{$l.name}}</a>{{end}}{{end}}
   </div>
   <p>Copyright 2023 · Powered by © {{siteTitle .Site}}</p>

@@ -95,3 +95,50 @@ AND (lastSuccessAt IS NULL OR lastSuccessAt < ?)`, NowMS()-3*24*3600*1000)
 	}
 	return res.RowsAffected()
 }
+
+// APIFreeProxyClean 定向清理(R58-2c, 与 APIFreeProxyPrune 规则不同、并存互不影响):
+//
+//	dead:  alive=0 且 healthScore<=0 且超 7 天未复检(lastCheckedAt 距今 7 天前);
+//	never: 从未通过校验(lastCheckedAt IS NULL —— 校验成功必写 lastCheckedAt)且入库超 3 天。
+//
+// doDelete=false 仅 SELECT COUNT 回报待删行数(管理端 confirm 两段式预览);
+// true 在单事务内两条 DELETE 原子执行(maxConns=1 下防两语句间穿插写账)。
+// 返回 (dead, never) 两组行数。
+func (d *DB) APIFreeProxyClean(doDelete bool) (dead, never int64, err error) {
+	deadBefore := NowMS() - 7*24*3600*1000
+	neverBefore := NowMS() - 3*24*3600*1000
+	if !doDelete {
+		dn, err := d.Count(`SELECT count(*) FROM "FreeProxy"
+WHERE alive=0 AND healthScore<=0 AND lastCheckedAt IS NOT NULL AND lastCheckedAt<?`, deadBefore)
+		if err != nil {
+			return 0, 0, err
+		}
+		nn, err := d.Count(`SELECT count(*) FROM "FreeProxy"
+WHERE lastCheckedAt IS NULL AND createdAt<?`, neverBefore)
+		if err != nil {
+			return 0, 0, err
+		}
+		return int64(dn), int64(nn), nil
+	}
+	tx, err := d.DB.Begin()
+	if err != nil {
+		return 0, 0, err
+	}
+	defer tx.Rollback() // Commit 后为无害 no-op
+	res, err := tx.Exec(`DELETE FROM "FreeProxy"
+WHERE alive=0 AND healthScore<=0 AND lastCheckedAt IS NOT NULL AND lastCheckedAt<?`, deadBefore)
+	if err != nil {
+		return 0, 0, err
+	}
+	if dead, err = res.RowsAffected(); err != nil {
+		return 0, 0, err
+	}
+	res, err = tx.Exec(`DELETE FROM "FreeProxy" WHERE lastCheckedAt IS NULL AND createdAt<?`, neverBefore)
+	if err != nil {
+		return 0, 0, err
+	}
+	if never, err = res.RowsAffected(); err != nil {
+		return 0, 0, err
+	}
+	return dead, never, tx.Commit()
+}

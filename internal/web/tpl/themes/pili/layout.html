@@ -44,6 +44,7 @@
 <main class="pli-wrap">{{block "content" .}}<div class="pli-empty">加载中…</div>{{end}}</main>
 <footer class="pli-footer">
   <p>{{siteTitle .Site}} · 小说免费阅读 · 本站所有小说均由网友上传, 如有侵权请联系删除</p>
+  <p class="pli-ft-links"><a href="{{.HomeHref}}">网站首页</a> · <a href="{{.FulltextHref}}">全站书库</a> · <a href="{{.RankingHref}}">排行榜</a> · <a href="/admin">管理</a></p>
   {{if .Links}}<p class="pli-ft-links">友情链接：{{range $i, $l := .Links}}{{if $i}} · {{end}}<a href="{{safeHref $l.url}}" rel="noopener" target="_blank">{{$l.name}}</a>{{end}}</p>{{end}}
 </footer>
 <script src="/static/js/site.js?v=r56-2c" defer></script>

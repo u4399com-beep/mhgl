@@ -23,6 +23,7 @@
         <ul class="x2-update">
           {{range firstN 20 .Books}}
           <li>
+            <span class="x2-lcov">{{if .cover}}<img src="{{coverURL (str .cover)}}" alt="{{.name}} 封面" loading="lazy" onerror="this.remove()">{{end}}<span class="x2-lcov-ph">{{.name}}</span></span>
             <span class="x2-up-l">
               <a class="x2-a" href="{{catHref (str .category) $.SiteID}}">[{{or .category "小说"}}]</a>
               《<a class="x2-a" href="{{bookHref (str .id) (num .num) $.SiteID}}" title="{{.name}}">{{.name}}</a>》

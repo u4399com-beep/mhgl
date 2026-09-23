@@ -1,0 +1,14 @@
+{{define "content"}}{{/* trxsw 美观 404(.ui-box 形态) */}}
+<div class="trx-404page">
+  <div id="trx-main">
+    <div class="trx-ui-box">
+      <div class="trx-ui-title1"><h2>404<em>Not Found</em></h2></div>
+      <div class="trx-pseo-desc trx-404-body">
+        <p class="trx-404-code">404</p>
+        <p>{{if .Msg}}{{.Msg}}{{else}}你访问的页面不存在或已被移除{{end}}</p>
+        <p class="trx-hist-btns"><a href="{{.HomeHref}}">返回首页</a><a href="{{.SearchHref}}">搜索书籍</a></p>
+      </div>
+    </div>
+  </div>
+</div>
+{{end}}

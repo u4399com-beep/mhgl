@@ -1,0 +1,34 @@
+{{define "content"}}{{/* ddyueshu 搜索结果页(.box_con + #newscontent 行式列表 + #listtj 相关词) */}}
+<div class="ddy-search">
+  <div id="ddy-main">
+    <div class="ddy-box-con">
+      <div class="ddy-con-top">搜索「{{.Q}}」的结果{{if .Q}}(共 {{.Total}} 条){{end}}</div>
+      <div class="ddy-newscontent">
+        <div class="ddy-nc-l">
+          <h2>相关书籍</h2>
+          {{if .Q}}
+          {{if .Books}}
+          <ul class="ddy-ul-list">
+            {{range .Books}}
+            <li>
+              <span class="ddy-s1">[{{or .category "小说"}}]</span>
+              <span class="ddy-s2"><a href="{{bookHref (str .id) (num .num) $.SiteID}}" title="{{.name}}">{{.name}}</a></span>
+              <span class="ddy-s3">{{if .intro}}{{excerpt .intro 42}}{{else}}暂无简介{{end}}</span>
+              <span class="ddy-s5">{{.author}}</span>
+            </li>
+            {{end}}
+          </ul>
+          {{else}}<div class="ddy-box-con-inner">未找到相关书籍, 换个关键词试试</div>{{end}}
+          {{else}}<div class="ddy-box-con-inner">输入书名 / 作者关键词开始搜索。</div>{{end}}
+          {{if .Tags}}
+          <div class="ddy-listtj">
+            <b>相关词：</b>
+            {{range .Tags}}<a href="{{viewHrefKeyword .tag $.SiteID}}">{{.tag}}</a>{{end}}
+          </div>
+          {{end}}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{{end}}

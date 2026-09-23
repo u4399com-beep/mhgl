@@ -12,6 +12,10 @@
             <ul class="ajx-lines ajx-books">
               {{range .Books}}
               <li class="ajx-line">
+                <span class="ajx-cover ajx-line-cov">
+                  {{if .cover}}<img src="{{coverURL (str .cover)}}" alt="{{.name}} 封面" loading="lazy" onerror="this.remove()">{{end}}
+                  <span class="ajx-cover-ph">{{.name}}</span>
+                </span>
                 <span class="ajx-line-main">
                   <span class="ajx-cat">{{or .category "小说"}}</span>
                   <a href="{{bookHref (str .id) (num .num) $.SiteID}}" title="{{.name}}">{{.name}}</a>

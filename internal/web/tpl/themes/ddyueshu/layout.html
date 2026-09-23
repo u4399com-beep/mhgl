@@ -1,0 +1,57 @@
+{{define "layout.html"}}<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>{{.Head.Title}}</title>
+{{if .Head.Description}}<meta name="description" content="{{.Head.Description}}">{{end}}
+{{if .Head.Keywords}}<meta name="keywords" content="{{.Head.Keywords}}">{{end}}
+{{if .Head.Canonical}}<link rel="canonical" href="{{.Head.Canonical}}">{{end}}
+<meta property="og:type" content="{{.Head.OgType}}">
+<meta property="og:title" content="{{.Head.Title}}">
+{{if .Head.Description}}<meta property="og:description" content="{{.Head.Description}}">{{end}}
+{{if .Head.Canonical}}<meta property="og:url" content="{{.Head.Canonical}}">{{end}}
+<meta name="theme-color" content="#2b5b84">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" type="image/png" href="/static/icons/icon-192.png">
+<link rel="stylesheet" href="/static/css/ddyueshu.css?v=r58-2b">
+</head>
+<body class="clone-ddyueshu">
+<header class="ddy-header" role="banner">
+  <a class="ddy-logo" href="{{.HomeHref}}" aria-label="{{siteTitle .Site}}">{{siteTitle .Site}}</a>
+  <div class="ddy-header-search">
+    <form action="/" method="get" role="search">
+      {{if .SiteID}}<input type="hidden" name="site" value="{{.SiteID}}">{{end}}
+      <input type="hidden" name="view" value="search">
+      <input class="ddy-search-text" type="search" name="q" aria-label="搜索" placeholder="可搜索小说名、作者名" value="{{.Q}}">
+      <button class="ddy-search-btn" type="submit">搜索</button>
+    </form>
+  </div>
+</header>
+<nav class="ddy-nav" aria-label="主导航">
+  <ul>
+    <li><a href="{{.HomeHref}}">首页</a></li>
+    <li><a href="{{.FulltextHref}}">全部小说</a></li>
+    {{range firstN 6 .NavCats}}<li><a href="{{catHref . $.SiteID}}">{{.}}</a></li>{{end}}
+    <li><a href="{{.RankingHref}}">排行榜单</a></li>
+    <li><a href="{{.HistoryHref}}">我的书架</a></li>
+  </ul>
+</nav>
+<main class="ddy-main-wrap">{{block "content" .}}<div id="ddy-main"><div class="ddy-box-con"><div class="ddy-box-con-inner">加载中…</div></div></div>{{end}}</main>
+<div class="ddy-firendlink">
+  友情连接：
+  {{if .Links}}{{range $i, $l := .Links}}{{if $i}} {{end}}<a href="{{safeHref $l.url}}" rel="noopener" target="_blank">{{$l.name}}</a>{{end}}{{end}}
+  <a href="/admin">管理</a>
+</div>
+<footer id="ddy-footer">
+  <div class="ddy-footer-link"></div>
+  <div class="ddy-footer-cont">
+    <p class="ddy-ft-links"><a href="{{.HomeHref}}">网站首页</a> · <a href="{{.FulltextHref}}">全部小说</a> · <a href="{{.RankingHref}}">排行榜单</a> · <a href="{{.HistoryHref}}">我的书架</a></p>
+    <p>本站所有小说为转载作品，所有章节均由网友上传，转载至本站只是为了宣传本书让更多读者欣赏。</p>
+    <p>Copyright © {{siteTitle .Site}} All Rights Reserved.</p>
+  </div>
+</footer>
+<script src="/static/js/site.js?v=r56-2c" defer></script>
+<script src="/static/js/pwa.js?v=r56-2c" defer></script>
+</body>
+</html>{{end}}

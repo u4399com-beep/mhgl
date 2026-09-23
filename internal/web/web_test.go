@@ -264,7 +264,7 @@ func kitchenSinkData() map[string]any {
 }
 
 func TestThemeTemplateSets_RenderSmoke(t *testing.T) {
-	themes := []string{defaultTheme, "pili", "shipsay", "x2552", "kks101"}
+	themes := []string{defaultTheme, "pili", "shipsay", "x2552", "kks101", "trxsw", "ddyueshu"}
 	for _, theme := range themes {
 		set := themeSet(theme)
 		if set == nil {
@@ -328,6 +328,46 @@ func TestAdminTemplates_LoadAndRender(t *testing.T) {
 	}
 }
 
+// ---------------- 列表行封面渲染回归(R58-2b: 列表页必须渲染封面缩略图) ----------------
+
+// TestAllThemes_ListCoverRendered 有 cover → /api/public/cover 包装 URL 进列表行;
+// 空 cover → 占位块文字回显且不产生封面 URL。范围 = 全主题 home 主列表 + 缺省主题四列表页
+// (R58-2b 任务面: aijjxs home/category/fulltext/ranking + 其余主题 home)。
+func TestAllThemes_ListCoverRendered(t *testing.T) {
+	cases := []struct{ theme, page string }{
+		{defaultTheme, "home"}, {defaultTheme, "category"}, {defaultTheme, "fulltext"}, {defaultTheme, "ranking"},
+		{"pili", "home"}, {"shipsay", "home"}, {"x2552", "home"}, {"kks101", "home"},
+		{"trxsw", "home"}, {"ddyueshu", "home"},
+	}
+	for _, c := range cases {
+		set := themeSet(c.theme)
+		if set == nil {
+			t.Fatalf("主题 %s 模板集装载失败", c.theme)
+		}
+		seed := func(cover string) map[string]any {
+			data := kitchenSinkData()
+			data["Site"] = map[string]any{"id": "s1", "name": "测试站", "themeId": c.theme}
+			data["Books"].([]map[string]any)[0]["cover"] = cover
+			data["Boards"] = []map[string]any{{"Key": "latest", "Label": "更新榜", "Books": data["Books"]}}
+			return data
+		}
+		for _, cover := range []string{"covers/book_x.jpg", ""} {
+			data := seed(cover)
+			w := httptest.NewRecorder()
+			if err := set[c.page].ExecuteTemplate(w, "layout.html", data); err != nil {
+				t.Fatalf("主题 %s 页 %s 渲染失败: %v", c.theme, c.page, err)
+			}
+			hasURL := strings.Contains(w.Body.String(), "/api/public/cover")
+			if cover != "" && !hasURL {
+				t.Fatalf("主题 %s 页 %s 列表行未渲染封面 URL", c.theme, c.page)
+			}
+			if cover == "" && hasURL {
+				t.Fatalf("主题 %s 页 %s 空 cover 不应产生封面 URL", c.theme, c.page)
+			}
+		}
+	}
+}
+
 // ---------------- 全主题 XSS 探针(爬虫外部数据经模板渲染不得形成活标记) ----------------
 
 // xssProbes 活标记探针: 输出含任一子串 = 外部数据未转义/未消毒进入 HTML。
@@ -377,7 +417,7 @@ func poisonedSink() map[string]any {
 }
 
 func TestAllThemes_XSSProbe(t *testing.T) {
-	for _, theme := range []string{defaultTheme, "pili", "shipsay", "x2552", "kks101"} {
+	for _, theme := range []string{defaultTheme, "pili", "shipsay", "x2552", "kks101", "trxsw", "ddyueshu"} {
 		set := themeSet(theme)
 		if set == nil {
 			t.Fatalf("主题 %s 模板集装载失败", theme)

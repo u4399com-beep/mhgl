@@ -1,0 +1,26 @@
+{{define "content"}}{{/* ddyueshu 全本·完本页(.MessageDiv 提示条 + .novellist 5 列书目 + .page 分页) */}}
+<div class="ddy-full">
+  <div id="ddy-main">
+    <div class="ddy-msg"><b>提示：本页为完本小说大全， 推荐使用Ctrl+F 来查找小说。</b></div>
+    <div class="ddy-novellist">
+      <h2>完本小说大全列表</h2>
+      {{if .Books}}
+      <ul>
+        {{range .Books}}
+        <li title="{{.name}}/{{.author}}"><a href="{{bookHref (str .id) (num .num) $.SiteID}}" title="{{.name}}">{{.name}}</a></li>
+        {{end}}
+      </ul>
+      {{else}}<div class="ddy-box-con-inner">暂无完本书籍</div>{{end}}
+    </div>
+    <dl class="ddy-page">
+      <dd>
+        {{with .Pager}}
+        {{if .PrevURL}}<a href="{{.PrevURL}}" rel="prev">上一页</a>{{end}}
+        <span>第 {{.Page}} / {{.TotalPages}} 页 · 共 {{.Total}} 本</span>
+        {{if .NextURL}}<a href="{{.NextURL}}" rel="next">下一页</a>{{end}}
+        {{end}}
+      </dd>
+    </dl>
+  </div>
+</div>
+{{end}}

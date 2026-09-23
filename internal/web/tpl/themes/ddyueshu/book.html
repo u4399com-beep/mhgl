@@ -1,0 +1,54 @@
+{{define "content"}}{{/* ddyueshu 书页(biquge .box_con #maininfo/#sidebar/#fmimg + #listtj + 最新章节三列) */}}
+<div class="ddy-book">
+  <div id="ddy-main">
+    <div class="ddy-box-con">
+      <div class="ddy-con-top">
+        <a href="{{.HomeHref}}">{{siteTitle .Site}}</a> &gt; <a href="{{catIDHref (str .Book.categoryId) .SiteID}}">{{or .Book.category "小说"}}</a> &gt; 《{{.Book.name}}》最新章节
+      </div>
+      <div class="ddy-newscontent">
+        <div class="ddy-maininfo">
+          <div class="ddy-info">
+            <h1>《{{.Book.name}}》</h1>
+            <p>作&nbsp;&nbsp;&nbsp;&nbsp;者：{{.Book.author}}</p>
+            <p>分&nbsp;&nbsp;&nbsp;&nbsp;类：<a href="{{catIDHref (str .Book.categoryId) .SiteID}}">{{or .Book.category "小说"}}</a> · {{statusLabel (str .Book.status)}} · {{fmtWords .Book.wordCount}}</p>
+            <p>
+              动&nbsp;&nbsp;&nbsp;&nbsp;作：
+              {{if .ReadFirstHref}}<a class="ddy-act" href="{{.ReadFirstHref}}">开始阅读</a>{{end}}
+              <a class="ddy-act" href="{{.TocHref}}">完整目录</a>
+              <a href="/api/public/download?book={{qesc (str .Book.id)}}" target="_blank" rel="noreferrer">TXT下载</a>
+            </p>
+            <p>最后更新：{{dateDay .Book.updatedAt}} · 最新连载：{{or .Book.latestChapter "暂无"}}</p>
+          </div>
+          <div class="ddy-intro"><p>{{if .Book.intro}}{{.Book.intro}}{{else}}暂无简介{{end}}</p></div>
+        </div>
+        <div class="ddy-sidebar">
+          <div class="ddy-fmimg">
+            <div>{{if .Book.cover}}<img src="{{coverURL (str .Book.cover)}}" alt="{{.Book.name}} 封面" onerror="this.remove()">{{end}}</div>
+          </div>
+        </div>
+        <div class="ddy-clear"></div>
+        {{if .Recs}}
+        <div class="ddy-listtj">
+          <b>推荐阅读：</b>
+          {{range .Recs}}<a href="{{bookHref (str .id) (num .num) $.SiteID}}" title="{{.name}}">{{.name}}</a>{{end}}
+        </div>
+        <div class="ddy-clear"></div>
+        {{end}}
+      </div>
+    </div>
+    <div class="ddy-box-con ddy-list-con">
+      <dl class="ddy-list">
+        <dt>《{{.Book.name}}》最新章节</dt>
+        {{if .LatestChapters}}
+        <dd class="ddy-latest-dd">
+          <ul>
+            {{range .LatestChapters}}<li><a href="{{chapterHref (str .id) (num $.Book.num) (num .idx) $.SiteID}}" title="{{.title}}">{{.title}}</a></li>{{end}}
+          </ul>
+        </dd>
+        {{else}}<dd class="ddy-latest-dd"><div class="ddy-box-con-inner">暂无章节</div></dd>{{end}}
+      </dl>
+      <div class="ddy-toc-more"><a href="{{.TocHref}}">查看完整目录（共 {{.ChapterCount}} 章）</a></div>
+    </div>
+  </div>
+</div>
+{{end}}

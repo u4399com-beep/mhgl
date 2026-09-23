@@ -692,17 +692,10 @@ func scoreContentHTML(htmlStr string) contentScore {
 	r := contentScore{
 		textLen:        textLen,
 		shortLineRatio: float64(shortLines) / float64(len(lines)),
-		adHitRatio:     mathMin(1, float64(adChars)/float64(textLen)),
+		adHitRatio:     min(1, float64(adChars)/float64(textLen)),
 	}
 	r.score = float64(r.textLen) * (1 - 0.5*r.shortLineRatio) * (1 - 0.7*r.adHitRatio)
 	return r
-}
-
-func mathMin(a, b float64) float64 {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 var tagStripRe = regexp.MustCompile(`<[^>]+>`)

@@ -316,3 +316,33 @@ func TestUnsupportedCapability(t *testing.T) {
 		t.Fatalf("scrapling fetchMode 应报 unsupported")
 	}
 }
+
+// ---- [R58-2a] safeReplaceAll 零宽匹配 × $& 占位符(修前 nil groups panic) ----
+
+func TestSafeReplaceAllZeroWidthMatchPlaceholders(t *testing.T) {
+	// a* 在 "bcd" 上产生 4 个零宽匹配(位置 0/1/2/3): 替换串含 $& 时修前对 nil groups
+	// 索引 panic(RE2 零宽匹配常见于 a*/a? 形态替换); 修后 $& 在零宽匹配下展开为空串,
+	// 与 TS String.replace 语义一致
+	got := safeReplaceAll("bcd", "a*", "<$&>")
+	want := "<>b<>c<>d<>"
+	if got != want {
+		t.Fatalf("zero-width $& = %q, want %q", got, want)
+	}
+	// 非零宽形态回归: $&/$1/组交换正常展开
+	if got := safeReplaceAll("abc", "b", "<$&>"); got != "a<b>c" {
+		t.Fatalf("plain $& = %q", got)
+	}
+	if got := safeReplaceAll("abc", "(a)(b)", "$2$1"); got != "bac" {
+		t.Fatalf("group swap = %q", got)
+	}
+}
+
+// ---- [R58-2a] regexExtractAll 匹配上限(修前 -1 无界预分配内存放大) ----
+
+func TestRegexExtractAllCapped(t *testing.T) {
+	body := strings.Repeat("x", 20000) // 2 万个单字符匹配点
+	got := regexExtractAll(body, &FieldRule{Type: "regex", Expression: `x`, Flags: ""})
+	if len(got) != 5000 {
+		t.Fatalf("cap = %d, want 5000", len(got))
+	}
+}

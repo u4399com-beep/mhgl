@@ -25,7 +25,7 @@ import (
 
 // testSchema 与 store/store_test.go 同源(测试包各自独立, 不跨包导出)。
 const apiTestSchema = `
-CREATE TABLE "Task" (id TEXT PRIMARY KEY, name TEXT, ruleId TEXT, mode TEXT, bookUrl TEXT, bookIds TEXT,
+CREATE TABLE "Task" (id TEXT PRIMARY KEY, name TEXT, ruleId TEXT REFERENCES "Rule"(id), mode TEXT, bookUrl TEXT, bookIds TEXT,
 bookIdFrom TEXT, bookIdTo TEXT, listUrl TEXT, listStart INTEGER, listEnd INTEGER, bookStart INTEGER, bookEnd INTEGER,
 recrawlMode TEXT, storageMode TEXT, engine TEXT, fetchConfig TEXT, threadMin INTEGER, threadMax INTEGER,
 intervalMin INTEGER, intervalMax INTEGER, smartCategory BOOLEAN, smartComplete BOOLEAN, autoSuggest BOOLEAN,
@@ -52,6 +52,13 @@ CREATE TABLE "DownloadJob" (id TEXT PRIMARY KEY, bookId TEXT, options TEXT DEFAU
 status TEXT DEFAULT 'pending', filePath TEXT, error TEXT, size INTEGER DEFAULT 0, createdAt DATETIME);
 CREATE TABLE "FriendLink" (id TEXT PRIMARY KEY, name TEXT, url TEXT, logo TEXT,
 sortOrder INTEGER DEFAULT 0, enabled BOOLEAN DEFAULT 1, createdAt DATETIME, updatedAt DATETIME);
+CREATE TABLE "FreeProxy" (id TEXT PRIMARY KEY, protocol TEXT NOT NULL, host TEXT NOT NULL,
+port INTEGER NOT NULL, anonymity TEXT NOT NULL DEFAULT '', country TEXT NOT NULL DEFAULT '',
+countryName TEXT NOT NULL DEFAULT '', exitIp TEXT NOT NULL DEFAULT '', latencyMs INTEGER,
+alive INTEGER NOT NULL DEFAULT 0, successCount INTEGER NOT NULL DEFAULT 0, failCount INTEGER NOT NULL DEFAULT 0,
+healthScore INTEGER NOT NULL DEFAULT 0, lastError TEXT NOT NULL DEFAULT '', source TEXT NOT NULL DEFAULT '',
+lastCheckedAt INTEGER, lastSuccessAt INTEGER, lastUsedAt INTEGER, createdAt INTEGER NOT NULL,
+updatedAt INTEGER NOT NULL, UNIQUE(protocol, host, port));
 `
 
 func newTestDB(t *testing.T) *store.DB {

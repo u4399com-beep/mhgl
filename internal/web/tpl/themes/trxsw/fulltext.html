@@ -1,0 +1,33 @@
+{{define "content"}}{{/* trxsw 全本·完本页(33yq .novelslistss 行式块 + MessageDiv 提示条) */}}
+<div class="trx-full">
+  <div id="trx-main">
+    <div class="trx-MessageDiv"><b>提示：本页为完本小说大全， 推荐使用Ctrl+F 来查找小说。</b></div>
+    <div class="trx-novelslistss">
+      <h2>完本小说大全列表</h2>
+      {{if .Books}}
+      <ul>
+        {{range .Books}}
+        <li title="{{.name}}/{{.author}}">
+          <span class="s1">[{{or .category "小说"}}]</span>
+          <span class="s2"><a href="{{bookHref (str .id) (num .num) $.SiteID}}" title="{{.name}}">{{.name}}</a></span>
+          <span class="s3">{{.author}}</span>
+          <span class="s4">{{dateDay .updatedAt}}</span>
+        </li>
+        {{end}}
+      </ul>
+      {{else}}<ul><li><div class="trx-MessageDiv">暂无完本书籍</div></li></ul>{{end}}
+    </div>
+    {{with .Pager}}
+    {{if or .PrevURL .NextURL}}
+    <div class="trx-articlepage">
+      <div class="trx-pagelink">
+        {{if .PrevURL}}<a class="trx-next" href="{{.PrevURL}}" rel="prev">上一页</a>{{end}}
+        <strong>{{.Page}} / {{.TotalPages}}</strong>
+        {{if .NextURL}}<a class="trx-next" href="{{.NextURL}}" rel="next">下一页</a><a class="trx-ngroup" href="{{.NextURL}}">尾页</a>{{end}}
+      </div>
+    </div>
+    {{end}}
+    {{end}}
+  </div>
+</div>
+{{end}}

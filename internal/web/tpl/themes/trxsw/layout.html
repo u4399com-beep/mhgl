@@ -1,0 +1,56 @@
+{{define "layout.html"}}<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>{{.Head.Title}}</title>
+{{if .Head.Description}}<meta name="description" content="{{.Head.Description}}">{{end}}
+{{if .Head.Keywords}}<meta name="keywords" content="{{.Head.Keywords}}">{{end}}
+{{if .Head.Canonical}}<link rel="canonical" href="{{.Head.Canonical}}">{{end}}
+<meta property="og:type" content="{{.Head.OgType}}">
+<meta property="og:title" content="{{.Head.Title}}">
+{{if .Head.Description}}<meta property="og:description" content="{{.Head.Description}}">{{end}}
+{{if .Head.Canonical}}<meta property="og:url" content="{{.Head.Canonical}}">{{end}}
+<meta name="theme-color" content="#1f5fa9">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" type="image/png" href="/static/icons/icon-192.png">
+<link rel="stylesheet" href="/static/css/trxsw.css?v=r58-2b">
+</head>
+<body class="clone-trxsw">
+<div class="trx-ywtop">
+  <div class="trx-ywtop-con">
+    <span class="trx-ywtop-txt">{{if .Head.Description}}{{.Head.Description}}{{else}}本站所有小说均由网友上传，如有侵权请联系我们删除{{end}}</span>
+    <span class="trx-ywtop-deco" aria-hidden="true">设为首页 ｜ 加入收藏 ｜ 联系我们</span>
+  </div>
+</div>
+<header class="trx-head">
+  <a class="trx-head-logo" href="{{.HomeHref}}">{{siteTitle .Site}}</a>
+  <form class="trx-head-search" action="/" method="get" role="search">
+    {{if .SiteID}}<input type="hidden" name="site" value="{{.SiteID}}">{{end}}
+    <input type="hidden" name="view" value="search">
+    <input type="search" name="q" aria-label="站内搜索" placeholder="搜索书名 / 作者名" value="{{.Q}}">
+    <button type="submit">搜索</button>
+  </form>
+</header>
+<nav class="trx-nav" aria-label="分类导航">
+  <ul>
+    <li><a href="{{.HomeHref}}">首页</a></li>
+    <li><a href="{{.RankingHref}}">排行榜单</a></li>
+    <li><a href="{{.FulltextHref}}">最近更新</a></li>
+    {{range firstN 7 .NavCats}}<li><a href="{{catHref . $.SiteID}}">{{.}}</a></li>{{end}}
+    <li><a href="{{.FulltextHref}}">全本小说</a></li>
+    <li><a href="{{.HistoryHref}}">我的书架</a></li>
+  </ul>
+</nav>
+<main class="trx-main-wrap">{{block "content" .}}<div class="trx-MessageDiv">加载中…</div>{{end}}</main>
+<footer class="trx-footer">
+  <div class="trx-footer-cont">
+    <p class="trx-ft-links"><a href="{{.HomeHref}}">网站首页</a> ｜ <a href="{{.FulltextHref}}">全站书库</a> ｜ <a href="{{.RankingHref}}">排行榜单</a> ｜ <a href="/admin">管理</a></p>
+    <p>{{siteTitle .Site}}所有免费小说阅读网络小说为转载作品，转载至本站只是为了宣传本书让更多读者欣赏。</p>
+    <p>Copyright © {{siteTitle .Site}} All Rights Reserved</p>
+  </div>
+</footer>
+<script src="/static/js/site.js?v=r56-2c" defer></script>
+<script src="/static/js/pwa.js?v=r56-2c" defer></script>
+</body>
+</html>{{end}}

@@ -6,6 +6,8 @@
 package store
 
 import (
+	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -38,7 +40,9 @@ func (d *DB) WebResolveCatID(cat string) (string, error) {
 	name := strings.TrimPrefix(cat, "cat:")
 	var id string
 	err := d.QueryRow(`SELECT id FROM "Category" WHERE name=? LIMIT 1`, name).Scan(&id)
-	if err != nil && err.Error() == "sql: no rows in result set" {
+	// [R58-2c-fix] 修前 err.Error()=="sql: no rows..." 字符串直比 —— R56-2b-6/R57-2b-2
+	// 已在 models.go 等五处同款收敛为 errors.Is, 此处为漏网残留(驱动换型/错误包装即失效)。
+	if errors.Is(err, sql.ErrNoRows) {
 		return "__no_match__", nil
 	}
 	return id, err

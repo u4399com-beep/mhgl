@@ -13,6 +13,10 @@
         <ul class="ajx-lines">
           {{range $i, $b := .Books}}
           <li class="ajx-line">
+            <span class="ajx-cover ajx-line-cov ajx-line-cov-sm">
+              {{if $b.cover}}<img src="{{coverURL (str $b.cover)}}" alt="{{$b.name}} 封面" loading="lazy" onerror="this.remove()">{{end}}
+              <span class="ajx-cover-ph">{{$b.name}}</span>
+            </span>
             <span class="ajx-line-main">
               <span class="ajx-no">{{add $i 1}}</span>
               <span class="ajx-cat">{{or $b.category "小说"}}</span>

@@ -111,8 +111,8 @@ func hasNormalTitle(h string) bool {
 	return !badStatusTitleRe.MatchString(t)
 }
 
-// visibleTextLen 去标签可见文本长度(rune 计数; script/style 剥除)
-func visibleTextLen(h string) string {
+// visibleText 去标签可见文本(调用方按 rune 计数; script/style 剥除)
+func visibleText(h string) string {
 	s := scriptRe.ReplaceAllString(h, "")
 	s = styleRe.ReplaceAllString(s, "")
 	s = htmlTagRe.ReplaceAllString(s, "")
@@ -160,7 +160,7 @@ func looksBlocked(h string, status int, serverHeader string) bool {
 	}
 	// 200~500 字短页且可见文本 <50 字 → 疑似空壳拦截页(典型 WAF 占位)
 	if n := utf8.RuneCountInString(h); n < 500 {
-		if vt := visibleTextLen(h); utf8.RuneCountInString(vt) < 50 {
+		if vt := visibleText(h); utf8.RuneCountInString(vt) < 50 {
 			return true
 		}
 	}

@@ -33,6 +33,9 @@ var coverDirEnv = func() string {
 	return "web/covers"
 }()
 
+// maxCoverBytes 单封面响应体积上限(正常封面 KB 级; 超出按不存在处理, 防 ReadFile 尖峰)。
+const maxCoverBytes = 16 << 20
+
 // ---------------- cover ----------------
 
 var coverFileRe = regexp.MustCompile(`^\w[\w.-]*\.(webp|jpe?g|png|gif|avif)$`)
@@ -69,6 +72,17 @@ func (d Deps) publicCover(w http.ResponseWriter, r *http.Request) {
 	full := filepath.Join(dir, base)
 	if !strings.HasPrefix(filepath.Clean(full), filepath.Clean(dir)+string(os.PathSeparator)) {
 		apiErr(w, http.StatusBadRequest, "非法的封面文件名")
+		return
+	}
+	// [R58-2c] 体积防线: 先 stat 再读 —— 采集侧异常落盘的超大文件不再整读进内存
+	// (修前 os.ReadFile 无上限, 目录里被塞进 GB 级文件时一次命中即内存尖峰)。
+	st, serr := os.Stat(full)
+	if serr != nil {
+		apiErr(w, http.StatusNotFound, "封面不存在")
+		return
+	}
+	if st.Size() > maxCoverBytes {
+		apiErr(w, http.StatusNotFound, "封面不可用")
 		return
 	}
 	buf, err := os.ReadFile(full)
@@ -325,8 +339,10 @@ func appendSiteQ(loc, siteQ string) string {
 func (d Deps) publicSitemap(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	siteID := strings.TrimSpace(strOf(q.Get("site"), 64))
-	pageParam := q.Get("page")
-	indexParam := q.Get("index")
+	// [R58-2c] page/index 参与缓存键, 截断防超长垃圾参数撑大 sitemapCache
+	// (合法取值 ≤4 位数字; 截断不改变 parsePositiveInt 的 1e9 钳制结果)。
+	pageParam := strOf(q.Get("page"), 12)
+	indexParam := strOf(q.Get("index"), 12)
 
 	scheme := "http"
 	if r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {

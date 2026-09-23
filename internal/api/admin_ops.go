@@ -343,6 +343,8 @@ func (d Deps) runDownloadJob(jobID, bookID string) {
 			truncateRunes(err.Error(), 300), jobID)
 		return
 	}
+	// [R58-2c] panic 路径 fd 兜底(正常/fail 路径已显式 Close, 二次 Close 无害)。
+	defer f.Close()
 	writePart := func(part string) { _, _ = f.WriteString(part) }
 	gap := "\n\n"
 
@@ -636,9 +638,22 @@ func (d Deps) proxyStats() map[string]any {
 	if err := d.DB.QueryRow(`SELECT COALESCE(AVG(latencyMs),0) FROM "FreeProxy" WHERE alive=1 AND latencyMs IS NOT NULL`).Scan(&avgLat); err == nil {
 		avgLatency = int(avgLat + 0.5)
 	}
+	// [R58-2c] 统计面板扩展: alive 率 / protocol 分组计数 / 国家 top10 / stale 存量
+	// (lastCheckedAt 距今超 24h 的已检行; 从未检过的行计入 unchecked 不算 stale)。
+	aliveRate := 0.0
+	if total > 0 {
+		aliveRate = math.Round(float64(alive)/float64(total)*1e4) / 1e4
+	}
+	stale, _ := d.DB.Count(`SELECT count(*) FROM "FreeProxy" WHERE lastCheckedAt IS NOT NULL AND lastCheckedAt<?`,
+		store.NowMS()-24*3600*1000)
+	protocols, _ := d.DB.QueryMaps(`SELECT protocol, count(*) AS count FROM "FreeProxy"
+GROUP BY protocol ORDER BY count DESC, protocol ASC`)
+	topCountries, _ := d.DB.QueryMaps(`SELECT country, count(*) AS count FROM "FreeProxy"
+WHERE country<>'' GROUP BY country ORDER BY count DESC, country ASC LIMIT 10`)
 	return map[string]any{
 		"total": total, "alive": alive, "dead": total - alive - unchecked,
 		"unchecked": unchecked, "countries": countries, "avgLatencyMs": avgLatency,
+		"aliveRate": aliveRate, "stale": stale, "protocols": protocols, "topCountries": topCountries,
 	}
 }
 
@@ -683,19 +698,52 @@ func (d Deps) adminProxyPoolPatch(w http.ResponseWriter, r *http.Request) {
 	apiOK(w, next)
 }
 
-// (d Deps) adminProxyPoolDelete DELETE /api/admin/proxy-pool?confirm=true
+// (d Deps) adminProxyPoolDelete DELETE /api/admin/proxy-pool
+//
+//	?confirm=true              → 清空整池(既有契约, 无 confirm 一律拒绝);
+//	?action=clean              → [R58-2c] 定向清理预览: 先 SELECT COUNT 回报待删行数, 不删;
+//	?action=clean&confirm=true → 执行定向清理, 返回逐规则删除计数。
+//
+// clean 规则: dead(alive=0 且 healthScore<=0 且超 7 天未复检) +
+// neverChecked(从未通过校验 lastCheckedAt IS NULL 且入库超 3 天)。
 func (d Deps) adminProxyPoolDelete(w http.ResponseWriter, r *http.Request) {
-	if strings.ToLower(strOf(r.URL.Query().Get("confirm"), 4)) != "true" {
-		apiErr(w, http.StatusBadRequest, "缺少 confirm=true, 拒绝清空代理池")
+	q := r.URL.Query()
+	confirm := strings.ToLower(strOf(q.Get("confirm"), 4)) == "true"
+	action := strings.ToLower(strOf(q.Get("action"), 12))
+	if action == "" {
+		if !confirm {
+			apiErr(w, http.StatusBadRequest, "缺少 confirm=true, 拒绝清空代理池")
+			return
+		}
+		res, err := d.DB.Exec(`DELETE FROM "FreeProxy"`)
+		if err != nil {
+			apiErr(w, http.StatusInternalServerError, "服务器内部错误")
+			return
+		}
+		n, _ := res.RowsAffected()
+		apiOK(w, map[string]any{"deleted": n})
 		return
 	}
-	res, err := d.DB.Exec(`DELETE FROM "FreeProxy"`)
+	if action != "clean" {
+		apiErr(w, http.StatusBadRequest, "未知 action(仅支持 clean)")
+		return
+	}
+	dead, never, err := d.DB.APIFreeProxyClean(confirm)
 	if err != nil {
 		apiErr(w, http.StatusInternalServerError, "服务器内部错误")
 		return
 	}
-	n, _ := res.RowsAffected()
-	apiOK(w, map[string]any{"deleted": n})
+	if !confirm {
+		apiOK(w, map[string]any{
+			"action": "clean", "confirmRequired": true,
+			"dead": dead, "neverChecked": never, "total": dead + never,
+		})
+		return
+	}
+	apiOK(w, map[string]any{
+		"action": "clean", "confirmRequired": false,
+		"deleted": map[string]any{"dead": dead, "neverChecked": never, "total": dead + never},
+	})
 }
 
 // (d Deps) adminProxyHarvest POST /api/admin/proxy-pool/harvest

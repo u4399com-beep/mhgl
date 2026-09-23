@@ -9,6 +9,10 @@
           <ul class="ajx-lines ajx-books ajx-books-2col">
             {{range .Books}}
             <li class="ajx-line">
+              <span class="ajx-cover ajx-line-cov ajx-line-cov-sm">
+                {{if .cover}}<img src="{{coverURL (str .cover)}}" alt="{{.name}} 封面" loading="lazy" onerror="this.remove()">{{end}}
+                <span class="ajx-cover-ph">{{.name}}</span>
+              </span>
               <span class="ajx-line-main">
                 <a class="ajx-cat" href="{{catHref (str .category) $.SiteID}}">{{or .category "小说"}}</a>
                 <a href="{{bookHref (str .id) (num .num) $.SiteID}}" title="{{.name}}">{{.name}}</a>
@@ -35,6 +39,10 @@
           <ul class="ajx-lines">
             {{range $i, $b := .ClickRank}}
             <li class="ajx-line">
+              <span class="ajx-cover ajx-line-cov ajx-line-cov-sm">
+                {{if $b.cover}}<img src="{{coverURL (str $b.cover)}}" alt="{{$b.name}} 封面" loading="lazy" onerror="this.remove()">{{end}}
+                <span class="ajx-cover-ph">{{$b.name}}</span>
+              </span>
               <span class="ajx-no">{{add $i 1}}</span>
               <a href="{{bookHref (str $b.id) (num $b.num) $.SiteID}}" title="{{$b.name}}">{{$b.name}}</a>
               <span class="ajx-date">{{$b.author}}</span>
@@ -83,7 +91,7 @@
   </main>
   <section class="ajx-hero">
     <h2>数据统计<small>数据每30分钟更新</small></h2>
-    <p>每天更新热门小说，覆盖穿越、重生、都市、玄幻等主流分类；支持全站 TXT 免费下载与在线阅读。</p>
+    <p>每天更新热门小说，覆盖玄幻奇幻、都市生活、现代言情等主流分类；支持全站 TXT 免费下载与在线阅读。</p>
     <div class="ajx-kpi">
       <div class="ajx-kpi-item"><div class="ajx-kpi-num">{{.Stats.Books}}部</div><div class="ajx-kpi-txt">收录电子书</div></div>
       <div class="ajx-kpi-item"><div class="ajx-kpi-num">{{fmtWords .Stats.Words}}</div><div class="ajx-kpi-txt">全站总字数</div></div>

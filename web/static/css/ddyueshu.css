@@ -1,0 +1,322 @@
+/* ============================================================
+   ddyueshu 主题(顶点小说克隆 / 经典笔趣阁 biquge 模板家族)
+   视觉基因(R24-6 实测留档): 白底 + 深蓝 #2b5b84 导航/标题条基因
+   + 橙 #ff6600 强调(hover) + 经典链接蓝 #06c。
+   版式基因: #wrapper 960 / hotcontent 左 660+右 278 / novelslist 3 列
+   / newscontent 左 660+右 278 / 目录三列 dd。
+   作用域: body.clone-ddyueshu(全站)。
+   ============================================================ */
+body.clone-ddyueshu {
+  margin: 0;
+  padding: 0;
+  background: #fff;
+  color: #333;
+  font: 14px/1.7 "Helvetica Neue", Helvetica, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "WenQuanYi Micro Hei", Arial, sans-serif;
+}
+body.clone-ddyueshu a { color: #06c; text-decoration: none; }
+body.clone-ddyueshu a:hover { color: #f60; text-decoration: underline; }
+body.clone-ddyueshu ul, body.clone-ddyueshu ol, body.clone-ddyueshu dl, body.clone-ddyueshu dd, body.clone-ddyueshu h1, body.clone-ddyueshu h2, body.clone-ddyueshu p { margin: 0; padding: 0; }
+body.clone-ddyueshu ul, body.clone-ddyueshu ol { list-style: none; }
+body.clone-ddyueshu img { border: 0; }
+body.clone-ddyueshu button { font-family: inherit; }
+.ddyc { width: 960px; max-width: 96%; margin: 0 auto; }
+.ddyc:after, .ddy-clear:after { content: ""; display: table; clear: both; }
+.ddyc, .ddy-clear { zoom: 1; }
+.ddyc, .ddy-clear:after, .ddyc:after { *zoom: 1; }
+
+/* ---------------- 头部: logo + 搜索 ---------------- */
+.ddyc, body.clone-ddyueshu .ddy-header { }
+body.clone-ddyueshu .ddy-header {
+  width: 960px; max-width: 96%; margin: 0 auto;
+  padding: 14px 0 10px;
+  display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+}
+body.clone-ddyueshu .ddy-logo {
+  font-size: 28px; font-weight: 700; color: #2b5b84; letter-spacing: 1px;
+  text-decoration: none; line-height: 1.2;
+}
+body.clone-ddyueshu .ddy-logo:hover { color: #f60; text-decoration: none; }
+body.clone-ddyueshu .ddy-header-search form { display: flex; align-items: center; }
+body.clone-ddyueshu .ddy-search-text {
+  width: 240px; height: 32px; padding: 0 10px;
+  border: 2px solid #2b5b84; border-right: 0; outline: none;
+  font-size: 13px; color: #333; background: #fff;
+  -webkit-appearance: none; appearance: none;
+}
+body.clone-ddyueshu .ddy-search-text:focus { border-color: #f60; }
+body.clone-ddyueshu .ddy-search-btn {
+  height: 36px; padding: 0 18px;
+  background: #2b5b84; color: #fff; border: 0; font-size: 14px; cursor: pointer;
+}
+body.clone-ddyueshu .ddy-search-btn:hover { background: #f60; }
+
+/* ---------------- 导航: 深蓝条 ---------------- */
+body.clone-ddyueshu .ddy-nav { background: #2b5b84; }
+body.clone-ddyueshu .ddy-nav ul {
+  width: 960px; max-width: 96%; margin: 0 auto;
+  display: flex; flex-wrap: wrap;
+}
+body.clone-ddyueshu .ddy-nav li a {
+  display: block; padding: 0 18px; height: 40px; line-height: 40px;
+  color: #fff; font-size: 15px; text-decoration: none;
+}
+body.clone-ddyueshu .ddy-nav li a:hover, body.clone-ddyueshu .ddy-nav li a.is-active { background: #f60; color: #fff; text-decoration: none; }
+
+/* ---------------- 主体容器 ---------------- */
+body.clone-ddyueshu .ddy-main-wrap { padding: 10px 0 20px; }
+body.clone-ddyueshu #ddy-main { width: 960px; max-width: 96%; margin: 0 auto; }
+body.clone-ddyueshu .ddy-box-con {
+  background: #fff; border: 1px solid #ddd; margin-bottom: 10px;
+}
+body.clone-ddyueshu .ddy-box-con-inner { padding: 20px; color: #666; text-align: center; }
+body.clone-ddyueshu .ddy-con-top {
+  height: 34px; line-height: 34px; padding: 0 10px;
+  border-bottom: 1px solid #eee; background: #f8f8f8; color: #999; font-size: 12px;
+}
+body.clone-ddyueshu .ddy-con-top a { color: #06c; }
+
+/* 深蓝标题条(真站 h2: 深蓝底白字 14px 高 32) */
+body.clone-ddyueshu .ddy-hot-r h2, body.clone-ddyueshu .ddy-nl-content h2,
+body.clone-ddyueshu .ddy-news-l h2, body.clone-ddyueshu .ddy-news-r h2,
+body.clone-ddyueshu .ddy-list dt, body.clone-ddyueshu .ddy-rank-block h2 {
+  height: 32px; line-height: 32px; margin: 0; padding-left: 10px;
+  background: #2b5b84; color: #fff; font-size: 14px; font-weight: 400;
+}
+
+/* ---------------- 首页: hotcontent ---------------- */
+body.clone-ddyueshu .ddy-hotcontent { margin-bottom: 10px; }
+body.clone-ddyueshu .ddy-hot-l {
+  float: left; width: 660px; max-width: 100%;
+  border: 1px solid #ddd; padding: 10px; box-sizing: border-box;
+  display: flex; flex-wrap: wrap; gap: 10px;
+}
+body.clone-ddyueshu .ddy-hot-item { width: 310px; }
+body.clone-ddyueshu .ddy-hot-img { float: left; margin-right: 10px; }
+body.clone-ddyueshu .ddy-hot-img div {
+  width: 90px; height: 112px; background: #f0f0f0; border: 1px solid #ddd; overflow: hidden;
+}
+body.clone-ddyueshu .ddy-hot-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+body.clone-ddyueshu .ddy-hot-item dl { margin-left: 102px; }
+body.clone-ddyueshu .ddy-hot-item dt { font-size: 15px; font-weight: 700; line-height: 1.5; }
+body.clone-ddyueshu .ddy-hot-item dt span { float: right; font-size: 12px; font-weight: 400; color: #999; }
+body.clone-ddyueshu .ddy-hot-item dd { margin-top: 6px; font-size: 12px; color: #666; height: 54px; overflow: hidden; }
+body.clone-ddyueshu .ddy-hot-r { float: right; width: 278px; border: 1px solid #ddd; box-sizing: border-box; }
+body.clone-ddyueshu .ddy-hot-r ul { padding: 6px 10px; }
+body.clone-ddyueshu .ddy-hot-r li { line-height: 30px; border-bottom: 1px dashed #e3e3e3; font-size: 13px; overflow: hidden; }
+body.clone-ddyueshu .ddy-hot-r li:last-child { border-bottom: 0; }
+
+/* s1~s5 通用列(列表行内 span) */
+body.clone-ddyueshu .ddy-s1 { color: #999; }
+body.clone-ddyueshu .ddy-s2 { }
+body.clone-ddyueshu .ddy-s2 a { color: #06c; }
+body.clone-ddyueshu .ddy-s3 { color: #666; }
+body.clone-ddyueshu .ddy-s4 { color: #666; }
+body.clone-ddyueshu .ddy-s5 { float: right; color: #999; font-size: 12px; }
+
+/* ---------------- 首页: novelslist 三列 ---------------- */
+body.clone-ddyueshu .ddy-novelslist { margin-bottom: 10px; }
+body.clone-ddyueshu .ddy-nl-content {
+  float: left; width: 313px; margin-right: 10px;
+  border: 1px solid #ddd; box-sizing: border-box; min-height: 320px;
+}
+body.clone-ddyueshu .ddy-nl-content:nth-child(3n) { margin-right: 0; }
+body.clone-ddyueshu .ddy-nl-top { padding: 10px; border-bottom: 1px dashed #e3e3e3; }
+body.clone-ddyueshu .ddy-nl-img { float: left; margin-right: 10px; }
+body.clone-ddyueshu .ddy-nl-img div {
+  width: 67px; height: 84px; background: #f0f0f0; border: 1px solid #ddd; overflow: hidden;
+}
+body.clone-ddyueshu .ddy-nl-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+body.clone-ddyueshu .ddy-nl-top dl { margin-left: 80px; }
+body.clone-ddyueshu .ddy-nl-top dt { font-size: 14px; font-weight: 700; line-height: 1.5; }
+body.clone-ddyueshu .ddy-nl-top dd { margin-top: 4px; font-size: 12px; color: #666; height: 48px; overflow: hidden; }
+body.clone-ddyueshu .ddy-nl-content ul { padding: 6px 10px; }
+body.clone-ddyueshu .ddy-nl-content ul li {
+  float: left; width: 50%; line-height: 26px; font-size: 13px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 8px; box-sizing: border-box;
+}
+body.clone-ddyueshu .ddy-nl-content ul li:after { content: ""; display: block; clear: both; }
+body.clone-ddyueshu .ddy-nl-authors li { width: 50%; }
+
+/* ---------------- 首页/分类/历史: newscontent 双栏 ---------------- */
+body.clone-ddyueshu .ddy-news, body.clone-ddyueshu .ddy-newscontent { margin-bottom: 10px; }
+body.clone-ddyueshu .ddy-news-l, body.clone-ddyueshu .ddy-nc-l {
+  float: left; width: 660px; max-width: 100%;
+  border: 1px solid #ddd; box-sizing: border-box;
+}
+body.clone-ddyueshu .ddy-news-r {
+  float: right; width: 278px; border: 1px solid #ddd; box-sizing: border-box;
+}
+body.clone-ddyueshu .ddy-news-l ul, body.clone-ddyueshu .ddy-news-r ul,
+body.clone-ddyueshu .ddy-ul-list { padding: 6px 12px; }
+body.clone-ddyueshu .ddy-news-l li, body.clone-ddyueshu .ddy-news-r li, body.clone-ddyueshu .ddy-ul-list li {
+  line-height: 30px; border-bottom: 1px dashed #e3e3e3; font-size: 13px; overflow: hidden;
+}
+body.clone-ddyueshu .ddy-news-l li:last-child, body.clone-ddyueshu .ddy-news-r li:last-child, body.clone-ddyueshu .ddy-ul-list li:last-child { border-bottom: 0; }
+body.clone-ddyueshu .ddy-news-l .ddy-s2, body.clone-ddyueshu .ddy-ul-list .ddy-s2 { display: inline-block; width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+body.clone-ddyueshu .ddy-news-l .ddy-s3 { display: inline-block; width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+body.clone-ddyueshu .ddy-news-l .ddy-s4 { display: inline-block; width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+
+/* ---------------- 分类页侧栏(ddy-cat) ---------------- */
+body.clone-ddyueshu .ddy-cat {
+  float: right; width: 278px; border: 1px solid #ddd; box-sizing: border-box; padding-bottom: 8px;
+}
+body.clone-ddyueshu .ddy-cat h2, body.clone-ddyueshu .ddy-cat .ddy-con-top { margin: 0; }
+
+/* ---------------- 全站书库(ddy-novellist/ddy-full) ---------------- */
+body.clone-ddyueshu .ddy-novellist { padding: 10px 12px; }
+body.clone-ddyueshu .ddy-novellist li { float: left; width: 25%; line-height: 30px; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 10px; box-sizing: border-box; }
+body.clone-ddyueshu .ddy-full { padding: 10px 12px; }
+body.clone-ddyueshu .ddy-msg { padding: 16px; text-align: center; color: #666; }
+
+/* ---------------- 排行榜(ddy-rank) ---------------- */
+body.clone-ddyueshu .ddy-ranking { padding: 12px; }
+body.clone-ddyueshu .ddy-rank-tabs { border-bottom: 2px solid #2b5b84; overflow: hidden; }
+body.clone-ddyueshu .ddy-rank-tabs a {
+  float: left; padding: 0 16px; height: 32px; line-height: 32px; font-size: 14px;
+  color: #333; text-decoration: none; background: #f0f0f0; border: 1px solid #ddd; border-bottom: 0; margin-right: 4px;
+}
+body.clone-ddyueshu .ddy-rank-tabs a.is-active, body.clone-ddyueshu .ddy-rank-tabs a:hover { background: #2b5b84; color: #fff; text-decoration: none; }
+body.clone-ddyueshu .ddy-rank-block { padding: 8px 0 0; }
+body.clone-ddyueshu .ddy-rank-block h2 { margin-bottom: 6px; }
+body.clone-ddyueshu .ddy-tli { padding: 4px 12px; }
+body.clone-ddyueshu .ddy-tli li { line-height: 30px; border-bottom: 1px dashed #e3e3e3; font-size: 13px; overflow: hidden; }
+body.clone-ddyueshu .ddy-tli li:last-child { border-bottom: 0; }
+body.clone-ddyueshu .ddy-rank-a { }
+body.clone-ddyueshu .ddy-em-top { font-weight: 700; color: #f60; }
+body.clone-ddyueshu .ddy-em { }
+
+/* ---------------- 书页(book/keyword 共用 maininfo) ---------------- */
+body.clone-ddyueshu .ddy-maininfo { float: left; width: 660px; max-width: 100%; padding: 12px; box-sizing: border-box; }
+body.clone-ddyueshu .ddy-info h1 { font-size: 24px; line-height: 1.4; color: #333; font-weight: 700; margin-bottom: 8px; }
+body.clone-ddyueshu .ddy-info p { line-height: 28px; color: #666; font-size: 13px; }
+body.clone-ddyueshu .ddy-info p a { color: #06c; }
+body.clone-ddyueshu .ddy-act, body.clone-ddyueshu .ddy-info .ddy-act { color: #f60 !important; }
+body.clone-ddyueshu .ddy-intro { margin-top: 8px; padding: 10px; background: #f8f8f8; border: 1px solid #eee; color: #555; font-size: 13px; }
+body.clone-ddyueshu .ddy-intro p { line-height: 1.9; }
+body.clone-ddyueshu .ddy-sidebar { float: right; width: 278px; box-sizing: border-box; padding: 12px; text-align: center; }
+body.clone-ddyueshu .ddy-fmimg div {
+  display: inline-block; width: 120px; height: 150px; background: #f0f0f0;
+  border: 1px solid #ddd; padding: 3px; box-sizing: border-box; overflow: hidden;
+}
+body.clone-ddyueshu .ddy-fmimg img { width: 100%; height: 100%; object-fit: cover; display: block; }
+body.clone-ddyueshu .ddy-listtj { margin-top: 10px; padding: 8px 12px; border-top: 1px dashed #e3e3e3; color: #666; font-size: 13px; line-height: 24px; }
+body.clone-ddyueshu .ddy-listtj b { color: #333; margin-right: 6px; }
+body.clone-ddyueshu .ddy-listtj a { margin-right: 10px; }
+
+/* 最新章节三列(ddy-list dl) */
+body.clone-ddyueshu .ddy-list-con { padding-bottom: 10px; }
+body.clone-ddyueshu .ddy-list { }
+body.clone-ddyueshu .ddy-list .ddy-latest-dd { padding: 8px 12px; }
+body.clone-ddyueshu .ddy-list .ddy-latest-dd li { float: left; width: 33.33%; line-height: 28px; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 10px; box-sizing: border-box; }
+body.clone-ddyueshu .ddy-toc .ddy-list dd { float: left; width: 33.33%; padding: 0 10px; line-height: 28px; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; box-sizing: border-box; }
+body.clone-ddyueshu .ddy-toc-more { padding: 10px 12px; text-align: center; border-top: 1px dashed #e3e3e3; font-size: 13px; }
+
+/* ---------------- 目录页(ddy-toc) ---------------- */
+body.clone-ddyueshu .ddy-toc .ddy-list { padding-bottom: 8px; }
+
+/* ---------------- 分页(ddy-page) ---------------- */
+body.clone-ddyueshu .ddy-page { padding: 14px 12px; text-align: center; }
+body.clone-ddyueshu .ddy-page a, body.clone-ddyueshu .ddy-page span {
+  display: inline-block; padding: 4px 12px; margin: 0 3px;
+  border: 1px solid #ddd; background: #f8f8f8; color: #333; font-size: 13px; text-decoration: none;
+}
+body.clone-ddyueshu .ddy-page a:hover { background: #2b5b84; border-color: #2b5b84; color: #fff; text-decoration: none; }
+
+/* ---------------- 阅读页(ddy-read) ---------------- */
+body.clone-ddyueshu .ddy-read { }
+body.clone-ddyueshu .ddy-read-wrap {
+  width: 960px; max-width: 96%; margin: 0 auto;
+  background: #fff; border: 1px solid #ddd; padding: 0 0 14px;
+}
+body.clone-ddyueshu .ddy-text-set {
+  padding: 8px 14px; border-bottom: 1px solid #eee; background: #f8f8f8;
+  font-size: 13px; color: #666; line-height: 26px;
+}
+body.clone-ddyueshu .ddy-text-set b { font-weight: 400; color: #999; margin: 0 2px 0 10px; }
+body.clone-ddyueshu .ddy-text-set b:first-child { margin-left: 0; }
+/* 阅读控件(biquge 灰调复刻 ajx-s/ajx-c/ajx-ys; site.js 消费 data-fs/data-bg/data-ink) */
+body.clone-ddyueshu .ajx-s {
+  display: inline-block; padding: 2px 10px; margin-right: 4px;
+  border: 1px solid #ddd; background: #fff; color: #555; font-size: 12px; text-decoration: none; cursor: pointer;
+}
+body.clone-ddyueshu .ajx-s:hover { border-color: #2b5b84; color: #2b5b84; text-decoration: none; }
+body.clone-ddyueshu .ajx-s.is-active { background: #2b5b84; border-color: #2b5b84; color: #fff; }
+body.clone-ddyueshu .ajx-c {
+  display: inline-block; width: 18px; height: 18px; border-radius: 50%;
+  border: 1px solid rgba(0,0,0,.25); cursor: pointer; vertical-align: middle; margin-right: 4px;
+}
+body.clone-ddyueshu .ajx-c.is-active { box-shadow: 0 0 0 2px rgba(43,91,132,.55); }
+body.clone-ddyueshu .ajx-ys { display: inline-flex; align-items: center; }
+body.clone-ddyueshu .ajx-ys a {
+  margin-right: 6px; display: inline-block; padding: 2px 8px;
+  border: 1px solid #ddd; border-radius: 3px; background: #fff; font-size: 12px; font-weight: 600; text-decoration: none;
+}
+body.clone-ddyueshu .ajx-ys a:hover { border-color: #2b5b84; text-decoration: none; }
+body.clone-ddyueshu .ajx-ys a.is-active { border-color: #2b5b84; background: #e8f0f6; }
+body.clone-ddyueshu .ddy-path { padding: 10px 14px; color: #999; font-size: 12px; border-bottom: 1px dashed #e3e3e3; }
+body.clone-ddyueshu .ddy-path a { color: #06c; }
+body.clone-ddyueshu .ddy-ch-title { padding: 22px 14px 12px; text-align: center; font-size: 25px; font-weight: 700; color: #333; line-height: 1.4; }
+body.clone-ddyueshu .ddy-ch-content { padding: 0 14px; }
+body.clone-ddyueshu .ddy-read-txt { font-size: 17px; line-height: 1.9; color: #333; }
+body.clone-ddyueshu .ddy-read-txt p { margin: 0 0 12px; }
+body.clone-ddyueshu .ddy-page-nav { padding: 18px 14px 0; text-align: center; }
+body.clone-ddyueshu .ddy-page-nav a, body.clone-ddyueshu .ddy-page-nav span {
+  display: inline-block; padding: 6px 18px; margin: 0 4px;
+  border: 1px solid #ddd; background: #f8f8f8; color: #333; font-size: 14px; text-decoration: none;
+}
+body.clone-ddyueshu .ddy-page-nav a:hover { background: #2b5b84; border-color: #2b5b84; color: #fff; text-decoration: none; }
+body.clone-ddyueshu .ddy-nope { color: #bbb; cursor: default; }
+
+/* ---------------- 历史/搜索/关键词/PSEO 顶流 ---------------- */
+body.clone-ddyueshu .ddy-history { padding: 6px 0; }
+body.clone-ddyueshu .ddy-search { padding: 6px 0; }
+body.clone-ddyueshu .ddy-keyword { padding: 6px 0; }
+body.clone-ddyueshu .ddy-pseo { padding: 6px 0; }
+body.clone-ddyueshu .ddy-pseo-desc { }
+
+/* ---------------- 友链 + 页脚 ---------------- */
+body.clone-ddyueshu .ddy-firendlink {
+  width: 960px; max-width: 96%; margin: 0 auto 10px;
+  padding: 8px 0; border-top: 1px solid #eee; color: #999; font-size: 12px; line-height: 22px;
+}
+body.clone-ddyueshu .ddy-firendlink a { color: #666; margin-right: 8px; }
+body.clone-ddyueshu .ddy-firendlink a:hover { color: #f60; }
+body.clone-ddyueshu #ddy-footer { border-top: 1px solid #eee; padding: 16px 0 22px; text-align: center; }
+body.clone-ddyueshu .ddy-footer-cont { width: 960px; max-width: 96%; margin: 0 auto; color: #999; font-size: 12px; line-height: 24px; }
+body.clone-ddyueshu .ddy-footer-cont a { color: #666; }
+body.clone-ddyueshu .ddy-ft-links { margin-bottom: 4px; }
+
+/* ---------------- 404 ---------------- */
+body.clone-ddyueshu .ddy-404page { padding: 40px 0; text-align: center; }
+body.clone-ddyueshu .ddy-404-code { font-size: 64px; font-weight: 700; color: #2b5b84; line-height: 1.2; }
+body.clone-ddyueshu .ddy-404-body { color: #666; padding: 10px 0 16px; }
+body.clone-ddyueshu .ddy-404-btns a {
+  display: inline-block; padding: 8px 22px; margin: 0 6px;
+  border: 1px solid #2b5b84; color: #2b5b84; text-decoration: none;
+}
+body.clone-ddyueshu .ddy-404-btns a:hover { background: #2b5b84; color: #fff; text-decoration: none; }
+
+/* ---------------- 移动端 ---------------- */
+@media (max-width: 768px) {
+  body.clone-ddyueshu .ddy-header { padding: 10px 0 8px; }
+  body.clone-ddyueshu .ddy-logo { font-size: 22px; }
+  body.clone-ddyueshu .ddy-search-text { width: 150px; }
+  body.clone-ddyueshu .ddy-nav ul { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  body.clone-ddyueshu .ddy-nav li a { padding: 0 12px; height: 38px; line-height: 38px; font-size: 14px; white-space: nowrap; }
+  body.clone-ddyueshu .ddy-hot-l, body.clone-ddyueshu .ddy-hot-r,
+  body.clone-ddyueshu .ddy-nl-content, body.clone-ddyueshu .ddy-news-l, body.clone-ddyueshu .ddy-news-r,
+  body.clone-ddyueshu .ddy-nc-l, body.clone-ddyueshu .ddy-cat,
+  body.clone-ddyueshu .ddy-maininfo, body.clone-ddyueshu .ddy-sidebar {
+    float: none; width: 100%; margin-right: 0;
+  }
+  body.clone-ddyueshu .ddy-hot-item { width: 100%; }
+  body.clone-ddyueshu .ddy-nl-content { min-height: 0; margin-bottom: 10px; }
+  body.clone-ddyueshu .ddy-list .ddy-latest-dd li, body.clone-ddyueshu .ddy-toc .ddy-list dd { width: 50%; }
+  body.clone-ddyueshu .ddy-novellist li { width: 50%; }
+  body.clone-ddyueshu .ddy-news-l .ddy-s2 { width: 110px; }
+  body.clone-ddyueshu .ddy-news-l .ddy-s3 { width: 96px; }
+  body.clone-ddyueshu .ddy-news-l .ddy-s4 { width: 60px; }
+  body.clone-ddyueshu .ddy-ch-title { font-size: 20px; }
+  body.clone-ddyueshu .ddy-read-txt { font-size: 16px; }
+  body.clone-ddyueshu .ddy-text-set b { margin-left: 4px; }
+}

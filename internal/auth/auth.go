@@ -127,14 +127,13 @@ func cookieHeader(name, val string, maxAge int) string {
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   maxAge,
 	}
-	if s := secureAttr; s != "" {
-		return h.String() + "; " + s
-	}
 	return h.String()
 }
 
-// secureAttr 生产下追加 Secure(dev 保持与原实现一致不带)。
-var secureAttr = ""
+// [R58-2c 清理] 修前存在 var secureAttr="" 与「非空则追加 Secure」死分支 —— 无任何
+// 注入点(main 未接线), 分支永不可达。是否启用 Secure 取决于部署形态(当前沙箱为
+// http 直连/反代, 贸然启用会断后台登录); 如需启用应由主控在 NewService(isProd) 处
+// 显式接线后另行决策, 不保留不可达代码。
 
 // VerifySession 校验 Cookie 值; 成功 true。
 func (s *Service) VerifySession(cookieValue string) bool {

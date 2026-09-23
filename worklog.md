@@ -7160,3 +7160,117 @@ Stage Summary:
 - 反反爬完成「池→采集→回写→周期化」全自动闭环: 收割器 12 源入库 3 万级→采集启动即消费健康分 Top64+30min 刷新→使用事实回写 alive 记账→周期化收割/校验常驻
 - 生产实证: 三大部头满仓 100% 正文填充(历史最佳)+封面 P1 修复+5 主题矩阵+XSS 探针固化
 - 遗留: 剩余 4 主题(ddyueshu/ggd66/huangjinwu/qb23/trxsw/x33yq 择 4)/代理回写 healthScore 细化/超大书 toc 深页重复(TS 既定行为)
+---
+Task ID: R58-2a
+Agent: general-purpose (crawl 词表4字化+反反爬增强+深审)
+Task: 任务一 smart.go 分类词表 4 字化(严格按主控定稿映射表)
+
+Work Log:
+- categoryKeywords 15 行 Name 全改 4 字新名(行序不变/KWs 不动), 「同人衍生」行(原轻小说)补关键词 同人/衍生/原作
+- FallbackCategory "其他"→"综合其他"; exactCanonMap 全量 value 按表改 4 字名 + 新增旧 2 字名兜底键 16 条(玄幻/奇幻/武侠/仙侠/都市/言情/历史/军事/游戏/科幻/悬疑/体育/耽美/轻小说/现实/其他) + 无限流/青春校园→同人衍生
+- 删冲突/冗余旧键: "青春校园":"言情"(新键改指同人衍生)/"都市生活":"都市"(canonSet 直命中承接)及 7 条升 canon 后自映射键(西方奇幻/现代言情/悬疑灵异/军事战争/体育竞技/现实百态/同人衍生, lookup 先查 canonSet 故为零行为差删除)
+- canonicalizeCategoryName 前后缀剥离环改「先尾剥再头剥+逐中间形态查表」: 修前"女生小说频道"头尾同轮齐剥成"小说"提前命中噪声兜底键; 修后尾剥保留性别前缀语义 →"女生小说"精确命中现代言情(链路闭合: canonSet 4 字直命中→exactCanonMap 源名→4 字名→剥离回退)
+- 新建 smart/smart_test.go 三测试: ①主控指定六断言回归矩阵(玄幻/都市生活/玄幻小说/女生小说频道/无限流/未知怪分类)+15 主分类兜底键全闭合+包裹符/包含回退抽样 ②词表不变量(15 名全 4 字唯一/兜底名 4 字/exactCanonMap 全 value∈主分类∪兜底/键小写) ③SmartCategory 四臂全链(source/keyword/同人衍生新词/fallback 综合其他/none)
+- 全 crawl 包 grep 旧 2 字分类名: 仅 smart.go 一处语义面, bridge/callback 无硬编码; 门禁时点注: store 包正被并行代理改造(api_extra.go 编译错非本轮), smart 包独立门禁全绿
+
+Stage Summary:
+- 全站分类名 4 字化落地(smart 侧): 词表/兜底名/映射表/剥离链四层一致, 新名与 internal/web 导航锚由另一代理按同表逐字同步
+- 回归测试 3 组固化词表不变量, 防后续手误写回旧名
+---
+Task ID: R58-2c
+Agent: general-purpose (api/store 代理池可观测+深审未审面+清理)
+Task: 任务一先行——代理池可观测性+管理面清理端点+FreeProxy 索引核查补齐（任务二三续后条）
+
+Work Log:
+- [proxy-pool GET 统计面板扩展] admin_ops.go proxyStats: 在既有 total/alive/dead/unchecked/countries/avgLatencyMs 基础上补 4 项纯 SQL 聚合一次返回——aliveRate(alive/total 四舍五入 4 位小数, 空池 0)、protocols(GROUP BY protocol 计数降序)、topCountries(country<>'' GROUP BY top10)、stale(已检且 lastCheckedAt 距今超 24h 存量; 从未检行归 unchecked 不算 stale)。既有键全部保留, 前端自包含无破坏
+- [定向清理端点] DELETE /api/admin/proxy-pool 加 action=clean 两段式: 无 confirm 仅 SELECT COUNT 回报 {dead, neverChecked, total, confirmRequired:true} 不删; confirm=true 事务内真删并返回 {deleted:{dead,neverChecked,total}}。规则: dead=alive=0 且 healthScore<=0 且超 7 天未复检(lastCheckedAt 距今 7 天前, IS NOT NULL 保证检过至少一次); neverChecked=从未通过校验(lastCheckedAt IS NULL——校验成功必写该列)且入库超 3 天。既有契约不变: ?confirm=true 清空整池/无参 400/未知 action 400。store 侧新增 APIFreeProxyClean(doDelete bool)——预览两 Count、执行单事务两条 DELETE(maxConns=1 下防语句间穿插写账)
+- [FreeProxy 索引核查+补齐] store/db.go pingAndSeed 挂 ensureProxyIndexes(sqlite_master 查表存在才建; IF NOT EXISTS 幂等每次 Open 自检; 极旧最小 schema 缺列单条静默跳过不阻断启动): idx_freeproxy_alive_health(alive,healthScore,lastCheckedAt)——采集主链路 AliveProxyAddrs(WHERE alive=1 AND healthScore>0 ORDER BY healthScore DESC, lastCheckedAt DESC LIMIT 64; 签名语义未动, 只补索引)+管理 alive 过滤+clean dead 规则; idx_freeproxy_checked(lastCheckedAt,createdAt)——check 校验器 stale/unchecked 选取(ORDER BY lastCheckedAt ASC/IS NULL)+clean never 规则; idx_freeproxy_protocol/idx_freeproxy_country——管理列表过滤+分组聚合
+- [测试] api/api_test.go schema 补 FreeProxy 全列集; 新建 api/r58_proxy_test.go 三组: TestProxyPoolStatsPanel(8 行种子断言 aliveRate=0.25/stale=4/protocol 三组计数降序/国家 top10 空国别排除 US 居首/alive=true 过滤面不回归)、TestProxyPoolCleanTwoStep(6 行种子逐行命中/保留判定→预览不动库→confirm 删除恰 2 行→无 confirm 清空 400/未知 action 400/confirm 清空整池)、TestFreeProxyIndexesCoverQueryShapes(四索引在位+EXPLAIN QUERY PLAN 实证 AliveProxyAddrs 形状命中 alive_health 索引、stale 排序形状命中 checked 索引+AliveProxyAddrs 本体同分 lastCheckedAt 降序语义回归)
+- [门禁·任务一节点] gofmt 三包空/vet 0/api+store+auth test 全绿(3 新测试+既有 r57_loop_test 等全过)
+
+Stage Summary:
+- 任务一闭环: 代理池 GET 统计面板自包含(aliveRate/protocols/topCountries/stale)+DELETE action=clean 两段式定向清理(先 COUNT 后 confirm)+四索引补齐并以 EXPLAIN 实证覆盖 AliveProxyAddrs 与 check stale 两条主查询形状; 未重启服务, 索引与面板随下次部署生效
+---
+Task ID: R58-2b
+Agent: general-purpose (web 列表封面+导航4字+管理入口+主题移植×2)
+Task: 列表页封面渲染+页脚管理入口+navFloatCats 4字化+主题移植×2(trxsw/ddyueshu)+web 清理
+
+Work Log:
+- [列表封面·aijjxs] home(最新上传 2 列+点击榜)/category/fulltext/ranking 书籍行加 <img src="{{coverURL (str .cover)}}" loading="lazy" onerror="this.remove()">, 复用 ajx-cover 占位链(book.html 先例): cover 空/图挂 → ajx-cover-ph 书名竖排占位回显; site.css 新增 .ajx-line-cov(60×80 3:4)/.ajx-line-cov-sm(45×60 榜单双列密度)+680px 断点 2 列行隐日期防 390px 挤压; .ajx-line 补 align-items:center
+- [列表封面·其余主题] shipsay home ss-updates 行首加 .ss-lcov(45×60); x2552 home x2-update 行首加 .x2-lcov(38×50 float, li overflow:hidden 自含); **pili(pli-latest-grid)/kks101(kks-bookbox) 主列表本就有封面, 核实无需改**
+- [R58-2b-1·kks101 bookbox 空渲染 P1] render.go withSite 仅设 {SiteID,Rows} 而 kks-bookbox partial 读 .B.* → 书名/封面/作者/链接全空渲染(书卡全是空壳"小說/0"); 修后 withSite 同时以 B 键携带同一值(列表形态 partial 不读 B 零影响), kks101 全站书卡恢复真数据
+- [页脚管理入口] 5 主题 layout.html 页脚链接行追加 <a href="/admin">管理</a>(aijjxs/shipsay 追加进既有链接行; pili/x2552 新增链接行含站内导航+管理; kks101 插入 foot-links); offline.html 未加(按任务口径)
+- [navFloatCats 4 字化] public.go 15 锚换成主控定稿 4 字归一表(顺序逐字固定: 玄幻奇幻…现实百态), 注释更新(旧锚与分类名脱节致全"暂无相关书籍"); aijjxs home hero 文案+public.go home 默认 TDK 兜底 desc 同步 4 字口径
+- [新增回归钉] web_test.go TestAllThemes_ListCoverRendered: 8 组合(缺省主题 home/category/fulltext/ranking+其余 4 主题 home)有 cover 断言 /api/public/cover 出现、空 cover 断言不出现
+- [模板自证] 测试渲染落盘 grep: 4 改版主题 home 均 grep 到 <img src="/api/public/cover?file=book_x.jpg" ... loading="lazy" onerror="this.remove()">; 线上运行中二进制(旧 embed)首页仅 TopBook 1 处封面且 /api/public/cover 200 image/jpeg — 列表封面待主控重建部署后生效
+
+Stage Summary:
+- P0 双需求落地: 列表页封面渲染(4 主题×主列表+缺省主题 4 页, 占位链/XSS 零绕过)+5 主题页脚管理入口+导航 15 锚 4 字归一(锚↔分类↔词表三方一致)
+- 顺手修复 kks101 书卡空渲染 P1(withSite 缺 B 键); 门禁 gofmt 空/vet 0/test 全绿(含 XSS 探针组+新封面回归钉)
+---
+Task ID: R58-2c
+Agent: general-purpose (api/store 代理池可观测+深审未审面+清理)
+Task: 任务二三——api/store/auth 未审面逐行深审抓虫 + 三包死代码清理
+
+Work Log:
+- [R58-2c-1·规则批删半删竞态] api/admin_rules.go adminRulesBatch: 修前预检通过后逐条 DELETE 无事务, 并发新任务引用批内靠后规则时前面规则已实删而响应报「已整批拒绝」(半删与应答自相矛盾, 违背端点「整批原子」契约); 修后单事务执行(任一条 FK 失败整批回滚, calibration 设置清理同事务)。测试: apiTestSchema Task.ruleId 补 REFERENCES "Rule"(id)(clearAllTables 既有子先父后顺序/双种子函数先规则后任务/恢复顺序 rules→books→tasks 均兼容), TestRulesBatchDeleteAtomic 断言预检 409 零删除+FK 竞态事务回滚 a 复活+calibration 随删
+- [R58-2c-2·封面超大文件内存尖峰] api/public_files.go publicCover: 修前 os.ReadFile 无上限整读 —— covers 目录被采集侧异常落盘塞进 GB 级文件时一次命中即内存尖峰(封面目录虽非用户直传, 但源站图片下载无服务端闸门时可达); 修后先 stat 再读, >16MB(maxCoverBytes, 正常封面 KB 级)按 404 拒绝。边界测试 TestPublicCoverServeEdges: 空文件(200 空 body image/jpeg 不 500)/畸形 jpg 头(200+nosniff 无脚本面)/稀疏 17MB 文件(404 拒绝即证不再整读)/体积内正常文件不回归/穿越与非法后缀仍 400
+- [R58-2c-3·errors.Is 漏网残留] store/web_extra.go WebResolveCatID: err.Error()=="sql: no rows in result set" 字符串直比 —— R56-2b-6/R57-2b-2 已在 models.go 等五处同款收敛, 此处漏网(驱动换型/错误包装即失效致 __no_match__ 兜底断链); 修后 errors.Is。测试: TestWebResolveCatIDAnchors(cat:名/cat:未命中→__no_match__/空锚/裸 id 直查+列表两形态)
+- [R58-2c-4·sitemap 缓存键硬化] public_files.go publicSitemap: page/index 原样进缓存键(超长垃圾参数可撑大 sitemapCache 50 槽内存), 截断 12 字符(合法取值 ≤4 位, 与 parsePositiveInt 1e9 钳制结果零差异); 测试断言 20 位 page 参数钳制后 200 正常 urlset
+- [R58-2c-5·下载任务 fd 兜底] admin_ops.go runDownloadJob: os.Create 后 panic 路径(写盘中途 recover 兜底分支)未 Close 文件描述符; 补 defer f.Close()(正常/fail 路径已显式 Close, 二次 Close 无害)
+- [深审确认无虫(不改)] admin_ops.go 备份恢复 332 行复核: FK 恢复顺序(settings→categories→sites→friendLinks→rules→books→tasks→downloadJobs+内嵌 chapters/tags 延后)正确/单事务+MaxBytesReader 413 类型判定/列名全部来自 PRAGMA 内省非用户输入无注入面/Task running→paused 与 recoverOnBoot 对齐/Setting value 非串 JSON 化/failed 明细封顶 20+failedTotal 全量; auth.go clientIP XFF 信任收紧+登录限流 consume→verify→clear 次序正确; internal/auth 会话 HMAC+等长短路+{exp,nonce} 双键+nonce 32hex+限流滑窗 FIFO 淘汰+sweeper 全核对无缺口; middleware truncateBytesSafe(rune 边界回退)/MaxBytesError 类型判定/clampIntOf float 域先行钳制复核; pseudostatic 各形态正则与 .html 剥离锚定正确; sitemap loc 拼接层 xmlEscape+域名白名单+私网段拒绝复核
+- [清理] ①auth secureAttr 死分支: var secureAttr="" 恒空且无注入点, 「生产追加 Secure」永不可达 —— 删除并留注(启用与否取决于部署形态, 沙箱 http 直连贸然启用断后台登录, 须主控接线 isProd 后另行决策) ②store/crawl_extra.go CrawlBookUpdateOf 死函数: 全仓零引用(bridge.go:412/435 直构 CrawlBookUpdate 结构体, 类型本身存活), 同类残留=R57-2b bookIDRangeMax/idSeed 口径; 三包其余 317 个顶层 func/var/const/type 全量引用扫描无第二个死项
+- [门禁] gofmt -l 三包空(全仓 space-indent 惯例与 gofmt tab 的历史差异按历轮「收尾 -w」口径统一)/vet 0/api+store+auth test 全绿(7 新测试+既有 r56/r57 全过)/crawl 包测试全过(ensureProxyIndexes 对最小 schema 测试库无扰)/go build ./internal/... ./cmd/... 过; .build/mhgl 未重启未触碰
+
+Stage Summary:
+- 未审面五处修复: 规则批删事务化(半删竞态)/封面 16MB 体积防线(边界三态补测: 空/畸形/超大)/WebResolveCatID errors.Is 收尾/sitemap 缓存键截断/下载任务 panic fd 兜底
+- 清理: secureAttr 死分支+CrawlBookUpdateOf 死函数(全量符号扫描兜底确认零漏)
+- 备份恢复/鉴权/middleware/伪静态/sitemap 转义面复核无虫清单落档; 全部门禁绿
+---
+Task ID: R58-2a
+Agent: general-purpose (crawl 词表4字化+反反爬增强+深审)
+Task: 任务二三 healthScore 增量记账+代理加权随机+crawl 逐行深审抓虫+清理精简
+
+Work Log:
+- [R58-2a-1·healthScore 增量记账] proxyfeedback.go 回写泵升级: 成功事件 → lastUsedAt/updatedAt + healthScore=MIN(healthScore+1,100); 连败≥3 事件 → alive=0 + healthScore=MAX(healthScore-5,0) —— 增量与既有字段合入同一条 UPDATE, MIN/MAX 在 SQL 层钳界免读改写竞态(healthScore 列 NOT NULL DEFAULT 0 安全); 文件头写明与 proxy.Check 校验器的口径互斥: 本泵=使用事实增量语义(±小步), Check=探针全量语义(校验时刻读行重算 +15/×0.3 整行覆写), 无共享中间态; alive=0 条目交 stale 周期校验复活即全量重置。fetch 侧零 DB 依赖: markProxySuccess/markProxyFailed 记账点注释同步(接口缝不变, fetch 不 import store)
+- [R58-2a-2·代理加权随机] fetch.pickProxy 缺省轮换改加权随机 weightedProxyPick: weight=1+per-proxy 成功计数(新增 proxySuccCount 记账, markProxySuccess +1/markProxyFailed 减半衰减) —— 实证可用者多摊流量、新代理与近期失败者保底权重 1 不饿死、随机落点避免健康分降序静态切片头部被打爆; 显式 "random"(均匀)/"roundrobin"/"round-robin"(纯轮换=历史缺省)保留可选
+- [R58-2a-3·rule 解析层两 bug] ①safeReplaceAll 零宽匹配 panic: 零宽分支传 nil groups, 替换串含 $&/$0 时 expandReplaceTo 对 nil 切片索引 panic(RE2 零宽匹配常见于 a*/a? 形态规则替换; run 协程 recover 兜底但整任务被无谓熔断转 error) → expandReplaceTo 加 groups 长度守卫, $&/$N 零宽匹配展开空串(TS String.replace 同语义) ②regexExtractAll FindAll -1 无界预分配: 10MB 页×高频匹配 pattern 内存放大(R51-2-b #4 safeReplaceAll 同族未覆盖面) → FindAllStringSubmatch(htmlStr,5001) 上限化, 返回语义不变(仍取首 5000)
+- [清理] visibleTextLen→visibleText(名实一致: 函数返串调用方计数)/mathMin、maxInt→Go 内建 min/max 删手写轮子/task/queue.go 注释乱码「溢出鈾」→「溢出钳」
+- [深审确认无虫面(防重复怀疑)] fetch: hostGate 退避 release/re-acquire 闸所有权精确/镜像 sticky 注册域键/Retry-After 双层钳制/SSRF 拨号级复检/tokenCache 有界/R53 代理误责豁免链全复核; task: finish 收尾 cancel 附属协程退出/sendChapters 分片边界(0/5000/5001)/contentTotal 重入记账/discoverPages 断页; bridge: 阶段A~E 负位基线/挪尾目标位保留/阶段E 双闸+非 final 分片跳过; callback: 重试退避 ctx 中止/永久错误快速失败/%w(nil) 防御; proxy: Check worker pool ctx 退出无泄漏/Harvest outputs 索引写无竞态/insertFresh 查插幂等/socks4a 握手; periodic: 双 timer 串行防重入
+- [门禁] gofmt -l internal/crawl 空/vet 0/go test -count=1 全绿(crawl 根/fetch/rule/task/proxy/smart/callback/sorter 10 包; bridge/clean/util 无测试文件); fetch 不 import store 复核(接口缝 ProxyAddrSource+ProxyFeedback 钩子不变)
+
+Stage Summary:
+- 反反爬健康记账闭环补全: 采集流量事实(+1/-5 钳界增量)与探针全量(校验器)双轨并行, 代理池排序/选择/复活全链路有据可依; 代理选择从静态切片升级为成功计数加权随机
+- 两真 bug 修复(零宽替换 panic/无界预分配)+五处清理; 全部门禁绿
+---
+Task ID: R58-2b（主题移植补录·主控核收）
+Agent: Z.ai Code 主控（代 R58-2b 补录，代理死于收尾断连）
+
+Work Log:
+- [核收说明] 2b 死于 ddyueshu.css 创建之前：两新主题模板（ddyueshu/trxsw 各 13 页）+trxsw.css 已落盘，但 ddyueshu/layout.html 引用的 /static/css/ddyueshu.css 缺失（主题裸奔态），且 worklog 无移植条目
+- [主控补齐·ddyueshu.css 全量编写] 按模板全类名盘点（ddy-header/nav/hotcontent/novelslist/news/maininfo/sidebar/list/toc/read/page/404 全家桶+ajx-s/ajx-c/ajx-ys 阅读控件 biquge 灰调复刻）+TS 历史视觉基因（git 43981c6 DdyueshuHome.tsx: 白底/深蓝 #2b5b84/橙 #f60/链接蓝 #06c/960 版心/hotcontent 660+278/三列 novelslist/三列目录），写 ~340 行含移动端 768px 断点单列化
+- [主控补修] ddyueshu/layout.html: theme-color #88c6e5→#2b5b84（对齐深蓝基因）；页脚「管理(邮箱见顶端)」怪文案→「管理」
+- [sw.js] PRECACHE 补 trxsw.css+ddyueshu.css，CACHE v2→v3（activate 清旧缓存，顺带帮用户端摆脱任何旧缓存残留）
+
+Stage Summary:
+- 主题矩阵 7/9: aijjxs/pili/shipsay/x2552/kks101/trxsw/ddyueshu 全就位（剩 ggd66/huangjinwu/qb23/x33yq 中 4 待后续轮次）
+- 2b 前序四交付（列表封面渲染/5 主题页脚管理入口/navFloatCats 4 字/kks101 空渲染 P1 修复）逐 hunk 核验无异议
+---
+Task ID: R58（主控收口）
+Agent: Z.ai Code 主控
+Task: ①封面全站排查修复 ②后台入口 ③分类全站 4 字化 ③④⑤常态循环 ⑦推送
+
+Work Log:
+- [①封面 P0 定位] 用户"预览页看不到封面图"根因=服务端封面端点正常（200 image/jpeg，R57-2b 已修白名单）而**列表模板根本没渲染封面**（首页仅 TopBook 1 处 img）——纯模板缺口非服务端故障；2b 补齐后浏览器实证首页 21 图全载（最新上传+点击榜）/分类页 6 图全载
+- [②后台入口] 5 主题页脚「管理」链接+/admin（登录页提示缺省密码 audit-fix-2025）；浏览器实证 /admin/login 可达可登录
+- [③分类 4 字化·三方统一] 定稿 15+兜底 4 字词表（玄幻奇幻/西方奇幻/武侠江湖/仙侠修真/都市生活/现代言情/历史演义/军事战争/游戏竞技/科幻未来/悬疑灵异/体育竞技/耽美纯爱/同人衍生/现实百态+综合其他）；主控改 DB（4 行改名+掌中之物归现代言情）、2a 改 smart.go 词表（categoryKeywords/exactCanonMap 全量值+FallbackCategory+16 个旧 2 字名兜底键+剥离环先尾后头修复）、2b 改 navFloatCats 15 锚——修复"导航 15 锚与分类名脱节全 0 书"深层缺陷（锚=分类=词表三方逐字一致）
+- [三代理并行] 2a（词表 4 字+healthScore 增量记账+代理加权随机+rule 零宽 panic/无界预分配两 bug+清理）/2b（列表封面+管理入口+导航 4 字+kks101 P1+两新主题）/2c（代理池统计面板+clean 两段式+四索引 EXPLAIN 实证+规则批删事务化+封面 16MB 防线+WebResolveCatID errors.Is+sitemap 缓存键+fd 兜底+secureAttr/CrawlBookUpdateOf 死代码清理）——2a/2c 完整交付，2b 死于收尾由主控补齐（见上条）
+- [门禁] gofmt 全仓空/vet 0/go test -count=1 ./internal/... 全绿（16 包）/go build .build/mhgl
+- [受控部署] 12:51 新二进制启动（[proxy-periodic] 6h/30m 在位）→三任务 done 无需恢复
+- [浏览器实证] aijjxs 首页 21 图全载+4 字导航+页脚管理入口；玄幻奇幻分类页 6 书 6 图；ddyueshu/trxsw 两新主题首页+阅读页（正文 2470 字+翻章导航+字号/背景/字色控件）+移动端 390px 零横滚；/admin/login 登录页；截图 4 张 agent-ctx/shots-r58/
+- [⑦推送] 见 git log
+
+Stage Summary:
+- 用户三问全闭环: 封面=列表模板补渲染（非服务端问题）/后台=页脚入口+/admin+密码/分类=4 字三方统一且导航不再 0 书
+- 主题矩阵 7/9+反反爬再进阶（healthScore 增量+加权随机+代理池统计/清理/索引面板化）
+- 遗留: 剩余 4 主题（ggd66/huangjinwu/qb23/x33yq 择期）/auth Secure 属性待生产部署形态决策/三大部头任务 done 可再启增量

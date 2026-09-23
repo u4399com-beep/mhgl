@@ -1,0 +1,76 @@
+{{define "content"}}{{/* trxsw 首页(33yq 家族): #hotcontent 6 封面推荐卡 + GARAN 新书排行 3 列图文卡 + #newscontent 最近更新/最新上架 */}}
+<div class="trx-home">
+  <div id="trx-main">
+    <div id="trx-hotcontent">
+      <div class="trx-l">
+        {{if .Books}}
+        {{range firstN 6 .Books}}
+        <div class="trx-item">
+          <a class="trx-image" href="{{bookHref (str .id) (num .num) $.SiteID}}" aria-label="{{.name}}">
+            <div>{{if .cover}}<img src="{{coverURL (str .cover)}}" alt="{{.name}} 封面" loading="lazy" onerror="this.remove()">{{end}}</div>
+          </a>
+          <dl>
+            <dt><span>{{.author}}</span><a href="{{bookHref (str .id) (num .num) $.SiteID}}" title="{{.name}}">{{.name}}</a></dt>
+            <dd>{{excerpt .intro 80}}</dd>
+          </dl>
+          <div class="trx-clear"></div>
+        </div>
+        {{end}}
+        {{else}}<div class="trx-MessageDiv">暂无推荐书籍</div>{{end}}
+        <div class="trx-clear"></div>
+      </div>
+    </div>
+    {{if .Books}}
+    <div class="trx-novelslist">
+      <div class="trx-GARAN">
+        <h2>新书排行榜(*^__^*)</h2>
+        {{range .Books}}
+        <div class="trx-top">
+          <a class="trx-image" href="{{bookHref (str .id) (num .num) $.SiteID}}" aria-label="{{.name}}">
+            <div>{{if .cover}}<img src="{{coverURL (str .cover)}}" alt="{{.name}} 封面" loading="lazy" onerror="this.remove()">{{end}}</div>
+          </a>
+          <dl>
+            <dt><a href="{{bookHref (str .id) (num .num) $.SiteID}}" title="{{.name}}">{{.name}}</a> / 著：{{.author}}</dt>
+            <dd>{{excerpt .intro 60}}</dd>
+          </dl>
+          <div class="trx-clear"></div>
+        </div>
+        {{end}}
+        <div class="trx-clear"></div>
+      </div>
+    </div>
+    {{end}}
+    {{if .Books}}
+    <div id="trx-newscontent">
+      <div class="trx-nc-l">
+        <h2>最近更新小说列表</h2>
+        <ul>
+          {{range .Books}}
+          <li>
+            <span class="s1">[{{or .category "小说"}}]</span>
+            <span class="s2"><a href="{{tocHref (str .id) (num .num) $.SiteID}}" aria-label="{{.name}}目录">[目]</a><a href="{{bookHref (str .id) (num .num) $.SiteID}}" title="{{.name}}">{{.name}}</a></span>
+            <span class="s3">{{or .latestChapter ""}}</span>
+            <span class="s4">{{.author}}</span>
+            <span class="s5">{{dateDay .updatedAt}}</span>
+          </li>
+          {{end}}
+        </ul>
+      </div>
+      <div class="trx-nc-r">
+        <h2>最新上架小说</h2>
+        <ul>
+          {{range firstN 24 .WeekRank}}
+          <li>
+            <span class="s1">[{{or .category "小说"}}]</span>
+            <span class="s2"><a href="{{tocHref (str .id) (num .num) $.SiteID}}" aria-label="{{.name}}目录">[目]</a><a href="{{bookHref (str .id) (num .num) $.SiteID}}" title="{{.name}}">{{.name}}</a>/{{.author}}</span>
+            <span class="s5">{{dateDay .updatedAt}}</span>
+          </li>
+          {{end}}
+        </ul>
+      </div>
+      <div class="trx-clear"></div>
+    </div>
+    {{end}}
+  </div>
+</div>
+{{end}}

@@ -3,12 +3,14 @@
 //
 //	① SetDynamicProxies 合并去重(静态+动态, 归一键) ② 空结果/全非法不清空现有池
 //	③ ProxyAddrSource 接口形态(fakesource 即证) ④ ProxyFeedback 回写钩子
-//	(成功即报 / 连败达阈值才报 / 阈值内不报)
+//	(成功即报 / 连败达阈值才报 / 阈值内不报) ⑤ [R58-2a] 加权随机选取
+//	(成功计数为权+失败减半衰减; "random"/"roundrobin" 显式形态保留)
 //
 // ============================================================
 package fetch
 
 import (
+	"net/url"
 	"sync"
 	"testing"
 
@@ -146,5 +148,81 @@ func TestProxyFeedbackHook(t *testing.T) {
 	mu.Unlock()
 	if n != 2 {
 		t.Fatalf("成功清零后连败 2 次不应触发回写: n=%d", n)
+	}
+}
+
+// TestWeightedProxyPick [R58-2a] 加权随机选取: 成功计数为权(高成功者压倒性多摊),
+// 全员保底权重 1 不饿死; 失败减半衰减; 显式 "roundrobin" 纯轮换保留
+func TestWeightedProxyPick(t *testing.T) {
+	target := &url.URL{Scheme: "http", Host: "example.com"} // 非回环(回环目标豁免直连)
+	c := newProxyTestClient(t, "")
+	c.SetDynamicProxies([]string{"http://10.0.1.1:1", "http://10.0.1.2:2", "http://10.0.1.3:3"})
+	c.mu.Lock()
+	a := c.proxies[0]
+	c.mu.Unlock()
+
+	// a 成功 50 次 → 权重 51 vs 1 vs 1: 200 次选取 a 应占压倒性多数
+	for i := 0; i < 50; i++ {
+		c.markProxySuccess(a)
+	}
+	counts := map[string]int{}
+	for i := 0; i < 200; i++ {
+		pu := c.pickProxy(target)
+		if pu == nil {
+			t.Fatalf("加权选取不应返回 nil(池非空)")
+		}
+		counts[pu.String()]++
+	}
+	if counts[a.String()] < 120 {
+		t.Errorf("高成功代理流量占比异常: counts=%v(权重 51:1:1 下应 >120/200)", counts)
+	}
+
+	// 全员零成功记录(权重全为保底 1): 300 次选取三代理全部出现(不饿死;
+	// 均匀随机下 P(缺席)≈(2/3)^300, 统计上不可能)
+	c2 := newProxyTestClient(t, "")
+	c2.SetDynamicProxies([]string{"http://10.0.0.1:1", "http://10.0.0.2:2", "http://10.0.0.3:3"})
+	baseline := map[string]int{}
+	for i := 0; i < 300; i++ {
+		baseline[c2.pickProxy(target).String()]++
+	}
+	if len(baseline) != 3 {
+		t.Errorf("保底权重 1 不应饿死: baseline=%v", baseline)
+	}
+
+	// 失败减半衰减: a 连败(入冷却被跳过), 退冷却后权重为 51/2 的量级而非原值;
+	// 这里直接验证记账语义
+	c.markProxyFailed(a)
+	c.mu.Lock()
+	succA := c.proxySuccCount[a.String()]
+	c.mu.Unlock()
+	if succA != 25 {
+		t.Errorf("失败减半: succ=%d, want 25", succA)
+	}
+
+	// 冷却中的代理被过滤: a 已入冷却, 全部选取不应命中 a
+	for i := 0; i < 50; i++ {
+		if pu := c.pickProxy(target); pu != nil && pu.String() == a.String() {
+			t.Fatalf("冷却中代理被选中: %s", a.String())
+		}
+	}
+
+	// 显式 "roundrobin": 纯轮换语义保留(依次命中不重复)
+	c3 := newProxyTestClient(t, "http://10.0.2.1:1,http://10.0.2.2:2,http://10.0.2.3:3")
+	c3.cfg.ProxyRotation = "roundrobin"
+	seen := map[string]int{}
+	for i := 0; i < 6; i++ {
+		pu := c3.pickProxy(target)
+		if pu == nil {
+			t.Fatalf("轮换不应返回 nil")
+		}
+		seen[pu.String()]++
+	}
+	if len(seen) != 3 {
+		t.Errorf("roundrobin 未均匀轮换三代理: %v", seen)
+	}
+	for _, n := range seen {
+		if n != 2 {
+			t.Errorf("roundrobin 轮换不均匀: %v", seen)
+		}
 	}
 }

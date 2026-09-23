@@ -1,0 +1,55 @@
+{{define "content"}}{{/* ddyueshu 关键词专题页(Primary 书卡 biquge 书页形态 + Others 行式列表 + 相关词横条) */}}
+<div class="ddy-keyword">
+  <div id="ddy-main">
+    <div class="ddy-box-con">
+      <div class="ddy-con-top">关键词专题：{{if .Tag}}{{.Tag}}{{else}}缺少关键词参数{{end}}</div>
+      <div class="ddy-newscontent">
+        {{with .Primary}}
+        <div class="ddy-maininfo">
+          <div class="ddy-info">
+            <h1>《{{.name}}》</h1>
+            <p>作&nbsp;&nbsp;&nbsp;&nbsp;者：{{.author}}</p>
+            <p>分&nbsp;&nbsp;&nbsp;&nbsp;类：{{or .category "小说"}} · {{if eqStr (str .status) "completed"}}已完成{{else}}连载中{{end}} · {{fmtWords .wordCount}}</p>
+            <p>动&nbsp;&nbsp;&nbsp;&nbsp;作：<a class="ddy-act" href="{{$.PrimaryBookHref}}">查看书籍详情</a><a class="ddy-act" href="{{tocHref (str .id) (num .num) $.SiteID}}">章节目录</a></p>
+          </div>
+          <div class="ddy-intro"><p>{{if .intro}}{{excerpt .intro 120}}{{else}}暂无简介{{end}}</p></div>
+        </div>
+        <div class="ddy-sidebar">
+          <div class="ddy-fmimg">
+            <div>{{if .cover}}<img src="{{coverURL (str .cover)}}" alt="{{.name}} 封面" onerror="this.remove()">{{end}}</div>
+          </div>
+        </div>
+        <div class="ddy-clear"></div>
+        {{end}}
+      </div>
+    </div>
+    <div class="ddy-box-con">
+      <div class="ddy-con-top">其他相关书籍</div>
+      <div class="ddy-newscontent">
+        <div class="ddy-nc-l">
+          {{if .Others}}
+          <ul class="ddy-ul-list">
+            {{range .Others}}
+            <li>
+              <span class="ddy-s1">[{{or .category "小说"}}]</span>
+              <span class="ddy-s2"><a href="{{bookHref (str .id) (num .num) $.SiteID}}" title="{{.name}}">{{.name}}</a></span>
+              <span class="ddy-s3">{{if .intro}}{{excerpt .intro 40}}{{else}}暂无简介{{end}}</span>
+              <span class="ddy-s5">{{.author}}</span>
+            </li>
+            {{end}}
+          </ul>
+          {{else}}<div class="ddy-box-con-inner">暂无相关书籍</div>{{end}}
+        </div>
+      </div>
+    </div>
+    {{if .Related}}
+    <div class="ddy-box-con">
+      <div class="ddy-listtj ddy-kw-related">
+        <b>相关词：</b>
+        {{range .Related}}<a href="{{viewHrefKeyword . $.SiteID}}">{{.}}</a>{{end}}
+      </div>
+    </div>
+    {{end}}
+  </div>
+</div>
+{{end}}

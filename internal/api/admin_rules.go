@@ -236,8 +236,17 @@ func (d Deps) adminRulesBatch(w http.ResponseWriter, r *http.Request) {
 		apiErr(w, http.StatusConflict, "以下规则仍被采集任务引用, 已整批拒绝删除: "+strings.Join(parts, "、"))
 		return
 	}
+	// [R58-2c-fix] 修前逐条 DELETE 无事务: 预检后并发新任务引用靠后的规则时,
+	// 前面的规则已实删、响应却报「已整批拒绝」—— 半删与应答自相矛盾。改单事务
+	// 执行(任一条 FK 失败整批回滚), 预检 409 语义不变, 竞态窗口内不产生半删。
+	tx, txErr := d.DB.Begin()
+	if txErr != nil {
+		apiErr(w, http.StatusInternalServerError, "服务器内部错误")
+		return
+	}
+	defer tx.Rollback() // Commit 后为无害 no-op
 	for _, id := range ids {
-		if _, err := d.DB.Exec(`DELETE FROM "Rule" WHERE id=?`, id); err != nil {
+		if _, err := tx.Exec(`DELETE FROM "Rule" WHERE id=?`, id); err != nil {
 			if strings.Contains(err.Error(), "FOREIGN KEY") {
 				apiErr(w, http.StatusConflict, "删除时发现规则仍被任务引用(并发变更), 已整批拒绝, 请刷新后重试")
 				return
@@ -245,7 +254,14 @@ func (d Deps) adminRulesBatch(w http.ResponseWriter, r *http.Request) {
 			apiErr(w, http.StatusInternalServerError, "服务器内部错误")
 			return
 		}
-		_, _ = d.DB.Exec(`DELETE FROM "Setting" WHERE key=?`, "calibration:"+id)
+		if _, err := tx.Exec(`DELETE FROM "Setting" WHERE key=?`, "calibration:"+id); err != nil {
+			apiErr(w, http.StatusInternalServerError, "服务器内部错误")
+			return
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		apiErr(w, http.StatusInternalServerError, "服务器内部错误")
+		return
 	}
 	apiOK(w, map[string]any{"affected": len(ids)})
 }

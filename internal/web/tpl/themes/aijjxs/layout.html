@@ -54,7 +54,8 @@
   <div class="ajx-ft-links">
     <a href="{{.HomeHref}}">网站简介</a> · <a href="{{.HomeHref}}">网站帮助</a> ·
     <a href="{{.HomeHref}}">版权声明</a> · <a href="{{.HomeHref}}">网站地图</a> ·
-    <a href="{{.FulltextHref}}">全站书库</a> · <a href="{{.SearchHref}}">书库搜索</a>
+    <a href="{{.FulltextHref}}">全站书库</a> · <a href="{{.SearchHref}}">书库搜索</a> ·
+    <a href="/admin">管理</a>
   </div>
   {{if .Links}}<div class="ajx-ft-links">友情链接：{{range $i, $l := .Links}}{{if $i}} · {{end}}<a href="{{safeHref $l.url}}" rel="noopener" target="_blank">{{$l.name}}</a>{{end}}</div>{{end}}
   <div>Copyright © {{siteTitle .Site}} All Rights Reserved</div>

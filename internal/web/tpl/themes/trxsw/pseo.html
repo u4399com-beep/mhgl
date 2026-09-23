@@ -1,0 +1,29 @@
+{{define "content"}}{{/* trxsw PSEO 落地页(.ui-box + 行式书目表) */}}
+<div class="trx-pseo">
+  <div id="trx-main">
+    <div class="trx-ui-box">
+      <div class="trx-ui-title1 trx-pseo-h"><h2>{{.Heading}}<em>关键词专题</em></h2></div>
+      <div class="trx-pseo-desc">
+        <p>{{if .Row.description}}{{.Row.description}}{{else}}{{.Row.keyword}} — {{.SiteName}}聚合相关小说资源, 提供全文免费在线阅读。{{end}}</p>
+        {{with .Primary}}<p>主打作品《{{.name}}》由 {{.author}} 创作{{if .intro}}，简介：{{excerpt .intro 120}}{{end}}。</p>{{end}}
+      </div>
+    </div>
+    <div class="trx-novelslistss">
+      <h2>相关书籍推荐</h2>
+      {{if .BookViews}}
+      <ul>
+        {{range .BookViews}}
+        <li title="{{.Book.name}}/{{.Book.author}}">
+          <span class="s1">[{{or .Book.category "小说"}}]</span>
+          <span class="s2"><a href="{{.BookHref}}" title="{{.Book.name}}">{{.Book.name}}</a></span>
+          <span class="s3">{{.Book.author}}</span>
+          <span class="s4">{{fmtWords .Book.wordCount}}</span>
+          <span class="s5"><a href="{{.TocHref}}">目录</a></span>
+        </li>
+        {{end}}
+      </ul>
+      {{else}}<ul><li><div class="trx-MessageDiv">暂无相关书籍数据</div></li></ul>{{end}}
+    </div>
+  </div>
+</div>
+{{end}}

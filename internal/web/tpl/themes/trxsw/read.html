@@ -1,0 +1,58 @@
+{{define "content"}}{{/* trxsw 阅读页(read.css): con_top 面包屑 + toolbar 色板/字号 + zhangjieming + #content 24px 大字正文 + bottem 翻页 */}}
+<div class="trx-read">
+  <div class="trx-content-read">
+    <div class="trx-box-con">
+      <div class="trx-con-top">
+        <a href="{{.HomeHref}}">{{siteTitle .Site}}</a> &gt; <a href="{{.BookHref}}">{{.Book.name}}</a> &gt; {{.Chapter.title}}
+      </div>
+      <div data-page="read" data-book-id="{{.Book.id}}" data-chapter-id="{{.Chapter.id}}" data-chapter-title="{{.Chapter.title}}">
+        <div class="trx-toolbar">
+          <ul class="trx-tools">
+            <li class="trx-theme">
+              <p>主题模式：</p>
+              <span role="group" aria-label="背景色">
+                <a class="ajx-c trx-swatch" style="background:#ffffff" href="javascript:void(0)" data-bg="#ffffff" aria-label="背景 白"></a>
+                <a class="ajx-c trx-swatch" style="background:#f2e8c8" href="javascript:void(0)" data-bg="#f2e8c8" aria-label="背景 护眼"></a>
+                <a class="ajx-c trx-swatch" style="background:#e3efe3" href="javascript:void(0)" data-bg="#e3efe3" aria-label="背景 淡绿"></a>
+                <a class="ajx-c trx-swatch" style="background:#dfecf0" href="javascript:void(0)" data-bg="#dfecf0" aria-label="背景 淡蓝"></a>
+                <a class="ajx-c trx-swatch" style="background:#222222" href="javascript:void(0)" data-bg="#222222" aria-label="背景 夜间"></a>
+              </span>
+            </li>
+            <li class="trx-size">
+              <p>字体大小：</p>
+              <a class="ajx-s trx-size-btn" href="javascript:void(0)" data-fs="14" aria-label="减小字号">A-</a>
+              <a class="ajx-s trx-size-btn" href="javascript:void(0)" data-fs="24" aria-label="默认字号">A</a>
+              <a class="ajx-s trx-size-btn" href="javascript:void(0)" data-fs="34" aria-label="增大字号">A+</a>
+            </li>
+            <li class="trx-reset"><a class="ajx-s trx-reset-btn" href="javascript:void(0)" data-fs="24">恢复默认</a></li>
+          </ul>
+          <div class="trx-links"><p>作者：<i>{{.Book.author}}</i></p></div>
+          <div class="trx-clear"></div>
+        </div>
+        <div class="trx-zhangjieming">
+          <h1>{{.Chapter.title}}</h1>
+          <div class="trx-bottem1">
+            {{if .PrevHref}}<a id="ajx-prev" href="{{.PrevHref}}" rel="prev">上一章</a>{{else}}<span class="trx-nope" id="ajx-prev" aria-disabled="true">上一章</span>{{end}}
+            <a href="{{.TocHref}}">章节目录</a>
+            <a href="{{.BookHref}}">返回书页</a>
+            {{if .NextHref}}<a id="ajx-next" href="{{.NextHref}}" rel="next">下一章</a>{{else}}<span class="trx-nope" id="ajx-next" aria-disabled="true">下一章</span>{{end}}
+          </div>
+        </div>
+        <div id="trx-content">
+          {{if .Chapter.content}}
+          <div id="view_content_txt" class="trx-read-txt">{{readHTML (str .Chapter.content)}}</div>
+          {{else}}
+          <div id="view_content_txt" class="trx-read-txt"><div class="trx-MessageDiv">本章内容尚未采集, 请稍后再来或返回目录阅读其他章节。</div></div>
+          {{end}}
+        </div>
+        <div class="trx-bottem1 trx-bottem-b">
+          {{if .PrevHref}}<a href="{{.PrevHref}}" rel="prev">上一章</a>{{else}}<span class="trx-nope">上一章</span>{{end}}
+          <a href="{{.TocHref}}">章节目录</a>
+          <a href="{{.BookHref}}">返回书页</a>
+          {{if .NextHref}}<a href="{{.NextHref}}" rel="next">下一章</a>{{else}}<span class="trx-nope">下一章</span>{{end}}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{{end}}

@@ -1,0 +1,20 @@
+{{define "content"}}{{/* ddyueshu 阅读历史(localStorage 本机渲染, site.js 注入 #ajx-history-list) */}}
+<div class="ddy-history">
+  <div id="ddy-main">
+    <div class="ddy-box-con">
+      <div class="ddy-con-top">阅读历史</div>
+      <div class="ddy-newscontent ddy-pseo-desc">
+        <p>阅读历史仅保存在本机浏览器(localStorage), 不上传服务器。</p>
+      </div>
+      <div class="ddy-newscontent">
+        <div class="ddy-nc-l">
+          <h2>继续阅读</h2>
+          <div id="ajx-history-empty" class="ddy-box-con-inner" style="display:none">暂无阅读历史, 去首页挑一本书开始阅读吧。</div>
+          <ul class="ddy-ul-list" id="ajx-history-list"></ul>
+          <div class="ddy-listtj"><a href="{{.HomeHref}}">去逛首页</a><a href="{{.SearchHref}}">搜索书籍</a></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{{end}}

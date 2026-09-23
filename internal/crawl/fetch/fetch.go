@@ -64,7 +64,8 @@ const (
 )
 
 // proxyFeedbackFailAfter 代理结果回写钩子的连败阈值(连败达此值 → ProxyFeedback(addr,false),
-// 装配方据以把 DB 池条目 alive=0; 与 store 侧 healthScore 记账独立, fetch 只报事实)
+// 装配方据以把 DB 池条目 alive=0 + healthScore-5; 成功事件则 lastUsedAt+healthScore+1。
+// fetch 只报事实, 增量记账在 crawl 包回写泵与 store 侧执行)
 const proxyFeedbackFailAfter = 3
 
 // ProxyAddrSource 动态代理源接口(R57-2a DB 代理池接线缝): fetch 包不 import store,
@@ -334,9 +335,10 @@ var ErrBlocked = errors.New("内容疑似拦截页/挑战壳(等价 HTTP 403 计
 type Client struct {
 	cfg rule.FetchConfig
 
-	// ProxyFeedback 代理结果回写钩子(可选, R57-2a): 经该代理的请求成功 → (addr,true);
+	// ProxyFeedback 代理结果回写钩子(可选, R57-2a/R58-2a): 经该代理的请求成功 → (addr,true);
 	// 连败达 proxyFeedbackFailAfter → (addr,false)。异步消费由装配方承担(本侧仅轻判
-	// 阈值不阻塞热路径); set-once 语义: 必须在首个请求前设置(无锁读取)
+	// 阈值不阻塞热路径); 装配方(回写泵)按事件增量记账 DB 侧 healthScore(+1/-5 钳界)。
+	// set-once 语义: 必须在首个请求前设置(无锁读取)
 	ProxyFeedback func(addr string, ok bool)
 
 	jar     *cookiejar.Jar // 直连+代理双路径接线(契约 §4 autoCookie 恒开)
@@ -351,11 +353,12 @@ type Client struct {
 	uaPin            map[string]string // 同域 UA 钉扎(FIFO cap 200)
 	uaOrder          []string
 	lastPath         string        // pathJitter: 上一次请求 path
-	proxyIdx         atomic.Uint64 // 代理池轮换游标
+	proxyIdx         atomic.Uint64 // 代理池轮换游标("roundrobin" 形态用)
 	proxies          []*url.URL    // 解析后的代理池
 	proxyTans        map[string]*http.Transport
 	proxyFailedUntil map[string]time.Time  // per-proxy 失败冷却(key=代理串)
 	proxyFailCount   map[string]int        // per-proxy 连败计数(指数冷却底数)
+	proxySuccCount   map[string]int64      // [R58-2a] per-proxy 成功计数(加权随机权重; 失败减半衰减)
 	lastProxyWarn    time.Time             // 全冷却 warn 限频
 	mirrorSticky     map[string]string     // 镜像组成功域 sticky(key=注册域 eTLD+1, R51-4 对齐 TS registrableDomainOf: 同注册域多子域共享 sticky; 值=上次成功 host)
 	jarSeeded        map[string]bool       // 静态 Cookie 已注入 host 集合(每 host 一次)
@@ -387,6 +390,7 @@ func New(cfg rule.FetchConfig) *Client {
 		proxyTans:        map[string]*http.Transport{},
 		proxyFailedUntil: map[string]time.Time{},
 		proxyFailCount:   map[string]int{},
+		proxySuccCount:   map[string]int64{},
 		mirrorSticky:     map[string]string{},
 		jarSeeded:        map[string]bool{},
 		tokenCache:       map[string]tokenEntry{},
@@ -619,7 +623,10 @@ func randomIndex() uint64 {
 	return uint64(time.Now().UnixNano())
 }
 
-// pickProxy 代理选取: 回环目标豁免直连; 冷却中代理过滤; 全冷却回退直连+warn(限频)
+// pickProxy 代理选取: 回环目标豁免直连; 冷却中代理过滤; 全冷却回退直连+warn(限频)。
+// 轮换形态(R58-2a): 缺省加权随机(成功计数为权, 实证可用者多摊流量且全员保底权重 1,
+// 避免健康分降序静态切片头部被集中打爆); "random" 均匀随机; "roundrobin"/"round-robin"
+// 纯轮换(历史缺省形态显式保留)
 func (c *Client) pickProxy(target *url.URL) *url.URL {
 	if len(c.proxies) == 0 || target == nil {
 		return nil
@@ -644,17 +651,42 @@ func (c *Client) pickProxy(target *url.URL) *url.URL {
 		}
 		return nil
 	}
-	var idx uint64
 	switch c.cfg.ProxyRotation {
 	case "random":
-		idx = randomIndex()
-	default: // round-robin(least-used/sticky-host v1 简并为轮换, 契约仅要求轮换语义)
-		idx = c.proxyIdx.Add(1) - 1
+		return alive[randomIndex()%uint64(len(alive))]
+	case "roundrobin", "round-robin":
+		return alive[(c.proxyIdx.Add(1)-1)%uint64(len(alive))]
+	default:
+		return c.weightedProxyPick(alive) // 持锁调用(读 proxySuccCount 同锁)
 	}
-	return alive[idx%uint64(len(alive))]
 }
 
-// markProxyFailed 代理失败冷却: 30s×2^n 指数, 钳 10min
+// weightedProxyPick 加权随机([R58-2a]): weight = 1 + per-proxy 成功计数(markProxySuccess
+// 记账/markProxyFailed 减半衰减) —— 好代理多摊、新代理与近期失败者保底权重 1 不饿死;
+// 随机落点而非确定性首选, 单点不被打爆。调用方须持 c.mu
+func (c *Client) weightedProxyPick(alive []*url.URL) *url.URL {
+	total := int64(0)
+	weights := make([]int64, len(alive))
+	for i, p := range alive {
+		w := int64(1)
+		if n := c.proxySuccCount[p.String()]; n > 0 {
+			w += n
+		}
+		weights[i] = w
+		total += w
+	}
+	r := int64(randomIndex() % uint64(total))
+	for i, w := range weights {
+		if r < w {
+			return alive[i]
+		}
+		r -= w
+	}
+	return alive[len(alive)-1] // 不可达防御(浮点/整除误差兜底)
+}
+
+// markProxyFailed 代理失败冷却: 30s×2^n 指数, 钳 10min; [R58-2a] 成功计数减半衰减
+// (近期失败者权重回落但不归零, 冷却结束再入池时以减半权重重新竞争)
 func (c *Client) markProxyFailed(pu *url.URL) {
 	if pu == nil {
 		return
@@ -668,15 +700,17 @@ func (c *Client) markProxyFailed(pu *url.URL) {
 		d = proxyFailMax
 	}
 	c.proxyFailedUntil[key] = time.Now().Add(d)
+	c.proxySuccCount[key] /= 2
 	c.mu.Unlock()
-	// [R57-2a] 连败达阈值 → 回写钩子(装配方异步落库 alive=0; 钩子自身必须非阻塞,
-	// 故意在锁外分发)
+	// [R57-2a/R58-2a] 连败达阈值 → 回写钩子(装配方异步落库 alive=0+healthScore-5;
+	// 钩子自身必须非阻塞, 故意在锁外分发)
 	if n >= proxyFeedbackFailAfter && c.ProxyFeedback != nil {
 		c.ProxyFeedback(key, false)
 	}
 }
 
-// markProxySuccess 代理成功: 清零连败与冷却
+// markProxySuccess 代理成功: 清零连败与冷却; [R58-2a] 成功计数 +1(加权随机权重;
+// 回写钩子同步报 DB 侧 healthScore+1 增量)
 func (c *Client) markProxySuccess(pu *url.URL) {
 	if pu == nil {
 		return
@@ -685,8 +719,9 @@ func (c *Client) markProxySuccess(pu *url.URL) {
 	c.mu.Lock()
 	delete(c.proxyFailCount, key)
 	delete(c.proxyFailedUntil, key)
+	c.proxySuccCount[key]++
 	c.mu.Unlock()
-	// [R57-2a] 成功 → 回写钩子(装配方异步刷 lastUsedAt; 锁外分发)
+	// [R57-2a/R58-2a] 成功 → 回写钩子(装配方异步刷 lastUsedAt+healthScore+1; 锁外分发)
 	if c.ProxyFeedback != nil {
 		c.ProxyFeedback(key, true)
 	}

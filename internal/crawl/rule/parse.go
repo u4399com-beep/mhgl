@@ -38,12 +38,15 @@ const replaceBudgetMs = 1000
 const replaceMaxMatches = 100000
 
 // expandReplaceTo 展开 TS String.replace 替换串占位符: $$/$&/$`/$'/$1~$99/$<name>。
-// 组号不存在时按规范保留字面量(如仅 8 组时 "$18" → 组1内容 + 字面 "8")
+// 组号不存在时按规范保留字面量(如仅 8 组时 "$18" → 组1内容 + 字面 "8")。
+// [R58-2a] groups 长度守卫: 零宽匹配分支传入 nil groups(修前 $&/$N 在零宽匹配时
+// 对 nil 切片索引 → panic; RE2 零宽匹配常见于 a*/a? 形态替换, 任务 run 协程虽有
+// recover 兜底, 但整轮任务被无谓熔断转 error)
 func expandReplaceTo(repl string, match []int, groups [][]byte, subexpNames []string, source string) string {
 	var out strings.Builder
 	i := 0
 	groupVal := func(n int) (string, bool) {
-		if n < len(match)/2 && match[2*n] >= 0 {
+		if n < len(match)/2 && n < len(groups) && match[2*n] >= 0 {
 			return string(groups[n]), true
 		}
 		return "", false
@@ -66,7 +69,9 @@ func expandReplaceTo(repl string, match []int, groups [][]byte, subexpNames []st
 			out.WriteByte('$')
 			i += 2
 		case nxt == '&':
-			out.Write(groups[0])
+			if len(groups) > 0 {
+				out.Write(groups[0])
+			}
 			i += 2
 		case nxt == '`':
 			out.WriteString(source[:match[0]])
@@ -251,7 +256,10 @@ func regexExtract(htmlStr string, rule *FieldRule) string {
 	return m[0]
 }
 
-// regexExtractAll 全量匹配提取(上限 5000, 零宽推进防护)
+// regexExtractAll 全量匹配提取(上限 5000, 零宽推进防护)。
+// [R58-2a] FindAll 上限化(5001): 修前 -1 无界 —— 10MB 页 × 高频匹配 pattern(如单字
+// 字符类)先全量分配再事后截断, 内存放大与 safeReplaceAll R51-2-b #4 同族; 上限化后
+// 预分配有界, 返回语义不变(仍取首 5000)
 func regexExtractAll(htmlStr string, rule *FieldRule) []string {
 	if !regexRuntimeSafe(rule.Expression) {
 		return nil
@@ -271,7 +279,7 @@ func regexExtractAll(htmlStr string, rule *FieldRule) []string {
 	}
 	var out []string
 	guard := 0
-	for _, m := range re.FindAllStringSubmatch(htmlStr, -1) {
+	for _, m := range re.FindAllStringSubmatch(htmlStr, 5001) {
 		if guard++; guard > 5000 {
 			break
 		}

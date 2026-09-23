@@ -1,8 +1,9 @@
 // ============================================================
-// 引擎装配单测(R57-2a) — 代理结果回写泵
+// 引擎装配单测(R57-2a/R58-2a) — 代理结果回写泵
 //
 //	① push 解析/归一/非法丢弃/队列满丢弃 ② 全链: 最小 schema 库 FreeProxy 行
-//	成功事实 → lastUsedAt 刷新; 连败事实 → alive=0(异步 worker 消费)
+//	成功事实 → lastUsedAt 刷新+healthScore+1; 连败事实 → alive=0+healthScore-5
+//	③ 增量钳界: 成功钳 100/失败钳 0(异步 worker 消费)
 //
 // ============================================================
 package crawl
@@ -98,7 +99,7 @@ func TestProxyFeedbackSinkEndToEnd(t *testing.T) {
 	db := feedbackTestDB(t)
 	now := time.Now().UnixMilli()
 	_, err := db.Exec(`INSERT INTO "FreeProxy" (id, protocol, host, port, alive, healthScore, createdAt, updatedAt)
-		VALUES ('c-pf-1', 'http', '10.1.1.1', 8080, 1, 50, ?, ?), ('c-pf-2', 'socks5', '10.1.1.2', 1080, 1, 40, ?, ?)`,
+                VALUES ('c-pf-1', 'http', '10.1.1.1', 8080, 1, 50, ?, ?), ('c-pf-2', 'socks5', '10.1.1.2', 1080, 1, 40, ?, ?)`,
 		now, now, now, now)
 	if err != nil {
 		t.Fatalf("seed: %v", err)
@@ -128,9 +129,56 @@ func TestProxyFeedbackSinkEndToEnd(t *testing.T) {
 	if alive2 != 0 {
 		t.Fatalf("连败事实未落 alive=0: alive=%d", alive2)
 	}
-	// alive=1 且 lastUsedAt 已刷(成功路径不清 alive, 健康度面留给收割器 Check)
+	// alive=1 且 lastUsedAt 已刷(成功路径不清 alive; healthScore 增量见下一测试)
 	var alive1 int
 	if err := db.QueryRow(`SELECT alive FROM "FreeProxy" WHERE id='c-pf-1'`).Scan(&alive1); err != nil || alive1 != 1 {
 		t.Fatalf("成功路径不应清 alive: alive=%d err=%v", alive1, err)
+	}
+}
+
+// TestProxyFeedbackSinkHealthScoreDelta [R58-2a] 增量记账全链: 成功 +1 钳 100,
+// 失败 -5 钳 0; 增量与 lastUsedAt/alive 同一条 UPDATE 落库
+func TestProxyFeedbackSinkHealthScoreDelta(t *testing.T) {
+	db := feedbackTestDB(t)
+	now := time.Now().UnixMilli()
+	_, err := db.Exec(`INSERT INTO "FreeProxy" (id, protocol, host, port, alive, healthScore, createdAt, updatedAt)
+                VALUES ('hs-mid', 'http', '10.2.1.1', 8080, 1, 50, ?, ?),
+                        ('hs-cap', 'http', '10.2.1.2', 8080, 1, 100, ?, ?),
+                        ('hs-floor', 'http', '10.2.1.3', 8080, 1, 2, ?, ?),
+                        ('hs-zero', 'http', '10.2.1.4', 8080, 1, 0, ?, ?)`,
+		now, now, now, now, now, now, now, now)
+	if err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	feed := newProxyFeedbackSink(db)
+	feed("http://10.2.1.1:8080", true)  // 中段: 50+1=51
+	feed("http://10.2.1.2:8080", true)  // 上限钳 100: 100+1→MIN(...,100)=100
+	feed("http://10.2.1.3:8080", false) // 下限钳 0: 2-5→MAX(...,0)=0(且 alive=0)
+	feed("http://10.2.1.4:8080", false) // 已 0 不负分: MAX(0-5,0)=0
+
+	deadline := time.Now().Add(5 * time.Second)
+	var mid, cap100, floor, zero int
+	var floorAlive int
+	for time.Now().Before(deadline) {
+		e1 := db.QueryRow(`SELECT healthScore FROM "FreeProxy" WHERE id='hs-mid'`).Scan(&mid)
+		e2 := db.QueryRow(`SELECT healthScore FROM "FreeProxy" WHERE id='hs-cap'`).Scan(&cap100)
+		e3 := db.QueryRow(`SELECT healthScore, alive FROM "FreeProxy" WHERE id='hs-floor'`).Scan(&floor, &floorAlive)
+		e4 := db.QueryRow(`SELECT healthScore FROM "FreeProxy" WHERE id='hs-zero'`).Scan(&zero)
+		if e1 == nil && e2 == nil && e3 == nil && e4 == nil && mid == 51 && cap100 == 100 && floor == 0 && zero == 0 && floorAlive == 0 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if mid != 51 {
+		t.Errorf("成功增量: healthScore=%d, want 51(50+1)", mid)
+	}
+	if cap100 != 100 {
+		t.Errorf("成功钳上限: healthScore=%d, want 100", cap100)
+	}
+	if floor != 0 || floorAlive != 0 {
+		t.Errorf("失败减分: healthScore=%d alive=%d, want 0/0(2-5 钳 0+枪毙)", floor, floorAlive)
+	}
+	if zero != 0 {
+		t.Errorf("零分不负: healthScore=%d, want 0", zero)
 	}
 }

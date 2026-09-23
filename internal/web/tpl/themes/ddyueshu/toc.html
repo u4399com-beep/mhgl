@@ -1,0 +1,27 @@
+{{define "content"}}{{/* ddyueshu 目录页(biquge .box_con #list dl: dt 卷/dd 章 三列 + .page 分页) */}}
+<div class="ddy-toc">
+  <div id="ddy-main">
+    <div class="ddy-box-con">
+      <div class="ddy-con-top">
+        <a href="{{.HomeHref}}">{{siteTitle .Site}}</a> &gt; <a href="{{.BookHref}}">《{{.Book.name}}》</a> &gt; 完整目录
+      </div>
+      {{if .Chapters}}
+      <dl class="ddy-list">
+        <dt>《{{.Book.name}}》正文{{with .Pager}} · 第 {{.Page}} / {{.TotalPages}} 页{{end}}</dt>
+        {{range .Chapters}}<dd><a href="{{chapterHref (str .id) (num $.Book.num) (num .idx) $.SiteID}}" title="{{.title}}">{{.title}}</a></dd>{{end}}
+        <div class="ddy-clear"></div>
+      </dl>
+      {{else}}<div class="ddy-box-con-inner">目录暂未收录, 请稍后再来</div>{{end}}
+      <dl class="ddy-page ddy-toc-page">
+        <dd>
+          {{with .Pager}}
+          {{if .PrevURL}}<a href="{{.PrevURL}}" rel="prev">上一页</a>{{end}}
+          {{if .NextURL}}<a href="{{.NextURL}}" rel="next">下一页</a>{{end}}
+          {{end}}
+          <a href="{{.BookHref}}">返回书页</a>
+        </dd>
+      </dl>
+    </div>
+  </div>
+</div>
+{{end}}

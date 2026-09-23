@@ -324,8 +324,10 @@ var tplFuncs = template.FuncMap{
 	"qesc": queryEscapeLocal,
 	// withSite 组装 partial 调用上下文({{template "p" (withSite $.SiteID .Rows)}}):
 	// template 调用会重绑 $, 子模板内 $ = 传入参数而非 Execute 根数据, 故 SiteID 需显式携带。
+	// [R58-2b] 同时以 B 键携带同一值: kks101 kks-bookbox 以 .B 取"单书行"形态
+	// (修前部分仅设 Rows 而 bookbox 读 .B → 书名/封面/链接全空渲染)。
 	"withSite": func(sid string, rows any) map[string]any {
-		return map[string]any{"SiteID": sid, "Rows": rows}
+		return map[string]any{"SiteID": sid, "Rows": rows, "B": rows}
 	},
 	"catHref": func(catName, sid string) string {
 		return viewHref("category", sid, map[string]string{"cat": "cat:" + catName})

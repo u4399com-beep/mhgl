@@ -1,0 +1,18 @@
+{{define "content"}}{{/* trxsw 阅读历史(localStorage 本机渲染, site.js 注入 #ajx-history-list) */}}
+<div class="trx-history">
+  <div id="trx-main">
+    <div class="trx-ui-box">
+      <div class="trx-ui-title1 trx-pseo-h"><h2>阅读历史<em>History</em></h2></div>
+      <div class="trx-pseo-desc"><p>阅读历史仅保存在本机浏览器(localStorage), 不上传服务器。</p></div>
+    </div>
+    <div class="trx-novelslistss">
+      <h2>继续阅读</h2>
+      <div class="trx-pseo-desc">
+        <div id="ajx-history-empty" class="trx-MessageDiv" style="display:none">暂无阅读历史, 去首页挑一本书开始阅读吧。</div>
+        <ul class="trx-hist-list" id="ajx-history-list"></ul>
+        <p class="trx-hist-btns"><a href="{{.HomeHref}}">去逛首页</a><a href="{{.SearchHref}}">搜索书籍</a></p>
+      </div>
+    </div>
+  </div>
+</div>
+{{end}}

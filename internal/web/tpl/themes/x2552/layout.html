@@ -55,6 +55,7 @@
 <main class="x2-main">{{block "content" .}}<div class="x2-empty">加载中…</div>{{end}}</main>
 <footer class="x2-footer">
   <p>本站所有小说为转载作品, 所有章节均由网友上传, 转载至本站只是为了宣传本书让更多读者欣赏。</p>
+  <p class="x2-ft-links"><a href="{{.HomeHref}}">网站首页</a> · <a href="{{.RankingHref}}">排行榜</a> · <a href="{{.FulltextHref}}">全站书库</a> · <a href="/admin">管理</a></p>
   {{if .Links}}<p class="x2-ft-links">友情链接：{{range $i, $l := .Links}}{{if $i}} · {{end}}<a href="{{safeHref $l.url}}" rel="noopener" target="_blank">{{$l.name}}</a>{{end}}</p>{{end}}
   <p>Copyright © 2023 {{siteTitle .Site}} All Rights Reserved.</p>
 </footer>

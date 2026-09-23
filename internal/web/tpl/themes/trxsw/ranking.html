@@ -1,0 +1,43 @@
+{{define "content"}}{{/* trxsw 排行榜(33yq top 页): 第二 .nav1 榜型栏 + 三榜 alist 卡列表(TOP24) */}}
+<div class="trx-ranking">
+  <div id="trx-main">
+    <div class="trx-nav1 trx-nav1-rank" role="tablist" aria-label="榜单切换">
+      <ul>
+        {{range $bi, $b := .Boards}}<li{{if eq $bi 0}} class="trx-on"{{end}}><a href="#board-{{.Key}}">{{.Label}}</a></li>{{end}}
+      </ul>
+    </div>
+    {{range $bi, $board := .Boards}}
+    <div id="board-{{.Key}}">
+      <div id="trx-hotcontent">
+        <div class="trx-l">
+          <div class="trx-alist">
+            <h3 class="trx-alist-h3">{{.Label}}<small class="trx-al-h3-sub">TOP24 · 每小时随采集更新</small></h3>
+            <div class="trx-alist-body">
+              {{if .Books}}
+              {{range $i, $b := .Books}}
+              {{if lt $i 24}}
+              <div class="trx-alistbox">
+                <a class="trx-pic" href="{{bookHref (str $b.id) (num $b.num) $.SiteID}}" aria-label="{{$b.name}}">
+                  <div>{{if $b.cover}}<img src="{{coverURL (str $b.cover)}}" alt="{{$b.name}} 封面" loading="lazy" onerror="this.remove()">{{end}}</div>
+                </a>
+                <div class="trx-info">
+                  <div class="trx-title"><a href="{{bookHref (str $b.id) (num $b.num) $.SiteID}}" title="{{$b.name}}">《{{$b.name}}》</a><span>作者：{{$b.author}}</span></div>
+                  <div class="trx-sys">最新更新：{{or $b.latestChapter "暂无章节"}}</div>
+                  <div class="trx-intro-list">{{if $b.intro}}{{excerpt $b.intro 88}}{{else}}暂无简介{{end}}</div>
+                  <div class="trx-yuedu"><a href="{{bookHref (str $b.id) (num $b.num) $.SiteID}}">开始阅读</a></div>
+                </div>
+                <div class="trx-clear"></div>
+              </div>
+              {{end}}
+              {{end}}
+              {{else}}<div class="trx-MessageDiv">榜单暂无书籍</div>{{end}}
+              <div class="trx-clear"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    {{end}}
+  </div>
+</div>
+{{end}}

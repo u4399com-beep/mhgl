@@ -1,0 +1,88 @@
+{{define "content"}}{{/* trxsw 书页(33yq .ui-box): 面包屑 + 封面/信息表 + 播放列表块最新章 + wudu 热门点击 + 大神还喜欢封面墙 */}}
+<div class="trx-book">
+  <div id="trx-main">
+    <div class="trx-ui-box">
+      <div class="trx-bread-crumb-nav">
+        <ul class="trx-bread-crumbs">
+          <li class="trx-home"><a href="{{.HomeHref}}">{{siteTitle .Site}}</a> &gt;<a href="{{catIDHref (str .Book.categoryId) .SiteID}}">{{or .Book.category "小说"}}</a> &gt;<em>{{.Book.name}}</em></li>
+        </ul>
+      </div>
+      <div class="trx-detail-cols">
+        <div class="trx-bg6">
+          <div class="trx-box-intro">
+            <div class="trx-pic">
+              <div>{{if .Book.cover}}<img src="{{coverURL (str .Book.cover)}}" alt="{{.Book.name}} 封面" onerror="this.remove()">{{end}}</div>
+            </div>
+            <div class="trx-box-info">
+              <table class="trx-ui-tb1">
+                <tbody>
+                <tr><td colspan="3"><h1 class="trx-f21h">{{.Book.name}}<em>作者:{{.Book.author}}</em></h1></td></tr>
+                <tr><td colspan="3"><div class="trx-intro">{{if .Book.intro}}{{excerpt .Book.intro 120}}{{else}}暂无简介{{end}}</div></td></tr>
+                <tr class="trx-infotop">
+                  <td><b>小说分类：</b>{{or .Book.category "小说"}}</td>
+                  <td><b>小说状态：</b>{{statusLabel (str .Book.status)}}</td>
+                  <td><b>全文字数：</b>{{fmtWords .Book.wordCount}}</td>
+                </tr>
+                <tr>
+                  <td colspan="2"><b>更新时间：</b>{{dateDay .Book.updatedAt}}</td>
+                  <td><b>最新连载：</b>{{or .Book.latestChapter "暂无"}}</td>
+                </tr>
+                </tbody>
+              </table>
+              <div class="trx-option">
+                <span class="trx-btopt">{{if .ReadFirstHref}}<a href="{{.ReadFirstHref}}"><span>开始阅读</span></a>{{end}}</span>
+                <span class="trx-txtopt"><a href="{{.TocHref}}"><span>完整目录</span></a></span>
+              </div>
+            </div>
+            <div class="trx-clear"></div>
+          </div>
+          <div class="trx-play-list-box">
+            <div class="trx-caption">
+              <h4><strong>《{{.Book.name}}》已更新到</strong></h4>
+              <div class="trx-txt">{{with .LatestChapters}}{{with index . 0}}<a href="{{chapterHref (str .id) (num $.Book.num) (num .idx) $.SiteID}}" title="{{.title}}">{{.title}}</a>{{end}}{{end}}</div>
+            </div>
+            <div class="trx-play-content">
+              <div class="trx-play-list">
+                {{range .LatestChapters}}
+                <div><a href="{{chapterHref (str .id) (num $.Book.num) (num .idx) $.SiteID}}" title="{{.title}}">{{.title}}</a></div>
+                {{end}}
+              </div>
+              <div class="trx-clear"></div>
+            </div>
+          </div>
+        </div>
+        <div class="trx-wudu-bar">
+          <div class="trx-ui-title1"><h2>热门点击<em>Categories New</em></h2></div>
+          <div class="trx-ui-ranking">
+            <ul class="trx-ranking-list">
+              {{range .SideRank}}
+              <li><a href="{{bookHref (str .id) (num .num) $.SiteID}}" title="{{.name}}">{{.name}}</a><span>({{dateShort .updatedAt}})</span></li>
+              {{end}}
+            </ul>
+          </div>
+        </div>
+        <div class="trx-clear"></div>
+      </div>
+    </div>
+    <div class="trx-ui-box" id="trx-comment">
+      <div class="trx-ui-title"><h2>看《{{.Book.name}}》的大神还喜欢</h2></div>
+      <div id="trx-like-focus">
+        {{if .Recs}}
+        <ul class="trx-img-list">
+          {{range .Recs}}
+          <li>
+            <a class="trx-play-img" href="{{bookHref (str .id) (num .num) $.SiteID}}" aria-label="{{.name}}">
+              <div>{{if .cover}}<img src="{{coverURL (str .cover)}}" alt="{{.name}} 封面" loading="lazy" onerror="this.remove()">{{end}}</div>
+              <span class="trx-mask" aria-hidden="true"></span>
+              <span class="trx-text">{{.author}}</span>
+            </a>
+            <h5><a class="trx-play-a" href="{{bookHref (str .id) (num .num) $.SiteID}}">{{.name}}</a></h5>
+          </li>
+          {{end}}
+        </ul>
+        {{else}}<div class="trx-MessageDiv">暂无相关推荐</div>{{end}}
+      </div>
+    </div>
+  </div>
+</div>
+{{end}}

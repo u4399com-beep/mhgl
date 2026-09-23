@@ -1,0 +1,15 @@
+{{define "content"}}{{/* ddyueshu 美观 404(.box_con 形态) */}}
+<div class="ddy-404page">
+  <div id="ddy-main">
+    <div class="ddy-box-con">
+      <div class="ddy-con-top">404 Not Found</div>
+      <div class="ddy-box-con-inner ddy-404-body">
+        <div class="ddy-404-code">404</div>
+        <h1>页面不存在</h1>
+        <p>{{if .Msg}}{{.Msg}}{{else}}你访问的页面不存在或已被移除{{end}}</p>
+        <p class="ddy-404-btns"><a href="{{.HomeHref}}">返回首页</a><a href="{{.SearchHref}}">搜索书籍</a></p>
+      </div>
+    </div>
+  </div>
+</div>
+{{end}}
