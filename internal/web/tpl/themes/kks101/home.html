@@ -1,0 +1,44 @@
+{{define "content"}}
+<div class="kks-home">
+  <div class="kks-adbanner kks-mybox">請支持我們的域名：{{siteTitle .Site}}</div>
+  <h3 class="kks-mytitle">熱門書單推薦</h3>
+  <div class="kks-booklist-grid">
+    {{range firstN 4 .WeekRank}}
+    <div class="kks-booklist-card">
+      <a class="kks-booklist-card-link" href="{{bookHref (str .id) (num .num) $.SiteID}}">
+        <div class="kks-booklist-card-content">
+          <div class="kks-cover-section">
+            <div class="kks-cover-stack">
+              <div class="kks-cover-main">
+                {{if .cover}}<img src="{{coverURL (str .cover)}}" alt="{{.name}} 封面" loading="lazy" onerror="this.remove()">{{end}}
+              </div>
+            </div>
+          </div>
+          <div class="kks-info-section">
+            <h3 class="kks-booklist-title">{{.name}}</h3>
+            <div class="kks-booklist-meta">
+              <span class="kks-meta-item">{{or .category "小說"}}</span>
+              <span class="kks-meta-item">{{fmtWords .wordCount}}</span>
+              <span class="kks-meta-item">{{.author}}</span>
+            </div>
+            <div class="kks-booklist-desc"><p>{{if .intro}}{{excerpt .intro 40}}{{else}}暫無簡介{{end}}…</p></div>
+          </div>
+        </div>
+      </a>
+    </div>
+    {{else}}<div class="kks-mybox"><div class="kks-empty">暫無數據</div></div>{{end}}
+  </div>
+  {{if .Authors}}
+  <h3 class="kks-mytitle">熱門標籤</h3>
+  {{template "kks-tagcloud" (withSite $.SiteID .Authors)}}
+  {{end}}
+  <h3 class="kks-mytitle">熱門小說排行</h3>
+  <div class="kks-mybox kks-ranked">
+    {{range .ClickRank}}{{template "kks-bookbox" (withSite $.SiteID .)}}{{else}}<div class="kks-empty">暫無數據</div>{{end}}
+  </div>
+  <h3 class="kks-mytitle kks-mytitle2">最新更新</h3>
+  <div class="kks-mybox">
+    {{range firstN 10 .Books}}{{template "kks-bookbox" (withSite $.SiteID .)}}{{else}}<div class="kks-empty">暫無數據</div>{{end}}
+  </div>
+</div>
+{{end}}

@@ -1,0 +1,13 @@
+{{define "content"}}
+<div class="x2-page">
+  <div class="x2-block">
+    <div class="x2-blocktitle"><i class="x2-bt-ico"></i>阅读历史</div>
+    <div class="x2-blockcontent x2-history">
+      <p class="x2-dushint">阅读历史仅保存在本机浏览器(localStorage), 不上传服务器。</p>
+      <div id="ajx-history-empty" class="x2-empty" style="display:none">暂无阅读历史, 去首页挑一本书开始阅读吧。</div>
+      <ul class="x2-ultop" id="ajx-history-list"></ul>
+      <p class="x2-btnlinks"><a class="x2-btn" href="{{.HomeHref}}">去逛首页</a><a class="x2-btn" href="{{.SearchHref}}">搜索书籍</a></p>
+    </div>
+  </div>
+</div>
+{{end}}

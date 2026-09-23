@@ -7089,3 +7089,74 @@ Stage Summary:
 - ③④⑤闭环: 环境恢复→三代理并行产出(4 真采集 bug+7 安全正确性修复+备份恢复端点+多主题+PWA+收割器)→主控核验补漏接线→受控部署→浏览器全链实证
 - 反反爬能力面扩充: 代理池从「静态留痕」升级为「收割 12 源+校验+健康记账」全内建闭环
 - 全部门禁绿: gofmt/vet/test(build)/tsc 不适用(Go 单体); 任务无损失(优雅停+断点续采)
+---
+Task ID: R57-2b
+Agent: general-purpose (Go 单体 API/Store/Auth 深审 + 备份回路 E2E)
+Task: ①备份→恢复→校验回路 E2E 测试(R56 遗留验证) ②api/store 逐行深审抓虫(admin_tasks/admin_dash/public_data/admin_books/admin_content/admin_taxonomy/store chapters+settings+models) ③三包清理精简
+
+Work Log:
+- [R57-2b-1·封面全站 400(P1)] api/public_files.go publicCover: 修后缀白名单仍锁 TS 时代 `\.webp$` —— R55 桥改存原格式后全库封面是 .jpg(web/covers 实存 book_*.jpg, DB cover 列 covers/*.jpg), web 层 coverURL 把本地封面全引到本端点 → 实测 GET /api/public/cover?file=book_x.jpg 返 400, 全站封面全灭(前端 onerror 回落占位图兜底)。修后白名单扩到 webp/jpeg/png/gif/avif + Content-Type 按后缀输出(修前硬编码 image/webp); 字符集门+basename+目录边界三重防护不变。测试: TestPublicCoverFormatsAndSandbox(jpg/webp/前缀剥离/404/txt 拒/穿越拒)
+- [R57-2b-2·models 无行判定 errors.Is 化] store/models.go: GetTask/GetRuleConfig/GetBook/GetBookByNum/FindBookBySourceURL 五处 `err == sql.ErrNoRows` 直比改 errors.Is(R56-2b-6 同口径收尾; 驱动换型/错误包装后不失效)
+- [R57-2b-3·BookTag RMW 竞态] api/admin_books.go upsertBookTag: 修前 SELECT→(UPDATE|INSERT) 两语句非原子, 并发同 tag 双 POST 均判 miss → 后到 INSERT 撞 UNIQUE 静默失败且 added/updated 计数错账; 修后单语句 `INSERT ... ON CONFLICT(bookId,tag) DO UPDATE SET hits=hits+1` 原子 upsert, 新增/更新口径按 upsert 前存在性(hits 0 起步自增语义与 TS upsert 一致)。测试: TestUpsertBookTagAtomic(20 并发恰 1 行 hits=19)
+- [回路 E2E(R56 遗留①闭环)] 新建 api/r57_loop_test.go: 同库种子(2 书/4 章/2 标签/规则/站点/分类/3 设置/友链/3 任务 running|paused|done/下载任务)→adminBackup 导出→断言 counts 与库内逐表一致→全表清空→strategy=overwrite 灌回→断言 counts 逐表还原一致+failed=0+Task running→paused 归一(paused/done 不动)+progress/chapter content 逐字往返+Setting JSON 字符串往返(readAllSettings 读回对象)→strategy=skip 二遍(全 skip+库内计数逐表不变)→篡改备份注入非串 Setting value→恢复时 JSON 字符串化落库(APIPseudoPreset 读回 numeric)
+- [口径钉测×2] TestCountPerDay7dBucketsLocalDays: 7 日曲线=服务器本地自然日[0点,次日0点) 7 桶含今日(与 TS stats/route.ts empty7d+countPerDay7d 逐字同口径, 无 UTC 偏差); TestPublicResolveAllPseudoForms: resolve 18 形态矩阵(数字/bN/cN/compact 单双段/尾斜杠/.html 剥离/cuid 书+章/越界章/无书/非法段)
+- [深审确认(不改)] admin_tasks: CRUD 校验口径/engine 上限分流/control 路由分发/batch 500 上限与跳过语义/logs after 游标(25 字定长 time-ordered cuid 字典序=时序)+take 200 与 TS 一致/列表 ruleName 剥离为有意行为(admin.js ruleNameOf 兜底, 注释已澄清); admin_dash: stats 7 日曲线本地时区与 TS 一致; public_data: toc/admin toc skip≤10000 与 TS 同口径(超大书深页重复为既定 PARITY)/keyword 洗牌 Fisher-Yates 正确/related 去重兜底正确; settings.go 无 TTL 缓存(TTL 缓存在 api 侧 bannedWords 60s+sitemap 5min, 互斥锁失效链路核对无竞态); chapters.go 单章读写薄层(分批/事务/seq 重排在 internal/crawl/bridge, R56-2a 已审)
+- [清理] 死常量 bookIDRangeMax(admin_tasks.go)+死字段 DB.idSeed/idRand(db.go, NewID 实际用包级 idMu/idSeq/idFingerprint)删除; apiTestSchema 补 FriendLink 表(备份面表, 既有测试不受影响)
+- [门禁] gofmt 空/vet 0/api+store+auth test 全绿(4 新测试+既有 12 全过)/go build ./cmd/server 过
+
+Stage Summary:
+- 备份→恢复→校验全回路 E2E 落地(R56 遗留①真正闭环): 同库清空→灌回→counts 一致→状态归一→Setting 非串值 JSON 化防御全覆盖
+- 三真修复: 封面端点 .webp 旧锁致全站 jpg 封面 400(用户可见 P1)/models 五处无行判定 errors.Is 化/BookTag upsert 原子化
+- 深审面确认无虫清单(时区口径/分页边界/resolve 形态/TTL 缓存竞态/logs 游标)已记录, 防后续轮次重复怀疑
+- 遗留: publicCover 修复需主控受控部署(重建二进制+重启)后生产生效; 超大书(>10000 章)toc 深页重复为 TS 既定行为如需改进需另立决策
+---
+Task ID: R57-2a
+Agent: general-purpose (Go 采集引擎: DB 代理池接线+收割周期化+深审, 服务停机打断由主控核收补记)
+Task: DB 代理池接入采集主链路+收割周期化+callback/util/engine/fetch未深审面逐行抓虫+清理
+
+Work Log:
+- [核收说明] 代理完成核心产出后被 server_shutdown 打断(无 worklog 无报告); 主控逐 hunk 核验+门禁全绿后补记本条
+- [DB 代理池接线·闭环] ①fetch 包新增 ProxyAddrSource 接口(不 import store, engine 装配传入)+Client.SetDynamicProxies(与 cfg.ProxyURL 静态条目合并去重, parseProxyAddr 单一实现 socks5h 归一)+ProxyCount 可观测 ②task 层 dynamicProxyLoop: 任务启动即首拉(64 条, 健康分降序)+30min 周期重拉, 只增不减(空结果/查询失败不清池防抖, DB 抖动不致裸奔直连) ③ProxyFeedback 回写钩子: 经代理请求成功→(addr,true), 连败达 3→(addr,false), engine 装配 newProxyFeedbackSink 异步落库(lastUsedAt/alive=0)不阻塞热路径 ④engine.go NewManager 装配 SetProxySource(db)+SetProxyFeedback+测试注入缝(dynamic_test.go/proxyfeed_test.go)
+- [收割周期化] proxy/periodic.go: StartPeriodic 单协程双 timer(harvest 缺省 6h, env PROXY_HARVEST_INTERVAL 覆盖, 支持 "6h"/"90m"/纯数字分钟; check stale 缺省 30min limit 150 最旧优先可复活死代理); 包级原子标志防重入(双装配直接拒绝); 首拉延后一周期(装配即收割拖累启动带宽, DB 存量+手动端点兜底); engine StopAll 优雅退出统一收口(periodicCancel)
+- [性能] sorter/sorter.go sortStable: 手写插入排序 O(n²)(5000 章目录最坏 ~12.5M 次比较)换 stdlib sort.SliceStable O(n log n), 稳定语义不变大书重排降两个量级
+- [清理+深审] rule/pages.go digitsRe 包级正则上提(热路径 MustCompile); bridge/task/engine/fetch 未深审面逐行复核; rule/pages_nil_test.go/engine_test.go/sorter_test.go 新增回归
+- [门禁] gofmt 空(主控 -w periodic.go)/vet 0/go test 全绿(fetch 2.5s/task 9.9s/proxy/rule/sorter/craft 全过)/整仓 build 过
+
+Stage Summary:
+- 反反爬能力真闭环: DB 池(3 万级)→采集主链路(启动即用+30min 刷新+只增不减)→结果回写(alive 记账)→周期化收割(6h)+stale 校验(30min)全自动运转
+- 大书目录重排 O(n²)→O(n log n); 全部门禁绿
+---
+Task ID: R57-2c
+Agent: general-purpose (Web 层: 主题移植×2+全主题 XSS 审计+PWA 补强, 服务停机打断由主控核收补记)
+Task: x2552/kks101 主题移植+全主题模板 XSS 审计+PWA 验证补强+清理
+
+Work Log:
+- [核收说明] 代理完成核心产出后被 server_shutdown 打断; 主控核验(模板在位/探针测试全绿/零绕过)+门禁全绿后补记本条
+- [主题移植×2] web/tpl/themes/x2552/(13 页+x2552.css)+themes/kks101/(13 页+kks101.css), TS 参照(src/components/public/sites/)视觉特征提炼; 至此 5 主题就位(aijjxs/pili/shipsay/x2552/kks101), 剩余 4 待后续轮次
+- [全主题 XSS 审计] 5 主题全部模板扫描: template.HTML/JS/URL 绕过点=0; 新增「全主题 XSS 探针」测试(web_test.go L331+): img onerror/斜杠分隔 onerror(HTML5 tokenizer)/引号内大于号等活标记探针, 爬虫外部数据(书名/章节名/简介)经模板渲染断言无活标记; readHTML 出口已有 sanitizeChapterHTML+contentToParagraphs 消毒链
+- [PWA 补强] sw.js 缓存策略路径覆盖修订; offline.html 与主题一致形态
+- [门禁] gofmt 空(主控 -w render.go/web_test.go)/vet 0/go test 全绿(含 XSS 探针组)/整仓 build 过
+
+Stage Summary:
+- 主题矩阵 5/9(剩 ddyueshu/ggd66/huangjinwu/qb23/trxsw/x33yq 中 4 个本轮范围外)
+- XSS 审计: 零绕过+探针测试组固化(后续主题移植回归可复用)
+---
+Task ID: R57（主控收口）
+Agent: Z.ai Code 主控
+Task: ③待办续作+全面审查 ④多代理并行(采集+反反爬着重) ⑤清理精简 + 沙箱回滚对齐 + 受控部署 + 浏览器实证 + 推送
+
+Work Log:
+- [沙箱回滚对齐] 本地 R56 提交被哈希重写(内容=远端+4 封面): git reset --soft origin/main 保留封面重提交 c09c110 推送, 线性历史零 force-push
+- [环境恢复×5] Go 工具链丢失重装+DB 第五次清空(bootstrap-db.ts 一键恢复 35 规则/3 任务)+模块缓存重建; 本轮三大部头 1.5h 采集即满仓: **10 书/13279 章/正文填充率 100%**(yueyouxs 2499+xyetianlian 9415 含万古神帝 4236+xbqg777 1365 含 CF 态势降速突围), 三任务全部 done
+- [三代理] 2b 完整交付(报告在位); 2a/2c 被 server_shutdown 打断但产出完整落盘, 主控逐 hunk 核验+补 worklog(见 R57-2a/2c)
+- [R57-2b P1] publicCover 后缀白名单锁 .webp 而 R55 桥改存原格式→全站本地封面全灭(onerror 兜底占位图); 修复后 curl 200 image/jpeg+浏览器真实封面全展示
+- [R57-2a 闭环] DB 代理池(3 万级)接入采集主链路(ProxyAddrSource 接口注入/启动即拉 64 条健康分降序/30min 刷新/只增不减防抖)+ProxyFeedback 回写泵(连败 3→alive=0)+收割周期化(6h harvest+30min stale check, 防重入, 优雅退出); 大书目录重排 O(n²)→O(n log n)
+- [R57-2c 闭环] 主题矩阵 5/9(+x2552 经典蓝门户/kks101 繁体清新); 全主题 XSS 探针测试组(零 template.HTML/JS/URL 绕过+活标记探针断言)
+- [受控部署] 重建→SIGTERM 优雅停→新二进制启动(日志实证 [proxy-periodic] 周期化启动 6h/30m)→任务恢复; 门禁 gofmt/vet/test 全绿(10 包)
+- [浏览器实证] x2552/kks101 两新主题首页渲染(真实封面/标签云/更新列表)+阅读页正文 2463 字+零 console 错(截图 2 张 agent-ctx/shots-r57/)
+- [⑥推送] 见 git log
+
+Stage Summary:
+- 反反爬完成「池→采集→回写→周期化」全自动闭环: 收割器 12 源入库 3 万级→采集启动即消费健康分 Top64+30min 刷新→使用事实回写 alive 记账→周期化收割/校验常驻
+- 生产实证: 三大部头满仓 100% 正文填充(历史最佳)+封面 P1 修复+5 主题矩阵+XSS 探针固化
+- 遗留: 剩余 4 主题(ddyueshu/ggd66/huangjinwu/qb23/trxsw/x33yq 择 4)/代理回写 healthScore 细化/超大书 toc 深页重复(TS 既定行为)

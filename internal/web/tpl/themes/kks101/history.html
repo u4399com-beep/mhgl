@@ -1,0 +1,14 @@
+{{define "content"}}
+<div class="kks-history">
+  <h3 class="kks-mytitle">閱讀歷史<small>（僅保存在本機瀏覽器 localStorage）</small></h3>
+  <div class="kks-mybox">
+    <p class="kks-history-hint">閱讀歷史僅保存在本機瀏覽器(localStorage), 不上傳服務器。</p>
+    <div id="ajx-history-empty" class="kks-empty" style="display:none">暫無閱讀歷史, 去首頁挑一本書開始閱讀吧。</div>
+    <div id="ajx-history-list"></div>
+    <p class="kks-center">
+      <a class="kks-btn-primary" href="{{.HomeHref}}">去逛首頁</a>
+      <a class="kks-btn" href="{{.SearchHref}}">搜索書籍</a>
+    </p>
+  </div>
+</div>
+{{end}}

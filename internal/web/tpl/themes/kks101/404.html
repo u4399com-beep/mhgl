@@ -1,0 +1,13 @@
+{{define "content"}}
+<div class="kks-404">
+  <div class="kks-mybox kks-404-box">
+    <div class="kks-404-code">404</div>
+    <h1>頁面不存在</h1>
+    <p>{{if .Msg}}{{.Msg}}{{else}}你訪問的頁面不存在或已被移除{{end}}</p>
+    <p class="kks-center">
+      <a class="kks-btn-primary" href="{{.HomeHref}}">返回首頁</a>
+      <a class="kks-btn" href="{{.SearchHref}}">搜索書籍</a>
+    </p>
+  </div>
+</div>
+{{end}}

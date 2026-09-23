@@ -1,0 +1,23 @@
+{{define "content"}}
+<div class="x2-page">
+  <div class="x2-bdtop"></div>
+  <div class="x2-bdsub">
+    <dl class="x2-dl">
+      <dt class="x2-crumb">
+        <span class="x2-crumb-r"><a class="x2-a" href="{{.BookHref}}">返回书页</a></span>
+        <a class="x2-a" href="{{.HomeHref}}">首页</a>-&gt;<a class="x2-a" href="{{catIDHref (str .Book.categoryId) .SiteID}}">{{or .Book.category "小说"}}</a>-&gt;{{.Book.name}}最新章节
+      </dt>
+      <dd><h1 class="x2-toc-h1">{{.Book.name}}最新章节</h1></dd>
+      <dd><h3 class="x2-toc-author">作者：{{.Book.author}}</h3></dd>
+      <dd>
+        {{if .Chapters}}
+        <div class="x2-chgrid">
+          {{range .Chapters}}<a class="x2-a" href="{{chapterHref (str .id) (num $.Book.num) (num .idx) $.SiteID}}" title="{{.title}}">{{.title}}</a>{{end}}
+        </div>
+        {{else}}<div class="x2-empty">目录暂未收录, 请稍后再来</div>{{end}}
+      </dd>
+    </dl>
+  </div>
+  {{template "x2-pagelink" .}}
+</div>
+{{end}}

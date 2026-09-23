@@ -198,13 +198,17 @@ func TestXMLEscape(t *testing.T) {
 }
 
 func TestSafeHref(t *testing.T) {
-	for _, u := range []string{"javascript:alert(1)", "//evil.com", "data:text/html,x", "JAVASCRIPT:x"} {
+	for _, u := range []string{"javascript:alert(1)", "//evil.com", "data:text/html,x", "JAVASCRIPT:x",
+		`/\evil.com`, `\\evil.com`, `\evil.com`, " /\\evil.com", "\t//evil.com"} {
 		if got := safeHref(u); got != "#" {
 			t.Fatalf("safeHref(%q)=%q, want #", u, got)
 		}
 	}
 	if got := safeHref("https://friend.example"); got != "https://friend.example" {
 		t.Fatalf("合法外链被拦: %q", got)
+	}
+	if got := safeHref("/book/1.html"); got != "/book/1.html" {
+		t.Fatalf("站内路径被拦: %q", got)
 	}
 }
 
@@ -239,7 +243,7 @@ func kitchenSinkData() map[string]any {
 			"updatedAt": int64(1700000000000), "latestChapter": "第1章"}},
 		"ClickRank": nil, "WeekRank": nil, "TopBook": nil, "Authors": nil,
 		"Stats":        map[string]any{"Books": 1, "Words": int64(9), "Authors": 1, "Chapters": 1},
-		"Pager":        nil,
+		"Pager":        makePager(1, 3, 24, func(int) string { return "/" }),
 		"Book":         map[string]any{"id": "b1", "num": int64(1), "name": "书名", "author": "作者", "category": "玄幻", "intro": "", "cover": "", "wordCount": int64(9), "status": "ongoing", "updatedAt": int64(0), "categoryId": "c1"},
 		"Chapter":      map[string]any{"id": "ch1", "idx": int64(1), "title": "章节名", "content": "正文第一段\n\n正文第二段"},
 		"ChapterCount": 1,
@@ -260,7 +264,7 @@ func kitchenSinkData() map[string]any {
 }
 
 func TestThemeTemplateSets_RenderSmoke(t *testing.T) {
-	themes := []string{defaultTheme, "pili", "shipsay"}
+	themes := []string{defaultTheme, "pili", "shipsay", "x2552", "kks101"}
 	for _, theme := range themes {
 		set := themeSet(theme)
 		if set == nil {
@@ -321,5 +325,86 @@ func TestAdminTemplates_LoadAndRender(t *testing.T) {
 	render(w, "admin:dashboard", map[string]any{"Head": map[string]any{"Title": "仪表盘"}, "Sections": []map[string]any{}, "Current": "dashboard", "Label": "仪表盘"})
 	if w.Code != http.StatusOK {
 		t.Fatalf("admin:dashboard 渲染异常: %d", w.Code)
+	}
+}
+
+// ---------------- 全主题 XSS 探针(爬虫外部数据经模板渲染不得形成活标记) ----------------
+
+// xssProbes 活标记探针: 输出含任一子串 = 外部数据未转义/未消毒进入 HTML。
+// 已转义形态(&lt;img ...)与静态 javascript:void(0)/<script src> 不匹配这些探针。
+var xssProbes = []string{
+	`<img src=x onerror=alert`,
+	`<script>alert`,
+	`<svg onload`,
+	`onmouseover="alert`,
+	`onclick="alert`,
+	`href="javascript:alert`,
+	`href="/\evil.com`, // safeHref 反斜杠协议相对口子
+}
+
+// poisonedSink 全字段毒化的渲染数据(书名/作者/简介/章节/站名/友链/Q/专题全走爬虫口径)。
+func poisonedSink() map[string]any {
+	img := `<img src=x onerror=alert(1)>`
+	svg := `"><svg onload=alert(5)>`
+	d := kitchenSinkData()
+	d["Site"] = map[string]any{"id": "s1", "name": `测试站` + img, "themeId": "pili"}
+	d["Links"] = []map[string]any{{"name": `<script>alert(9)</script>`, "url": `/\evil.com`}}
+	d["Q"] = `搜索` + img
+	d["Msg"] = `页面` + img
+	b := map[string]any{
+		"id": "b1", "num": int64(1), "name": `书名` + img, "author": `作者<script>alert(2)</script>`,
+		"category": `分类` + svg, "categoryId": "c1",
+		"intro": `<p onclick="alert(3)">简介</p><script>alert(4)</script>`,
+		"cover": `"><img src=x onerror=alert(11)>`, "wordCount": int64(9), "status": "ongoing",
+		"updatedAt": int64(1700000000000), "latestChapter": `章名` + svg,
+	}
+	books := []map[string]any{b}
+	d["Books"] = books
+	d["Book"] = b
+	d["Chapter"] = map[string]any{
+		"id": "ch1", "idx": int64(1), "title": `章节名` + img,
+		"content": "正文第一段\n\n<img src=x onerror=alert(7)><script>alert(8)</script>",
+	}
+	d["LatestChapters"] = []map[string]any{{"id": "ch1", "idx": int64(1), "title": `章节名` + img}}
+	d["Tags"] = []string{`tag` + img}
+	d["Primary"] = b
+	d["PrimaryBookHref"] = "/book/1.html"
+	d["Heading"] = `专题` + img
+	d["Row"] = map[string]any{"title": `T` + img, "keyword": `kw` + img, "description": `D` + img, "updatedAt": int64(0)}
+	d["BookViews"] = []map[string]any{{"Book": b, "BookHref": "/book/1.html", "TocHref": "/read/1/"}}
+	d["Boards"] = []map[string]any{{"Key": "latest", "Label": `更新榜` + img, "Books": books}}
+	return d
+}
+
+func TestAllThemes_XSSProbe(t *testing.T) {
+	for _, theme := range []string{defaultTheme, "pili", "shipsay", "x2552", "kks101"} {
+		set := themeSet(theme)
+		if set == nil {
+			t.Fatalf("主题 %s 模板集装载失败", theme)
+		}
+		for _, name := range publicPages {
+			data := poisonedSink()
+			data["Site"].(map[string]any)["themeId"] = theme
+			switch name {
+			case "search": // renderSearch: Tags=WebRelatedTags([]map 带 .tag)
+				data["Tags"] = []map[string]any{{"tag": `tag` + `<img src=x onerror=alert(1)>`, "hits": 1}}
+				data["Total"] = int64(1)
+			case "book": // renderBookPage: Tags=WebBookTags([]string)
+				data["Tags"] = []string{`tag` + `<img src=x onerror=alert(1)>`}
+			}
+			w := httptest.NewRecorder()
+			if err := set[name].ExecuteTemplate(w, "layout.html", data); err != nil {
+				t.Fatalf("主题 %s 页 %s 渲染失败: %v", theme, name, err)
+			}
+			body := w.Body.String()
+			for _, probe := range xssProbes {
+				if strings.Contains(body, probe) {
+					t.Fatalf("主题 %s 页 %s XSS 探针命中 %q:\n%s", theme, name, probe, body)
+				}
+			}
+			if name == "home" && !strings.Contains(body, "&lt;img") {
+				t.Fatalf("主题 %s 首页未观察到自动转义痕迹(&lt;img 缺失)", theme)
+			}
+		}
 	}
 }

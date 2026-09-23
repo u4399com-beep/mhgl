@@ -477,3 +477,57 @@ func bookFromMap(m map[string]any) *Book {
 	b.UpdatedAt = ToInt(m["updatedAt"])
 	return b
 }
+
+// AliveProxyAddrs 取存活代理地址串("protocol://host:port", 健康分降序)。
+// [R57 预铺] 供 crawl 引擎把 DB 代理池喂进 fetch Client 轮换(消除「池有数据采集不用」缺口)。
+// limit<=0 → 64; 无存活行 → 空切片非 nil(消费方 len 判断即可)。
+func (d *DB) AliveProxyAddrs(limit int) ([]string, error) {
+	if limit <= 0 {
+		limit = 64
+	}
+	maps, err := d.QueryMaps(`SELECT protocol, host, port FROM "FreeProxy"
+		WHERE alive=1 AND healthScore>0 ORDER BY healthScore DESC, lastCheckedAt DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(maps))
+	for _, m := range maps {
+		proto := ToStr(m["protocol"])
+		host := ToStr(m["host"])
+		port := ToInt(m["port"])
+		if proto == "" || host == "" || port <= 0 || port > 65535 {
+			continue
+		}
+		if proto == "socks5h" {
+			proto = "socks5" // fetch 层同口径归一
+		}
+		if proto != "http" && proto != "https" && proto != "socks4" && proto != "socks5" {
+			continue
+		}
+		out = append(out, proto+"://"+host+":"+itoaStore(int(port)))
+	}
+	return out, nil
+}
+
+// itoaStore 轻量整数十进制(store 内避免引 strconv 的调用点已多, 独立小函数防重名)
+func itoaStore(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	neg := n < 0
+	if neg {
+		n = -n
+	}
+	var b [20]byte
+	i := len(b)
+	for n > 0 {
+		i--
+		b[i] = byte('0' + n%10)
+		n /= 10
+	}
+	if neg {
+		i--
+		b[i] = '-'
+	}
+	return string(b[i:])
+}

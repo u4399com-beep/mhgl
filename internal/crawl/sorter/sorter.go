@@ -16,6 +16,7 @@ import (
 	"errors"
 	"math"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -451,9 +452,10 @@ func naturalCompare(a, b string) float64 {
 }
 
 // allDigits 提取全部数字段(TS: a.match(/\d+/g)?.map(Number) || [])
+var digitsRe = regexp.MustCompile(`\d+`)
+
 func allDigits(s string) []float64 {
-	re := regexp.MustCompile(`\d+`)
-	ms := re.FindAllString(s, -1)
+	ms := digitsRe.FindAllString(s, -1)
 	if len(ms) == 0 {
 		return nil
 	}
@@ -666,13 +668,11 @@ func sortByChapterNo(deduped []TocItem) []TocItem {
 	return out
 }
 
-// sortStable 稳定插入排序(通用; 目录/分组量级下足够; less=严格小于)
+// sortStable 稳定排序(通用; 语义=稳定+严格小于 less)。[R57-2a 清理] 原为手写插入排序
+// O(n²) —— 目录量级上限 5000 章时最坏 ~12.5M 次比较(闭包内 NaN 判定), 换 stdlib
+// sort.SliceStable O(n log n) 同语义实现(稳定性不变, 结果不变, 大书目录重排耗时降两个量级)
 func sortStable[T any](items []T, less func(a, b T) bool) {
-	for i := 1; i < len(items); i++ {
-		for j := i; j > 0 && less(items[j], items[j-1]); j-- {
-			items[j], items[j-1] = items[j-1], items[j]
-		}
-	}
+	sort.SliceStable(items, func(i, j int) bool { return less(items[i], items[j]) })
 }
 
 // volumeGroup kk-a 分卷分组

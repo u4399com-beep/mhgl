@@ -1,0 +1,11 @@
+{{define "content"}}
+<div class="x2-page">
+  <div class="x2-bdtop"></div>
+  <div class="x2-bdsub x2-404">
+    <div class="x2-404-code">404</div>
+    <h1>页面不存在</h1>
+    <p>{{if .Msg}}{{.Msg}}{{else}}你访问的页面不存在或已被移除{{end}}</p>
+    <p class="x2-btnlinks"><a class="x2-btn" href="{{.HomeHref}}">返回首页</a><a class="x2-btn" href="{{.SearchHref}}">搜索书籍</a></p>
+  </div>
+</div>
+{{end}}

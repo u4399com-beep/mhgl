@@ -1,0 +1,15 @@
+{{define "content"}}
+<div class="kks-ranking">
+  <div class="kks-tabs" role="tablist" aria-label="榜單">
+    <span class="is-active">更新榜</span>
+    <span>字數榜</span>
+    <span>新書榜</span>
+  </div>
+  {{range $bi, $board := .Boards}}
+  <h3 class="kks-mytitle">{{$board.Label}}<small>（TOP60 · 每小時隨採集更新）</small></h3>
+  <div class="kks-mybox kks-ranked">
+    {{range $i, $b := $board.Books}}{{template "kks-bookbox" (withSite $.SiteID $b)}}{{else}}<div class="kks-empty">榜單暫無數據</div>{{end}}
+  </div>
+  {{end}}
+</div>
+{{end}}

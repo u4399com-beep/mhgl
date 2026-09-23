@@ -50,6 +50,8 @@ CREATE TABLE "BookTag" (id TEXT PRIMARY KEY, bookId TEXT, tag TEXT, source TEXT 
 hits INTEGER DEFAULT 0, UNIQUE(bookId, tag));
 CREATE TABLE "DownloadJob" (id TEXT PRIMARY KEY, bookId TEXT, options TEXT DEFAULT '{}',
 status TEXT DEFAULT 'pending', filePath TEXT, error TEXT, size INTEGER DEFAULT 0, createdAt DATETIME);
+CREATE TABLE "FriendLink" (id TEXT PRIMARY KEY, name TEXT, url TEXT, logo TEXT,
+sortOrder INTEGER DEFAULT 0, enabled BOOLEAN DEFAULT 1, createdAt DATETIME, updatedAt DATETIME);
 `
 
 func newTestDB(t *testing.T) *store.DB {

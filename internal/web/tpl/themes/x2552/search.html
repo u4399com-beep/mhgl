@@ -1,0 +1,17 @@
+{{define "content"}}
+<div class="x2-page">
+  <form class="x2-c-search" action="/" method="get" role="search">
+    {{if .SiteID}}<input type="hidden" name="site" value="{{.SiteID}}">{{end}}
+    <input type="hidden" name="view" value="search">
+    <input type="search" name="q" aria-label="搜索关键词" placeholder="输入书名关键词" value="{{.Q}}">
+    <button type="submit">搜索</button>
+  </form>
+  <div class="x2-bdtop"></div>
+  <div class="x2-bdsub">
+    <dl class="x2-dl">
+      <dt class="x2-dt-line">搜索「{{.Q}}」 - 结果列表{{if .Q}}(共 {{.Total}} 条){{end}}</dt>
+      <dd>{{if .Q}}{{template "x2-booktable" (withSite $.SiteID .Books)}}{{else}}<div class="x2-empty">输入书名 / 作者关键词开始搜索。</div>{{end}}</dd>
+    </dl>
+  </div>
+</div>
+{{end}}

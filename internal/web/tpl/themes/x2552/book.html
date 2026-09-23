@@ -1,0 +1,47 @@
+{{define "content"}}
+<div class="x2-page">
+  <div class="x2-flex">
+    <div class="x2-left">{{template "x2-leftrail" .}}</div>
+    <div class="x2-centerm">
+      <div class="x2-bdtop"></div>
+      <div class="x2-bdsub">
+        <dl class="x2-dl">
+          <dd class="x2-bh1"><h1>{{.Book.name}}全文阅读</h1></dd>
+          <dd>
+            <div class="x2-book-flex">
+              <a class="x2-book-cov" href="{{.TocHref}}" title="{{.Book.name}}最新章节列表">
+                {{if .Book.cover}}<img src="{{coverURL (str .Book.cover)}}" alt="{{.Book.name}} 封面" onerror="this.remove()">{{end}}
+              </a>
+              <div class="x2-book-meta">
+                <table class="x2-tbl x2-at" cellpadding="0" cellspacing="0">
+                  <tbody>
+                  <tr>
+                    <th>小说类别</th><td><a class="x2-a" href="{{catIDHref (str .Book.categoryId) .SiteID}}">{{or .Book.category "--"}}</a></td>
+                    <th>小说作者</th><td>{{.Book.author}}</td>
+                    <th>小说状态</th><td>{{if eqStr (str .Book.status) "completed"}}已完成{{else}}连载中{{end}}</td>
+                  </tr>
+                  <tr>
+                    <th>全文长度</th><td>{{shortWords .Book.wordCount}}字</td>
+                    <th>最后更新</th><td>{{dateYY .Book.updatedAt}}</td>
+                    <th>最新章节</th><td><span class="x2-ellip" title="{{.Book.latestChapter}}">{{or .Book.latestChapter "--"}}</span></td>
+                  </tr>
+                  </tbody>
+                </table>
+                <p class="x2-btnlinks">
+                  <a class="x2-btn" href="{{.TocHref}}">全文阅读</a>
+                  {{if .ReadFirstHref}}<a class="x2-btn" href="{{.ReadFirstHref}}">开始阅读</a>{{end}}
+                  <a class="x2-btn" href="/api/public/download?book={{qesc (str .Book.id)}}" target="_blank" rel="noreferrer">TXT下载</a>
+                </p>
+              </div>
+            </div>
+          </dd>
+          <dd class="x2-bookintro">
+            <p class="x2-intro-h"><b>内容简介：</b></p>
+            <div class="x2-intro-b">{{if .Book.intro}}{{.Book.intro}}{{else}}暂无简介{{end}}</div>
+          </dd>
+        </dl>
+      </div>
+    </div>
+  </div>
+</div>
+{{end}}

@@ -1,0 +1,9 @@
+{{define "content"}}
+<div class="kks-full">
+  <h3 class="kks-mytitle">完本小說<small>（共 {{.Pager.Total}} 本）</small></h3>
+  <div class="kks-mybox">
+    {{range .Books}}{{template "kks-bookbox" (withSite $.SiteID .)}}{{else}}<div class="kks-empty">暫無書籍</div>{{end}}
+  </div>
+  {{template "kks-pager" .}}
+</div>
+{{end}}

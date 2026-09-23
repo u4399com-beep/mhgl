@@ -1,0 +1,56 @@
+{{define "content"}}
+<div class="x2-page">
+  <div class="x2-bdtop"></div>
+  <div class="x2-bdsub">
+    <dl class="x2-dl">
+      <dt class="x2-dt-line">关键词专题：{{if .Tag}}{{.Tag}}{{else}}缺少关键词参数{{end}}</dt>
+      {{with .Primary}}
+      <dd>
+        <div class="x2-book-flex">
+          <a class="x2-book-cov" href="{{$.PrimaryBookHref}}" aria-label="{{.name}}">
+            {{if .cover}}<img src="{{coverURL (str .cover)}}" alt="{{.name}} 封面" onerror="this.remove()">{{end}}
+          </a>
+          <div class="x2-book-meta">
+            <h2 class="x2-kw-h2"><a class="x2-a" href="{{$.PrimaryBookHref}}">{{.name}}</a></h2>
+            <table class="x2-tbl x2-at" cellpadding="0" cellspacing="0">
+              <tbody>
+              <tr>
+                <th>作者</th><td>{{.author}}</td>
+                <th>分类</th><td>{{or .category "未分类"}}</td>
+                <th>状态</th><td>{{if eqStr (str .status) "completed"}}已完成{{else}}连载中{{end}}</td>
+              </tr>
+              <tr>
+                <th>字数</th><td>{{shortWords .wordCount}}字</td>
+                <th>更新</th><td>{{dateYY .updatedAt}}</td>
+                <th>最新</th><td><span class="x2-ellip">{{or .latestChapter "--"}}</span></td>
+              </tr>
+              </tbody>
+            </table>
+            <p class="x2-btnlinks">
+              <a class="x2-btn" href="{{$.PrimaryBookHref}}">查看书籍详情</a>
+              <a class="x2-btn" href="{{tocHref (str .id) (num .num) $.SiteID}}">章节目录</a>
+            </p>
+          </div>
+        </div>
+      </dd>
+      <dd class="x2-kw-intro">{{if .intro}}{{excerpt .intro 120}}{{else}}暂无简介{{end}}</dd>
+      {{end}}
+    </dl>
+  </div>
+  {{if .Others}}
+  <div class="x2-bdtop"></div>
+  <div class="x2-bdsub">
+    <dl class="x2-dl"><dt class="x2-dt-line">其他相关书籍</dt><dd>{{template "x2-booktable" (withSite $.SiteID .Others)}}</dd></dl>
+  </div>
+  {{end}}
+  {{if .Related}}
+  <div class="x2-block">
+    <div class="x2-blocktitle"><i class="x2-bt-ico"></i>相关关键词</div>
+    <ul class="x2-taglist">
+      {{range .Related}}<li><a class="x2-a" href="{{viewHrefKeyword . $.SiteID}}">{{.}}</a></li>{{end}}
+    </ul>
+    <div class="x2-clear"></div>
+  </div>
+  {{end}}
+</div>
+{{end}}

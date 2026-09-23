@@ -36,7 +36,6 @@ const (
 	bookIDMaxLen      = 200
 	bookIDMaxCount    = 2000
 	bookIDMaxCountG   = 100_000 // engine='go' 单体内恒用
-	bookIDRangeMax    = bookIDMaxCount
 	bookIDPlaceholder = "{bookId}"
 )
 
@@ -372,7 +371,9 @@ func (d Deps) adminTasksList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, row := range rows {
-		delete(row, "ruleName") // TS include rule:{id,name}; 列表用 ruleName 平铺, 详情带完整 rule
+		// TS include rule:{id,name}; 前台列表列自带 ruleId→规则表映射兜底
+		// (admin.js ruleNameOf), 故不回带 ruleName/rule 对象, 详情端点才带完整 rule
+		delete(row, "ruleName")
 		slimRowMap(row)
 	}
 	apiOK(w, rows)

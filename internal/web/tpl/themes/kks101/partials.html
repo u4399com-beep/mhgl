@@ -1,0 +1,34 @@
+{{define "kks-bookbox"}}{{/* 书卡(封面左 90×120 + info; withSite 携带 SiteID+.B=书行; 排名徽章由列表容器 CSS 计数承载) */}}
+<div class="kks-bookbox">
+  <a class="kks-bookimg" href="{{bookHref (str .B.id) (num .B.num) $.SiteID}}" aria-label="{{.B.name}}">
+    {{if .B.cover}}<img src="{{coverURL (str .B.cover)}}" alt="{{.B.name}} 封面" loading="lazy" onerror="this.remove()">{{end}}
+  </a>
+  <div class="kks-bookinfo">
+    <h3><a href="{{bookHref (str .B.id) (num .B.num) $.SiteID}}" title="{{.B.name}}">{{.B.name}}</a></h3>
+    <p class="kks-author"><span>{{.B.author}}</span></p>
+    <p class="kks-intro">{{if .B.intro}}{{excerpt .B.intro 52}}{{else}}暫無簡介{{end}}…</p>
+    <p class="kks-meta"><span>{{or .B.category "小說"}}</span><span>{{fmtWords .B.wordCount}}</span></p>
+  </div>
+  <div class="kks-clear"></div>
+</div>
+{{end}}
+
+{{define "kks-pager"}}{{/* 分页(上一頁/下一頁 白钮; 以根数据调用) */}}
+{{with .Pager}}
+{{if or .PrevURL .NextURL}}
+<div class="kks-pager">
+  {{if .PrevURL}}<a class="kks-btn" href="{{.PrevURL}}" rel="prev">上一頁</a>{{else}}<span class="kks-btn is-disabled">上一頁</span>{{end}}
+  <span>第 {{.Page}} / {{.TotalPages}} 頁</span>
+  {{if .NextURL}}<a class="kks-btn" href="{{.NextURL}}" rel="next">下一頁</a>{{else}}<span class="kks-btn is-disabled">下一頁</span>{{end}}
+</div>
+{{end}}
+{{end}}
+{{end}}
+
+{{define "kks-tagcloud"}}{{/* 标签云(浅蓝胶囊; withSite 携带 SiteID+.Rows=字符串列表) */}}
+<div class="kks-tag kks-mybox">
+  <ul>
+    {{range .Rows}}<li><a href="{{viewHrefSearch . $.SiteID}}">{{.}}</a></li>{{end}}
+  </ul>
+</div>
+{{end}}

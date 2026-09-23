@@ -1,0 +1,16 @@
+{{define "content"}}
+<div class="kks-search">
+  <h3 class="kks-mytitle">「{{.Q}}」的搜索結果{{if .Q}}<small>（共 {{.Total}} 本）</small>{{end}}</h3>
+  {{if .Q}}
+  <div class="kks-mybox">
+    {{range .Books}}{{template "kks-bookbox" (withSite $.SiteID .)}}{{else}}<div class="kks-empty">未找到相關書籍</div>{{end}}
+  </div>
+  {{else}}<div class="kks-mybox"><div class="kks-empty">輸入書名 / 作者關鍵詞開始搜索。</div></div>{{end}}
+  {{if .Tags}}
+  <h3 class="kks-mytitle">相關閱讀</h3>
+  <div class="kks-tag kks-mybox">
+    <ul>{{range .Tags}}<li><a href="{{viewHrefKeyword (str .tag) $.SiteID}}">{{.tag}}</a></li>{{end}}</ul>
+  </div>
+  {{end}}
+</div>
+{{end}}

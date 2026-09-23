@@ -1,0 +1,17 @@
+{{define "content"}}
+<div class="x2-page">
+  <div class="x2-flex">
+    <div class="x2-left">{{template "x2-leftrail" .}}</div>
+    <div class="x2-centerm">
+      <div class="x2-bdtop"></div>
+      <div class="x2-bdsub">
+        <dl class="x2-dl">
+          <dt class="x2-dt-line">全本列表</dt>
+          <dd>{{template "x2-booktable" (withSite $.SiteID .Books)}}</dd>
+        </dl>
+      </div>
+      {{template "x2-pagelink" .}}
+    </div>
+  </div>
+</div>
+{{end}}

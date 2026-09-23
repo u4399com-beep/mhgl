@@ -1,0 +1,183 @@
+/* ============================================================
+   kks101(101看書) 主题样式 — 繁体现代风
+   移植自 src/components/public/sites/kks101/(parts.tsx + index.ts css 串)实测:
+   主蓝 #1f6cb2 / 页底 #f2f3f4 / 边 #eee / 字 #333 #666 #818a91 / 域名条 #fff2df
+   mybox 白卡圆角 8 + mytitle 底线 / 书卡封面左 90×120 / 榜单前三徽章红橙黄
+   全部选择器以 .clone-kks101 作用域(body class)。
+   ============================================================ */
+.clone-kks101{margin:0;background:#f2f3f4;color:#333;font:14.5px/1.6 'Microsoft YaHei','PingFang SC',sans-serif;-webkit-text-size-adjust:100%}
+.clone-kks101 a{color:#666;text-decoration:none}
+.clone-kks101 a:hover{color:#06c}
+.clone-kks101 img{max-width:100%;border:0}
+.clone-kks101 .kks-clear{clear:both;height:0;overflow:hidden}
+.clone-kks101 .kks-empty{padding:24px 0;text-align:center;color:#818a91;font-size:13px}
+.clone-kks101 .kks-center{text-align:center;margin:14px 0}
+
+/* header(白底 sticky: logo 左 + 搜索中 + 菜单右) */
+.clone-kks101 .kks-header{background:#fff;border-bottom:1px solid #eee;position:sticky;top:0;z-index:20}
+.clone-kks101 .kks-headbox{max-width:1000px;margin:0 auto;padding:8px 12px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.clone-kks101 .kks-logo{font-size:19px;font-weight:800;color:#1f6cb2;text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px}
+.clone-kks101 .kks-logo:hover{color:#185a97;text-decoration:none}
+.clone-kks101 .kks-headbox .kks-search{display:flex;flex:1;max-width:340px;border:1px solid #1f6cb2;border-radius:16px;overflow:hidden;height:32px}
+.clone-kks101 .kks-headbox .kks-search input{flex:1;min-width:0;border:none;outline:none;padding:0 12px;font-size:13px;color:#333;background:transparent}
+.clone-kks101 .kks-headbox .kks-search button{border:none;width:46px;background:#1f6cb2;color:#fff;cursor:pointer;font-size:13px}
+.clone-kks101 .kks-menu1{margin-left:auto;display:flex;flex-wrap:wrap}
+.clone-kks101 .kks-menu1 a{display:block;padding:6px 10px;color:#333;font-size:14px;text-decoration:none;white-space:nowrap}
+.clone-kks101 .kks-menu1 a:hover{color:#1f6cb2;text-decoration:none}
+
+/* 版心(真站 .container max 1112 → 卡列表 1000 口径) */
+.clone-kks101 .kks-main{min-height:72vh}
+.clone-kks101 .kks-container{max-width:1000px;margin:0 auto;padding:10px 12px 24px;box-sizing:border-box;overflow-x:hidden}
+
+/* 板块标题(mytitle: 16px + 底线) */
+.clone-kks101 .kks-mytitle{margin:14px 0 10px;border-bottom:1px solid rgba(150,150,150,.2);padding-bottom:5px;font-size:16px;font-weight:700;color:#333}
+.clone-kks101 .kks-mytitle small{font-size:12px;color:#818a91;font-weight:400;margin-left:6px}
+.clone-kks101 .kks-mytitle2{margin:23px 10px 10px}
+
+/* 域名提示条(.headerad: #fff2df 40px 行高条) */
+.clone-kks101 .kks-adbanner.kks-mybox{background:#fff2df;border:none;border-radius:0;height:40px;line-height:40px;padding:0;font-size:16px;color:#333;text-align:center}
+
+/* mybox 白卡 */
+.clone-kks101 .kks-mybox{background:#fff;border:1px solid #eee;border-radius:8px;padding:10px;margin-bottom:8px}
+
+/* 书卡(bookbox: 封面左 90×120 + info) */
+.clone-kks101 .kks-bookbox{padding:10px 2px;border-bottom:1px solid #f2f2f2}
+.clone-kks101 .kks-bookbox:last-child{border-bottom:0}
+.clone-kks101 .kks-bookimg{display:block;float:left;width:90px;position:relative}
+.clone-kks101 .kks-bookimg img{display:block;width:90px;height:120px;object-fit:cover;border-radius:5px;background:#e5e7e9}
+.clone-kks101 .kks-bookimg-lg img{width:110px;height:148px}
+.clone-kks101 .kks-bookinfo{margin-left:102px;min-width:0}
+.clone-kks101 .kks-bookinfo h1{font-size:19px;margin:0 0 6px;color:#333;line-height:1.4}
+.clone-kks101 .kks-bookinfo h3{font-size:15px;margin:0 0 4px;font-weight:600}
+.clone-kks101 .kks-bookinfo h3 a{color:#333}
+.clone-kks101 .kks-bookinfo h3 a:hover{color:#1f6cb2}
+.clone-kks101 .kks-author{font-size:12.5px;color:#818a91;margin:2px 0}
+.clone-kks101 .kks-intro{font-size:13px;color:#666;margin:4px 0;line-height:1.6;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.clone-kks101 .kks-meta{font-size:12px;color:#818a91;margin:4px 0 0}
+.clone-kks101 .kks-meta span{margin-right:10px}
+/* 榜单前三徽章(CSS 计数: 容器 .kks-ranked 内第 n 个 bookbox 封面角标) */
+.clone-kks101 .kks-ranked .kks-bookimg::after{position:absolute;left:-4px;top:-4px;width:20px;height:20px;border-radius:4px;color:#fff;font-size:12px;line-height:20px;text-align:center}
+.clone-kks101 .kks-ranked .kks-bookbox:nth-child(1) .kks-bookimg::after{content:"1";background:#ff5722}
+.clone-kks101 .kks-ranked .kks-bookbox:nth-child(2) .kks-bookimg::after{content:"2";background:#ff9800}
+.clone-kks101 .kks-ranked .kks-bookbox:nth-child(3) .kks-bookimg::after{content:"3";background:#ffc107}
+
+/* 书单卡(block_booklist: 紫渐变封面带 + 白衬封面 + meta 行) */
+.clone-kks101 .kks-booklist-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;margin-bottom:8px}
+.clone-kks101 .kks-booklist-card{background:#fff;border:1px solid rgba(0,0,0,.06);border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,.08);overflow:hidden;height:128px;transition:all .3s cubic-bezier(.4,0,.2,1)}
+.clone-kks101 .kks-booklist-card:hover{transform:translateY(-2px);box-shadow:0 6px 20px rgba(0,0,0,.12)}
+.clone-kks101 .kks-booklist-card-link{display:block;height:100%;color:inherit}
+.clone-kks101 .kks-booklist-card-content{display:flex;height:100%}
+.clone-kks101 .kks-cover-section{flex:0 0 120px;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%)}
+.clone-kks101 .kks-cover-stack{position:relative;width:90px;height:110px;display:flex;align-items:center;justify-content:center}
+.clone-kks101 .kks-cover-stack::before{content:'';position:absolute;top:8px;left:50%;z-index:2;width:44px;height:58px;background:rgba(255,255,255,.7);border-radius:2px;transform:rotate(-3deg)}
+.clone-kks101 .kks-cover-stack::after{content:'';position:absolute;top:14px;left:75%;z-index:1;width:38px;height:52px;background:rgba(255,255,255,.5);border-radius:2px;transform:rotate(5deg)}
+.clone-kks101 .kks-cover-main{position:relative;z-index:3;width:50px;height:70px;background:rgba(255,255,255,.9);border-radius:3px;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,.15);overflow:hidden}
+.clone-kks101 .kks-cover-main img{width:100%;height:100%;object-fit:cover;display:block}
+.clone-kks101 .kks-info-section{flex:1;min-width:0;padding:12px 16px;display:flex;flex-direction:column;justify-content:space-between}
+.clone-kks101 .kks-booklist-title{margin:0 0 8px;font-size:14px;font-weight:600;color:#2c3e50;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.clone-kks101 .kks-booklist-meta{display:flex;align-items:center;gap:12px;margin-bottom:8px;font-size:12px;color:#7f8c8d;flex-wrap:wrap}
+.clone-kks101 .kks-booklist-desc{font-size:11px;color:#7f8c8d;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;flex:1}
+.clone-kks101 .kks-booklist-desc p{margin:0}
+
+/* 标签云(.tag: 浅蓝底胶囊) */
+.clone-kks101 .kks-tag ul{list-style:none;margin:0;padding:0}
+.clone-kks101 .kks-tag ul li{display:inline-block}
+.clone-kks101 .kks-tag ul a{display:inline-block;background:rgb(232,244,255);border:1px solid #56a6c3;color:#1f6cb2;border-radius:10px;padding:0 .725rem;margin:.5rem;font-size:.8rem;line-height:1.8rem;text-align:center}
+
+/* 分类胶囊条(.droplist: 浅蓝底边框盒) */
+.clone-kks101 .kks-droplist{border:1px solid #56a6c3;background:rgb(232,244,255);border-radius:5px;padding:15px;margin-bottom:15px;text-align:center}
+.clone-kks101 .kks-cat-a{display:inline-block;color:#1f6cb2;font-size:14px;line-height:16px;padding:0 10px;border-right:1px solid #dfecf0;margin:0 0 6px}
+.clone-kks101 .kks-cat-a:last-child{border-right:0}
+.clone-kks101 .kks-cat-a.is-active{color:#404040;font-weight:700}
+
+/* 按钮/分页 */
+.clone-kks101 .kks-btn-primary{display:inline-block;border:none;border-radius:16px;background:#1f6cb2;color:#fff;padding:7px 20px;font-size:14px;cursor:pointer;margin-right:8px;text-decoration:none}
+.clone-kks101 .kks-btn-primary:hover{background:#185a97;color:#fff;text-decoration:none}
+.clone-kks101 .kks-btn-primary.is-disabled{opacity:.5;cursor:not-allowed}
+.clone-kks101 .kks-btn{display:inline-block;border:1px solid #ddd;border-radius:16px;background:#fff;color:#666;padding:7px 20px;font-size:14px;cursor:pointer;text-decoration:none}
+.clone-kks101 .kks-btn:hover{border-color:#1f6cb2;color:#1f6cb2;text-decoration:none}
+.clone-kks101 .kks-btn.is-disabled{opacity:.45;cursor:not-allowed}
+.clone-kks101 .kks-pager{text-align:center;padding:14px 0}
+.clone-kks101 .kks-pager span{margin:0 10px;color:#818a91;font-size:13px}
+
+/* 排行页 tabs(底线 tab 形态, SSR 三榜分节) */
+.clone-kks101 .kks-tabs{display:flex;border-bottom:1px solid #eee;margin-bottom:6px}
+.clone-kks101 .kks-tabs span{flex:1;text-align:center;padding:6px 4px 8px;font-size:16px;color:#333;border-bottom:2px solid transparent}
+.clone-kks101 .kks-tabs span.is-active{color:#1f6cb2;border-bottom-color:#1f6cb2;font-weight:700}
+
+/* 章节格(目录: 3 列 15px 行 + 底线; ≤990 单列) */
+.clone-kks101 .kks-chgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:2px 12px;background:#fff;border:1px solid #eee;border-radius:8px;padding:10px}
+.clone-kks101 .kks-chgrid a{font-size:13px;color:#333;padding:6px 8px;border-radius:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.clone-kks101 .kks-chgrid a:hover{background:#eaf2fb;color:#1f6cb2}
+.clone-kks101 .kks-toc .kks-catalog{grid-template-columns:repeat(3,1fr);gap:0}
+.clone-kks101 .kks-toc .kks-catalog a{display:block;font-size:16px;color:#222;padding:15px 0;border-bottom:1px solid rgba(150,150,150,.2);border-radius:0}
+.clone-kks101 .kks-toc .kks-catalog a:hover{background:none;color:#06c}
+
+/* 书页头部(180×240 硬阴影封面 + calc(100%-200px) 文本列) */
+.clone-kks101 .kks-bookhead{background:#fff;border-radius:3px;box-shadow:0 1px 3px rgba(0,0,0,.12),0 1px 2px rgba(0,0,0,.24);padding:16px;margin:16px 0 10px}
+.clone-kks101 .kks-bookhead .kks-bookimg{width:180px}
+.clone-kks101 .kks-bookhead .kks-bookimg img{width:180px;height:240px;border-radius:0;box-shadow:0 1px 3px rgba(0,0,0,.3)}
+.clone-kks101 .kks-bookhead .kks-bookimg-lg img{width:180px;height:240px}
+.clone-kks101 .kks-bookhead .kks-bookinfo{margin-left:0;float:left;width:calc(100% - 200px);padding-left:30px;box-sizing:border-box}
+.clone-kks101 .kks-bookhead .kks-bookinfo h1{font-size:24px;line-height:1.3;margin:0 0 10px}
+.clone-kks101 .kks-bookhead .kks-bookinfo p{font-size:15px;color:#757575;padding:5px 0;margin:0}
+.clone-kks101 .kks-bookhead .kks-btns{padding-top:10px}
+.clone-kks101 .kks-bookintro{font-size:13.5px;color:#666;line-height:1.9}
+.clone-kks101 .kks-bookintro p{margin:.5em 0}
+
+/* 阅读页(txtnav h1 20px / txtinfo 14px / 正文 p 缩进 5%) */
+.clone-kks101 .kks-text-set{background:#fff;border:1px solid #eee;border-radius:8px;padding:8px 12px;font-size:13px;color:#666;margin-bottom:10px}
+.clone-kks101 .kks-text-set b{font-weight:400;color:#818a91;margin:0 4px}
+.clone-kks101 .kks-text-set a{border:1px solid #ddd;border-radius:3px;padding:1px 8px;margin:0 2px;color:#666;display:inline-block}
+.clone-kks101 .kks-text-set a:hover{border-color:#1f6cb2;color:#1f6cb2;text-decoration:none}
+.clone-kks101 .kks-read-title{margin:14px 0 4px;font-size:20px;color:#333;text-align:center}
+.clone-kks101 .kks-read-info{text-align:center;font-size:14px;color:#818a91;padding-bottom:15px}
+.clone-kks101 .kks-readcontent{background:#fff;border:1px solid #eee;border-radius:8px;padding:14px;color:#333;min-height:320px}
+.clone-kks101 .kks-read-txt{font-size:17px;line-height:2}
+.clone-kks101 .kks-read-txt p{margin:0 0 1.1em;text-indent:5%}
+
+/* 阅读历史(site.js 注入 li 兼容) */
+.clone-kks101 .kks-history-hint{color:#818a91;font-size:13px;margin:0 0 8px}
+.clone-kks101 #ajx-history-list .ajx-line{display:flex;justify-content:space-between;padding:10px 2px;border-bottom:1px solid #f2f2f2;font-size:14px}
+.clone-kks101 #ajx-history-list .ajx-line a{color:#333}
+.clone-kks101 #ajx-history-list .ajx-line a:hover{color:#1f6cb2}
+.clone-kks101 #ajx-history-list .ajx-date{color:#818a91;font-size:12.5px}
+
+/* 404 */
+.clone-kks101 .kks-404-box{margin-top:40px;text-align:center;padding:32px 16px}
+.clone-kks101 .kks-404-code{font-size:56px;font-weight:800;color:#1f6cb2;line-height:1}
+.clone-kks101 .kks-404-box h1{font-size:18px;color:#333;margin:12px 0 6px}
+.clone-kks101 .kks-404-box p{color:#818a91;margin:0 0 10px}
+
+/* 页脚(源站 .foot: 白底居中链接行) */
+.clone-kks101 .kks-fsec{background:#fff;border-top:1px solid #eee;margin-top:16px;padding:20px 12px;text-align:center;font-size:13px;color:#818a91}
+.clone-kks101 .kks-foot-links a{display:inline-block;padding:0 10px;line-height:200%;color:#666;transition:color .3s ease}
+.clone-kks101 .kks-foot-links a:hover{color:#06c}
+.clone-kks101 .kks-fsec p{margin:8px 0;padding:0;color:#888;font-size:12px}
+.clone-kks101 .kks-foot-note{color:#999;font-size:12px}
+
+/* 回到顶部按钮(site.js 注入 #ajx-backtop) */
+.clone-kks101 #ajx-backtop{position:fixed;right:16px;bottom:80px;z-index:60;display:none;width:44px;height:44px;border:1px solid #ddd;border-radius:20px;background:#fff;color:#666;font-size:13px;cursor:pointer}
+.clone-kks101 #ajx-backtop.is-show{display:block}
+.clone-kks101 #ajx-backtop:hover{border-color:#1f6cb2;color:#1f6cb2}
+
+/* ================= 移动端(375px 无横向滚动) ================= */
+@media (max-width: 860px){
+  .clone-kks101 .kks-menu1{display:none}
+  .clone-kks101 .kks-toc .kks-catalog{grid-template-columns:1fr 1fr}
+  .clone-kks101 .kks-mytitle2{margin:10px 0}
+  .clone-kks101 .kks-adbanner.kks-mybox{height:30px;line-height:30px;font-size:13px}
+  .clone-kks101 .kks-bookhead .kks-bookimg{width:130px}
+  .clone-kks101 .kks-bookhead .kks-bookimg img,
+  .clone-kks101 .kks-bookhead .kks-bookimg-lg img{width:130px;height:180px}
+  .clone-kks101 .kks-bookhead .kks-bookinfo{width:calc(100% - 150px);padding-left:12px}
+}
+@media (max-width: 600px){
+  .clone-kks101 .kks-toc .kks-catalog{grid-template-columns:1fr}
+  .clone-kks101 .kks-bookhead .kks-bookimg{width:100px}
+  .clone-kks101 .kks-bookhead .kks-bookimg img,
+  .clone-kks101 .kks-bookhead .kks-bookimg-lg img{width:100px;height:140px}
+  .clone-kks101 .kks-bookhead .kks-bookinfo{width:calc(100% - 112px);padding-left:10px}
+  .clone-kks101 .kks-bookinfo h1{font-size:18px}
+  .clone-kks101 .kks-btn-primary,.clone-kks101 .kks-btn{padding:6px 14px}
+}

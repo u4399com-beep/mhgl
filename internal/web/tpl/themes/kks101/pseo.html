@@ -1,0 +1,17 @@
+{{define "content"}}
+<div class="kks-pseo">
+  <div class="kks-adbanner kks-mybox">{{.Heading}}</div>
+  <div class="kks-mybox kks-bookintro">
+    {{if .Row.description}}{{.Row.description}}{{else}}{{.Row.keyword}} — {{.SiteName}}聚合相關小說資源, 提供全文免費在線閱讀。{{end}}
+    {{with .Primary}}<p>主打作品《{{.name}}》由 {{.author}} 創作, 全文約 {{fmtWords .wordCount}} 字。{{if .intro}}簡介：{{excerpt .intro 150}}{{end}}</p>{{end}}
+  </div>
+  <h3 class="kks-mytitle">相關書籍推薦（{{len .Books}}）</h3>
+  <div class="kks-mybox">
+    {{range .BookViews}}{{template "kks-bookbox" (withSite $.SiteID .Book)}}{{else}}<div class="kks-empty">暫無相關書籍數據</div>{{end}}
+  </div>
+  <p class="kks-center">
+    <a class="kks-btn" href="{{.HomeHref}}">網站首頁</a>
+    <a class="kks-btn" href="{{.SearchHref}}">書庫搜索</a>
+  </p>
+</div>
+{{end}}

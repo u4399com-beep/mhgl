@@ -59,7 +59,7 @@ func (b *Bridge) Chapters(_ context.Context, p callback.ChaptersPayload) (callba
 
 	// 多段目录: seq>1 视为顺序增量追加(Go 按序切片, 不重排/不重编号)
 	if p.Seq > 1 {
-		need, err := b.appendChapterSlice(bookID, p.Items, existChapters, isFull)
+		need, err := b.appendChapterSlice(bookID, p.Items, existChapters, isFull, task.StorageMode)
 		if err != nil {
 			return callback.ChaptersDecision{}, err
 		}
@@ -206,7 +206,9 @@ func (b *Bridge) Chapters(_ context.Context, p callback.ChaptersPayload) (callba
 
 // appendChapterSlice 多段目录追加(seq≥2): 按 Go 给定顺序尾插建缺章, 不重排既有章
 // (顺序切片的前提是 Go 已按序切分); [R52-5 P3] 同片内重复 URL 只建/决策一次。
-func (b *Bridge) appendChapterSlice(bookID string, items []callback.TocItemPayload, existChapters []store.CrawlExistChapter, isFull bool) ([]string, error) {
+// [R57-2a 清理] storageMode 改由任务行传入(原硬编码 "db": 现行引擎 fail-closed 恒 db
+// 行为等价, 但与 seq=1 全量路径的 task.StorageMode 口径不一致, 属埋伏式分歧点)
+func (b *Bridge) appendChapterSlice(bookID string, items []callback.TocItemPayload, existChapters []store.CrawlExistChapter, isFull bool, storageMode string) ([]string, error) {
 	existURLMap := map[string]store.CrawlExistChapter{}
 	for _, c := range existChapters {
 		if c.URL != "" {
@@ -251,7 +253,7 @@ func (b *Bridge) appendChapterSlice(bookID string, items []callback.TocItemPaylo
 		if title == "" {
 			title = "未命名章节"
 		}
-		if err := b.db.CrawlCreateChapter(bookID, tailIdx, title, volume, url, "db", nil, 0); err != nil {
+		if err := b.db.CrawlCreateChapter(bookID, tailIdx, title, volume, url, storageMode, nil, 0); err != nil {
 			b.taskLog("error", fmt.Sprintf("章节记录创建失败(多段) %s: %s", asStr(title, 60), asStr(err.Error(), 120)))
 			continue
 		}

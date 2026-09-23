@@ -1,0 +1,16 @@
+{{define "content"}}
+<div class="kks-cat">
+  <h3 class="kks-mytitle">{{.CatName}}<small>（共 {{.Pager.Total}} 本）</small></h3>
+  <div class="kks-mybox">
+    {{range .Books}}{{template "kks-bookbox" (withSite $.SiteID .)}}{{else}}<div class="kks-empty">暫無相關書籍</div>{{end}}
+  </div>
+  {{template "kks-pager" .}}
+  {{if .Cats}}
+  <h3 class="kks-mytitle kks-mytitle2">全部分類</h3>
+  <div class="kks-droplist">
+    {{range .Cats}}<a class="kks-cat-a{{if eqStr (str .id) (str $.Cat)}} is-active{{end}}" href="{{catIDHref (str .id) $.SiteID}}">{{.name}}</a>{{end}}
+    <a class="kks-cat-a" href="{{.FulltextHref}}">全部小說</a>
+  </div>
+  {{end}}
+</div>
+{{end}}

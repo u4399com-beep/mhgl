@@ -1,0 +1,70 @@
+{{define "x2-booktable"}}{{/* 黑冰六列书目表(分类/搜索/全本/榜单共用; withSite 携带 SiteID+Rows) */}}
+<div class="x2-tbl-wrap">
+<table class="x2-tbl" cellpadding="0" cellspacing="0">
+  <thead><tr>
+    <th class="w18">书 名</th><th class="w46">最新章节</th><th class="w13">作者</th>
+    <th class="w8">大小</th><th class="w9">更新</th><th class="w6">状态</th>
+  </tr></thead>
+  <tbody>
+  {{range .Rows}}
+    <tr>
+      <td class="L"><a class="x2-a x2-ellip" href="{{bookHref (str .id) (num .num) $.SiteID}}" title="{{.name}}">{{.name}}</a></td>
+      <td class="L"><span class="x2-ellip" title="{{.latestChapter}}">{{or .latestChapter "--"}}</span></td>
+      <td class="C"><span class="x2-ellip">{{.author}}</span></td>
+      <td class="R">{{sizeK .wordCount}}</td>
+      <td class="C">{{dateYY .updatedAt}}</td>
+      <td class="C">{{if eqStr (str .status) "completed"}}已完成{{else}}连载中{{end}}</td>
+    </tr>
+  {{else}}
+    <tr><td colspan="6" class="x2-tbl-empty">暂无书籍</td></tr>
+  {{end}}
+  </tbody>
+</table>
+</div>
+{{end}}
+
+{{define "x2-leftrail"}}{{/* 左栏 会员推荐 + 12 榜(真站 /top/* 入口 → 站内排行榜视图, 榜名固定文案; 以根数据调用) */}}
+<div class="x2-block">
+  <div class="x2-blocktitle"><i class="x2-bt-ico"></i>会员推荐</div>
+  <ul class="x2-ultop">
+    {{range .SideRank}}
+    <li><a class="x2-a" href="{{bookHref (str .id) (num .num) $.SiteID}}" title="{{.name}}">{{.name}}</a><p>{{shortWords .wordCount}}</p></li>
+    {{else}}
+    <li class="x2-ultop-empty">暂无数据</li>
+    {{end}}
+  </ul>
+  <div class="x2-more"><a class="x2-a" href="{{$.RankingHref}}">更多...</a></div>
+</div>
+<div class="x2-block">
+  <div class="x2-blocktitle"><i class="x2-bt-ico"></i>排 行 榜</div>
+  <ul class="x2-ulcenter">
+    <li><a class="x2-a" href="{{$.RankingHref}}">总点击榜</a></li>
+    <li><a class="x2-a" href="{{$.RankingHref}}">总推荐榜</a></li>
+    <li><a class="x2-a" href="{{$.RankingHref}}">月点击榜</a></li>
+    <li><a class="x2-a" href="{{$.RankingHref}}">月推荐榜</a></li>
+    <li><a class="x2-a" href="{{$.RankingHref}}">周点击榜</a></li>
+    <li><a class="x2-a" href="{{$.RankingHref}}">周推荐榜</a></li>
+    <li><a class="x2-a" href="{{$.RankingHref}}">入库时间</a></li>
+    <li><a class="x2-a" href="{{$.RankingHref}}">更新时间</a></li>
+    <li><a class="x2-a" href="{{$.RankingHref}}">原创更新</a></li>
+    <li><a class="x2-a" href="{{$.RankingHref}}">转载更新</a></li>
+    <li><a class="x2-a" href="{{$.RankingHref}}">总收藏榜</a></li>
+    <li><a class="x2-a" href="{{$.RankingHref}}">字数排行</a></li>
+  </ul>
+  <div class="x2-clear"></div>
+</div>
+{{end}}
+
+{{define "x2-pagelink"}}{{/* 黑冰 .pagelink 分页条(em 页况 + << >> 灰钮; SSR 契约仅上/下页; 以根数据调用) */}}
+{{with .Pager}}
+{{if or .PrevURL .NextURL}}
+<div class="x2-pagewrap">
+  <div class="x2-pagelink">
+    <em>{{.Page}}/{{.TotalPages}}</em>
+    {{if .PrevURL}}<a class="x2-a pg" href="{{.PrevURL}}" rel="prev">&lt;&lt; 上一页</a>{{end}}
+    {{if .NextURL}}<a class="x2-a pg" href="{{.NextURL}}" rel="next">下一页 &gt;&gt;</a>{{end}}
+  </div>
+</div>
+{{end}}
+{{end}}
+{{end}}

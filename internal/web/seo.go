@@ -477,12 +477,13 @@ func fmtHexByte(c byte) string {
 }
 
 // safeHref 友链/外链白名单出口(对齐 safe-href.ts: 仅 http(s) 与站内 / # 放行, 其余 '#')。
+// 反斜杠口子(浏览器把 href 中 "\" 等价 "/"): "/\" 或 "\\" 开头即协议相对指向任意外域, 拦截。
 func safeHref(u string) string {
 	s := strings.TrimSpace(u)
 	if s == "" {
 		return "#"
 	}
-	if strings.HasPrefix(s, "//") {
+	if strings.HasPrefix(s, "//") || strings.HasPrefix(s, "/\\") || strings.HasPrefix(s, "\\/") || strings.HasPrefix(s, "\\") {
 		return "#"
 	}
 	if strings.HasPrefix(s, "/") || strings.HasPrefix(s, "#") {

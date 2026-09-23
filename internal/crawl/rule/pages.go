@@ -280,6 +280,11 @@ type scopePair struct {
 // fetcher=翻页传输回调(任务编排层注入过闸版); 返回 items 与实际使用页数
 func ParseToc(ctx context.Context, firstURL, htmlStr string, pageRule *PageRule, fetcher PageFetch, onProgress func(page, found int)) ([]TocItem, int) {
 	var all []TocItem
+	// [R57-2a] nil 规则防御: 现有调用方恒传 &cfg.Toc, 但 JSON 分支本就显式判 nil
+	// (设计上允许 nil), HTML 分支却会空指针 panic —— 补齐同口径守卫(空规则=空结果)
+	if pageRule == nil {
+		return all, 1
+	}
 
 	// ---- JSON 目录模式: 数组项可为对象(字段按路径取)或纯字符串(title 用 '.' 取根本身) ----
 	if pageRule != nil && pageRule.ItemSelector != nil && pageRule.ItemSelector.Type == "json" {

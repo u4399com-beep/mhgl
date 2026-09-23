@@ -1,0 +1,39 @@
+{{define "content"}}
+<div class="kks-read" data-page="read" data-book-id="{{.Book.id}}" data-chapter-id="{{.Chapter.id}}" data-chapter-title="{{.Chapter.title}}">
+  <div class="kks-text-set" role="group" aria-label="閱讀設置">
+    <b>字號：</b>
+    <a class="ajx-s" href="javascript:void(0)" data-fs="15">15px</a>
+    <a class="ajx-s" href="javascript:void(0)" data-fs="17">17px</a>
+    <a class="ajx-s" href="javascript:void(0)" data-fs="19">19px</a>
+    <a class="ajx-s" href="javascript:void(0)" data-fs="21">21px</a>
+    <a class="ajx-s" href="javascript:void(0)" data-fs="23">23px</a>
+    <b>背景：</b>
+    <span role="group" aria-label="背景色">
+      <a class="ajx-c" href="javascript:void(0)" data-bg="#ffffff" aria-label="背景 白">白</a>
+      <a class="ajx-c" href="javascript:void(0)" data-bg="#eaf2fb" aria-label="背景 蓝">藍</a>
+      <a class="ajx-c" href="javascript:void(0)" data-bg="#e6efe6" aria-label="背景 绿">綠</a>
+      <a class="ajx-c" href="javascript:void(0)" data-bg="#f5e9d8" aria-label="背景 黄">黃</a>
+    </span>
+    <b>字色：</b>
+    <span class="ajx-ys" role="group" aria-label="字体颜色">
+      <a href="javascript:void(0)" data-ink="#333333">黑</a>
+      <a href="javascript:void(0)" data-ink="#1f6cb2">藍</a>
+      <a href="javascript:void(0)" data-ink="#757575">灰</a>
+    </span>
+  </div>
+  <h1 class="kks-read-title">{{.Chapter.title}}</h1>
+  <div class="kks-read-info">{{.Book.name}} · {{.Book.author}}</div>
+  <div class="kks-readcontent">
+    {{if .Chapter.content}}
+    <div id="view_content_txt" class="kks-read-txt">{{readHTML (str .Chapter.content)}}</div>
+    {{else}}
+    <div id="view_content_txt" class="kks-read-txt"><div class="kks-empty">本章內容尚未採集, 請稍後再來或返回目錄閱讀其他章節。</div></div>
+    {{end}}
+  </div>
+  <div class="kks-pager">
+    {{if .PrevHref}}<a class="kks-btn-primary" id="ajx-prev" href="{{.PrevHref}}" rel="prev">上一章</a>{{else}}<span class="kks-btn-primary is-disabled" id="ajx-prev" aria-disabled="true">上一章</span>{{end}}
+    <a class="kks-btn" href="{{.BookHref}}">書頁</a>
+    {{if .NextHref}}<a class="kks-btn-primary" id="ajx-next" href="{{.NextHref}}" rel="next">下一章</a>{{else}}<span class="kks-btn-primary is-disabled" id="ajx-next" aria-disabled="true">下一章</span>{{end}}
+  </div>
+</div>
+{{end}}

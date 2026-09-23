@@ -1,0 +1,53 @@
+{{define "layout.html"}}<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>{{.Head.Title}}</title>
+{{if .Head.Description}}<meta name="description" content="{{.Head.Description}}">{{end}}
+{{if .Head.Keywords}}<meta name="keywords" content="{{.Head.Keywords}}">{{end}}
+{{if .Head.Canonical}}<link rel="canonical" href="{{.Head.Canonical}}">{{end}}
+<meta property="og:type" content="{{.Head.OgType}}">
+<meta property="og:title" content="{{.Head.Title}}">
+{{if .Head.Description}}<meta property="og:description" content="{{.Head.Description}}">{{end}}
+{{if .Head.Canonical}}<meta property="og:url" content="{{.Head.Canonical}}">{{end}}
+<meta name="theme-color" content="#1f6cb2">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" type="image/png" href="/static/icons/icon-192.png">
+<link rel="stylesheet" href="/static/css/kks101.css?v=r57-2c">
+</head>
+<body class="clone-kks101">
+<header class="kks-header">
+  <div class="kks-headbox">
+    <a class="kks-logo" href="{{.HomeHref}}">{{siteTitle .Site}}</a>
+    <form class="kks-search" action="/" method="get" role="search">
+      {{if .SiteID}}<input type="hidden" name="site" value="{{.SiteID}}">{{end}}
+      <input type="hidden" name="view" value="search">
+      <input type="search" name="q" aria-label="搜索" placeholder="搜書名 / 作者" value="{{.Q}}">
+      <button type="submit" aria-label="搜索">搜</button>
+    </form>
+    <nav class="kks-menu1" aria-label="站點導航">
+      <a href="{{.HomeHref}}">首頁</a>
+      <a href="{{.RankingHref}}">排行</a>
+      <a href="{{.FulltextHref}}">完本</a>
+      {{range firstN 4 .NavCats}}<a href="{{catHref . $.SiteID}}">{{.}}</a>{{end}}
+      <a href="{{.HistoryHref}}">書架</a>
+    </nav>
+  </div>
+</header>
+<main class="kks-main"><div class="kks-container">{{block "content" .}}<div class="kks-empty">載入中…</div>{{end}}</div></main>
+<footer class="kks-fsec">
+  <div class="kks-foot-links">
+    <a href="{{.RankingHref}}">排行榜</a>
+    <a href="{{.HomeHref}}">最新更新</a>
+    <a href="{{.FulltextHref}}">完本小說</a>
+    <a href="{{.KeywordHref}}">熱門標籤</a>
+    {{if .Links}}{{range $i, $l := .Links}}<a href="{{safeHref $l.url}}" rel="noopener" target="_blank">{{$l.name}}</a>{{end}}{{end}}
+  </div>
+  <p>Copyright 2023 · Powered by © {{siteTitle .Site}}</p>
+  <div class="kks-foot-note">本站所有小說均由網友上傳, 如有侵權請聯繫刪除</div>
+</footer>
+<script src="/static/js/site.js?v=r57-2c" defer></script>
+<script src="/static/js/pwa.js?v=r57-2c" defer></script>
+</body>
+</html>{{end}}

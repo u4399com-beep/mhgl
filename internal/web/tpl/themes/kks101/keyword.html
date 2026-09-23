@@ -1,0 +1,33 @@
+{{define "content"}}
+<div class="kks-keyword">
+  <h3 class="kks-mytitle">關鍵詞專題：{{if .Tag}}{{.Tag}}{{else}}缺少關鍵詞參數{{end}}</h3>
+  {{with .Primary}}
+  <div class="kks-bookhead">
+    <a class="kks-bookimg kks-bookimg-lg" href="{{$.PrimaryBookHref}}" aria-label="{{.name}}">
+      {{if .cover}}<img src="{{coverURL (str .cover)}}" alt="{{.name}} 封面" onerror="this.remove()">{{end}}
+    </a>
+    <div class="kks-bookinfo">
+      <h1>{{.name}}</h1>
+      <p class="kks-author">作者：{{.author}} · {{statusLabel (str .status)}} · {{fmtWords .wordCount}}</p>
+      <p class="kks-meta"><span>{{or .category "小說"}}</span><span>更新：{{dateDay .updatedAt}}</span></p>
+      <div class="kks-btns">
+        <a class="kks-btn-primary" href="{{$.PrimaryBookHref}}">查看書籍詳情</a>
+        <a class="kks-btn" href="{{tocHref (str .id) (num .num) $.SiteID}}">章節目錄</a>
+      </div>
+    </div>
+    <div class="kks-clear"></div>
+  </div>
+  <div class="kks-mybox kks-bookintro">{{if .intro}}{{excerpt .intro 120}}{{else}}暫無簡介{{end}}</div>
+  {{end}}
+  {{if .Others}}
+  <h3 class="kks-mytitle kks-mytitle2">其他相關書籍</h3>
+  <div class="kks-mybox">
+    {{range .Others}}{{template "kks-bookbox" (withSite $.SiteID .)}}{{end}}
+  </div>
+  {{end}}
+  {{if .Related}}
+  <h3 class="kks-mytitle kks-mytitle2">相關關鍵詞</h3>
+  {{template "kks-tagcloud" (withSite $.SiteID .Related)}}
+  {{end}}
+</div>
+{{end}}

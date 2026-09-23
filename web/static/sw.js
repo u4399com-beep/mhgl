@@ -8,7 +8,7 @@
    ============================================================ */
 (function () {
   'use strict';
-  var CACHE = 'mhgl-pwa-v1';
+  var CACHE = 'mhgl-pwa-v2';
   var PRECACHE = [
     '/offline.html',
     '/manifest.webmanifest',
@@ -17,6 +17,8 @@
     '/static/css/site.css',
     '/static/css/pili.css',
     '/static/css/shipsay.css',
+    '/static/css/x2552.css',
+    '/static/css/kks101.css',
     '/static/js/site.js'
   ];
 

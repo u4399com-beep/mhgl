@@ -101,13 +101,18 @@ func themeOf(site map[string]any) string {
 }
 
 // loadThemeTpls 解析一个主题的模板集(layout 为根, 每页一个克隆)。
+// 可选 partials.html(主题内共享片段, 如列表行/分页件; 旧主题无此文件零影响)。
 func loadThemeTpls(theme string) map[string]*template.Template {
 	root := "tpl/themes/" + theme
 	set := map[string]*template.Template{}
 	layout := path.Join(root, "layout.html")
+	files := []string{layout}
+	if _, err := fs.Stat(tplFS, path.Join(root, "partials.html")); err == nil {
+		files = append(files, path.Join(root, "partials.html"))
+	}
 	for _, name := range publicPages {
-		files := []string{layout, path.Join(root, name+".html")}
-		t, err := template.New("layout.html").Funcs(tplFuncs).ParseFS(tplFS, files...)
+		pageFiles := append(append([]string{}, files...), path.Join(root, name+".html"))
+		t, err := template.New("layout.html").Funcs(tplFuncs).ParseFS(tplFS, pageFiles...)
 		if err != nil {
 			log.Printf("[web] parse theme %s template %s: %v", theme, name, err)
 			return nil // 主题集不完整 → 上层回落缺省主题
@@ -287,6 +292,41 @@ var tplFuncs = template.FuncMap{
 	},
 	"readHTML":  func(s string) template.HTML { return template.HTML(sanitizeChapterHTML(contentToParagraphs(s))) },
 	"siteTitle": siteTitle,
+	// dateYY x2552(黑冰模板)列表更新列形态 YY-MM-DD(fmtDateMS 前 10 位去年段; 空值 "--")。
+	"dateYY": func(v any) string {
+		d := fmtDateMS(num64(v))
+		if len(d) >= 10 {
+			return d[2:]
+		}
+		return "--"
+	},
+	// shortWords 万位取整短格式(x2552 右栏计数/书页全文长度; 对齐 TS shortWords)。
+	"shortWords": func(v any) string {
+		n := num64(v)
+		if n < 10000 {
+			return itoa64local(n)
+		}
+		return itoa64local((n+5000)/10000) + "万"
+	},
+	// sizeK 黑冰模板大小列 K 值(wordCount/512, 对齐 TS sizeK 推断口径)。
+	"sizeK": func(v any) string {
+		n := num64(v)
+		if n <= 0 {
+			return "0K"
+		}
+		kb := (n + 511) / 512
+		if kb < 1 {
+			kb = 1
+		}
+		return itoa64local(kb) + "K"
+	},
+	// qesc 查询串值转义(TXT 下载等站内 API 链接拼参数用)。
+	"qesc": queryEscapeLocal,
+	// withSite 组装 partial 调用上下文({{template "p" (withSite $.SiteID .Rows)}}):
+	// template 调用会重绑 $, 子模板内 $ = 传入参数而非 Execute 根数据, 故 SiteID 需显式携带。
+	"withSite": func(sid string, rows any) map[string]any {
+		return map[string]any{"SiteID": sid, "Rows": rows}
+	},
 	"catHref": func(catName, sid string) string {
 		return viewHref("category", sid, map[string]string{"cat": "cat:" + catName})
 	},
@@ -294,11 +334,12 @@ var tplFuncs = template.FuncMap{
 	"viewHrefSearch":      func(q, sid string) string { return viewHref("search", sid, map[string]string{"q": q}) },
 	"viewHrefKeyword":     func(tag, sid string) string { return viewHref("keyword", sid, map[string]string{"tag": tag}) },
 	"viewHrefCategoryAll": func(sid string) string { return viewHref("category", sid, nil) },
-	"firstN": func(n int, in []map[string]any) []map[string]any {
-		if n <= 0 || len(in) <= n {
-			return in
+	"firstN": func(n int, in any) []map[string]any {
+		list, ok := in.([]map[string]any)
+		if !ok || n <= 0 || len(list) <= n {
+			return list
 		}
-		return in[:n]
+		return list[:n]
 	},
 }
 

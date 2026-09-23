@@ -1,0 +1,64 @@
+{{define "layout.html"}}<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>{{.Head.Title}}</title>
+{{if .Head.Description}}<meta name="description" content="{{.Head.Description}}">{{end}}
+{{if .Head.Keywords}}<meta name="keywords" content="{{.Head.Keywords}}">{{end}}
+{{if .Head.Canonical}}<link rel="canonical" href="{{.Head.Canonical}}">{{end}}
+<meta property="og:type" content="{{.Head.OgType}}">
+<meta property="og:title" content="{{.Head.Title}}">
+{{if .Head.Description}}<meta property="og:description" content="{{.Head.Description}}">{{end}}
+{{if .Head.Canonical}}<meta property="og:url" content="{{.Head.Canonical}}">{{end}}
+<meta name="theme-color" content="#2f468f">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" type="image/png" href="/static/icons/icon-192.png">
+<link rel="stylesheet" href="/static/css/x2552.css?v=r57-2c">
+</head>
+<body class="clone-x2552">
+<div class="x2-head-wr">
+  <div class="x2-m-head">
+    <a class="x2-logo" href="{{.HomeHref}}">{{siteTitle .Site}}</a>
+    <div class="x2-m-head-r">
+      <div class="x2-slogan-row">
+        <span class="x2-slogan">{{siteTitle .Site}}：没有弹窗广告, 好看的小说免费阅读</span>
+        <span class="x2-deco" aria-hidden="true">简体版<i>|</i>繁體版<i>|</i>设为首页<i>|</i>联系我们<i>|</i>加入收藏</span>
+      </div>
+      <div class="x2-search-row">
+        <form class="x2-searchbox" action="/" method="get" role="search">
+          {{if .SiteID}}<input type="hidden" name="site" value="{{.SiteID}}">{{end}}
+          <input type="hidden" name="view" value="search">
+          <input type="search" name="q" aria-label="站内搜索" placeholder="搜书名 / 作者" value="{{.Q}}">
+          <button type="submit">搜书</button>
+        </form>
+        <span class="x2-welcome">欢迎您, [<a class="x2-a" href="{{.HistoryHref}}">书架</a>]</span>
+      </div>
+    </div>
+  </div>
+  <div class="x2-m-menu-wr">
+    <nav class="x2-m-menu" aria-label="分类导航">
+      <a href="{{.HomeHref}}">首页</a>
+      {{range $cat := .NavCats}}<a href="{{catHref $cat $.SiteID}}">{{$cat}}</a>{{end}}
+      <a href="{{.FulltextHref}}">全本</a>
+      <a href="{{.RankingHref}}">排行</a>
+    </nav>
+    <a class="x2-shelf" href="{{.HistoryHref}}">我的书架</a>
+  </div>
+  <div class="x2-announce-wr">
+    <div class="x2-announce">
+      1、{{siteTitle .Site}}全站广告 Less, 欢迎长期前来阅读。<br>
+      2、感谢书友支持：{{siteTitle .Site}} 无敌的小说阅读站
+    </div>
+  </div>
+</div>
+<main class="x2-main">{{block "content" .}}<div class="x2-empty">加载中…</div>{{end}}</main>
+<footer class="x2-footer">
+  <p>本站所有小说为转载作品, 所有章节均由网友上传, 转载至本站只是为了宣传本书让更多读者欣赏。</p>
+  {{if .Links}}<p class="x2-ft-links">友情链接：{{range $i, $l := .Links}}{{if $i}} · {{end}}<a href="{{safeHref $l.url}}" rel="noopener" target="_blank">{{$l.name}}</a>{{end}}</p>{{end}}
+  <p>Copyright © 2023 {{siteTitle .Site}} All Rights Reserved.</p>
+</footer>
+<script src="/static/js/site.js?v=r57-2c" defer></script>
+<script src="/static/js/pwa.js?v=r57-2c" defer></script>
+</body>
+</html>{{end}}

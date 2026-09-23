@@ -63,6 +63,17 @@ const (
 	proxyFailMax  = 10 * time.Minute
 )
 
+// proxyFeedbackFailAfter 代理结果回写钩子的连败阈值(连败达此值 → ProxyFeedback(addr,false),
+// 装配方据以把 DB 池条目 alive=0; 与 store 侧 healthScore 记账独立, fetch 只报事实)
+const proxyFeedbackFailAfter = 3
+
+// ProxyAddrSource 动态代理源接口(R57-2a DB 代理池接线缝): fetch 包不 import store,
+// engine/bridge 装配点传入 *store.DB(实现 AliveProxyAddrs)即完成注入。
+// 返回 "protocol://host:port" 健康分降序; 空切片=池空(消费方不得据此清空现有池)
+type ProxyAddrSource interface {
+	AliveProxyAddrs(limit int) ([]string, error)
+}
+
 // UA 池(对齐 TS uaPool 摘要: Chrome 137~142/Edge/Safari17-18/Firefox126-130/移动端,
 // 完整列表以 TS 侧为准; Go 侧维护同版本段等效池; 含移动端条目 → uaMode=mobile/desktop
 // 可按子集筛选, capability 不再报 unsupported)
@@ -323,6 +334,11 @@ var ErrBlocked = errors.New("内容疑似拦截页/挑战壳(等价 HTTP 403 计
 type Client struct {
 	cfg rule.FetchConfig
 
+	// ProxyFeedback 代理结果回写钩子(可选, R57-2a): 经该代理的请求成功 → (addr,true);
+	// 连败达 proxyFeedbackFailAfter → (addr,false)。异步消费由装配方承担(本侧仅轻判
+	// 阈值不阻塞热路径); set-once 语义: 必须在首个请求前设置(无锁读取)
+	ProxyFeedback func(addr string, ok bool)
+
 	jar     *cookiejar.Jar // 直连+代理双路径接线(契约 §4 autoCookie 恒开)
 	hc      *http.Client   // 无代理共享传输(连接池+拨号级 SSRF 复检)
 	hcLocal *http.Client   // loopback 豁免通道(token 预取/contentProxy 内部直连; 拨号级复检放行回环)
@@ -414,25 +430,79 @@ func New(cfg rule.FetchConfig) *Client {
 	// socks5h 归一为 socks5; 非法条目跳过)
 	if cfg.ProxyURL != "" {
 		for _, raw := range strings.Split(cfg.ProxyURL, ",") {
-			raw = strings.TrimSpace(raw)
-			if raw == "" {
-				continue
-			}
-			if !strings.Contains(raw, "://") {
-				raw = "http://" + raw
-			}
-			if pu, err := url.Parse(raw); err == nil {
-				switch pu.Scheme {
-				case "http", "https", "socks5":
-					c.proxies = append(c.proxies, pu)
-				case "socks5h":
-					pu.Scheme = "socks5"
-					c.proxies = append(c.proxies, pu)
-				}
+			if pu, ok := parseProxyAddr(raw); ok {
+				c.proxies = append(c.proxies, pu)
 			}
 		}
 	}
 	return c
+}
+
+// parseProxyAddr 代理地址串 → 代理 URL(缺省 http 前缀; socks5h 归一 socks5;
+// 非法/不支持协议返回 false)。New(静态池)与 SetDynamicProxies(动态池)共用单一实现
+func parseProxyAddr(raw string) (*url.URL, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, false
+	}
+	if !strings.Contains(raw, "://") {
+		raw = "http://" + raw
+	}
+	pu, err := url.Parse(raw)
+	if err != nil {
+		return nil, false
+	}
+	switch pu.Scheme {
+	case "http", "https", "socks5":
+		return pu, true
+	case "socks5h":
+		pu.Scheme = "socks5"
+		return pu, true
+	}
+	return nil, false
+}
+
+// SetDynamicProxies 合并注入动态代理地址(R57-2a DB 代理池接线): 与既有池
+// (静态 cfg.ProxyURL + 历次注入)合并去重, 只增不减 —— 空结果/全部非法不清空现有池
+// (防抖: DB 侧短暂全死/查询抖动不应导致采集裸奔直连); 已有 per-proxy 冷却/连败
+// 状态按地址键自然保留。返回实际新增条数
+func (c *Client) SetDynamicProxies(addrs []string) int {
+	if len(addrs) == 0 {
+		return 0
+	}
+	add := make([]*url.URL, 0, len(addrs))
+	for _, raw := range addrs {
+		if pu, ok := parseProxyAddr(raw); ok {
+			add = append(add, pu)
+		}
+	}
+	if len(add) == 0 {
+		return 0
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	have := make(map[string]struct{}, len(c.proxies)+len(add))
+	for _, p := range c.proxies {
+		have[p.String()] = struct{}{}
+	}
+	added := 0
+	for _, p := range add {
+		key := p.String()
+		if _, dup := have[key]; dup {
+			continue
+		}
+		have[key] = struct{}{}
+		c.proxies = append(c.proxies, p)
+		added++
+	}
+	return added
+}
+
+// ProxyCount 当前代理池条数(静态+动态合并后; 可观测/测试用)
+func (c *Client) ProxyCount() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.proxies)
 }
 
 // SetHostGap 注入 per-host 准入节奏(对已有闸门不追溯, 仅作用于其后新建闸门)
@@ -591,7 +661,6 @@ func (c *Client) markProxyFailed(pu *url.URL) {
 	}
 	key := pu.String()
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	c.proxyFailCount[key]++
 	n := c.proxyFailCount[key]
 	d := proxyFailBase << uint(n-1)
@@ -599,6 +668,12 @@ func (c *Client) markProxyFailed(pu *url.URL) {
 		d = proxyFailMax
 	}
 	c.proxyFailedUntil[key] = time.Now().Add(d)
+	c.mu.Unlock()
+	// [R57-2a] 连败达阈值 → 回写钩子(装配方异步落库 alive=0; 钩子自身必须非阻塞,
+	// 故意在锁外分发)
+	if n >= proxyFeedbackFailAfter && c.ProxyFeedback != nil {
+		c.ProxyFeedback(key, false)
+	}
 }
 
 // markProxySuccess 代理成功: 清零连败与冷却
@@ -611,6 +686,10 @@ func (c *Client) markProxySuccess(pu *url.URL) {
 	delete(c.proxyFailCount, key)
 	delete(c.proxyFailedUntil, key)
 	c.mu.Unlock()
+	// [R57-2a] 成功 → 回写钩子(装配方异步刷 lastUsedAt; 锁外分发)
+	if c.ProxyFeedback != nil {
+		c.ProxyFeedback(key, true)
+	}
 }
 
 // transportFor 代理传输复用(池内每代理一个 Transport)

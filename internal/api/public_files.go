@@ -2,6 +2,9 @@
 // R55-3b — /api/public/* 文件与写入面: cover / download / feedback / sitemap
 //
 // cover: ?file= 读 web/covers/(沙箱化防路径穿越; 缺失 404 不 500)
+// [R57-2b-fix] 修后缀白名单仍锁 TS 时代 .webp —— R55 桥改存原格式后全库封面是
+// .jpg, web 层 coverURL 把本地封面全引到本端点 → 全站封面 400(浏览器 onerror
+// 回落占位图)。白名单扩到常见位图格式, Content-Type 按后缀而不是硬编码 image/webp。
 // download: ?book= → 最新 done 的 DownloadJob → 流式返回 txt
 // feedback: POST 校验 + 同 IP 5 条/小时限流
 // sitemap: ?page&index&site → urlset/sitemapindex(5min 内存缓存)
@@ -32,7 +35,24 @@ var coverDirEnv = func() string {
 
 // ---------------- cover ----------------
 
-var coverFileRe = regexp.MustCompile(`^\w[\w.-]*\.webp$`)
+var coverFileRe = regexp.MustCompile(`^\w[\w.-]*\.(webp|jpe?g|png|gif|avif)$`)
+
+// imageContentType 按文件后缀给出图片 MIME(未知后缀 octet-stream + nosniff 兜底)。
+func imageContentType(name string) string {
+	switch {
+	case strings.HasSuffix(name, ".webp"):
+		return "image/webp"
+	case strings.HasSuffix(name, ".jpg"), strings.HasSuffix(name, ".jpeg"):
+		return "image/jpeg"
+	case strings.HasSuffix(name, ".png"):
+		return "image/png"
+	case strings.HasSuffix(name, ".gif"):
+		return "image/gif"
+	case strings.HasSuffix(name, ".avif"):
+		return "image/avif"
+	}
+	return "application/octet-stream"
+}
 
 // (d Deps) publicCover GET /api/public/cover?file=
 // 封面目录: web/covers(coverDir, PLAN §2); 文件缺失 → 404(不 500)。
@@ -56,7 +76,7 @@ func (d Deps) publicCover(w http.ResponseWriter, r *http.Request) {
 		apiErr(w, http.StatusNotFound, "封面不存在")
 		return
 	}
-	w.Header().Set("Content-Type", "image/webp")
+	w.Header().Set("Content-Type", imageContentType(base))
 	w.Header().Set("Cache-Control", "public, max-age=86400")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(http.StatusOK)

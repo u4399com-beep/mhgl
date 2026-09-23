@@ -7,6 +7,7 @@ package store
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 )
 
@@ -48,6 +49,7 @@ recrawlMode,storageMode,engine,fetchConfig,threadMin,threadMax,intervalMin,inter
 smartCategory,smartComplete,autoSuggest,autoRefresh,refreshIntervalMin,status,progress,stats,createdAt,updatedAt`
 
 // GetTask 单任务; not found → (nil, nil)。
+// [R57-2b-fix] 无行判定 errors.Is 化(R56-2b-6 同口径; 驱动换型/包装后不失效)。
 func (d *DB) GetTask(id string) (*Task, error) {
 	t := &Task{}
 	var sc, sp, as, ar int64
@@ -57,7 +59,7 @@ func (d *DB) GetTask(id string) (*Task, error) {
 		&t.RecrawlMode, &t.StorageMode, &t.Engine, &t.FetchConfig, &t.ThreadMin, &t.ThreadMax, &t.IntervalMin, &t.IntervalMax,
 		&sc, &sp, &as, &ar, &t.RefreshIntervalMin, &t.Status, &t.Progress, &t.Stats, &t.CreatedAt, &t.UpdatedAt,
 	)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
@@ -102,7 +104,7 @@ func (d *DB) ListTasksByStatus(status string) ([]*Task, error) {
 // GetRuleConfig 取规则配置 JSON(任务启动装载用)。
 func (d *DB) GetRuleConfig(ruleID string) (name string, config string, err error) {
 	err = d.QueryRow(`SELECT name, config FROM "Rule" WHERE id=?`, ruleID).Scan(&name, &config)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return "", "", fmt.Errorf("rule %s not found", ruleID)
 	}
 	return name, config, err
@@ -194,7 +196,7 @@ func (d *DB) GetBook(id string) (*Book, error) {
 sourceUrl,sourceRuleId,storageMode,collectedAt,createdAt,updatedAt FROM "Book" WHERE id=?`, id).
 		Scan(&b.ID, &b.Num, &b.Name, &b.Author, &b.CategoryID, &b.Intro, &b.Cover, &b.Status, &b.Keywords,
 			&b.LatestChapter, &b.WordCount, &b.SourceURL, &b.SourceRuleID, &b.StorageMode, &b.CollectedAt, &b.CreatedAt, &b.UpdatedAt)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
@@ -210,7 +212,7 @@ func (d *DB) GetBookByNum(num int64) (*Book, error) {
 sourceUrl,sourceRuleId,storageMode,collectedAt,createdAt,updatedAt FROM "Book" WHERE num=?`, num).
 		Scan(&b.ID, &b.Num, &b.Name, &b.Author, &b.CategoryID, &b.Intro, &b.Cover, &b.Status, &b.Keywords,
 			&b.LatestChapter, &b.WordCount, &b.SourceURL, &b.SourceRuleID, &b.StorageMode, &b.CollectedAt, &b.CreatedAt, &b.UpdatedAt)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
@@ -226,7 +228,7 @@ func (d *DB) FindBookBySourceURL(u string) (*Book, error) {
 sourceUrl,sourceRuleId,storageMode,collectedAt,createdAt,updatedAt FROM "Book" WHERE sourceUrl=? ORDER BY createdAt ASC LIMIT 1`, u).
 		Scan(&b.ID, &b.Num, &b.Name, &b.Author, &b.CategoryID, &b.Intro, &b.Cover, &b.Status, &b.Keywords,
 			&b.LatestChapter, &b.WordCount, &b.SourceURL, &b.SourceRuleID, &b.StorageMode, &b.CollectedAt, &b.CreatedAt, &b.UpdatedAt)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {

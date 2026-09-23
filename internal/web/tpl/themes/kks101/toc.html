@@ -1,0 +1,12 @@
+{{define "content"}}
+<div class="kks-toc">
+  <h3 class="kks-mytitle">《{{.Book.name}}》完整目錄<small>（共 {{.Total}} 章 · 第 {{.Pager.Page}} / {{.Pager.TotalPages}} 頁）</small></h3>
+  {{if .Chapters}}
+  <div class="kks-chgrid kks-catalog">
+    {{range .Chapters}}<a href="{{chapterHref (str .id) (num $.Book.num) (num .idx) $.SiteID}}" title="{{.title}}">{{.title}}</a>{{end}}
+  </div>
+  {{else}}<div class="kks-mybox"><div class="kks-empty">目錄暫未收錄, 請稍後再來</div></div>{{end}}
+  {{template "kks-pager" .}}
+  <p class="kks-center"><a class="kks-btn" href="{{.BookHref}}">返回書頁</a></p>
+</div>
+{{end}}

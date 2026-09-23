@@ -157,6 +157,11 @@ func (t *Task) finish() {
 		snap.Progress.ContentDone, snap.Progress.ContentTotal, snap.Stats.Errors)
 
 	close(t.exitCh)
+	// [R57-2a] 收尾取消任务 ctx: 终态后附属协程(dynamicProxyLoop 等)必须随任务退出 ——
+	// 修前 finish 只置 running=false 不取消 ctx, done/error 任务残留在册的 10 分钟 TTL
+	// 内(乃至出表后)刷新循环仍持有 Task 空转泄漏。stop 路径本就取消(幂等), pause 路径
+	// 不经此处(run 尚未返回, 暂停态不受影响)
+	t.cancel()
 	// 终态任务保留 10 分钟供 status 查询, 之后自动出注册表(防长生命周期累积);
 	// stop 已先行安排收割, 双路径幂等([R54-2a] 收敛到 removeIfSelf 单一实现:
 	// 仅当注册表内仍是本任务才删, 防 id 复用误删)

@@ -1,0 +1,63 @@
+{{define "content"}}
+<div class="x2-page">
+  <div class="x2-bdtop"></div>
+  <div class="x2-bdsub">
+    <dl class="x2-board-dl">
+      <dt>{{siteTitle $.Site}}排行榜</dt>
+      <div class="x2-board-dds">
+        {{range firstN 6 .ClickRank}}
+        <div class="x2-board-item">
+          <a class="x2-board-cov" href="{{bookHref (str .id) (num .num) $.SiteID}}" aria-label="{{.name}}">
+            {{if .cover}}<img src="{{coverURL (str .cover)}}" alt="{{.name}} 封面" onerror="this.remove()">{{end}}
+          </a>
+          <a class="x2-a x2-board-name" href="{{bookHref (str .id) (num .num) $.SiteID}}" title="{{.name}}">{{.name}}</a>
+        </div>
+        {{end}}
+      </div>
+    </dl>
+  </div>
+  <div class="x2-center">
+    <div class="x2-center-main">
+      <div class="x2-block">
+        <div class="x2-blocktitle"><i class="x2-bt-ico"></i>{{siteTitle $.Site}}小说最近更新</div>
+        <ul class="x2-update">
+          {{range firstN 20 .Books}}
+          <li>
+            <span class="x2-up-l">
+              <a class="x2-a" href="{{catHref (str .category) $.SiteID}}">[{{or .category "小说"}}]</a>
+              《<a class="x2-a" href="{{bookHref (str .id) (num .num) $.SiteID}}" title="{{.name}}">{{.name}}</a>》
+            </span>
+            <span class="x2-up-m"><a class="x2-a" href="{{bookHref (str .id) (num .num) $.SiteID}}" title="{{.latestChapter}}">{{or .latestChapter "暂无章节"}}</a></span>
+            <span class="x2-up-r">{{.author}}&nbsp;{{dateYY .updatedAt}}</span>
+          </li>
+          {{else}}
+          <li class="x2-update-empty">暂无上传</li>
+          {{end}}
+        </ul>
+      </div>
+    </div>
+    <div class="x2-center-side">
+      <div class="x2-block">
+        <div class="x2-blocktitle"><span class="x2-bt-label">吾爱网友推荐榜</span></div>
+        <ul class="x2-ultop">
+          {{range .ClickRank}}
+          <li><a class="x2-a" href="{{bookHref (str .id) (num .num) $.SiteID}}" title="{{.name}}">{{.name}}</a><p>{{shortWords .wordCount}}</p></li>
+          {{else}}
+          <li class="x2-ultop-empty">暂无数据</li>
+          {{end}}
+        </ul>
+      </div>
+      <div class="x2-block">
+        <div class="x2-blocktitle"><span class="x2-bt-label">吾爱热门小说</span><a class="x2-a x2-more-a" href="{{.RankingHref}}">更多...</a></div>
+        <ul class="x2-ultop">
+          {{range .WeekRank}}
+          <li><a class="x2-a" href="{{bookHref (str .id) (num .num) $.SiteID}}" title="{{.name}}">{{.name}}</a></li>
+          {{else}}
+          <li class="x2-ultop-empty">暂无数据</li>
+          {{end}}
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+{{end}}

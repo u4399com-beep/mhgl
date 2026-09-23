@@ -29,6 +29,7 @@ import (
 	"mhgl/internal/crawl/bridge"
 	"mhgl/internal/crawl/clean"
 	"mhgl/internal/crawl/fetch"
+	"mhgl/internal/crawl/proxy"
 	"mhgl/internal/crawl/rule"
 	"mhgl/internal/crawl/task"
 	"mhgl/internal/store"
@@ -66,11 +67,14 @@ var _ interface {
 type managerAdapter struct {
 	db  *store.DB
 	mgr *task.Manager
+	// periodicCancel 代理池周期化循环取消句柄(StopAll 优雅退出时一并收割; nil=未启动)
+	periodicCancel context.CancelFunc
 }
 
 // NewManager 构造任务管理器: task.NewManager + SetSinkFactory(bridge.NewFactory 直连
 // store 的回调桥; 封面目录 env COVER_DIR 可覆盖, 缺省 web/covers) + autoRefresh
-// 终态钩子。返回 any 以避免并行期/装配期 import 环; main 断言 api.TaskController。
+// 终态钩子 + DB 代理池接线(动态源注入+结果回写泵)。返回 any 以避免并行期/装配期
+// import 环; main 断言 api.TaskController。
 func NewManager(db *store.DB) (any, error) {
 	if db == nil {
 		return nil, errors.New("crawl: NewManager 需要 *store.DB")
@@ -82,6 +86,16 @@ func NewManager(db *store.DB) (any, error) {
 		coverDir = defaultCoverDir
 	}
 	mgr.SetSinkFactory(bridge.NewFactory(db, coverDir, ad.scheduleAutoRefresh))
+	// [R57-2a] DB 代理池接线(消除「池有 3 万代理、采集不用」缺口):
+	// ① *store.DB 实现 fetch.ProxyAddrSource → 任务启动即拉 + 30min 周期刷新;
+	// ② 回写泵 → fetch 层代理成功/连败事实异步落库(lastUsedAt / alive=0)
+	mgr.SetProxySource(db)
+	mgr.SetProxyFeedback(newProxyFeedbackSink(db))
+	// ③ 收割周期化(R56 遗留): 后台收割+stale 校验循环, 进程级存活;
+	//    防重入由包内原子标志承担, 优雅退出随 StopAll 取消
+	pctx, pcancel := context.WithCancel(context.Background())
+	ad.periodicCancel = pcancel
+	go proxy.StartPeriodic(pctx, db.DB, proxy.PeriodicOptions{})
 	return ad, nil
 }
 
@@ -185,12 +199,16 @@ func (a *managerAdapter) Status(taskID string) (exists, running bool, phase stri
 
 // StopAll 全量 stop 收割(进程优雅退出用): 遍历注册表逐个 stop;
 // 终态残留(done/error/stopped)跳过, 其余(running/paused/未知)一律收割。
+// [R57-2a] 顺带取消代理池周期化循环(进程退出面统一收口)
 func (a *managerAdapter) StopAll() {
 	for _, b := range a.mgr.List() {
 		if terminalStatuses[b.Phase] {
 			continue
 		}
 		_, _ = a.mgr.Control(b.ID, "stop")
+	}
+	if a.periodicCancel != nil {
+		a.periodicCancel()
 	}
 }
 

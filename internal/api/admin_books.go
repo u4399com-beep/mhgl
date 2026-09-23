@@ -479,8 +479,8 @@ func (d Deps) adminBookKeywordsPost(w http.ResponseWriter, r *http.Request) {
 			if tag == "" || len(words) >= 50 {
 				continue
 			}
-			n := upsertBookTag(d, id, tag, "manual")
-			if n == 0 {
+			_, isNew := upsertBookTag(d, id, tag, "manual")
+			if isNew {
 				added++
 			} else {
 				updated++
@@ -491,17 +491,18 @@ func (d Deps) adminBookKeywordsPost(w http.ResponseWriter, r *http.Request) {
 	apiOK(w, map[string]any{"added": added, "updated": updated, "words": words, "engines": []any{}, "engineDetail": []any{}})
 }
 
-// upsertBookTag (bookId,tag) 幂等写入; 返回该行 hits(0=新增)。
-func upsertBookTag(d Deps, bookID, tag, source string) int {
+// upsertBookTag (bookId,tag) 幂等写入; 返回 (写入后 hits, 是否新增行)。
+// [R57-2b-fix] 修前 SELECT→(UPDATE|INSERT) 两语句非原子: 并发同 tag 双 POST 均判
+// miss → 后到 INSERT 撞 UNIQUE 静默失败且 added/updated 计数错账; 改单语句
+// upsert(ON CONFLICT 自增)消除竞态窗口, 新增判定按 upsert 前存在性。
+func upsertBookTag(d Deps, bookID, tag, source string) (int, bool) {
+	var pre int
+	_ = d.DB.QueryRow(`SELECT count(*) FROM "BookTag" WHERE bookId=? AND tag=?`, bookID, tag).Scan(&pre)
+	_, _ = d.DB.Exec(`INSERT INTO "BookTag" (id,bookId,tag,source,hits) VALUES (?,?,?,?,0)
+ON CONFLICT(bookId,tag) DO UPDATE SET hits=hits+1`, d.DB.NewID(), bookID, tag, source)
 	var hits int
-	err := d.DB.QueryRow(`SELECT hits FROM "BookTag" WHERE bookId=? AND tag=?`, bookID, tag).Scan(&hits)
-	if err == nil {
-		_, _ = d.DB.Exec(`UPDATE "BookTag" SET hits=hits+1 WHERE bookId=? AND tag=?`, bookID, tag)
-		return hits + 1
-	}
-	_, _ = d.DB.Exec(`INSERT INTO "BookTag" (id,bookId,tag,source,hits) VALUES (?,?,?,?,0)`,
-		d.DB.NewID(), bookID, tag, source)
-	return 0
+	_ = d.DB.QueryRow(`SELECT hits FROM "BookTag" WHERE bookId=? AND tag=?`, bookID, tag).Scan(&hits)
+	return hits, pre == 0
 }
 
 // (d Deps) adminBookKeywordsDelete DELETE /api/admin/books/{id}/keywords?tag=

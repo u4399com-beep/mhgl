@@ -93,6 +93,9 @@ type Task struct {
 	cb        callback.Sink // R55 单体: 经 Manager.sink 工厂注入(HTTP 客户端或直连 store 的桥)
 	fetcher   *fetch.Client
 	pageFetch rule.PageFetch // 解析层翻页过闸注入(契约 §4 refererChain)
+	// proxySource 动态代理源(R57-2a): newTask 时从 Manager 快照(Start 持锁内注册,
+	// 运行期无锁读取安全; SetProxySource 契约要求先于任何 Start)
+	proxySource fetch.ProxyAddrSource
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -147,6 +150,12 @@ type Manager struct {
 	// (单体=直连 store 的 bridge); nil 时保持原 HTTP 回调客户端(callback.New)。
 	// 仅改变回调出站通道, 编排/熔断/暂停门等契约 §5 语义零变化
 	sinkFactory func(taskID string) callback.Sink
+	// proxySource 动态代理源(R57-2a DB 代理池接线, 可选): 非空时新任务启动即拉一次
+	// 存活代理注入 fetch 池, 运行期每 proxyRefreshEvery 重拉(接口注入, 本包不 import store)
+	proxySource fetch.ProxyAddrSource
+	// proxyFeedback 代理结果回写钩子(R57-2a, 可选): fetch 层按请求事实回调,
+	// engine 装配 store 轻量 UPDATE(异步防阻塞)
+	proxyFeedback func(addr string, ok bool)
 }
 
 // NewManager 创建注册表
@@ -159,6 +168,21 @@ func NewManager() *Manager {
 func (m *Manager) SetSinkFactory(f func(taskID string) callback.Sink) {
 	m.mu.Lock()
 	m.sinkFactory = f
+	m.mu.Unlock()
+}
+
+// SetProxySource 注入动态代理源(R57-2a DB 代理池接线; 必须在任何 Start 之前调用)。
+// 传入 *store.DB(实现 fetch.ProxyAddrSource)即完成装配, 本包不 import store
+func (m *Manager) SetProxySource(src fetch.ProxyAddrSource) {
+	m.mu.Lock()
+	m.proxySource = src
+	m.mu.Unlock()
+}
+
+// SetProxyFeedback 注入代理结果回写钩子(R57-2a; 必须在任何 Start 之前调用)
+func (m *Manager) SetProxyFeedback(fn func(addr string, ok bool)) {
+	m.mu.Lock()
+	m.proxyFeedback = fn
 	m.mu.Unlock()
 }
 
@@ -300,6 +324,15 @@ func newTask(p rule.TaskStartPayload, m *Manager) *Task {
 		gapMs = 200
 	}
 	t.fetcher.SetHostGap(time.Duration(gapMs) * time.Millisecond)
+	// R57-2a DB 代理池接线: 回写钩子(set-once, 先于任何请求) + 动态代理刷新循环
+	// (启动即拉一次 + 每 30min 重拉; 任务 ctx 取消即退出, 见 dynamicProxyLoop)
+	if m.proxyFeedback != nil {
+		t.fetcher.ProxyFeedback = m.proxyFeedback
+	}
+	t.proxySource = m.proxySource
+	if t.proxySource != nil {
+		go t.dynamicProxyLoop()
+	}
 	t.pageFetch = func(pctx context.Context, u, referer string) (string, error) {
 		res, err := t.fetcher.Fetch(pctx, u, referer)
 		if err != nil {

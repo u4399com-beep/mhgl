@@ -1,0 +1,32 @@
+{{define "content"}}
+<div class="kks-book">
+  <div class="kks-bookhead">
+    <a class="kks-bookimg kks-bookimg-lg" href="{{.TocHref}}" aria-label="{{.Book.name}}">
+      {{if .Book.cover}}<img src="{{coverURL (str .Book.cover)}}" alt="{{.Book.name}} 封面" onerror="this.remove()">{{end}}
+    </a>
+    <div class="kks-bookinfo">
+      <h1>{{.Book.name}}</h1>
+      <p class="kks-author">作者：{{.Book.author}} · {{statusLabel (str .Book.status)}} · {{fmtWords .Book.wordCount}}</p>
+      <p class="kks-meta"><span>{{or .Book.category "小說"}}</span><span>更新：{{dateDay .Book.updatedAt}}</span></p>
+      <div class="kks-btns">
+        {{if .ReadFirstHref}}<a class="kks-btn-primary" href="{{.ReadFirstHref}}">開始閱讀</a>{{else}}<span class="kks-btn-primary is-disabled" aria-disabled="true">開始閱讀</span>{{end}}
+        <a class="kks-btn" href="{{.TocHref}}">完整目錄</a>
+        <a class="kks-btn" href="/api/public/download?book={{qesc (str .Book.id)}}" target="_blank" rel="noreferrer">TXT下載</a>
+      </div>
+    </div>
+    <div class="kks-clear"></div>
+  </div>
+  <div class="kks-mybox kks-bookintro">{{if .Book.intro}}{{.Book.intro}}{{else}}暫無簡介{{end}}</div>
+  {{if .LatestChapters}}
+  <h3 class="kks-mytitle">最新章節</h3>
+  <div class="kks-chgrid">
+    {{range .LatestChapters}}<a href="{{chapterHref (str .id) (num $.Book.num) (num .idx) $.SiteID}}" title="{{.title}}">{{.title}}</a>{{end}}
+  </div>
+  {{end}}
+  <h3 class="kks-mytitle kks-mytitle2">猜您喜歡</h3>
+  <div class="kks-mybox">
+    {{range .Recs}}{{template "kks-bookbox" (withSite $.SiteID .)}}{{else}}<div class="kks-empty">暫無推薦</div>{{end}}
+  </div>
+  <p class="kks-center"><a class="kks-btn-primary" href="{{.TocHref}}">查看完整目錄（共 {{.ChapterCount}} 章）</a></p>
+</div>
+{{end}}

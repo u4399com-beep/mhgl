@@ -1,0 +1,40 @@
+{{define "content"}}
+<div class="x2-page">
+  <div class="x2-bdtop"></div>
+  <div class="x2-bdsub">
+    <dl class="x2-dl">
+      <dt class="x2-dt-line">{{.Heading}} - 关键词专题</dt>
+      <dd>
+        <p class="x2-intro-h"><b>专题简介：</b></p>
+        <div class="x2-intro-b">{{if .Row.description}}{{.Row.description}}{{else}}{{.Row.keyword}} — {{.SiteName}}聚合相关小说资源, 提供全文免费在线阅读。{{end}}</div>
+        {{with .Primary}}<div class="x2-intro-b">主打作品《{{.name}}》由 {{.author}} 创作, 全文约 {{shortWords .wordCount}} 字。{{if .intro}}简介：{{excerpt .intro 150}}{{end}}</div>{{end}}
+      </dd>
+    </dl>
+  </div>
+  <div class="x2-bdtop"></div>
+  <div class="x2-bdsub">
+    <dl class="x2-dl">
+      <dt class="x2-dt-line">相关书籍推荐({{len .Books}})</dt>
+      <dd>
+        {{if .BookViews}}
+        <div class="x2-tbl-wrap">
+        <table class="x2-tbl" cellpadding="0" cellspacing="0">
+          <tbody>
+          {{range .BookViews}}
+          <tr>
+            <td class="L"><a class="x2-a x2-ellip" href="{{.BookHref}}" title="{{.Book.name}}">{{.Book.name}}</a></td>
+            <td class="L"><span class="x2-ellip">{{.Book.author}}</span></td>
+            <td class="C">{{or .Book.category "小说"}}</td>
+            <td class="R">{{shortWords .Book.wordCount}}</td>
+            <td class="C"><a class="x2-a" href="{{.TocHref}}">目录</a></td>
+          </tr>
+          {{end}}
+          </tbody>
+        </table>
+        </div>
+        {{else}}<div class="x2-empty">暂无相关书籍数据</div>{{end}}
+      </dd>
+    </dl>
+  </div>
+</div>
+{{end}}

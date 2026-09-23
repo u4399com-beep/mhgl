@@ -17,7 +17,6 @@ import (
 	"fmt"
 	"log"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -26,9 +25,6 @@ import (
 type DB struct {
 	*sql.DB
 	path string
-	// idSeed: 进程内单调计数, 参与 NewID 防同毫秒碰撞
-	idSeed atomic.Uint64
-	idRand [8]byte
 }
 
 // Open 打开既有 SQLite 文件(零迁移: 表结构与数据由 Prisma 历史轮次建好)。
