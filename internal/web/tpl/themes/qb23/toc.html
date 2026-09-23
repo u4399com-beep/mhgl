@@ -1,0 +1,22 @@
+{{define "content"}}{{/* qb23 目录页: 章节网格 + 分页(上一页/返回书页/下一页) */}}
+<div class="qb-content">
+  <div class="qb-list">
+    <div class="qb-box">
+      <div class="qb-blocktitle">{{.Book.name}} 完整目录<small>（共 {{.Total}} 章）</small></div>
+      {{if .Chapters}}
+      <div class="qb-chgrid">
+        {{range .Chapters}}<a class="qb-chitem" href="{{chapterHref (str .id) (num $.Book.num) (num .idx) $.SiteID}}" title="{{.title}}">{{.title}}</a>{{end}}
+      </div>
+      {{else}}<p class="qb-none">目录暂未收录, 请稍后再来</p>{{end}}
+      <div class="qb-pager">
+        {{with .Pager}}
+        <a class="qb-btn{{if not .PrevURL}} is-disabled{{end}}" href="{{if .PrevURL}}{{.PrevURL}}{{else}}javascript:void(0){{end}}" rel="prev">上一页</a>
+        <span>第 {{.Page}} / {{.TotalPages}} 页</span>
+        <a class="qb-btn{{if not .NextURL}} is-disabled{{end}}" href="{{if .NextURL}}{{.NextURL}}{{else}}javascript:void(0){{end}}" rel="next">下一页</a>
+        {{end}}
+        <a class="qb-btn" href="{{.BookHref}}">返回书页</a>
+      </div>
+    </div>
+  </div>
+</div>
+{{end}}

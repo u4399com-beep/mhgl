@@ -38,7 +38,12 @@ const replaceBudgetMs = 1000
 const replaceMaxMatches = 100000
 
 // expandReplaceTo 展开 TS String.replace 替换串占位符: $$/$&/$`/$'/$1~$99/$<name>。
-// 组号不存在时按规范保留字面量(如仅 8 组时 "$18" → 组1内容 + 字面 "8")。
+// TS GetSubstitution 语义([R60-2c] groupVal 对齐修正):
+//   - $0 恒为字面量(JS 特殊替换仅认 $1~$9/$01~$99, 修前误展为全匹配);
+//   - 组号存在但未参与匹配(undefined) → 展开为空串(修前误作字面量 "$1" 泄漏进提取结果);
+//   - 组号超出模式组数 → 按规范保留字面量(如仅 8 组时 "$18" → 组1内容 + 字面 "8");
+//   - 两位组号(存在即采用, 含未参与→空串)优先, 否则一位。
+//
 // [R58-2a] groups 长度守卫: 零宽匹配分支传入 nil groups(修前 $&/$N 在零宽匹配时
 // 对 nil 切片索引 → panic; RE2 零宽匹配常见于 a*/a? 形态替换, 任务 run 协程虽有
 // recover 兜底, 但整轮任务被无谓熔断转 error)
@@ -46,10 +51,17 @@ func expandReplaceTo(repl string, match []int, groups [][]byte, subexpNames []st
 	var out strings.Builder
 	i := 0
 	groupVal := func(n int) (string, bool) {
-		if n < len(match)/2 && n < len(groups) && match[2*n] >= 0 {
-			return string(groups[n]), true
+		// $0 恒为字面量(TS 无 $0 特殊替换); n 超出模式组数 → 字面量保留(false)
+		if n < 1 || n >= len(match)/2 {
+			return "", false
 		}
-		return "", false
+		// 组存在但未参与匹配(undefined) → 空串(TS GetSubstitution: n≤m 且 capture
+		// undefined → empty; 修前返回 false 使字面 "$1" 泄漏)。零宽匹配分支 groups=nil,
+		// 此时参与组也恒为零宽/未参与 → 空串等价
+		if match[2*n] < 0 || n >= len(groups) {
+			return "", true
+		}
+		return string(groups[n]), true
 	}
 	for i < len(repl) {
 		ch := repl[i]
@@ -240,20 +252,27 @@ func regexExtract(htmlStr string, rule *FieldRule) string {
 	if err != nil {
 		return ""
 	}
-	m := re.FindStringSubmatch(htmlStr)
-	if m == nil {
-		return ""
-	}
+	// [R60-2c] TS m[group] ?? m[0] 语义精确对齐: 组未参与(undefined)→ m[0];
+	// 组参与且匹配空串 → 返回空串(修前 Go m[group]=="" 与"未参与"不可分, 一律回退
+	// m[0] — 尾部 (\S*)/([^\"]*) 类空匹配组把整匹配误当字段值注入)。改用下标匹配面
+	// 区分两种形态(RE2 未参与组=下标-1)
 	group := 0
 	if rule.Attr != "" && isAllDigits(rule.Attr) {
 		group, _ = strconv.Atoi(rule.Attr)
 	} else if re.NumSubexp() > 0 {
 		group = 1
 	}
-	if group < len(m) && m[group] != "" {
-		return m[group]
+	loc := re.FindStringSubmatchIndex(htmlStr)
+	if loc == nil {
+		return ""
 	}
-	return m[0]
+	if 2*group+1 < len(loc) && loc[2*group] >= 0 {
+		if loc[2*group] == loc[2*group+1] {
+			return ""
+		}
+		return htmlStr[loc[2*group]:loc[2*group+1]]
+	}
+	return htmlStr[loc[0]:loc[1]]
 }
 
 // regexExtractAll 全量匹配提取(上限 5000, 零宽推进防护)。
@@ -279,14 +298,19 @@ func regexExtractAll(htmlStr string, rule *FieldRule) []string {
 	}
 	var out []string
 	guard := 0
-	for _, m := range re.FindAllStringSubmatch(htmlStr, 5001) {
+	// [R60-2c] 同 regexExtract: 下标面区分未参与(→ m[0])与参与空串(→ 空串, TS m[group] ?? m[0])
+	for _, loc := range re.FindAllStringSubmatchIndex(htmlStr, 5001) {
 		if guard++; guard > 5000 {
 			break
 		}
-		if group < len(m) && m[group] != "" {
-			out = append(out, m[group])
+		if group >= 1 && 2*group+1 < len(loc) && loc[2*group] >= 0 {
+			if loc[2*group] == loc[2*group+1] {
+				out = append(out, "")
+			} else {
+				out = append(out, htmlStr[loc[2*group]:loc[2*group+1]])
+			}
 		} else {
-			out = append(out, m[0])
+			out = append(out, htmlStr[loc[0]:loc[1]])
 		}
 	}
 	return out

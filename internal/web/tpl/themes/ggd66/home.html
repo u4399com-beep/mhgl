@@ -1,0 +1,73 @@
+{{define "content"}}{{/* ggd66 首页(格格党): 行① #fengtui 热门推荐(6 封面卡双列)+#fengyou 搜索+阅读排行榜(13) | 行② #zuixin 最新小说+#gengxin 最近更新(s1-s5) */}}
+<div class="ggd-home">
+  <div class="ggd-row">
+    <div class="ggd-content-left" id="ggd-fengtui">
+      <h2>热门小说推荐</h2>
+      <div class="ggd-fengtui-grid">
+        {{if .GgTuij}}
+        {{range .GgTuij}}
+        <div class="ggd-item">
+          <a class="ggd-item-img" href="{{bookHref (str .id) (num .num) $.SiteID}}" aria-label="{{.name}}">
+            <span class="ggd-cover">{{if .cover}}<img src="{{coverURL (str .cover)}}" alt="{{.name}} 封面" loading="lazy" onerror="this.remove()">{{end}}<span class="ggd-cover-ph">{{.name}}</span></span>
+          </a>
+          <dl>
+            <dt><span class="ggd-item-author">{{.author}}</span><a href="{{bookHref (str .id) (num .num) $.SiteID}}" title="{{.name}}">{{.name}}</a></dt>
+            <dd>{{if .intro}}{{excerpt .intro 90}}{{else}}暂无简介{{end}}</dd>
+          </dl>
+          <div class="ggd-clear"></div>
+        </div>
+        {{end}}
+        {{else}}<div class="ggd-box">暂无推荐书籍</div>{{end}}
+      </div>
+    </div>
+    <div class="ggd-content-right">
+      <form class="ggd-fsearch" action="/" method="get" role="search">
+        {{if .SiteID}}<input type="hidden" name="site" value="{{.SiteID}}">{{end}}
+        <input type="hidden" name="view" value="search">
+        <input type="search" name="q" aria-label="站内搜索" placeholder="搜索从这里开始..." value="{{.Q}}">
+        <button type="submit">搜&nbsp;&nbsp;索</button>
+      </form>
+      <h2 class="ggd-h2-mobile">阅读排行榜</h2>
+      <ul class="ggd-catlist">
+        {{range firstN 13 .GgRank}}
+        <li>
+          <span class="ggd-cat-tag">[{{or .category "小说"}}]</span>
+          <a href="{{bookHref (str .id) (num .num) $.SiteID}}" title="{{.name}}">{{.name}}</a>
+          <span class="ggd-li-author">{{.author}}</span>
+        </li>
+        {{end}}
+      </ul>
+    </div>
+    <div class="ggd-clear"></div>
+  </div>
+  <div class="ggd-row">
+    <div class="ggd-content-side">
+      <h2>最新小说</h2>
+      <ul class="ggd-catlist">
+        {{range firstN 24 .Books}}
+        <li>
+          <span class="ggd-cat-tag">[{{or .category "小说"}}]</span>
+          <a href="{{bookHref (str .id) (num .num) $.SiteID}}" title="{{.name}}">{{.name}}</a>
+          <span class="ggd-li-author">{{.author}}</span>
+        </li>
+        {{end}}
+      </ul>
+    </div>
+    <div class="ggd-content-wide">
+      <h2>最近更新</h2>
+      <ul class="ggd-catlist">
+        {{range firstN 24 .Books}}
+        <li class="ggd-gx-li">
+          <span class="ggd-s1">[{{or .category "小说"}}]</span>
+          <span class="ggd-s2"><a href="{{bookHref (str .id) (num .num) $.SiteID}}" title="{{.name}}">{{.name}}</a></span>
+          <span class="ggd-s3">{{or .latestChapter ""}}</span>
+          <span class="ggd-s4">{{.author}}</span>
+          <span class="ggd-s5">{{dateShort .updatedAt}}</span>
+        </li>
+        {{end}}
+      </ul>
+    </div>
+    <div class="ggd-clear"></div>
+  </div>
+</div>
+{{end}}

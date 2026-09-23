@@ -1,0 +1,59 @@
+{{define "layout.html"}}<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>{{.Head.Title}}</title>
+{{if .Head.Description}}<meta name="description" content="{{.Head.Description}}">{{end}}
+{{if .Head.Keywords}}<meta name="keywords" content="{{.Head.Keywords}}">{{end}}
+{{if .Head.Canonical}}<link rel="canonical" href="{{.Head.Canonical}}">{{end}}
+<meta property="og:type" content="{{.Head.OgType}}">
+<meta property="og:title" content="{{.Head.Title}}">
+{{if .Head.Description}}<meta property="og:description" content="{{.Head.Description}}">{{end}}
+{{if .Head.Canonical}}<meta property="og:url" content="{{.Head.Canonical}}">{{end}}
+{{with .Site}}{{if .geoRegion}}<meta name="geo.region" content="{{.geoRegion}}">{{end}}
+{{if .geoPlacename}}<meta name="geo.placename" content="{{.geoPlacename}}">{{end}}
+{{if .icbm}}<meta name="ICBM" content="{{.icbm}}">{{end}}{{end}}
+<meta name="theme-color" content="#2563eb">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" type="image/png" href="/static/icons/icon-192.png">
+<link rel="stylesheet" href="/static/css/huangjinwu.css?v=r60-2a">
+</head>
+<body class="clone-huangjinwu">
+<header class="hjw-header" role="banner">
+  <div class="hjw-header-in">
+    <a class="hjw-logo" href="{{.HomeHref}}"><span class="hjw-logo-icon" aria-hidden="true">📖</span>{{siteTitle .Site}}</a>
+    <nav class="hjw-navbar" aria-label="主导航">
+      <a href="{{.HomeHref}}">首页</a>
+      <a href="{{.RankingHref}}">排行榜</a>
+      <a href="{{.FulltextHref}}">书库</a>
+      <a href="{{.SearchHref}}">搜索</a>
+      {{range firstN 5 .NavCats}}<a href="{{catHref . $.SiteID}}">{{.}}</a>{{end}}
+    </nav>
+    <form class="hjw-hsearch" action="/" method="get" role="search">
+      {{if .SiteID}}<input type="hidden" name="site" value="{{.SiteID}}">{{end}}
+      <input type="hidden" name="view" value="search">
+      <input type="search" name="q" aria-label="搜索" placeholder="书名 / 作者" value="{{.Q}}">
+      <button type="submit">搜索</button>
+    </form>
+    <div class="hjw-clear"></div>
+  </div>
+</header>
+<nav class="hjw-catbar" aria-label="分类导航">
+  <div class="hjw-catbar-in">
+    <a{{if eqStr .CatName "全部"}} class="is-active"{{end}} href="{{viewHrefCategoryAll .SiteID}}">全部</a>
+    {{range $cat := .NavCats}}<a{{if eqStr (str $.CatName) $cat}} class="is-active"{{end}} href="{{catHref $cat $.SiteID}}">{{$cat}}</a>{{end}}
+  </div>
+</nav>
+<main class="hjw-main">{{block "content" .}}<div class="hjw-container"><div class="hjw-card">加载中…</div></div>{{end}}</main>
+<footer class="hjw-fsec">
+  <div class="hjw-fsec-in">
+    <p class="hjw-fmap"><a href="{{.FulltextHref}}">小说</a> | <a href="{{.KeywordHref}}">标签</a> | <a href="{{.FulltextHref}}">电子书</a> | <a href="{{.RankingHref}}">排行榜</a> | <a href="{{.HistoryHref}}">阅读历史</a> | <a href="/admin">管理</a></p>
+    <p>本站小说由根据搜索引擎转码，只为让更多读者欣赏，不保存小说内及数据，仅作宣传展示。</p>
+    <p>Copyright ©2026{{siteTitle .Site}}</p>
+  </div>
+</footer>
+<script src="/static/js/site.js?v=r56-2c" defer></script>
+<script src="/static/js/pwa.js?v=r56-2c" defer></script>
+</body>
+</html>{{end}}

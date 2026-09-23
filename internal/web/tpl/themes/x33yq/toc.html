@@ -1,0 +1,54 @@
+{{define "content"}}{{/* x33yq 目录页(biquge 家族): 面包屑 + #sidebar 妹纸们都在看 + #maininfo(封面+info+intro) + #list 章节三列 + .articlepage 分页 */}}
+<div id="xq-main">
+  <div class="xq-box-con">
+    <div class="xq-con-top">
+      <a href="{{.HomeHref}}">{{siteTitle .Site}}</a> &gt; <a href="{{catIDHref (str .Book.categoryId) .SiteID}}">{{or .Book.category "小说"}}</a> &gt; <a href="{{.BookHref}}">{{.Book.name}}</a> &gt; 章节列表
+    </div>
+    <div id="xq-sidebar">
+      <div class="xq-sidebartitle">妹纸们都在看：</div>
+      <div class="xq-sidebarlist">
+        {{range firstN 26 .XqSide}}<a href="{{bookHref (str .id) (num .num) $.SiteID}}" title="{{.name}}">{{.name}}</a>{{end}}
+      </div>
+    </div>
+    <div id="xq-maininfo">
+      <a class="xq-fmimg" href="{{.BookHref}}" aria-label="{{.Book.name}}">
+        <span class="xq-cover xq-cover-fm">{{if .Book.cover}}<img src="{{coverURL (str .Book.cover)}}" alt="{{.Book.name}} 封面" onerror="this.remove()">{{end}}<span class="xq-cover-ph">{{.Book.name}}</span></span>
+      </a>
+      <div id="xq-info">
+        <a href="{{.BookHref}}"><h1>{{.Book.name}}</h1></a>
+        <p>作&nbsp;&nbsp;&nbsp;&nbsp;者：{{.Book.author}}</p>
+        <p>类&nbsp;&nbsp;&nbsp;&nbsp;别：<a href="{{catIDHref (str .Book.categoryId) .SiteID}}">{{or .Book.category "小说"}}</a>({{.Book.name}})</p>
+        <p>动&nbsp;&nbsp;&nbsp;&nbsp;作：{{if .Chapters}}<a href="{{with index .Chapters 0}}{{chapterHref (str .id) (num $.Book.num) (num .idx) $.SiteID}}{{end}}">开始阅读</a>{{end}} ,<a href="#xq-list"><span class="xq-red">直达底部↓</span></a></p>
+        <p>更新时间：{{dateDay .Book.updatedAt}}</p>
+        <p>最新连载：{{or .Book.latestChapter "暂无"}}</p>
+      </div>
+      <div id="xq-intro">
+        <p>《{{.Book.name}}》为作者{{.Book.author}}创作，33言情为你第一时间提供{{.Book.name}}全文免费在线阅读。</p>
+        <p class="xq-introtxt">简介:{{if .Book.intro}}{{.Book.intro}}{{else}}暂无简介{{end}}</p>
+      </div>
+      <div class="xq-clear"></div>
+    </div>
+    <div class="xq-clear"></div>
+  </div>
+  <div class="xq-box-con">
+    <div id="xq-list">
+      {{if .Chapters}}
+      <dl>
+        <dt>《{{.Book.name}}》正文{{with .Pager}} · 第 {{.Page}} / {{.TotalPages}} 页{{end}}</dt>
+        {{range .Chapters}}<dd><a href="{{chapterHref (str .id) (num $.Book.num) (num .idx) $.SiteID}}" title="{{.title}}">{{.title}}</a></dd>{{end}}
+        <div class="xq-clear"></div>
+      </dl>
+      {{else}}<div class="xq-box-con-inner">目录暂未收录, 请稍后再来</div>{{end}}
+    </div>
+    <div class="xq-articlepage">
+      <div class="xq-pagelink" role="navigation" aria-label="分页">
+        {{with .Pager}}
+        {{if .PrevURL}}<a href="{{.PrevURL}}" rel="prev">上一页</a>{{end}}
+        {{if .NextURL}}<a class="xq-next" href="{{.NextURL}}" rel="next">下一页</a>{{end}}
+        {{end}}
+        <a href="{{.BookHref}}">返回书页</a>
+      </div>
+    </div>
+  </div>
+</div>
+{{end}}

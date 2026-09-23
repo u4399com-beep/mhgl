@@ -1,0 +1,55 @@
+{{define "content"}}{{/* x33yq 关键词专题页: Primary ui-box 书卡 + Others 行式列表 + 相关词 */}}
+<div id="xq-main">
+  <div class="xq-ui-box">
+    <div class="xq-ui-title"><h2>关键词专题：{{if .Tag}}{{.Tag}}{{else}}缺少关键词参数{{end}}</h2></div>
+    {{with .Primary}}
+    <div class="xq-detail-cols xq-kw-cols">
+      <div class="xq-box-intro">
+        <div class="xq-pic">
+          <span class="xq-cover xq-cover-bk">{{if .cover}}<img src="{{coverURL (str .cover)}}" alt="{{.name}} 封面" onerror="this.remove()">{{end}}<span class="xq-cover-ph">{{.name}}</span></span>
+        </div>
+        <div class="xq-box-info">
+          <table class="xq-ui-tb1">
+            <tbody>
+              <tr><td colspan="3"><h1 class="xq-f21h">{{.name}}<em>作者:{{.author}}</em></h1></td></tr>
+              <tr><td colspan="3"><div class="xq-intro">{{if .intro}}{{excerpt .intro 120}}{{else}}暂无简介{{end}}</div></td></tr>
+              <tr class="xq-infotop">
+                <td><b>小说分类：</b>{{or .category "小说"}}</td>
+                <td><b>小说状态：</b>{{statusLabel (str .status)}}</td>
+                <td><b>全文字数：</b>{{fmtWords .wordCount}}</td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="xq-option">
+            <span class="xq-btopt"><a href="{{$.PrimaryBookHref}}"><span>查看书籍详情</span></a></span>
+            <span class="xq-txtopt"><a href="{{tocHref (str .id) (num .num) $.SiteID}}"><span>章节目录</span></a></span>
+          </div>
+        </div>
+        <div class="xq-clear"></div>
+      </div>
+    </div>
+    {{end}}
+  </div>
+  <div class="xq-novelslistss">
+    <h2>其他相关书籍</h2>
+    {{if .Others}}
+    <ul>
+      {{range .Others}}
+      <li title="{{.name}}/{{.author}}">
+        <span class="xq-s1">[{{or .category "小说"}}]</span>
+        <span class="xq-s2"><a href="{{bookHref (str .id) (num .num) $.SiteID}}" title="{{.name}}">{{.name}}</a></span>
+        <span class="xq-s3">{{.author}}</span>
+        <span class="xq-s4">{{dateShort .updatedAt}}</span>
+      </li>
+      {{end}}
+    </ul>
+    {{else}}<div class="xq-box-con-inner">暂无相关书籍</div>{{end}}
+  </div>
+  {{if .Related}}
+  <div class="xq-place">
+    <span>相关词：</span>
+    {{range .Related}}<a href="{{viewHrefKeyword . $.SiteID}}">{{.}}</a>{{end}}
+  </div>
+  {{end}}
+</div>
+{{end}}

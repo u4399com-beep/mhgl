@@ -1,0 +1,30 @@
+{{define "content"}}{{/* x33yq 全本·完本页: .MessageDiv 提示条 + .novelslistss 行式书目(s1-s4) + .articlepage 分页 */}}
+<div id="xq-main">
+  <div class="xq-MessageDiv"><b>提示：本页为完本小说大全， 推荐使用Ctrl+F 来查找小说。</b></div>
+  <div class="xq-novelslistss">
+    <h2>完本小说大全列表</h2>
+    {{if .Books}}
+    <ul>
+      {{range .Books}}
+      <li title="{{.name}}/{{.author}}">
+        <span class="xq-s1">[{{or .category "小说"}}]</span>
+        <span class="xq-s2"><a href="{{bookHref (str .id) (num .num) $.SiteID}}" title="{{.name}}">{{.name}}</a></span>
+        <span class="xq-s3">{{.author}}</span>
+        <span class="xq-s4">{{dateDay .updatedAt}}</span>
+      </li>
+      {{end}}
+    </ul>
+    {{else}}<div class="xq-box-con-inner">暂无完本书籍</div>{{end}}
+  </div>
+  <div class="xq-articlepage">
+    <div class="xq-pagelink" role="navigation" aria-label="分页">
+      {{with .Pager}}
+      {{if .PrevURL}}<a href="{{.PrevURL}}" rel="prev">上一页</a>{{end}}
+      <strong>{{.Page}}</strong>
+      {{if .NextURL}}<a class="xq-next" href="{{.NextURL}}" rel="next">下一页</a>{{end}}
+      <span>第 {{.Page}} / {{.TotalPages}} 页 · 共 {{.Total}} 本</span>
+      {{end}}
+    </div>
+  </div>
+</div>
+{{end}}

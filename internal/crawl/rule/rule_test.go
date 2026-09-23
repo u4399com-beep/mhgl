@@ -346,3 +346,87 @@ func TestRegexExtractAllCapped(t *testing.T) {
 		t.Fatalf("cap = %d, want 5000", len(got))
 	}
 }
+
+// ---- [R60-2c] parseBookIDNum 溢出回绕为负(与 task.parseIDInt R59-2c-batch2 同款) ----
+
+func TestParseBookIDNumOverflowClamp(t *testing.T) {
+	const clamp = int64(1) << 62
+	cases := []struct {
+		in   string
+		want int64
+		ok   bool
+	}{
+		{"123", 123, true},
+		{"", 0, false},
+		{"12a", 0, false},
+		{"-5", 0, false},
+		{"4611686018427387903", clamp - 1, true}, // 恰在界下(1<<62-1)
+		{"4611686018427387904", clamp, true},     // 恰在界(1<<62)
+		{"4611686018427387905", clamp, true},     // 界上 1
+		{"99999999999999999999", clamp, true},    // 20 位: 修后在高位乘 10 前预判钳制
+		{"10000000000000000000", clamp, true},    // 20 位回绕形态: 修前 → -8446744073709551616
+		{"10000000000000000001", clamp, true},    // 20 位回绕+1: 修前与上一条跨度=2 绕过跨度校验
+	}
+	for _, c := range cases {
+		got, ok := parseBookIDNum(c.in)
+		if got != c.want || ok != c.ok {
+			t.Errorf("parseBookIDNum(%q) = (%d, %v), want (%d, %v)", c.in, got, ok, c.want, c.ok)
+		}
+	}
+}
+
+// ---- [R60-2c] expandReplaceTo TS GetSubstitution 对齐: $0 字面量/未参与组空串 ----
+
+func TestExpandReplaceToGroupSemantics(t *testing.T) {
+	// $0 恒为字面量(JS 特殊替换仅认 $1~$9/$01~$99; 修前误展为全匹配)
+	if got := safeReplaceAll("abc", "b", "[$0]"); got != "a[$0]c" {
+		t.Fatalf("$0 = %q, want a[$0]c", got)
+	}
+	// 组存在但未参与匹配 → 空串(TS: n≤m 且 capture undefined → empty; 修前字面 "$1" 泄漏)
+	if got := safeReplaceAll("abc", "(x)?b", "<$1>"); got != "a<>c" {
+		t.Fatalf("unset group $1 = %q, want a<>c", got)
+	}
+	// 两位组号未参与 → 空串(TS: nn≤m 且 undefined → empty; 修前回退 $1+字面);
+	// 匹配外尾字 "c" 原样保留(替换面仅匹配区段)
+	if got := safeReplaceAll("abc", "(a)(x)?b", "$1$2"); got != "ac" {
+		t.Fatalf("two-digit unset group = %q, want ac", got)
+	}
+	// 组号超出模式组数 → 字面量保留(既有语义回归)
+	if got := safeReplaceAll("abc", "b", "$9"); got != "a$9c" {
+		t.Fatalf("out-of-range group = %q, want a$9c", got)
+	}
+	// 参与组回归: 既有 $&/$1/组交换语义不变
+	if got := safeReplaceAll("abc", "(a)(b)", "$2$1"); got != "bac" {
+		t.Fatalf("group swap regression = %q", got)
+	}
+}
+
+// ---- [R60-2c] regexExtract/regexExtractAll TS m[group] ?? m[0] 语义: 参与空串组 → 空串 ----
+
+func TestRegexExtractParticipatingEmptyGroup(t *testing.T) {
+	// 参与且空串: 修前 m[group]=="" 与"未参与"不可分 → 回退 m[0] 把整匹配当字段值注入;
+	// 修后与 TS 一致返回空串(字段缺失, 由调用方跳过)
+	rule := &FieldRule{Type: "regex", Expression: `首发(?:于)?([a-z.]*)`}
+	if got := regexExtract("首发于", rule); got != "" {
+		t.Fatalf("participating-empty group = %q, want \"\"", got)
+	}
+	// 同形态非空匹配回归: 正常取组 1
+	if got := regexExtract("首发于abc.com", rule); got != "abc.com" {
+		t.Fatalf("normal group = %q, want abc.com", got)
+	}
+	// 未参与组(可选组未命中) → m[0](TS m[1]=undefined → m[0]; m[0]=整正则匹配 "作者：")
+	rule2 := &FieldRule{Type: "regex", Expression: `作者[：:](?:([^<]+)<[^>]+>)?`}
+	if got := regexExtract("作者：张三", rule2); got != "作者：" {
+		t.Fatalf("unset group fallback m[0] = %q, want 作者：", got)
+	}
+	// regexExtractAll 同语义: 参与空串 → ""(位置仍在, 保序)
+	all := regexExtractAll("首发于1首发于abc.com", &FieldRule{Type: "regex", Expression: `首发(?:于)?([a-z.]*)`, Flags: "g"})
+	if len(all) != 2 || all[0] != "" || all[1] != "abc.com" {
+		t.Fatalf("regexExtractAll = %v, want [\"\" abc.com]", all)
+	}
+	// attr=组号且该组未参与 → m[0] 兜底(既有语义回归; "ac": (a) 命中, (x)? 空, c 命中)
+	rule3 := &FieldRule{Type: "regex", Expression: `(a)(x)?c`, Attr: "2"}
+	if got := regexExtract("ac", rule3); got != "ac" {
+		t.Fatalf("attr unset group = %q, want ac", got)
+	}
+}

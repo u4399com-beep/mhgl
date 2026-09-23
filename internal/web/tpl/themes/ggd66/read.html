@@ -1,0 +1,59 @@
+{{define "content"}}{{/* ggd66 阅读页: 面包屑 + 米黄纸面 #FBF4EC(.readpanel: 字号/背景/字色控件 + 章节名 + 正文 + 返回顶部) + 三钮翻章 + 相关阅读 */}}
+<div class="ggd-catpage ggd-read">
+  <ol class="ggd-crumb">
+    <li><a href="{{.HomeHref}}">首页</a></li>
+    <li><a href="{{.BookHref}}">{{.Book.name}}</a></li>
+    <li class="is-active">{{.Chapter.title}}</li>
+  </ol>
+  <div class="ggd-box ggd-read-outer">
+    <div data-page="read" data-book-id="{{.Book.id}}" data-chapter-id="{{.Chapter.id}}" data-chapter-title="{{.Chapter.title}}">
+      <div class="ggd-readpanel">
+        <div class="ggd-text-set" role="group" aria-label="阅读设置">
+          <b>字号：</b>
+          <a class="ajx-s ggd-fs" href="javascript:void(0)" data-fs="16">16px</a>
+          <a class="ajx-s ggd-fs" href="javascript:void(0)" data-fs="20">20px</a>
+          <a class="ajx-s ggd-fs" href="javascript:void(0)" data-fs="24">24px</a>
+          <b>背景：</b>
+          <span role="group" aria-label="背景色">
+            <a class="ajx-c ggd-c" style="background:#fbf4ec" href="javascript:void(0)" data-bg="#fbf4ec" aria-label="背景 米黄"></a>
+            <a class="ajx-c ggd-c" style="background:#ffffff" href="javascript:void(0)" data-bg="#ffffff" aria-label="背景 白"></a>
+            <a class="ajx-c ggd-c" style="background:#f2e8c8" href="javascript:void(0)" data-bg="#f2e8c8" aria-label="背景 护眼"></a>
+            <a class="ajx-c ggd-c" style="background:#e3efe3" href="javascript:void(0)" data-bg="#e3efe3" aria-label="背景 淡绿"></a>
+            <a class="ajx-c ggd-c" style="background:#222222" href="javascript:void(0)" data-bg="#222222" aria-label="背景 夜间"></a>
+          </span>
+          <b>字色：</b>
+          <span class="ajx-ys" role="group" aria-label="字体颜色">
+            <a href="javascript:void(0)" data-ink="#333333" style="color:#333333">黑</a>
+            <a href="javascript:void(0)" data-ink="#555555" style="color:#555555">灰</a>
+            <a href="javascript:void(0)" data-ink="#00886d" style="color:#00886d">绿</a>
+          </span>
+        </div>
+        <h1 class="ggd-readtitle">{{.Chapter.title}}</h1>
+        <div class="ggd-readmeta">{{.Book.name}} · {{.Book.author}}</div>
+        <div class="ggd-readcontent">
+          {{if .Chapter.content}}
+          <div id="view_content_txt" class="ggd-read-txt">{{readHTML (str .Chapter.content)}}</div>
+          {{else}}
+          <div id="view_content_txt" class="ggd-read-txt"><div class="ggd-none">本章内容尚未采集, 请稍后再来或返回目录阅读其他章节。</div></div>
+          {{end}}
+        </div>
+        <div class="ggd-backtop"><a href="#top" onclick="window.scrollTo({top:0,behavior:'smooth'});return false">↑返回顶部↑</a></div>
+      </div>
+      <nav class="ggd-readnav" aria-label="章节导航">
+        {{if .PrevHref}}<a class="ggd-navbtn" id="ajx-prev" href="{{.PrevHref}}" rel="prev">上一章</a>{{else}}<span class="ggd-navbtn is-disabled" id="ajx-prev" aria-disabled="true">上一章</span>{{end}}
+        <a class="ggd-navbtn" href="{{.BookHref}}">书页·目录</a>
+        {{if .NextHref}}<a class="ggd-navbtn" id="ajx-next" href="{{.NextHref}}" rel="next">下一章</a>{{else}}<span class="ggd-navbtn is-disabled" id="ajx-next" aria-disabled="true">下一章</span>{{end}}
+      </nav>
+      <p class="ggd-readhint">温馨提示：按 ←键 返回上一章，按 →键 进入下一章</p>
+    </div>
+  </div>
+  {{if .Recs}}
+  <div class="ggd-box">
+    <p class="ggd-tuijian">
+      <span class="ggd-tj-label">相关阅读：</span>
+      {{range .Recs}}<a href="{{bookHref (str .id) (num .num) $.SiteID}}" title="{{.name}}">{{.name}}</a>{{end}}
+    </p>
+  </div>
+  {{end}}
+</div>
+{{end}}

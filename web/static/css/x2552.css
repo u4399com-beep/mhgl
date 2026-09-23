@@ -216,3 +216,10 @@
   .clone-x2552 .x2-chgrid{grid-template-columns:1fr 1fr}
   .clone-x2552 .x2-book-cov{margin-left:0}
 }
+
+/* ---- R60 裸奔类补齐(主控核收) ---- */
+.clone-x2552 .x2-ft-links{text-align:center;color:#aaa;font-size:12px;padding:12px 0 18px;border-top:1px solid #e8e8e8;margin-top:20px}
+.clone-x2552 .x2-ft-links a{color:#2f468f;margin:0 5px}
+.clone-x2552 .x2-read-dl{margin:0 0 10px;padding:10px 14px;background:#f7f9ff;border:1px solid #dfe6f5;border-radius:2px;font-size:12px}
+.clone-x2552 .x2-read-dl dt{color:#8a94b8;font-weight:700}
+.clone-x2552 .x2-read-dl dd{margin:4px 0 0;color:#666}

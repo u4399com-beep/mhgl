@@ -1,0 +1,28 @@
+{{define "content"}}{{/* ggd66 目录页: 面包屑 + 双栏章节列表 + .pages 分页 */}}
+<div class="ggd-catpage">
+  <ol class="ggd-crumb">
+    <li><a href="{{.HomeHref}}">首页</a></li>
+    <li><a href="{{.BookHref}}">{{.Book.name}}</a></li>
+    <li class="is-active">目录</li>
+  </ol>
+  <div class="ggd-box ggd-toc-body">
+    <h2>{{.Book.name}} 完整目录</h2>
+    <div class="ggd-chlist ggd-toc-chlist">
+      {{if .Chapters}}
+      <ul>
+        {{range .Chapters}}<li><a href="{{chapterHref (str .id) (num $.Book.num) (num .idx) $.SiteID}}" title="{{.title}}">{{.title}}</a></li>{{end}}
+      </ul>
+      {{else}}<p class="ggd-none">目录暂未收录, 请稍后再来</p>{{end}}
+      <div class="ggd-clear"></div>
+    </div>
+    <div class="ggd-pages">
+      {{with .Pager}}
+      {{if .PrevURL}}<a href="{{.PrevURL}}" rel="prev">上一页</a>{{end}}
+      <span>第 {{.Page}} / {{.TotalPages}} 页</span>
+      {{if .NextURL}}<a href="{{.NextURL}}" rel="next">下一页</a>{{end}}
+      {{end}}
+      <a href="{{.BookHref}}">返回书页</a>
+    </div>
+  </div>
+</div>
+{{end}}

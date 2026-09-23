@@ -207,3 +207,6 @@
   .clone-kks101 .kks-imgbox{width:80px;height:107px}
   .clone-kks101 .kks-quick ul li{flex:1 1 40%;border-bottom:1px solid #f2f2f2}
 }
+
+/* ---- R60 裸奔类补齐(主控核收) ---- */
+.clone-kks101 .kks-home,.clone-kks101 .kks-full,.clone-kks101 .kks-keyword,.clone-kks101 .kks-ranking,.clone-kks101 .kks-pseo{display:block;margin-bottom:14px}

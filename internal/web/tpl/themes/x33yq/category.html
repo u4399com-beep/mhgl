@@ -1,0 +1,42 @@
+{{define "content"}}{{/* x33yq 分类页: #alist h3 {CatName}小说列表 + alistbox 图文行(封面 115×160 + title/sys/intro/yuedu) + .articlepage 分页 */}}
+<div id="xq-main">
+  <div id="xq-conn">
+    <div id="xq-hotcontent">
+      <div class="xq-l">
+        <div class="xq-alist">
+          <h3 class="xq-alist-h3">{{.CatName}}小说列表</h3>
+          {{if .Books}}
+          <div class="xq-alist-body">
+            {{range .Books}}
+            <div class="xq-alistbox">
+              <a class="xq-pic" href="{{bookHref (str .id) (num .num) $.SiteID}}" aria-label="{{.name}}">
+                <span class="xq-cover xq-cover-al">{{if .cover}}<img src="{{coverURL (str .cover)}}" alt="{{.name}} 封面" loading="lazy" onerror="this.remove()">{{end}}<span class="xq-cover-ph">{{.name}}</span></span>
+              </a>
+              <div class="xq-info">
+                <div class="xq-title"><a href="{{bookHref (str .id) (num .num) $.SiteID}}" title="{{.name}}">《{{.name}}》</a><span>作者：{{.author}}</span></div>
+                <div class="xq-sys">最新更新：<a href="{{bookHref (str .id) (num .num) $.SiteID}}">{{or .latestChapter "暂无章节"}}</a> · {{or .category "小说"}} · {{fmtWords .wordCount}} · {{statusLabel (str .status)}}</div>
+                <div class="xq-intro-list">{{if .intro}}{{excerpt .intro 88}}{{else}}暂无简介{{end}}</div>
+                <div class="xq-yuedu"><a href="{{bookHref (str .id) (num .num) $.SiteID}}">开始阅读</a></div>
+              </div>
+              <div class="xq-clear"></div>
+            </div>
+            {{end}}
+            <div class="xq-clear"></div>
+          </div>
+          {{else}}<div class="xq-box-con-inner">暂无相关书籍</div>{{end}}
+          <div class="xq-articlepage">
+            <div class="xq-pagelink" role="navigation" aria-label="分页">
+              {{with .Pager}}
+              {{if .PrevURL}}<a href="{{.PrevURL}}" rel="prev">上一页</a>{{end}}
+              <strong>{{.Page}}</strong>
+              {{if .NextURL}}<a class="xq-next" href="{{.NextURL}}" rel="next">下一页</a>{{end}}
+              <span>第 {{.Page}} / {{.TotalPages}} 页 · 共 {{.Total}} 本</span>
+              {{end}}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{{end}}

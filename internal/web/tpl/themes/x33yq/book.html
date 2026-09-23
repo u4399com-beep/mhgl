@@ -1,0 +1,90 @@
+{{define "content"}}{{/* x33yq 书页: .ui-box 面包屑 + detail-cols(box_intro 封面+表格信息+动作钮 + play-list 最新章节 + wudu-bar 热门点击) + comment 大神还喜欢封面墙 */}}
+<div id="xq-main">
+  <div class="xq-ui-box">
+    <div class="xq-bread-crumb-nav">
+      <ul class="xq-bread-crumbs">
+        <li class="xq-home"><a href="{{.HomeHref}}">{{siteTitle .Site}}</a> &gt;<a href="{{catIDHref (str .Book.categoryId) .SiteID}}">{{or .Book.category "小说"}}</a> &gt;<em>{{.Book.name}}</em></li>
+      </ul>
+    </div>
+    <div class="xq-detail-cols">
+      <div class="xq-bg6">
+        <div class="xq-box-intro">
+          <div class="xq-pic">
+            <span class="xq-cover xq-cover-bk">{{if .Book.cover}}<img src="{{coverURL (str .Book.cover)}}" alt="{{.Book.name}} 封面" onerror="this.remove()">{{end}}<span class="xq-cover-ph">{{.Book.name}}</span></span>
+          </div>
+          <div class="xq-box-info">
+            <table class="xq-ui-tb1">
+              <tbody>
+                <tr><td colspan="3"><h1 class="xq-f21h">{{.Book.name}}<em>作者:{{.Book.author}}</em></h1></td></tr>
+                <tr><td colspan="3"><div class="xq-intro">{{if .Book.intro}}{{.Book.intro}}{{else}}暂无简介{{end}}</div></td></tr>
+                <tr class="xq-infotop">
+                  <td><b>小说分类：</b><a href="{{catIDHref (str .Book.categoryId) .SiteID}}">{{or .Book.category "小说"}}</a></td>
+                  <td><b>小说状态：</b>{{statusLabel (str .Book.status)}}</td>
+                  <td><b>全文字数：</b>{{fmtWords .Book.wordCount}}</td>
+                </tr>
+                <tr>
+                  <td colspan="2"><b>更新时间：</b>{{dateDay .Book.updatedAt}}</td>
+                  <td><b>最新连载：</b>{{or .Book.latestChapter "暂无"}}</td>
+                </tr>
+              </tbody>
+            </table>
+            <div class="xq-option">
+              <span class="xq-btopt">{{if .ReadFirstHref}}<a href="{{.ReadFirstHref}}"><span>开始阅读</span></a>{{end}}</span>
+              <span class="xq-txtopt"><a href="{{.TocHref}}"><span>完整目录</span></a></span>
+              <span class="xq-txtopt"><a href="/api/public/download?book={{qesc (str .Book.id)}}" target="_blank" rel="noreferrer"><span>TXT下载</span></a></span>
+            </div>
+          </div>
+          <div class="xq-clear"></div>
+        </div>
+        <div class="xq-play-list-box">
+          <div class="xq-caption">
+            <h4><strong>《{{.Book.name}}》已更新到</strong></h4>
+            <div class="xq-txt">{{if .LatestChapters}}<a href="{{with index .LatestChapters 0}}{{chapterHref (str .id) (num $.Book.num) (num .idx) $.SiteID}}{{end}}">{{with index .LatestChapters 0}}{{.title}}{{end}}</a>{{else}}暂无{{end}}</div>
+          </div>
+          <div class="xq-play-content">
+            {{if .LatestChapters}}
+            <div class="xq-play-list">
+              {{range .LatestChapters}}<div><a href="{{chapterHref (str .id) (num $.Book.num) (num .idx) $.SiteID}}" title="{{.title}}">{{.title}}</a></div>{{end}}
+            </div>
+            {{else}}<div class="xq-box-con-inner">暂无章节</div>{{end}}
+            <div class="xq-clear"></div>
+          </div>
+        </div>
+      </div>
+      <div class="xq-wudu-bar">
+        <div class="xq-ui-title1"><h2>热门点击<em>Categories New</em></h2></div>
+        <div class="xq-ui-ranking">
+          <ul class="xq-ranking-list">
+            {{if .SideRank}}
+            {{range .SideRank}}
+            <li><a href="{{bookHref (str .id) (num .num) $.SiteID}}" title="{{.name}}">{{.name}}</a><span>({{dateShort .updatedAt}})</span></li>
+            {{end}}
+            {{else}}<li><span class="xq-box-con-inner">暂无数据</span></li>{{end}}
+          </ul>
+        </div>
+      </div>
+      <div class="xq-clear"></div>
+    </div>
+  </div>
+  {{if .Recs}}
+  <div class="xq-ui-box" id="xq-comment">
+    <div class="xq-ui-title"><h2>看《{{.Book.name}}》的大神还喜欢</h2></div>
+    <div id="xq-like-focus">
+      <ul class="xq-img-list">
+        {{range .Recs}}
+        <li>
+          <a class="xq-play-img" href="{{bookHref (str .id) (num .num) $.SiteID}}" aria-label="{{.name}}">
+            <span class="xq-cover xq-cover-li">{{if .cover}}<img src="{{coverURL (str .cover)}}" alt="{{.name}} 封面" loading="lazy" onerror="this.remove()">{{end}}<span class="xq-cover-ph">{{.name}}</span></span>
+            <span class="xq-mask" aria-hidden="true"></span>
+            <span class="xq-text">{{.author}}</span>
+          </a>
+          <h5><a class="xq-play-a" href="{{bookHref (str .id) (num .num) $.SiteID}}">{{.name}}</a></h5>
+        </li>
+        {{end}}
+      </ul>
+      <div class="xq-clear"></div>
+    </div>
+  </div>
+  {{end}}
+</div>
+{{end}}

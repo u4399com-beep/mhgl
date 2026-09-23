@@ -1,16 +1,13 @@
 {
-  "name": "nextjs_tailwind_shadcn_ts",
+  "name": "mhgl",
   "version": "0.2.1",
   "private": true,
   "scripts": {
     "dev": "bash scripts/dev-go.sh",
-    "build": "next build && cp -r .next/static .next/standalone/.next/ && cp -r public .next/standalone/",
-    "start": "NODE_ENV=production bun .next/standalone/server.js 2>&1 | tee server.log",
-    "lint": "eslint .",
-    "db:push": "prisma db push",
-    "db:generate": "prisma generate",
-    "db:migrate": "prisma migrate dev",
-    "db:reset": "prisma migrate reset"
+    "build": "go build -o .build/mhgl ./cmd/server",
+    "start": ".build/mhgl",
+    "lint": "go vet ./...",
+    "bootstrap": "bun run scripts/bootstrap-db.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.11.1",

@@ -35,6 +35,9 @@ type Deps struct {
 // Register 挂载全部 API 路由。
 // 健康检查独立于鉴权(探活)。
 func Register(mux *http.ServeMux, d Deps) {
+	// R60-2b: pseoAutoGenerate 消费缝(书籍入库钩子; 开关关闭时零行为)
+	d.initPseoAutoGenerate()
+
 	// ---- 鉴权(公开) ----
 	mux.HandleFunc("POST /api/auth/login", d.handleLogin)
 	mux.HandleFunc("POST /api/auth/logout", d.handleLogout)
@@ -110,6 +113,7 @@ func Register(mux *http.ServeMux, d Deps) {
 	mux.HandleFunc("GET /api/admin/feedback/{id}", admin(d.adminFeedbackDetail))
 	mux.HandleFunc("PUT /api/admin/feedback/{id}", admin(d.adminFeedbackUpdate))
 	mux.HandleFunc("PATCH /api/admin/feedback/{id}", admin(d.adminFeedbackUpdate))
+	mux.HandleFunc("POST /api/admin/feedback/{id}/process", admin(d.adminFeedbackProcess)) // R60-2b 标记已处理
 	mux.HandleFunc("DELETE /api/admin/feedback/{id}", admin(d.adminFeedbackDelete))
 
 	// ---- admin: 下载 ----
@@ -166,4 +170,7 @@ func Register(mux *http.ServeMux, d Deps) {
 	mux.HandleFunc("POST /api/public/feedback", d.publicFeedbackPost)
 	mux.HandleFunc("GET /api/public/feedback", d.publicFeedbackGet)
 	mux.HandleFunc("GET /api/public/sitemap", d.publicSitemap)
+
+	// ---- public: 独立反馈页(R60-2b, API 直出最小 HTML, 不进主题模板集; 字面路由优先级高于 web 层兜底 404) ----
+	mux.HandleFunc("GET /feedback", d.publicFeedbackPage)
 }

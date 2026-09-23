@@ -1,0 +1,26 @@
+{{define "content"}}{{/* x33yq PSEO 落地页: ui-box 专题头 + novelslistss 行式书目 */}}
+<div id="xq-main">
+  <div class="xq-ui-box">
+    <div class="xq-ui-title"><h2>{{.Heading}} - 关键词专题</h2></div>
+    <div class="xq-pseo-desc">
+      <p>{{if .Row.description}}{{.Row.description}}{{else}}{{.Row.keyword}} — {{.SiteName}}聚合相关小说资源, 提供全文免费在线阅读。{{end}}</p>
+      {{with .Primary}}<p>主打作品《{{.name}}》由 {{.author}} 创作{{if .intro}}，简介：{{excerpt .intro 120}}{{end}}。</p>{{end}}
+    </div>
+  </div>
+  <div class="xq-novelslistss">
+    <h2>相关书籍推荐</h2>
+    {{if .BookViews}}
+    <ul>
+      {{range .BookViews}}
+      <li title="{{.Book.name}}/{{.Book.author}}">
+        <span class="xq-s1">[{{or .Book.category "小说"}}]</span>
+        <span class="xq-s2"><a href="{{.BookHref}}" title="{{.Book.name}}">{{.Book.name}}</a></span>
+        <span class="xq-s3">{{.Book.author}}</span>
+        <span class="xq-s4"><a href="{{.TocHref}}">目录</a></span>
+      </li>
+      {{end}}
+    </ul>
+    {{else}}<div class="xq-box-con-inner">暂无相关书籍数据</div>{{end}}
+  </div>
+</div>
+{{end}}

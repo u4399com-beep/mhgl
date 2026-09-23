@@ -1,0 +1,24 @@
+{{define "content"}}{{/* ggd66 PSEO 落地页: 专题头 + 行式书目列表 */}}
+<div class="ggd-catpage">
+  <div class="ggd-box">
+    <h2>{{.Heading}} - 关键词专题</h2>
+    <p class="ggd-hist-desc">{{if .Row.description}}{{.Row.description}}{{else}}{{.Row.keyword}} — {{.SiteName}}聚合相关小说资源, 提供全文免费在线阅读。{{end}}</p>
+    {{with .Primary}}<p class="ggd-hist-desc">主打作品《{{.name}}》由 {{.author}} 创作{{if .intro}}，简介：{{excerpt .intro 120}}{{end}}。</p>{{end}}
+  </div>
+  <div class="ggd-box">
+    <h2>相关书籍推荐</h2>
+    {{if .BookViews}}
+    <ul class="ggd-catlist">
+      {{range .BookViews}}
+      <li>
+        <span class="ggd-cat-tag">[{{or .Book.category "小说"}}]</span>
+        <a href="{{.BookHref}}" title="{{.Book.name}}">{{.Book.name}}</a>
+        <span class="ggd-li-author">{{.Book.author}}</span>
+        <span class="ggd-li-author"><a href="{{.TocHref}}">目录</a></span>
+      </li>
+      {{end}}
+    </ul>
+    {{else}}<p class="ggd-none">暂无相关书籍数据</p>{{end}}
+  </div>
+</div>
+{{end}}

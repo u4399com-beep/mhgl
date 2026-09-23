@@ -1,0 +1,215 @@
+/* ============================================================
+   qb23(铅笔小说 www.23qb.net) 主题样式 — 1:1 对照 src/components/public/sites/Qb23Home.tsx + qb23/*.tsx
+   真站实测色板(mxstatic/css/style.css, mxone 模板): 主红 #ff2a14 / 文字 #282828
+   chip 底 #f3f5f7 hover #eaedf1 / 选中 #fef0e5+#ff2a14+700 / 边 #eaedf1
+   白卡投影 0 7px 21px rgba(149,157,165,.22) / 圆角 18px(卡) 5px(封面) 50px(页码钮)
+   序号角标 top1 #e50914 / top2 #f73 / top3 #ffa82e / 其余 #9e9e9e(Impact 30px 白字)
+   榜单序号 01 #fc4274 / 02 #ff8155 / 03 #fcb80a / 其余 #b0b0b0; 栏头 #ECEEF1
+   页脚 #f3f5f7 字 rgba(0,0,0,.51)
+   [R60-2a] 移植: 13 页全量 + 移动端 767px 断点(≤559 榜单单列隐藏 caption 对齐真站)
+   ============================================================ */
+body.clone-qb23{margin:0;color:#282828;background:#f4f6f5;font:15px/1.6 "PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif}
+body.clone-qb23 a{color:#282828;text-decoration:none}
+body.clone-qb23 a:hover{color:#ff2a14}
+body.clone-qb23 h1,body.clone-qb23 h2,body.clone-qb23 h3,body.clone-qb23 p,body.clone-qb23 ul,body.clone-qb23 ol,body.clone-qb23 li{margin:0;padding:0}
+body.clone-qb23 ul,body.clone-qb23 ol{list-style:none}
+.qb-clear{clear:both}
+
+/* ---------- 头部(暗底 #282828 大搜索) ---------- */
+.qb-header{background:#282828}
+.qb-header-in{max-width:1150px;margin:0 auto;padding:12px 16px 0}
+.qb-nav-search{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+.qb-logo{color:#fff;font-size:22px;font-weight:700;letter-spacing:.04em}
+.qb-logo:hover{color:#fff}
+.qb-search-dh{display:flex;flex:1;min-width:220px;max-width:560px;height:40px;overflow:hidden;border-radius:50px;background:#fff}
+.qb-search-dh input{flex:1;min-width:0;border:none;outline:none;padding:0 18px;font-size:14px;color:#282828}
+.qb-search-dh button{border:none;cursor:pointer;padding:0 20px;font-size:14px;color:#fff;background:#ff2a14}
+.qb-search-dh button:hover{background:#e52612}
+.qb-search-cupfox{display:inline-flex;align-items:center;height:40px;padding:0 6px;color:rgba(255,255,255,.72);font-size:14px}
+.qb-search-cupfox:hover{color:#fff}
+.qb-nav{margin-top:10px}
+.qb-nav-items{display:flex;flex-wrap:wrap;gap:2px}
+.qb-nav-item a{position:relative;display:block;padding:9px 13px;color:rgba(255,255,255,.82);font-size:15px}
+.qb-nav-item a:hover{color:#fff}
+.qb-nav-item.qb-selected a{color:#fff;font-weight:600}
+.qb-nav-item.qb-selected a:after{content:"";position:absolute;left:13px;right:13px;bottom:0;height:3px;border-radius:2px;background:linear-gradient(90deg,#ff9800,#ff2a14)}
+.qb-nav-item a span{display:inline-block;max-width:6em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* ---------- 4 字分类导航条 ---------- */
+.qb-catbar{background:#fff;border-bottom:1px solid #eaedf1}
+.qb-catbar-in{max-width:1150px;margin:0 auto;padding:4px 16px;display:flex;flex-wrap:wrap;gap:2px}
+.qb-catbar-in a{padding:7px 11px;border-radius:10px;font-size:14px;color:rgba(0,0,0,.68)}
+.qb-catbar-in a:hover{background:#f3f5f7}
+.qb-catbar-in a.is-active{background:#fef0e5;color:#ff2a14;font-weight:700}
+
+/* ---------- 版心与白卡 ---------- */
+.qb-wrapper{min-height:56vh}
+.qb-content{max-width:1150px;margin:0 auto;padding:14px 16px 40px}
+.qb-list{max-width:100%}
+.qb-box{background:#fff;border-radius:18px;padding:18px;box-shadow:0 7px 21px rgba(149,157,165,.22);margin-bottom:14px}
+.qb-blocktitle{margin:4px 0 14px;font-size:19px;font-weight:600;color:rgba(7,7,10,.92)}
+.qb-blocktitle small{margin-left:8px;font-size:13px;font-weight:400;color:rgba(0,0,0,.4)}
+.qb-none{padding:18px 0;text-align:center;font-size:14px;color:rgba(0,0,0,.4)}
+.qb-desc{padding:2px 0 8px;font-size:14px;line-height:1.8;color:rgba(0,0,0,.62)}
+
+/* ---------- 封面卡(module-item) ---------- */
+.qb-module{display:grid;gap:14px}
+.qb-hot-grid{grid-template-columns:repeat(5,1fr)}
+.qb-cat-grid{grid-template-columns:repeat(5,1fr)}
+.qb-rec-grid{grid-template-columns:repeat(5,1fr)}
+.qb-module-item{min-width:0}
+.qb-module-item-cover{position:relative;display:block;width:100%;padding-top:140%;border-radius:5px;overflow:hidden;background:#eee}
+.qb-module-item-pic{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
+.qb-pic-ph{display:flex;align-items:center;justify-content:center;padding:6px;background:linear-gradient(135deg,#ff2a14,#ff9800);color:#fff;font-size:14px;font-weight:600;line-height:1.5;text-align:center}
+.qb-item-top{position:absolute;left:0;top:0;z-index:2;display:block;width:46px;height:42px;overflow:hidden;border-radius:8px}
+.qb-top-corner{position:absolute;left:-26px;top:-26px;display:block;width:56px;height:56px;transform:rotate(45deg);border-radius:12px;background:#9e9e9e}
+.qb-top-1 .qb-top-corner,.qb-top-corner.qb-top-1{background:#e50914}
+.qb-top-corner.qb-top-2{background:#f73}
+.qb-top-corner.qb-top-3{background:#ffa82e}
+.qb-top-corner.qb-top-rest{background:#9e9e9e}
+.qb-top-num{position:absolute;left:8px;top:0;font:700 30px/40px Impact,"system-ui","Helvetica Neue",sans-serif;color:#fff;text-indent:2px;text-shadow:1px 1px 0 rgba(0,0,0,.1)}
+.qb-item-caption{position:absolute;left:0;right:0;bottom:0;z-index:1;display:flex;align-items:center;height:44px;padding:0 12px;gap:5px;background:linear-gradient(0deg,rgba(0,0,0,.68),transparent)}
+.qb-item-caption em{max-width:84px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border-radius:5px;background:rgba(0,0,0,.5);padding:0 5px;font-size:12px;font-style:normal;line-height:20px;color:#c2c6d0}
+.qb-module-item-titlebox{margin-top:12px;text-align:center}
+.qb-module-item-title{display:block;width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;font-weight:700;color:#282828}
+.qb-module-item-title:hover{color:#ff2a14}
+.qb-module-item-text{margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:center;font-size:13px;color:rgba(0,0,0,.4)}
+
+/* ---------- 首页榜单列(.list-item) ---------- */
+.qb-rankcols{display:grid;grid-template-columns:repeat(4,1fr);gap:22px}
+.qb-list-item{border:1px solid #f5f5f5;border-radius:4px;overflow:hidden;background:#fff}
+.qb-item-title{display:flex;align-items:center;height:56px;background:#ECEEF1;font-size:19px;font-weight:400;color:#282828;padding-right:10px}
+.qb-item-title span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.qb-flame{margin:0 8px 0 20px;color:#ff2a14;font-size:17px}
+.qb-rank-list li a{display:flex;align-items:center;overflow:hidden;padding:12px 12px 12px 0;font-size:15px;line-height:1.1}
+.qb-rank-no{flex:0 0 34px;margin-right:14px;padding-left:18px;text-align:right;font-weight:700;color:#b0b0b0;font-variant-numeric:tabular-nums}
+.qb-rank-top:nth-child(1),.qb-rank-list li:first-child .qb-rank-no{color:#fc4274}
+.qb-rank-list li:nth-child(2) .qb-rank-no{color:#ff8155}
+.qb-rank-list li:nth-child(3) .qb-rank-no{color:#fcb80a}
+.qb-rank-name{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#282828}
+.qb-rank-list li a:hover .qb-rank-name{color:#ff2a14}
+
+/* ---------- 分类页筛选行(library-item) ---------- */
+.qb-filter-row{display:flex;align-items:flex-start;gap:8px;border-top:1px solid #f3f5f7;padding-top:10px;margin-top:10px}
+.qb-filter-row:first-of-type{border-top:none;margin-top:0;padding-top:0}
+.qb-filter-label{flex:0 0 auto;margin-right:4px;line-height:35px;font-size:14px;color:#ff2a14}
+.qb-filter-list{display:flex;flex:1;flex-wrap:wrap;gap:4px}
+.qb-chip{display:inline-flex;align-items:center;white-space:nowrap;border-radius:10px;padding:0 20px;line-height:35px;font-size:14px;color:rgba(0,0,0,.68);background:transparent}
+a.qb-chip{cursor:pointer}
+a.qb-chip:hover{background:#f3f5f7}
+.qb-chip-on{background:#fef0e5;color:#ff2a14;font-weight:700}
+.qb-chip-lg{padding:0 18px;line-height:33px}
+.qb-library-stat{margin-top:14px;font-size:14px;color:rgba(0,0,0,.62)}
+.qb-stat-sub{margin-left:10px;color:rgba(0,0,0,.4)}
+
+/* ---------- 书页 ---------- */
+.qb-book-head{margin-bottom:6px}
+.qb-book-pic{float:left;width:150px;height:200px;border-radius:5px;overflow:hidden;background:#eee}
+.qb-book-pic img{width:100%;height:100%;object-fit:cover;display:block}
+.qb-book-ph{width:100%;height:100%;inset:auto;position:static}
+.qb-book-info{margin-left:174px}
+.qb-booktitle{font-size:24px;font-weight:700;color:#ff2a14;line-height:1.35}
+.qb-booktag{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:10px 0}
+.qb-tag{display:inline-block;border-radius:10px;padding:3px 12px;font-size:12px;color:rgba(0,0,0,.68);background:#f3f5f7}
+.qb-tag-red{display:inline-block;border-radius:10px;padding:3px 12px;font-size:12px;font-weight:600;color:#fff;background:#ff2a14}
+.qb-book-author,.qb-book-time{margin:4px 0;font-size:14px;color:rgba(0,0,0,.62)}
+.qb-bookmore{margin-top:12px;display:flex;flex-wrap:wrap;gap:8px}
+.qb-btn-primary,.qb-btn{display:inline-flex;align-items:center;justify-content:center;border-radius:50px;padding:9px 22px;font-size:14px;cursor:pointer;border:1px solid transparent}
+.qb-btn-primary{background:#ff2a14;color:#fff}
+.qb-btn-primary:hover{background:#e52612;color:#fff}
+.qb-btn{background:#f3f5f7;color:rgba(0,0,0,.68)}
+.qb-btn:hover{background:#eaedf1;color:rgba(0,0,0,.68)}
+.is-disabled{opacity:.4;cursor:not-allowed;pointer-events:none}
+.qb-book-intro{margin:12px 0;padding:12px;background:#f9f9f9;border-radius:5px;font-size:14px;line-height:1.9;color:rgba(0,0,0,.62);text-indent:2em}
+.qb-chgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px;margin-bottom:8px}
+.qb-chitem{display:block;overflow:hidden;padding:9px 12px;border-radius:5px;background:#f9f9f9;font-size:14px;color:rgba(0,0,0,.68);white-space:nowrap;text-overflow:ellipsis}
+.qb-chitem:hover{background:#fef0e5;color:#ff2a14}
+.qb-tocmore{margin:14px 0 4px;text-align:center}
+
+/* ---------- 阅读卡 ---------- */
+.qb-read-box{padding:0;overflow:hidden}
+.qb-text-set{padding:12px 18px;border-bottom:1px solid #f3f5f7;background:#f9f9f9;font-size:13px;line-height:2.1;color:rgba(0,0,0,.62)}
+.qb-text-set b{color:#ff2a14;font-weight:500;margin:0 4px}
+.qb-fs{display:inline-block;margin:0 2px;padding:1px 9px;border:1px solid #eaedf1;border-radius:10px;background:#fff;color:rgba(0,0,0,.68)}
+.qb-fs.is-active{border-color:#ff2a14;color:#ff2a14}
+.qb-c{display:inline-block;width:18px;height:18px;margin:0 2px;border:1px solid #eaedf1;border-radius:5px;vertical-align:-4px}
+.qb-c.is-active{border-color:#ff2a14;box-shadow:0 0 0 1px #ff2a14}
+.ajx-ys a{margin-right:10px;color:#282828}
+.ajx-ys a.is-active{font-weight:700;text-decoration:underline}
+.qb-read-title{padding:18px 18px 4px;text-align:center;font-size:22px;font-weight:600;color:rgba(7,7,10,.92)}
+.qb-read-info{padding-bottom:10px;text-align:center;font-size:13px;color:rgba(0,0,0,.4)}
+.qb-readcontent{padding:6px 18px 10px;border-top:1px dashed #eaedf1}
+.qb-read-txt{font-size:19px;line-height:1.9;color:#282828;letter-spacing:.02em}
+.qb-read-txt p{margin:0 0 1em}
+.qb-read-nav{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;padding:12px 18px;border-top:1px dashed #eaedf1}
+
+/* ---------- 分页/榜单 tab/标签/行列表 ---------- */
+.qb-page{padding-top:18px;text-align:center}
+.qb-pageinfo{margin-right:8px;font-size:14px;color:rgba(0,0,0,.4)}
+.qb-pagebtn{display:inline-block;min-width:40px;border-radius:50px;background:#f3f5f7;padding:0 16px;line-height:40px;margin:0 3px;font-size:14px;color:rgba(0,0,0,.68)}
+.qb-pagebtn:hover{background:#eaedf1}
+.qb-pager{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:8px;padding-top:14px;font-size:14px;color:rgba(0,0,0,.62)}
+.qb-heading{display:flex;flex-wrap:wrap;align-items:baseline;gap:14px;padding:6px 4px 12px}
+.qb-page-title{font-size:34px;font-weight:700;color:rgba(7,7,10,.92);line-height:1.25}
+.qb-heading-sub{font-size:14px;color:rgba(0,0,0,.62)}
+.qb-tabline{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px}
+.qb-ranksec{margin-bottom:20px}
+.qb-tagline{margin-top:14px;padding-top:12px;border-top:1px solid #f3f5f7;font-size:14px;line-height:2.2;color:rgba(0,0,0,.62)}
+.qb-tagline b{color:#ff2a14;margin-right:8px}
+.qb-tagline a{margin-right:10px}
+.qb-rowlist li{display:flex;align-items:center;gap:10px;padding:9px 2px;border-bottom:1px solid #f3f5f7}
+.qb-rowlist li:last-child{border-bottom:none}
+.qb-rowbadge{flex:0 0 auto;border-radius:10px;background:#f3f5f7;padding:2px 10px;font-size:12px;color:rgba(0,0,0,.62)}
+.qb-rowlist li a{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:15px;color:#282828}
+.qb-rowlist li:hover a{color:#ff2a14}
+.qb-rowmeta{flex:0 0 auto;font-size:13px;color:rgba(0,0,0,.4)}
+
+/* ---------- 404 ---------- */
+.qb-404box{text-align:center;padding:40px 16px}
+.qb-404-code{font-size:64px;font-weight:700;color:#ff2a14;line-height:1.2}
+.qb-404box .qb-page-title{font-size:26px}
+.qb-404box .qb-pager{justify-content:center}
+
+/* ---------- 页脚(#f3f5f7) ---------- */
+.qb-fsec{margin-top:8px;padding:14px 20px;background:#f3f5f7;color:rgba(0,0,0,.51);text-align:center;font-size:12px;position:relative}
+.qb-fsec:before{content:"";position:absolute;left:0;right:0;top:0;height:1px;background:#eaedf1}
+.qb-fmap{margin-bottom:4px}
+.qb-fmap a{color:rgba(0,0,0,.51)}
+.qb-fmap a:hover{color:#ff2a14}
+.qb-fsep{display:inline-block;width:1px;height:8px;margin:0 8px;border-radius:5px;background:#c2c6d0;vertical-align:middle}
+.qb-fsec p{padding:2px 0}
+
+/* ---------- 响应式(≤960 榜单 2 列 / ≤767 网格 3 列 / ≤559 榜单单列+caption 隐藏) ---------- */
+@media (max-width:960px){
+  .qb-hot-grid,.qb-cat-grid,.qb-rec-grid{grid-template-columns:repeat(4,1fr)}
+  .qb-rankcols{grid-template-columns:repeat(2,1fr)}
+}
+@media (max-width:767px){
+  .qb-header-in{padding:10px 12px 0}
+  .qb-nav-search{gap:10px}
+  .qb-search-dh{min-width:0}
+  .qb-nav-item a{padding:8px 9px;font-size:14px}
+  .qb-hot-grid,.qb-cat-grid,.qb-rec-grid{grid-template-columns:repeat(3,1fr);gap:10px}
+  .qb-item-caption{display:none}
+  .qb-module-item-titlebox{margin-top:7px}
+  .qb-module-item-title{font-weight:400}
+  .qb-book-pic{float:none;width:120px;height:160px;margin:0 auto}
+  .qb-book-info{margin-left:0;margin-top:12px}
+  .qb-chgrid{grid-template-columns:1fr}
+  .qb-read-txt{font-size:17px}
+  .qb-page-title{font-size:26px}
+  .qb-item-title{height:52px;font-size:17px}
+  .qb-flame{margin-left:12px}
+}
+@media (max-width:559px){
+  .qb-rankcols{grid-template-columns:1fr;gap:12px}
+  .qb-content{padding:10px 10px 30px}
+  .qb-box{padding:12px;border-radius:12px}
+  .qb-chip{padding:0 12px}
+  .qb-fsec{font-size:10px}
+  .qb-rank-list li a{min-height:44px}
+}
+
+/* ---- R60 裸奔类补齐(主控核收) ---- */
+body.clone-qb23 .qb-library-box{background:#fff;border:1px solid #e5e9e7;border-radius:4px;padding:12px 14px;margin-bottom:14px}
+body.clone-qb23 .qb-book-box{background:#fff;border:1px solid #e5e9e7;border-radius:4px;padding:14px 16px;margin-bottom:14px}

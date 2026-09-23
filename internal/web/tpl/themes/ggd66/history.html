@@ -1,0 +1,11 @@
+{{define "content"}}{{/* ggd66 阅读历史(localStorage 本机渲染, site.js 注入 #ajx-history-list) */}}
+<div class="ggd-catpage">
+  <div class="ggd-box">
+    <h2>阅读历史</h2>
+    <p class="ggd-hist-desc">阅读历史仅保存在本机浏览器(localStorage), 不上传服务器。</p>
+    <div id="ajx-history-empty" class="ggd-none" style="display:none">暂无阅读历史, 去首页挑一本书开始阅读吧。</div>
+    <ul class="ggd-catlist" id="ajx-history-list"></ul>
+    <p class="ggd-hist-actions"><a class="ggd-btn-info" href="{{.HomeHref}}">去逛首页</a><a class="ggd-btn-info" href="{{.SearchHref}}">搜索书籍</a></p>
+  </div>
+</div>
+{{end}}

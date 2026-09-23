@@ -1,0 +1,29 @@
+{{define "content"}}{{/* huangjinwu 搜索页: 「q」的搜索结果卡墙 + 相关词 */}}
+<div class="hjw-container">
+  <section class="hjw-section">
+    <h2 class="hjw-page-title"><span class="hjw-ico" aria-hidden="true">🔍</span>「{{.Q}}」的搜索结果{{if .Q}}<small class="hjw-title-sub">（共 {{.Total}} 本）</small>{{end}}</h2>
+    {{if .Q}}
+    {{if .Books}}
+    <div class="hjw-book-grid">
+      {{range .Books}}
+      <a class="hjw-book-card" href="{{bookHref (str .id) (num .num) $.SiteID}}">
+        <span class="hjw-book-cover">{{if .cover}}<img src="{{coverURL (str .cover)}}" alt="{{.name}} 封面" loading="lazy" onerror="this.remove()">{{end}}<span class="hjw-cover-ph">{{.name}}</span></span>
+        <span class="hjw-book-info">
+          <span class="hjw-book-title">{{.name}}</span>
+          <span class="hjw-book-author">作者：{{.author}}</span>
+          <span class="hjw-book-badges"><span class="hjw-badge hjw-badge-cat">{{or .category "小说"}}</span><span class="hjw-badge hjw-badge-words">{{fmtWords .wordCount}}</span></span>
+        </span>
+      </a>
+      {{end}}
+    </div>
+    {{else}}<div class="hjw-card hjw-none">未找到相关书籍, 换个关键词试试</div>{{end}}
+    {{else}}<div class="hjw-card hjw-none">输入书名 / 作者关键词开始搜索。</div>{{end}}
+    {{if .Tags}}
+    <div class="hjw-card hjw-tags">
+      <b>相关词：</b>
+      {{range .Tags}}<a href="{{viewHrefKeyword .tag $.SiteID}}">{{.tag}}</a>{{end}}
+    </div>
+    {{end}}
+  </section>
+</div>
+{{end}}

@@ -224,3 +224,13 @@
   .clone-pili .pli-ani-img:not(.pli-ani-img-sm){width:110px;height:146px}
 }
 .clone-pili .pli-wrap,.clone-pili .pli-home,.clone-pili .pli-cat,.clone-pili .pli-book,.clone-pili .pli-toc,.clone-pili .pli-read,.clone-pili .pli-search,.clone-pili .pli-ranking,.clone-pili .pli-full{overflow-x:hidden}
+
+/* ---- R60 裸奔类补齐(主控核收) ---- */
+.clone-pili .pli-ft-links{text-align:center;color:#999;font-size:12px;padding:14px 0 20px;border-top:1px solid #e5ddd0;margin-top:24px}
+.clone-pili .pli-ft-links a{color:#8a6d3b;margin:0 6px}
+.clone-pili .pli-read-txt{font-size:16px;line-height:2;color:#2b2118;padding:18px 22px;background:#fffdf8;border:1px solid #efe7d8;border-radius:3px;word-break:break-word}
+.clone-pili .pli-read-txt p{margin:0 0 .9em}
+.clone-pili .pli-history,.clone-pili .pli-keyword,.clone-pili .pli-pseo{width:1200px;max-width:100%;margin:0 auto 16px;background:#fff;border:1px solid #e5ddd0;border-radius:3px;padding:16px 20px;box-sizing:border-box}
+.clone-pili .pli-in-panel{padding-left:18px;list-style:decimal}
+.clone-pili .pli-in-panel li{line-height:2;border-bottom:1px dashed #efe7d8}
+.clone-pili .pli-in-panel li:last-child{border-bottom:0}

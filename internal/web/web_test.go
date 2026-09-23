@@ -7,6 +7,10 @@ package web
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"regexp"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -264,7 +268,7 @@ func kitchenSinkData() map[string]any {
 }
 
 func TestThemeTemplateSets_RenderSmoke(t *testing.T) {
-	themes := []string{defaultTheme, "pili", "shipsay", "x2552", "kks101", "trxsw", "ddyueshu"}
+	themes := []string{defaultTheme, "pili", "shipsay", "x2552", "kks101", "trxsw", "ddyueshu", "ggd66", "huangjinwu", "qb23", "x33yq"}
 	for _, theme := range themes {
 		set := themeSet(theme)
 		if set == nil {
@@ -337,7 +341,9 @@ func TestAllThemes_ListCoverRendered(t *testing.T) {
 	cases := []struct{ theme, page string }{
 		{defaultTheme, "home"}, {defaultTheme, "category"}, {defaultTheme, "fulltext"}, {defaultTheme, "ranking"},
 		{"pili", "home"}, {"shipsay", "home"}, {"x2552", "home"}, {"kks101", "home"},
-		{"trxsw", "home"}, {"ddyueshu", "home"},
+		{"trxsw", "home"}, {"ddyueshu", "home"}, {"ggd66", "home"}, {"huangjinwu", "home"},
+		{"qb23", "home"}, {"qb23", "category"}, {"qb23", "fulltext"}, {"x33yq", "home"},
+		{"x33yq", "category"}, {"ggd66", "category"}, {"huangjinwu", "category"},
 	}
 	for _, c := range cases {
 		set := themeSet(c.theme)
@@ -349,6 +355,14 @@ func TestAllThemes_ListCoverRendered(t *testing.T) {
 			data["Site"] = map[string]any{"id": "s1", "name": "测试站", "themeId": c.theme}
 			data["Books"].([]map[string]any)[0]["cover"] = cover
 			data["Boards"] = []map[string]any{{"Key": "latest", "Label": "更新榜", "Books": data["Books"]}}
+			// [R60-2a] 封面载体为主题面板数据的主题(ggd66 封推/qb23 热门网格)同步播种面板键
+			if c.theme == "ggd66" {
+				data["GgTuij"] = data["Books"]
+				data["GgRank"] = data["Books"]
+			}
+			if c.theme == "qb23" {
+				data["QbHot"] = data["Books"]
+			}
 			return data
 		}
 		for _, cover := range []string{"covers/book_x.jpg", ""} {
@@ -418,44 +432,79 @@ func poisonedSink() map[string]any {
 
 // ---------------- 主题 1:1 复刻修复面板回归(R59-2a-batch2) ----------------
 
-// TestThemes_1to1Panels 本轮 1:1 复刻修复新增面板/行的渲染钉:
-//
-//	pili 强档推荐+分类封面列+分类筛选行 / shipsay sortvisit 分类块 / ddyueshu novelslist
-//	六分类块+分类页 hot+up 双栏 / kks101 快捷入口+封面格牆+书页标签块 / x2552 公告条。
-//	缺键路径由 TestThemeTemplateSets_RenderSmoke(kitchenSink 无新键)覆盖, 转义由 XSS 探针组覆盖。
-func TestThemes_1to1Panels(t *testing.T) {
+// panelSeedData 主题面板渲染数据: kitchenSink 基座 + 主题面板键播种(1:1 面板钉/类名覆盖核查共用)。
+// 页面差异: search 页 Tags=WebRelatedTags([]map 带 .tag), book 页 Tags=WebBookTags([]string)。
+func panelSeedData(theme, page string) map[string]any {
 	cov := func(name string) map[string]any {
 		return map[string]any{"id": "b-" + name, "num": int64(1), "name": name, "author": "作者",
 			"cover": "covers/x.jpg", "intro": "简介", "wordCount": int64(9), "status": "ongoing",
 			"updatedAt": int64(1700000000000), "latestChapter": "第1章", "category": "玄幻奇幻"}
 	}
+	data := kitchenSinkData()
+	data["Site"] = map[string]any{"id": "s1", "name": "测试站", "themeId": theme}
+	switch page {
+	case "search":
+		data["Tags"] = []map[string]any{{"tag": "t1", "hits": 1, "bookId": "b1"}}
+	case "book":
+		data["Tags"] = []string{"t1"}
+	}
+	if theme == "pili" || theme == "shipsay" {
+		data["CoverRow"] = []map[string]any{cov("甲"), cov("乙"), cov("丙"), cov("丁")}
+	}
+	if theme == "pili" {
+		data["CatGroups"] = []map[string]any{{"Name": "现代言情", "Books": []map[string]any{cov("甲"), cov("乙")}}}
+	}
+	if theme == "shipsay" || theme == "ddyueshu" {
+		data["CatBlocks"] = []map[string]any{{"Name": "玄幻奇幻", "Books": []map[string]any{cov("甲"), cov("乙")}}}
+	}
+	// [R60-2a] 新主题面板数据钉
+	if theme == "ggd66" {
+		data["GgTuij"] = []map[string]any{cov("甲"), cov("乙")}
+		data["GgRank"] = []map[string]any{cov("丙")}
+	}
+	if theme == "huangjinwu" {
+		data["HjwHot"] = []map[string]any{cov("甲"), cov("乙")}
+		data["HjwMods"] = []map[string]any{{"Name": "玄幻奇幻", "Books": []map[string]any{cov("丙")}}}
+	}
+	if theme == "qb23" {
+		data["QbHot"] = []map[string]any{cov("甲"), cov("乙")}
+		data["QbCols"] = []map[string]any{{"Name": "都市生活", "Books": []map[string]any{cov("丙")}}}
+	}
+	if theme == "x33yq" && page == "toc" {
+		data["XqSide"] = []map[string]any{cov("甲"), cov("乙")}
+	}
+	if theme == "ddyueshu" && page == "category" {
+		data["HotPicks"] = []map[string]any{cov("甲")}
+		data["SideRank"] = []map[string]any{cov("甲")}
+	}
+	return data
+}
+
+// TestThemes_1to1Panels 本轮 1:1 复刻修复新增面板/行的渲染钉:
+//
+//	pili 强档推荐+分类封面列+分类筛选行 / shipsay sortvisit 分类块 / ddyueshu novelslist
+//	六分类块+分类页 hot+up 双栏 / kks101 快捷入口+封面格牆+书页标签块 / x2552 公告条
+//	ggd66 封推+搜索框+书库盒 / huangjinwu 封面卡+分类排行榜+hero / qb23 热门网格+榜单列+筛选行
+//	x33yq GARAN+newscontent+目录侧栏。
+//	缺键路径由 TestThemeTemplateSets_RenderSmoke(kitchenSink 无新键)覆盖, 转义由 XSS 探针组覆盖。
+func TestThemes_1to1Panels(t *testing.T) {
 	cases := []struct{ theme, page, marker string }{
 		{"pili", "home", "pli-strong"}, {"pili", "home", "pli-catcols"}, {"pili", "category", "pli-filters"},
 		{"shipsay", "home", "ss-sortvisit"},
 		{"ddyueshu", "home", "ddy-nl-content"}, {"ddyueshu", "category", "ddy-up-l"}, {"ddyueshu", "category", "ddy-up-r"},
 		{"kks101", "home", "kks-quick"}, {"kks101", "category", "kks-newnovels"}, {"kks101", "book", "kks-tagul"},
 		{"x2552", "home", "x2-announce"},
+		{"ggd66", "home", "ggd-fengtui"}, {"ggd66", "home", "ggd-fsearch"}, {"ggd66", "category", "ggd-bookbox"},
+		{"huangjinwu", "home", "hjw-book-card"}, {"huangjinwu", "home", "hjw-rankmod"}, {"huangjinwu", "book", "hjw-hero"},
+		{"qb23", "home", "qb-hot-grid"}, {"qb23", "home", "qb-rankcols"}, {"qb23", "category", "qb-filter-row"},
+		{"x33yq", "home", "xq-GARAN"}, {"x33yq", "home", "xq-newscontent"}, {"x33yq", "toc", "xq-sidebar"},
 	}
 	for _, c := range cases {
 		set := themeSet(c.theme)
 		if set == nil {
 			t.Fatalf("主题 %s 模板集装载失败", c.theme)
 		}
-		data := kitchenSinkData()
-		data["Site"] = map[string]any{"id": "s1", "name": "测试站", "themeId": c.theme}
-		if c.theme == "pili" || c.theme == "shipsay" {
-			data["CoverRow"] = []map[string]any{cov("甲"), cov("乙"), cov("丙"), cov("丁")}
-		}
-		if c.theme == "pili" {
-			data["CatGroups"] = []map[string]any{{"Name": "现代言情", "Books": []map[string]any{cov("甲"), cov("乙")}}}
-		}
-		if c.theme == "shipsay" || c.theme == "ddyueshu" {
-			data["CatBlocks"] = []map[string]any{{"Name": "玄幻奇幻", "Books": []map[string]any{cov("甲"), cov("乙")}}}
-		}
-		if c.theme == "ddyueshu" && c.page == "category" {
-			data["HotPicks"] = []map[string]any{cov("甲")}
-			data["SideRank"] = []map[string]any{cov("甲")}
-		}
+		data := panelSeedData(c.theme, c.page)
 		w := httptest.NewRecorder()
 		if err := set[c.page].ExecuteTemplate(w, "layout.html", data); err != nil {
 			t.Fatalf("主题 %s 页 %s 渲染失败: %v", c.theme, c.page, err)
@@ -467,7 +516,7 @@ func TestThemes_1to1Panels(t *testing.T) {
 }
 
 func TestAllThemes_XSSProbe(t *testing.T) {
-	for _, theme := range []string{defaultTheme, "pili", "shipsay", "x2552", "kks101", "trxsw", "ddyueshu"} {
+	for _, theme := range []string{defaultTheme, "pili", "shipsay", "x2552", "kks101", "trxsw", "ddyueshu", "ggd66", "huangjinwu", "qb23", "x33yq"} {
 		set := themeSet(theme)
 		if set == nil {
 			t.Fatalf("主题 %s 模板集装载失败", theme)
@@ -494,6 +543,75 @@ func TestAllThemes_XSSProbe(t *testing.T) {
 			}
 			if name == "home" && !strings.Contains(body, "&lt;img") {
 				t.Fatalf("主题 %s 首页未观察到自动转义痕迹(&lt;img 缺失)", theme)
+			}
+		}
+	}
+}
+
+// ---------------- 全主题逐页 css 类名覆盖核查(R60-2a 指令 10) ----------------
+
+// cssDir 主题样式目录(测试进程 CWD=internal/web; css 由 cmd/server http.Dir("web/static") 磁盘服务,
+// 不在 embed 内, 故以相对路径读盘核查; 缺失即失败 — 主题裸奔态在门禁即拦截)。
+const cssDir = "../../web/static/css"
+
+// cssCoverageWhitelist 非主题样式承载的类: site.js 阅读控件基类(主题 css 以主题前缀组合类承载,
+// 如 .ddy-fs/.ggd-fs)与 JS/模板态切换类(is-* 活性态由 JS 增删或组合选择器承载)。
+var cssCoverageWhitelist = map[string]bool{
+	"ajx-s": true, "ajx-c": true, "ajx-ys": true, "ajx-fonts": true, "ajx-ffamily": true,
+	"is-active": true, "is-disabled": true, "is-show": true, "is-open": true, "is-on": true,
+}
+
+var classAttrRe = regexp.MustCompile(`class="([^"]*)"`)
+
+// TestAllThemes_CSSClassCoverage 11 主题 × 12 页逐页渲染, 提取输出中全部 class token,
+// 与该主题 css 文件交叉核对: 出现而未定义的类 = 「裸奔区块」, 逐项报缺(上限 12 条/主题防刷屏)。
+// 附带断言: 每主题 css 存在 + 含移动端断点(@media) + layout 版心类在位。
+func TestAllThemes_CSSClassCoverage(t *testing.T) {
+	themes := []string{defaultTheme, "pili", "shipsay", "x2552", "kks101", "trxsw", "ddyueshu", "ggd66", "huangjinwu", "qb23", "x33yq"}
+	for _, theme := range themes {
+		cssName := theme + ".css"
+		if theme == defaultTheme {
+			cssName = "site.css"
+		}
+		cssBytes, err := os.ReadFile(filepath.Join(cssDir, cssName))
+		if err != nil {
+			t.Fatalf("主题 %s 样式缺失(%s): %v", theme, cssName, err)
+		}
+		css := string(cssBytes)
+		if !strings.Contains(css, "@media") {
+			t.Errorf("主题 %s 样式 %s 缺移动端断点(@media)", theme, cssName)
+		}
+		set := themeSet(theme)
+		if set == nil {
+			t.Fatalf("主题 %s 模板集装载失败", theme)
+		}
+		for _, page := range publicPages {
+			data := panelSeedData(theme, page)
+			w := httptest.NewRecorder()
+			if err := set[page].ExecuteTemplate(w, "layout.html", data); err != nil {
+				t.Fatalf("主题 %s 页 %s 渲染失败: %v", theme, page, err)
+			}
+			missing := map[string]bool{}
+			for _, m := range classAttrRe.FindAllStringSubmatch(w.Body.String(), -1) {
+				for _, cls := range strings.Fields(m[1]) {
+					if cls == "" || cssCoverageWhitelist[cls] || missing[cls] {
+						continue
+					}
+					if !strings.Contains(css, "."+cls) {
+						missing[cls] = true
+					}
+				}
+			}
+			if len(missing) > 0 {
+				keys := make([]string, 0, len(missing))
+				for k := range missing {
+					keys = append(keys, "."+k)
+				}
+				sort.Strings(keys)
+				if len(keys) > 12 {
+					keys = append(keys[:12], "…")
+				}
+				t.Errorf("主题 %s 页 %s 裸奔类(渲染出现但 %s 未定义): %s", theme, page, cssName, strings.Join(keys, " "))
 			}
 		}
 	}

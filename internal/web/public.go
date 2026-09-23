@@ -233,6 +233,31 @@ func (d Deps) renderHome(w http.ResponseWriter, r *http.Request, sp map[string][
 	case "ddyueshu", "shipsay":
 		data["CatBlocks"] = d.homeCatBlocks()
 	}
+	// [R60-2a] 新主题数据面(ggd66/huangjinwu/qb23/x33yq, 均走既有 WebListBooks/WebRankBooks 参数化查询):
+	//   ggd66 → GgTuij(封推 6 本带封面优先, 不足补无封面)+GgRank(阅读排行榜 13 行, 字数序)
+	//   huangjinwu → HjwHot(热门推荐 6)+HjwMods(分类排行榜 6 榜×10, TS buildRankModules 口径: 池按分类分组取前 6 榜)
+	//   qb23 → QbHot(热门点击榜 10 封面网格)+QbCols(最新 48 本按分类分组 12 列×10 行, 组内字数序)
+	//   x33yq → Books 换 48 本池(TS props.books=48: hotcontent 6+GARAN 33+newscontent 30/24 全出自同池)
+	switch themeOf(site) {
+	case "ggd66":
+		pool, _ := d.DB.WebRankBooks("words", 60)
+		data["GgTuij"] = pickCoverPrefer(pool, 6)
+		data["GgRank"] = firstNRows(pool, 13)
+	case "huangjinwu":
+		pool, _ := d.DB.WebRankBooks("words", 48)
+		data["HjwHot"] = firstNRows(pool, 6)
+		data["HjwMods"] = groupBooksByCat(pool, 6, 10, false)
+	case "qb23":
+		pool, _ := d.DB.WebRankBooks("words", 10)
+		data["QbHot"] = pool
+		latest48, _, _ := d.DB.WebListBooks(1, 48, "", "", "latest", "")
+		data["QbCols"] = groupBooksByCat(latest48, 12, 10, true)
+	case "x33yq":
+		pool, _, _ := d.DB.WebListBooks(1, 48, "", "", "latest", "")
+		if len(pool) > 0 {
+			data["Books"] = pool
+		}
+	}
 	data["Pager"] = makePager(page, total, size, func(p int) string {
 		return viewHref("home", sid, map[string]string{"page": strconv.Itoa(p)})
 	})
@@ -255,6 +280,68 @@ func pickCoverBooks(books []map[string]any, n int) []map[string]any {
 		}
 	}
 	return out
+}
+
+// firstNRows 行切片安全取前 n(模板 firstN 的 Go 侧等价, 供面板数据面使用)。
+func firstNRows(rows []map[string]any, n int) []map[string]any {
+	if n <= 0 || len(rows) <= n {
+		return rows
+	}
+	return rows[:n]
+}
+
+// pickCoverPrefer 封面优先补齐: 先取带封面者, 不足按原序补无封面书(对齐 TS pickWithCover)。
+func pickCoverPrefer(rows []map[string]any, n int) []map[string]any {
+	var with, without []map[string]any
+	for _, b := range rows {
+		if ToStrSafe(b["cover"]) != "" {
+			with = append(with, b)
+		} else {
+			without = append(without, b)
+		}
+	}
+	out := append([]map[string]any{}, with...)
+	out = append(out, without...)
+	return firstNRows(out, n)
+}
+
+// groupBooksByCat 行池按分类名分组取前 maxGroups 组×每组 perGroup 本(huangjinwu 分类排行榜 /
+// qb23 分类榜单列; TS buildRankModules 口径: 组按收录量降序, sortInside 时组内再按字数降序)。
+func groupBooksByCat(rows []map[string]any, maxGroups, perGroup int, sortInside bool) []map[string]any {
+	if maxGroups < 1 || perGroup < 1 {
+		return nil
+	}
+	order := []string{}
+	byCat := map[string][]map[string]any{}
+	for _, b := range rows {
+		name := plainText(ToStrSafe(b["category"]))
+		if name == "" {
+			name = "小说"
+		}
+		if _, ok := byCat[name]; !ok {
+			order = append(order, name)
+		}
+		byCat[name] = append(byCat[name], b)
+	}
+	out := make([]map[string]any, 0, len(order))
+	for _, name := range order {
+		grp := byCat[name]
+		if sortInside && len(grp) > 1 {
+			for i := 1; i < len(grp); i++ {
+				for j := i; j > 0 && num64(grp[j]["wordCount"]) > num64(grp[j-1]["wordCount"]); j-- {
+					grp[j], grp[j-1] = grp[j-1], grp[j]
+				}
+			}
+		}
+		out = append(out, map[string]any{"Name": name, "Books": firstNRows(grp, perGroup)})
+	}
+	// 组按收录量降序(稳定: 同量保持池内出现次序)
+	for i := 1; i < len(out); i++ {
+		for j := i; j > 0 && len(byCat[ToStrSafe(out[j]["Name"])]) > len(byCat[ToStrSafe(out[j-1]["Name"])]); j-- {
+			out[j], out[j-1] = out[j-1], out[j]
+		}
+	}
+	return firstNRows(out, maxGroups)
 }
 
 // homeCatGroups 首页「小说分类」4 组面板(真站 女生/纯美/男生/悬疑 → 本站 4 字锚同位映射)。
@@ -473,6 +560,11 @@ func (d Deps) renderToc(w http.ResponseWriter, r *http.Request, sp map[string][]
 	})
 	data["BookHref"] = bookHref(bid, bnum, sid)
 	data["HomeHref"] = viewHref("home", sid, nil)
+	// [R60-2a] x33yq 目录页侧栏「妹纸们都在看」(TS useWordsPool 字数热榜 26 条近似; 仅该主题计算)。
+	if themeOf(site) == "x33yq" {
+		side, _ := d.DB.WebRankBooks("words", 26)
+		data["XqSide"] = side
+	}
 	render(w, "toc", data)
 }
 

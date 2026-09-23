@@ -1,0 +1,68 @@
+{{define "content"}}{{/* x33yq 阅读页: .content_read box_con 面包屑 + .toolbar(主题模式 7 色板 + 字号 + 字色) + zhangjieming + 正文(24px/150%) + bottem 翻页 */}}
+<div class="xq-read">
+  <div class="xq-content-read">
+    <div class="xq-box-con" data-page="read" data-book-id="{{.Book.id}}" data-chapter-id="{{.Chapter.id}}" data-chapter-title="{{.Chapter.title}}">
+      <div class="xq-con-top">
+        <a href="{{.HomeHref}}">{{siteTitle .Site}}</a> &gt; <a href="{{.BookHref}}">{{.Book.name}}</a> &gt; {{.Chapter.title}}
+      </div>
+      <div class="xq-toolbar">
+        <ul class="xq-tools">
+          <li class="xq-theme">
+            <p>主题模式：</p>
+            <span role="group" aria-label="主题模式">
+              <a class="ajx-c xq-swatch" style="background:#ffffff" href="javascript:void(0)" data-bg="#ffffff" aria-label="主题 日光"></a>
+              <a class="ajx-c xq-swatch" style="background:#f5e4e4" href="javascript:void(0)" data-bg="#f5e4e4" aria-label="主题 粉红"></a>
+              <a class="ajx-c xq-swatch" style="background:#ddcda1" href="javascript:void(0)" data-bg="#ddcda1" aria-label="主题 护眼"></a>
+              <a class="ajx-c xq-swatch" style="background:#cedce0" href="javascript:void(0)" data-bg="#cedce0" aria-label="主题 淡蓝"></a>
+              <a class="ajx-c xq-swatch" style="background:#d0e2d0" href="javascript:void(0)" data-bg="#d0e2d0" aria-label="主题 淡绿"></a>
+              <a class="ajx-c xq-swatch" style="background:#cfcfcf" href="javascript:void(0)" data-bg="#cfcfcf" aria-label="主题 灰色"></a>
+              <a class="ajx-c xq-swatch" style="background:#111111" href="javascript:void(0)" data-bg="#111111" aria-label="主题 夜间"></a>
+            </span>
+          </li>
+          <li class="xq-size">
+            <p>字体大小：</p>
+            <span class="ajx-fonts" role="group" aria-label="字号">
+              <a class="ajx-s xq-size-btn" href="javascript:void(0)" data-fs="16">小</a>
+              <a class="ajx-s xq-size-btn" href="javascript:void(0)" data-fs="20">中</a>
+              <a class="ajx-s xq-size-btn" href="javascript:void(0)" data-fs="24">大</a>
+            </span>
+          </li>
+          <li class="xq-inkli">
+            <p>字体颜色：</p>
+            <span class="ajx-ys" role="group" aria-label="字体颜色">
+              <a href="javascript:void(0)" data-ink="#333333" style="color:#333333">黑</a>
+              <a href="javascript:void(0)" data-ink="#7f333d" style="color:#7f333d">粉</a>
+              <a href="javascript:void(0)" data-ink="#085308" style="color:#085308">墨绿</a>
+              <a href="javascript:void(0)" data-ink="#999999" style="color:#999999">夜灰</a>
+            </span>
+          </li>
+        </ul>
+        <div class="xq-links"><p>作者：<i>{{.Book.author}}</i></p></div>
+        <div class="xq-clear"></div>
+      </div>
+      <div class="xq-zhangjieming">
+        <h1>{{.Chapter.title}}</h1>
+        <div class="xq-bottem1">
+          {{if .PrevHref}}<a id="ajx-prev" href="{{.PrevHref}}" rel="prev">上一章</a>{{else}}<span class="xq-nope" id="ajx-prev" aria-disabled="true">上一章</span>{{end}}
+          <a href="{{.TocHref}}">章节目录</a>
+          <a href="{{.BookHref}}">返回书页</a>
+          {{if .NextHref}}<a id="ajx-next" href="{{.NextHref}}" rel="next">下一章</a>{{else}}<span class="xq-nope" id="ajx-next" aria-disabled="true">下一章</span>{{end}}
+        </div>
+      </div>
+      <div id="xq-content">
+        {{if .Chapter.content}}
+        <div id="view_content_txt" class="xq-read-txt">{{readHTML (str .Chapter.content)}}</div>
+        {{else}}
+        <div id="view_content_txt" class="xq-read-txt"><div class="xq-box-con-inner">本章内容尚未采集, 请稍后再来或返回目录阅读其他章节。</div></div>
+        {{end}}
+      </div>
+      <div class="xq-bottem1 xq-bottem-b">
+        {{if .PrevHref}}<a href="{{.PrevHref}}" rel="prev">上一章</a>{{else}}<span class="xq-nope" aria-disabled="true">上一章</span>{{end}}
+        <a href="{{.TocHref}}">章节目录</a>
+        <a href="{{.BookHref}}">返回书页</a>
+        {{if .NextHref}}<a href="{{.NextHref}}" rel="next">下一章</a>{{else}}<span class="xq-nope" aria-disabled="true">下一章</span>{{end}}
+      </div>
+    </div>
+  </div>
+</div>
+{{end}}

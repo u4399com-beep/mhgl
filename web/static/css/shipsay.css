@@ -181,3 +181,11 @@
   .clone-shipsay .ss-popular.ss-2col{columns:1}
   .clone-shipsay .ss-logo{max-width:60%}
 }
+
+/* ---- R60 裸奔类补齐(主控核收) ---- */
+.clone-shipsay .ss-main{max-width:1100px;margin:0 auto;padding:14px 12px 30px;box-sizing:border-box}
+.clone-shipsay .ss-home,.clone-shipsay .ss-book,.clone-shipsay .ss-full,.clone-shipsay .ss-keyword,
+.clone-shipsay .ss-ranking,.clone-shipsay .ss-history,.clone-shipsay .ss-pseo{display:block}
+.clone-shipsay .ss-bglist{display:inline-flex;gap:6px;align-items:center}
+.clone-shipsay .ss-fontsize{display:inline-flex;gap:6px;align-items:center;margin-left:10px}
+.clone-shipsay .ss-text_title{font-size:18px;color:#1a1a1a;text-align:center;padding:10px 0;border-bottom:2px solid #ed4259;margin-bottom:12px;font-weight:700}

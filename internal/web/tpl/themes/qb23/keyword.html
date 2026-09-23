@@ -1,0 +1,53 @@
+{{define "content"}}{{/* qb23 关键词专题页: Primary 书卡 + Others 封面卡墙 + 相关词 */}}
+<div class="qb-content">
+  <div class="qb-list">
+    <div class="qb-box">
+      <div class="qb-blocktitle">关键词专题：{{if .Tag}}{{.Tag}}{{else}}缺少关键词参数{{end}}</div>
+      {{with .Primary}}
+      <div class="qb-book-head qb-kw-hero">
+        <div class="qb-book-pic">
+          {{if .cover}}<img src="{{coverURL (str .cover)}}" alt="{{.name}} 封面" onerror="this.remove()">{{else}}<span class="qb-pic-ph qb-book-ph">{{.name}}</span>{{end}}
+        </div>
+        <div class="qb-book-info">
+          <h1 class="qb-booktitle">{{.name}}</h1>
+          <div class="qb-booktag">
+            <span class="qb-tag-red">{{statusLabel (str .status)}}</span>
+            <span class="qb-tag">{{or .category "小说"}}</span>
+            <span class="qb-tag">{{fmtWords .wordCount}}</span>
+          </div>
+          <p class="qb-book-author">作者：{{.author}}</p>
+          <p class="qb-book-time">{{if .intro}}{{excerpt .intro 120}}{{else}}暂无简介{{end}}</p>
+          <div class="qb-bookmore">
+            <a class="qb-btn-primary" href="{{$.PrimaryBookHref}}">查看书籍详情</a>
+            <a class="qb-btn" href="{{tocHref (str .id) (num .num) $.SiteID}}">章节目录</a>
+          </div>
+        </div>
+        <div class="qb-clear"></div>
+      </div>
+      {{end}}
+    </div>
+    <div class="qb-box">
+      <div class="qb-blocktitle">其他相关书籍</div>
+      {{if .Others}}
+      <div class="qb-module qb-cat-grid">
+        {{range .Others}}
+        <div class="qb-module-item">
+          <a class="qb-module-item-cover" href="{{bookHref (str .id) (num .num) $.SiteID}}" aria-label="查看《{{.name}}》详情">
+            {{if .cover}}<img class="qb-module-item-pic" src="{{coverURL (str .cover)}}" alt="{{.name}} 封面" loading="lazy" onerror="this.remove()">{{else}}<span class="qb-module-item-pic qb-pic-ph">{{.name}}</span>{{end}}
+          </a>
+          <div class="qb-module-item-titlebox"><a class="qb-module-item-title" href="{{bookHref (str .id) (num .num) $.SiteID}}">{{.name}}</a></div>
+          <p class="qb-module-item-text">{{.author}}</p>
+        </div>
+        {{end}}
+      </div>
+      {{else}}<p class="qb-none">暂无相关书籍</p>{{end}}
+      {{if .Related}}
+      <div class="qb-tagline">
+        <b>相关词：</b>
+        {{range .Related}}<a class="qb-chip" href="{{viewHrefKeyword . $.SiteID}}">{{.}}</a>{{end}}
+      </div>
+      {{end}}
+    </div>
+  </div>
+</div>
+{{end}}

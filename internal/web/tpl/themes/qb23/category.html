@@ -1,0 +1,55 @@
+{{define "content"}}{{/* qb23 分类页(mxone): .box 筛选行(分类可点/首字字数排序进度视觉复刻) + library-stat + 封面网格 + 圆药丸分页 */}}
+<div class="qb-content">
+  <div class="qb-list">
+    <div class="qb-box">
+      <div class="qb-library-box qb-filter-row">
+        <b class="qb-filter-label">分类</b>
+        <div class="qb-filter-list" role="group" aria-label="分类筛选">
+          <a class="qb-chip{{if eqStr .CatName "全部"}} qb-chip-on{{end}}" href="{{viewHrefCategoryAll .SiteID}}">全部</a>
+          {{range $cat := .NavCats}}<a class="qb-chip{{if eqStr (str $.CatName) $cat}} qb-chip-on{{end}}" href="{{catHref $cat $.SiteID}}">{{$cat}}</a>{{end}}
+        </div>
+      </div>
+      <div class="qb-library-box qb-filter-row">
+        <b class="qb-filter-label">排序</b>
+        <div class="qb-filter-list" role="group" aria-label="排序筛选">
+          <a class="qb-chip{{if eqStr .Sort "latest"}} qb-chip-on{{end}}" href="{{catFilterHref (str .Cat) "latest" (str .Status) (str .SiteID)}}">更新时间</a>
+          <a class="qb-chip{{if eqStr .Sort "words"}} qb-chip-on{{end}}" href="{{catFilterHref (str .Cat) "words" (str .Status) (str .SiteID)}}">字数</a>
+          <a class="qb-chip{{if eqStr .Sort "new"}} qb-chip-on{{end}}" href="{{catFilterHref (str .Cat) "new" (str .Status) (str .SiteID)}}">新书榜</a>
+        </div>
+      </div>
+      <div class="qb-library-box qb-filter-row">
+        <b class="qb-filter-label">进度</b>
+        <div class="qb-filter-list" role="group" aria-label="进度筛选">
+          <a class="qb-chip{{if eqStr .Status ""}} qb-chip-on{{end}}" href="{{catFilterHref (str .Cat) (str .Sort) "" (str .SiteID)}}">全部</a>
+          <a class="qb-chip{{if eqStr .Status "ongoing"}} qb-chip-on{{end}}" href="{{catFilterHref (str .Cat) (str .Sort) "ongoing" (str .SiteID)}}">新书连载</a>
+          <a class="qb-chip{{if eqStr .Status "completed"}} qb-chip-on{{end}}" href="{{catFilterHref (str .Cat) (str .Sort) "completed" (str .SiteID)}}">已经完本</a>
+        </div>
+      </div>
+      <h1 class="qb-library-stat">{{.CatName}}全部_更新时间_全部<span class="qb-stat-sub">共 {{.Pager.Total}} 本</span></h1>
+    </div>
+    <div class="qb-box">
+      {{if .Books}}
+      <div class="qb-module qb-cat-grid" aria-label="{{.CatName}}书单">
+        {{range .Books}}
+        <div class="qb-module-item">
+          <a class="qb-module-item-cover" href="{{bookHref (str .id) (num .num) $.SiteID}}" aria-label="查看《{{.name}}》详情">
+            {{if .cover}}<img class="qb-module-item-pic" src="{{coverURL (str .cover)}}" alt="{{.name}} 封面" loading="lazy" onerror="this.remove()">{{else}}<span class="qb-module-item-pic qb-pic-ph">{{.name}}</span>{{end}}
+            <span class="qb-item-caption"><em>{{.author}}</em><em>{{or .category "小说"}}</em></span>
+          </a>
+          <div class="qb-module-item-titlebox"><a class="qb-module-item-title" href="{{bookHref (str .id) (num .num) $.SiteID}}">{{.name}}</a></div>
+          <p class="qb-module-item-text">{{.author}}</p>
+        </div>
+        {{end}}
+      </div>
+      {{else}}<p class="qb-none">该分类暂无收录书籍</p>{{end}}
+      <nav class="qb-page" aria-label="分页导航">
+        {{with .Pager}}
+        <span class="qb-pageinfo">第{{.Page}}/{{.TotalPages}}页</span>
+        {{if .PrevURL}}<a class="qb-pagebtn" href="{{.PrevURL}}" rel="prev">上一页</a>{{end}}
+        {{if .NextURL}}<a class="qb-pagebtn" href="{{.NextURL}}" rel="next">下一页</a>{{end}}
+        {{end}}
+      </nav>
+    </div>
+  </div>
+</div>
+{{end}}

@@ -271,5 +271,10 @@ wordCount,sourceUrl,sourceRuleId,storageMode,collectedAt,createdAt,updatedAt)
 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		b.ID, b.Num, b.Name, b.Author, b.CategoryID, b.Intro, b.Cover, b.Status, b.Keywords, b.LatestChapter,
 		b.WordCount, b.SourceURL, b.SourceRuleID, b.StorageMode, b.CollectedAt, b.CreatedAt, b.UpdatedAt)
-	return err
+	if err != nil {
+		return err
+	}
+	// R60-2b: 书籍入库事件广播(pseoAutoGenerate 消费缝; 异步+recover, 失败不回滚建书)
+	d.notifyBookCreated(b.ID)
+	return nil
 }

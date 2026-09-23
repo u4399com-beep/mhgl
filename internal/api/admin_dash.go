@@ -169,6 +169,7 @@ var settingDefaults = map[string]any{
 	"proxyPool":        map[string]any{"auto": true, "intervalMin": 30, "checkBatch": 250, "pickLimit": 8},
 	"theme_overrides":  map[string]any{},
 	"pseoAutoGenerate": "0",
+	"feedback":         map[string]any{"enabled": true}, // R60-2b: 反馈开关(公开提交+反馈页共用, 缺省开)
 }
 
 // readAllSettings 全量设置(DB 覆盖默认; 值 JSON 解析, 失败回落原字符串)。

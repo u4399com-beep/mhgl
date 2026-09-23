@@ -1,0 +1,12 @@
+{{define "content"}}{{/* qb23 美观 404 */}}
+<div class="qb-content">
+  <div class="qb-list">
+    <div class="qb-box qb-404box">
+      <div class="qb-404-code">404</div>
+      <h2 class="qb-page-title">页面不存在</h2>
+      <p class="qb-none">{{if .Msg}}{{.Msg}}{{else}}你访问的页面不存在或已被移除{{end}}</p>
+      <div class="qb-pager"><a class="qb-btn-primary" href="{{.HomeHref}}">返回首页</a><a class="qb-btn" href="{{.SearchHref}}">搜索书籍</a></div>
+    </div>
+  </div>
+</div>
+{{end}}

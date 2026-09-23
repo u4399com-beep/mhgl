@@ -1,0 +1,10 @@
+{{define "content"}}{{/* ggd66 美观 404 */}}
+<div class="ggd-catpage">
+  <div class="ggd-box ggd-404box">
+    <div class="ggd-404-code">404</div>
+    <h2>页面不存在</h2>
+    <p class="ggd-none">{{if .Msg}}{{.Msg}}{{else}}你访问的页面不存在或已被移除{{end}}</p>
+    <p class="ggd-hist-actions"><a class="ggd-btn-info" href="{{.HomeHref}}">返回首页</a><a class="ggd-btn-info" href="{{.SearchHref}}">搜索书籍</a></p>
+  </div>
+</div>
+{{end}}

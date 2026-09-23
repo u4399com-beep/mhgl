@@ -7347,3 +7347,26 @@ Stage Summary:
 - 用户两问闭环: 主题 1:1=7/7 核查修复+面板级补齐(数据面+渲染钉)；规则完整性=35 条全核查+11 条补字段(源站实不可得者有据留档)
 - 真虫 3 处(parseIDInt 溢出回绕/brSpacer 漏 $1/模板 nil panic 面)+清洗底线层落地(31/35 规则自定义清洗漏通用残留的问题被 coreAdPatterns 无条件叠加根治)
 - 遗留: 4 主题移植(ggd66/huangjinwu/qb23/x33yq)/TLS 指纹仿真/auth Secure 属性/三大部头增量可再启
+---
+Task ID: R60（主控收口·三代理断连产出主控全量核收）
+Agent: Z.ai Code 主控
+Task: ①Golang 遗漏 ②规则完整性 ③智能化核查 ④100 本填充 ⑤主题回源 ⑥反馈模块开关 ⑦⑧⑨常态 ⑩11 主题页面核实 ⑪噪声清洗 ⑫部署教程
+
+Work Log:
+- [开局恢复] 服务死+`.build/mhgl` 被 sandbox 清+DB 全空(books/chapters/categories/Rule 0)→install-go.sh 重装 SDK→go build→bootstrap-db 恢复 35 规则+默认站+三大部头任务(R59 的 14 字段写回随 DB 回滚丢失)
+- [断连代理产出全景核收] 三批 Task 全部 context deadline exceeded, 但落盘产出大量存在: 2a 交付 4 新主题(ggd66/huangjinwu/qb23/x33yq 各 13 页)+11 主题 CSS 覆盖测试钉(死于此测试裸奔类报缺); 2b 交付反馈模块全栈(api/feedback.go 340 行+store/feedback.go+r60_feedback_test 364 行+admin sections/feedback.html+pseo_auto 死设置接活 api+store 双层); 2c 交付 rule 包深修(TS GetSubstitution 三语义 bug: $0 字面量/未参与组空串/超组字面量+乱码+注释对齐)
+- [主控补齐 2a 断点] web_test.go imports 缺失(regexp/os/filepath/sort)→补齐; 11 主题 48 个裸奔类批量补齐(每主题按既有基调 append 最小语义样式: pili ft-links/read-txt/shipsay ss-main 九类/x2552/trxsw/kks101/ddyueshu ddy-fs 等/ggd66 bookbox 网格/huangjinwu logo-icon/qb23 面板/x33yq 详情表)→CSS 覆盖测试全绿
+- [Golang 遗漏清理] 删 next.config.ts/next-env.d.ts/components.json; package.json scripts 全 Go 化(lint→go vet ./...); src/README.md 标注历史资产地位(主题复刻视觉参考, 4 主题已移植完成, 下轮可评估删除)
+- [规则重放] R59 十一条 14 字段经 admin API 重放(备份→PUT→回读验证原字段零丢失+新字段就位; 大微 og:image+latest/番茄聚合 last_chapter_title+word_number/七猫 book.words/og:novel:category 族×4/努努尾锚 regex/速读谷 span:nth+ h1 i)
+- [④100 本填充] 10 直连规则各起 range 任务(listUrl 从规则 urlTemplate 提取, listStart=listEnd=1)→60 本入库(10+ 类型: 玄幻22/现实百态7/现代言情7/都市4/历史4/游戏2/军事2/武侠/悬疑/同人)134 封面; 6 running+3 pending 接力中
+- [⑥反馈模块实证] /feedback 独立页(开关+类型+联系方式+正文)→浏览器提交→后台 /api/admin/feedback 入库(stats+status/type 筛选)→开关双向验证(enabled=false→POST 403「反馈功能已关闭」→true 恢复)
+- [③智能化矩阵] pseoAutoGenerate 死设置已接活(书入库钩子≤5 落地页, 缺省关)/seoTemplates(web/seo.go+public_data 消费)/TDK(siteTdkOf+回落)/bannedWords(bridge 消费)/智能分类+完结(smart.go 4 字归一+未完优先判定)全闭环
+- [⑪噪声清洗实测] 入库 5586 章抽 400 章×15 噪声族: 请记住域名/一秒记住/整行URL/最新章节地址/无弹窗/本章完/笔趣阁/转载请注明等 12 族 0 残留(底线层实战验证)
+- [⑫部署教程] docs/INSTALL-GUIDE.md 重写(14 章: 环境要求/源码/Go 安装双方式/bun 可选/构建三方式/DB 初始化/启动三方式/前台验证/后台九模块/任务三模式/代理池/FAQ 8 问/备份恢复升级/主题切换与反馈开关+一分钟极简清单), 配图 7 张 admin 实截图
+- [部署实证] 新二进制上线(反馈页/4 新主题/pseo_auto 生效)→paused 任务恢复 6 个→4 新主题浏览器逐个实证(img 4/17/6/23 零错误)截图 agent-ctx/shots-r60/
+- [门禁] gofmt 全仓空/vet 0/13 包测试全绿/build OK
+
+Stage Summary:
+- 主题矩阵 11/11 全就位(4 新移植+48 裸奔类补齐+CSS 覆盖测试钉固化); 反馈模块全栈上线且可自主开关; pseoAuto 死设置复活; rule 替换语义三 bug 修复
+- 100 本填充进行中(60+ 入库类型多样, 任务接力中); 12 条用户指令全部有交付
+- 遗留: src/ 删除评估(主题参考已用完)/「未分类」9 本的 categoryId 空值清理/auth Secure 属性/TLS 指纹

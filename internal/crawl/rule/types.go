@@ -12,7 +12,7 @@ import (
 )
 
 // FieldRule 字段提取规则(TS FieldRule 的 Go 子集: css/regex/json/const;
-// xpath 不支持, capability 报告后由 Next.js 回退 TS 引擎)
+// xpath 不支持 —— capability 报告 + 引擎 fail-closed 不执行, R55 单体化后无 TS 引擎回退)
 type FieldRule struct {
 	Type        string `json:"type"`       // css|regex|json|const(xpath 不支持)
 	Expression  string `json:"expression"` // 选择器/正则/JSON点路径/常量模板
@@ -408,7 +408,8 @@ func intSliceEq(a, b []int) bool {
 	return true
 }
 
-// Unsupported 返回规则中 Go 引擎不支持的能力清单; 非空时 Next.js 回退 TS 引擎。
+// Unsupported 返回规则中 Go 引擎不支持的能力清单; 非空时任务 fail-closed 拒绝启动
+// (engine.go buildPayload; R55 单体化后无 TS 引擎回退, capability 仅作报告面)。
 // 判定口径(契约 §4):
 //   - 任意字段/容器/tocLink/nextLink 使用 xpath
 //   - fetch.engine='browser' / waitSelector / clickSelector / 自定义 browserFallbackStatus(需无头浏览器)
@@ -476,8 +477,14 @@ func (r *RuleConfig) Unsupported() []string {
 	return out
 }
 
-// parseBookIDNum 书号串转 int64(非数字 → false; 溢出钳 1<<62)
+// parseBookIDNum 书号串转 int64(非数字 → false; 越界恒收敛 1<<62)。
+// [R60-2c] 与 task.parseIDInt(R59-2c-batch2) 同款回绕修复: 修前仅乘加后判 n > 1<<62,
+// 20 位数字串在高位乘 10 时越过 int64 上限回绕为负("10000000000000000000" →
+// -8446744073709551616), 负值不触发钳制且 Validate 的 to<from 交换后双负跨度可为小值
+// (10^20 与 10^20+1 回绕后跨度=2)绕过 BookIDMaxSpan fail-closed; 修后乘 10 前预判
+// (n > clamp/10)与乘加后双闸, 任何越界路径恒收敛 1<<62
 func parseBookIDNum(s string) (int64, bool) {
+	const clamp = int64(1) << 62
 	if s == "" {
 		return 0, false
 	}
@@ -486,9 +493,12 @@ func parseBookIDNum(s string) (int64, bool) {
 		if c < '0' || c > '9' {
 			return 0, false
 		}
+		if n > clamp/10 { // 乘 10 前预判: 防回绕为负绕过越界检查
+			return clamp, true
+		}
 		n = n*10 + int64(c-'0')
-		if n > 1<<62 { // 防溢出
-			return 1 << 62, true
+		if n > clamp {
+			return clamp, true
 		}
 	}
 	return n, true

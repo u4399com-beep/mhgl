@@ -1,0 +1,30 @@
+{{define "content"}}{{/* qb23 搜索页: 结果封面网格 + 相关词 chip */}}
+<div class="qb-content">
+  <div class="qb-list">
+    <div class="qb-box">
+      <div class="qb-blocktitle">「{{.Q}}」的搜索结果{{if .Q}}<small>（找到 {{.Total}} 本）</small>{{end}}</div>
+      {{if .Q}}
+      {{if .Books}}
+      <div class="qb-module qb-cat-grid" aria-label="搜索结果">
+        {{range .Books}}
+        <div class="qb-module-item">
+          <a class="qb-module-item-cover" href="{{bookHref (str .id) (num .num) $.SiteID}}" aria-label="查看《{{.name}}》详情">
+            {{if .cover}}<img class="qb-module-item-pic" src="{{coverURL (str .cover)}}" alt="{{.name}} 封面" loading="lazy" onerror="this.remove()">{{else}}<span class="qb-module-item-pic qb-pic-ph">{{.name}}</span>{{end}}
+          </a>
+          <div class="qb-module-item-titlebox"><a class="qb-module-item-title" href="{{bookHref (str .id) (num .num) $.SiteID}}">{{.name}}</a></div>
+          <p class="qb-module-item-text">{{.author}}</p>
+        </div>
+        {{end}}
+      </div>
+      {{else}}<p class="qb-none">未找到相关书籍, 换个关键词试试</p>{{end}}
+      {{else}}<p class="qb-none">输入书名 / 作者关键词开始搜索。</p>{{end}}
+      {{if .Tags}}
+      <div class="qb-tagline">
+        <b>相关词：</b>
+        {{range .Tags}}<a class="qb-chip" href="{{viewHrefKeyword .tag $.SiteID}}">{{.tag}}</a>{{end}}
+      </div>
+      {{end}}
+    </div>
+  </div>
+</div>
+{{end}}

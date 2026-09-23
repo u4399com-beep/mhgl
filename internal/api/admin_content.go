@@ -89,53 +89,13 @@ func (d Deps) adminPseoGenerate(w http.ResponseWriter, r *http.Request) {
 		apiErr(w, http.StatusInternalServerError, "服务器内部错误")
 		return
 	}
-	site, _, _ := d.DB.DefaultSite()
-	siteID := any(nil)
-	if site != nil {
-		siteID = site["id"]
-	}
 	generated, skippedExisting, scanned := 0, 0, 0
 	for _, b := range books {
 		scanned++
-		bid := store.ToStr(b["id"])
-		// 关键词候选: Book.keywords 逗号拆分 + BookTag 下拉词(perBook 上限)
-		cands := []string{}
-		seen := map[string]bool{}
-		add := func(kw string) {
-			kw = normalizeKeyword(kw)
-			if kw == "" || seen[kw] || len(cands) >= perBook {
-				return
-			}
-			seen[kw] = true
-			cands = append(cands, kw)
-		}
-		for _, part := range strings.Split(store.ToStr(b["keywords"]), ",") {
-			add(part)
-		}
-		if len(cands) < perBook {
-			tags, _ := d.DB.QueryMaps(`SELECT tag FROM "BookTag" WHERE bookId=? ORDER BY hits DESC LIMIT ?`, bid, perBook)
-			for _, t := range tags {
-				add(store.ToStr(t["tag"]))
-			}
-		}
-		for _, kw := range cands {
-			// keyword 全站唯一 → 已存在跳过
-			if _, ok2, _ := d.DB.QueryMap(`SELECT id FROM "PseoPage" WHERE keyword=?`, kw); ok2 {
-				skippedExisting++
-				continue
-			}
-			slug := pseoSlugOf(kw)
-			title := kw + "_" + store.ToStr(b["name"])
-			description := kw + "小说免费阅读 —《" + store.ToStr(b["name"]) + "》" + store.ToStr(b["author"]) + " 作品, 全本在线阅读。"
-			matched, _ := json.Marshal([]string{bid})
-			if _, err := d.DB.Exec(`INSERT INTO "PseoPage" (id,siteId,keyword,slug,title,description,keywords,primaryBookId,matchedBookIds,status,source,createdAt,updatedAt)
-VALUES (?,?,?,?,?,?,?,?,?,'active','suggest',?,?)`,
-				d.DB.NewID(), siteID, kw, slug, title, description, kw+","+store.ToStr(b["name"]), bid, string(matched), store.NowMS(), store.NowMS()); err == nil {
-				generated++
-			} else {
-				skippedExisting++
-			}
-		}
+		// [R60-2b] 单书生成逻辑抽至 pseoCreateForBook(与 pseoAutoGenerate 自动钩子共用)
+		g, s := d.pseoCreateForBook(b, perBook)
+		generated += g
+		skippedExisting += s
 	}
 	apiOK(w, map[string]any{
 		"generated": generated, "skippedExisting": skippedExisting, "booksScanned": scanned,

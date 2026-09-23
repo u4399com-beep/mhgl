@@ -1,0 +1,38 @@
+{{define "content"}}{{/* ggd66 搜索页: .search 表单白盒 + 结果 bookbox 三列(单页命中集无分页) */}}
+<div class="ggd-catpage">
+  <div class="ggd-box ggd-searchbox">
+    <form class="ggd-searchform" action="/" method="get" role="search">
+      {{if .SiteID}}<input type="hidden" name="site" value="{{.SiteID}}">{{end}}
+      <input type="hidden" name="view" value="search">
+      <input type="search" name="q" aria-label="搜索书名或作者" placeholder="搜索从这里开始..." value="{{.Q}}" maxlength="50">
+      <button type="submit">搜 索</button>
+    </form>
+  </div>
+  <div class="ggd-box ggd-bookbox-wrap">
+    <h2 class="ggd-h2-c">搜索『{{.Q}}』<small>找到 {{.Total}} 本</small></h2>
+    {{if .Q}}
+    {{if .Books}}
+    <div class="ggd-bgrid">
+      {{range $i, $b := .Books}}
+      <div class="ggd-bookbox">
+        <div class="ggd-p10">
+          <span class="ggd-num">{{$i | add 1}}</span>
+          <span class="ggd-bb-cov">{{if $b.cover}}<img src="{{coverURL (str $b.cover)}}" alt="{{$b.name}} 封面" loading="lazy" onerror="this.remove()">{{end}}<span class="ggd-cover-ph">{{$b.name}}</span></span>
+          <div class="ggd-bookinfo">
+            <h4><a href="{{bookHref (str $b.id) (num $b.num) $.SiteID}}" title="{{$b.name}}">{{$b.name}}</a></h4>
+            <div class="ggd-bb-line">作者：{{$b.author}}</div>
+            <div class="ggd-bb-line">分类：{{or $b.category "小说"}} · 字数：{{fmtWords $b.wordCount}}</div>
+            <div class="ggd-bb-line">更新到：<a class="ggd-bb-last" href="{{bookHref (str $b.id) (num $b.num) $.SiteID}}" title="{{$b.latestChapter}}">{{or $b.latestChapter "暂无章节"}}</a></div>
+            <div class="ggd-bb-update">简介：{{if $b.intro}}{{excerpt $b.intro 64}}{{else}}暂无简介{{end}}</div>
+          </div>
+          <span class="ggd-readbtn"><a href="{{bookHref (str $b.id) (num $b.num) $.SiteID}}">阅读</a></span>
+          <div class="ggd-clear"></div>
+        </div>
+      </div>
+      {{end}}
+    </div>
+    {{else}}<p class="ggd-none">没有找到与「{{.Q}}」相关的小说，换个关键词试试</p>{{end}}
+    {{else}}<p class="ggd-none">输入书名 / 作者关键词开始搜索。</p>{{end}}
+  </div>
+</div>
+{{end}}

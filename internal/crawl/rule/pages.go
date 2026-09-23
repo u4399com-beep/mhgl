@@ -207,7 +207,8 @@ type ParsedBook struct {
 
 // ParseBook 书籍信息解析: 借道 ParseList(urlFields=['cover']) 提取字段。
 // status/keywords/latestChapter 的 cleanTextField 为其唯一清洗点(TS R25-2-5 同口径);
-// name/author/category/intro 由 Next.js 侧清洗, 此处不重复
+// name/author/category/intro 由 bridge 回调层清洗(bridge.go book 回调经 clean.CleanTextField
+// /CleanIntro), 此处不重复
 func ParseBook(htmlStr, baseURL string, pageRule *PageRule) ParsedBook {
 	res := ParseList(htmlStr, baseURL, pageRule, []string{"cover"})
 	f := map[string]string{}
@@ -523,7 +524,8 @@ type ParsedContent struct {
 
 // ParseContent 章节内容解析(含翻页合并 joinWith):
 // css 规则第 1 页低质时启用"最长文本容器"备用提取器(R9-c-6 同口径)。
-// Go 侧不做内容清洗(clean 传回 TS 侧执行), 原始 HTML 原样回调(契约 §4)
+// 原始 HTML 原样回调; 清洗由 bridge Contents 回调经 clean.CleanContentHTML 执行
+// (clean 配置经 clean.FromRuleRaw 从规则 JSON 构建; R55 单体化后 clean 在 Go 侧闭环)
 func ParseContent(ctx context.Context, firstURL, htmlStr string, pageRule *PageRule, fetcher PageFetch) ParsedContent {
 	res := ParsedContent{Pages: 1}
 	if pageRule == nil {

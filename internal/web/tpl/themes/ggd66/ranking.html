@@ -1,0 +1,23 @@
+{{define "content"}}{{/* ggd66 排行榜: 三榜 .tli 圆徽行(更新榜/字数榜/新书榜) */}}
+<div class="ggd-catpage">
+  <div class="ggd-box">
+    <h2>排行榜<small>更新榜 / 字数榜 / 新书榜 TOP60</small></h2>
+    {{range $bi, $board := .Boards}}
+    <div class="ggd-rank-block" id="ggd-rank-{{.Key}}">
+      <h3>{{.Label}}</h3>
+      {{if .Books}}
+      <ul class="ggd-catlist ggd-tli">
+        {{range $i, $b := .Books}}
+        <li>
+          <em{{if lt $i 3}} class="ggd-em-top"{{end}}>{{$i | add 1}}</em>
+          <a href="{{bookHref (str $b.id) (num $b.num) $.SiteID}}" title="{{$b.name}}">{{$b.name}}</a>
+          <span class="ggd-li-author">{{$b.author}}</span>
+        </li>
+        {{end}}
+      </ul>
+      {{else}}<p class="ggd-none">榜单暂无书籍</p>{{end}}
+    </div>
+    {{end}}
+  </div>
+</div>
+{{end}}

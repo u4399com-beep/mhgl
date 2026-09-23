@@ -25,120 +25,14 @@ import (
 	"mhgl/internal/store"
 )
 
-// ---------------- feedback 管理 ----------------
-
-var feedbackStatuses = map[string]bool{"new": true, "read": true, "resolved": true, "ignored": true}
-var feedbackTypes = map[string]bool{"bug": true, "suggestion": true, "praise": true, "other": true}
-
-// (d Deps) adminFeedbackList GET /api/admin/feedback
-func (d Deps) adminFeedbackList(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query()
-	page0, size := pageClamp(q, 1, 20, 100)
-	status := strOf(q.Get("status"), 20)
-	typ := strOf(q.Get("type"), 20)
-	qLike := likeSafe(q.Get("q"), 100)
-	where := []string{"1=1"}
-	var args []any
-	if feedbackStatuses[status] {
-		where = append(where, `status=?`)
-		args = append(args, status)
-	}
-	if feedbackTypes[typ] {
-		where = append(where, `type=?`)
-		args = append(args, typ)
-	}
-	if qLike != "" {
-		where = append(where, `content LIKE ?`)
-		args = append(args, "%"+qLike+"%")
-	}
-	whereSQL := strings.Join(where, " AND ")
-	total, err := d.DB.Count(`SELECT count(*) FROM "Feedback" WHERE `+whereSQL, args...)
-	if err != nil {
-		apiErr(w, http.StatusInternalServerError, "服务器内部错误")
-		return
-	}
-	page := minInt(page0, lastPage(total, size))
-	rows, err := d.DB.QueryMaps(`SELECT * FROM "Feedback" WHERE `+whereSQL+
-		` ORDER BY createdAt DESC LIMIT ? OFFSET ?`, append(args, size, (page-1)*size)...)
-	if err != nil {
-		apiErr(w, http.StatusInternalServerError, "服务器内部错误")
-		return
-	}
-	allCount, _ := d.DB.Count(`SELECT count(*) FROM "Feedback"`)
-	newCount, _ := d.DB.Count(`SELECT count(*) FROM "Feedback" WHERE status='new'`)
-	resolvedCount, _ := d.DB.Count(`SELECT count(*) FROM "Feedback" WHERE status='resolved'`)
-	apiOK(w, map[string]any{
-		"rows": rows, "total": total, "page": page, "size": size,
-		"pages": maxInt(1, lastPage(total, size)),
-		"stats": map[string]any{"total": allCount, "new": newCount, "resolved": resolvedCount},
-	})
-}
+// ---------------- [R60-2b] feedback 管理面已迁往 api/feedback.go ----------------
+// 保留共用助手: maxInt / stripHTML(书籍简介/正文清洗仍在用)。
 
 func maxInt(a, b int) int {
 	if a > b {
 		return a
 	}
 	return b
-}
-
-// (d Deps) adminFeedbackDetail GET /api/admin/feedback/{id}
-func (d Deps) adminFeedbackDetail(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	row, ok, err := d.DB.QueryMap(`SELECT * FROM "Feedback" WHERE id=?`, id)
-	if err != nil {
-		apiErr(w, http.StatusInternalServerError, "服务器内部错误")
-		return
-	}
-	if !ok {
-		apiErr(w, http.StatusNotFound, "反馈不存在")
-		return
-	}
-	apiOK(w, row)
-}
-
-// (d Deps) adminFeedbackUpdate PUT/PATCH /api/admin/feedback/{id}
-func (d Deps) adminFeedbackUpdate(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	body := readBodyMap(w, r, 0)
-	if !bodyOK(body) {
-		return
-	}
-	if _, ok, _ := d.DB.QueryMap(`SELECT id FROM "Feedback" WHERE id=?`, id); !ok {
-		apiErr(w, http.StatusNotFound, "反馈不存在")
-		return
-	}
-	sets := []string{"updatedAt=?"}
-	args := []any{store.NowMS()}
-	if v, has := body["status"]; has {
-		st := strings.TrimSpace(strOf(v, 20))
-		if !feedbackStatuses[st] {
-			apiErr(w, http.StatusBadRequest, "状态值不合法")
-			return
-		}
-		sets, args = append(sets, "status=?"), append(args, st)
-	}
-	if v, has := body["adminNote"]; has {
-		// R5-17: 剥 HTML 标签
-		note := stripHTML(strOf(v, 1000))
-		note = strings.TrimSpace(note)
-		if note == "" {
-			args = append(args, nil)
-		} else {
-			args = append(args, note)
-		}
-		sets = append(sets, "adminNote=?")
-	}
-	if len(sets) == 1 {
-		apiErr(w, http.StatusBadRequest, "没有可更新字段")
-		return
-	}
-	args = append(args, id)
-	if _, err := d.DB.Exec(`UPDATE "Feedback" SET `+strings.Join(sets, ", ")+` WHERE id=?`, args...); err != nil {
-		apiErr(w, http.StatusInternalServerError, "服务器内部错误")
-		return
-	}
-	row, _, _ := d.DB.QueryMap(`SELECT * FROM "Feedback" WHERE id=?`, id)
-	apiOK(w, row)
 }
 
 func stripHTML(s string) string {
@@ -157,20 +51,6 @@ func stripHTML(s string) string {
 		}
 	}
 	return b.String()
-}
-
-// (d Deps) adminFeedbackDelete DELETE /api/admin/feedback/{id}
-func (d Deps) adminFeedbackDelete(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	if _, ok, _ := d.DB.QueryMap(`SELECT id FROM "Feedback" WHERE id=?`, id); !ok {
-		apiErr(w, http.StatusNotFound, "反馈不存在")
-		return
-	}
-	if _, err := d.DB.Exec(`DELETE FROM "Feedback" WHERE id=?`, id); err != nil {
-		apiErr(w, http.StatusInternalServerError, "服务器内部错误")
-		return
-	}
-	apiOK(w, nil)
 }
 
 // ---------------- downloads(TXT 生成) ----------------
@@ -309,6 +189,22 @@ func (d Deps) runDownloadJob(jobID, bookID string) {
 		}
 	}
 	siteName, siteURL := opts.SiteName, opts.SiteURL
+	// [R60-2b] Setting.download({siteName,siteUrl}) 补上消费点(修前设置可写但
+	// Go 侧零读取 — TS 时代下载链路的兜底文案源)。优先级: 任务 options > Setting > Site 表。
+	if siteName == "" || siteURL == "" {
+		var dl struct {
+			SiteName string `json:"siteName"`
+			SiteURL  string `json:"siteUrl"`
+		}
+		if okD, _ := d.DB.SettingJSON("download", &dl); okD {
+			if siteName == "" {
+				siteName = strings.TrimSpace(dl.SiteName)
+			}
+			if siteURL == "" {
+				siteURL = strings.TrimSpace(dl.SiteURL)
+			}
+		}
+	}
 	if siteName == "" || siteURL == "" {
 		if site, okS, _ := d.DB.DefaultSite(); okS {
 			if siteName == "" {

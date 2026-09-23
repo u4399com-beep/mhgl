@@ -1,0 +1,50 @@
+{{define "content"}}{{/* ggd66 关键词专题页: Primary 书卡(封面+信息) + Others 列表 + 相关词 */}}
+<div class="ggd-catpage">
+  <div class="ggd-box">
+    <h2>关键词专题：{{if .Tag}}{{.Tag}}{{else}}缺少关键词参数{{end}}</h2>
+    {{with .Primary}}
+    <div class="ggd-book-body ggd-kw-hero">
+      <div class="ggd-bookcover">
+        <span class="ggd-cover ggd-cover-lg">{{if .cover}}<img src="{{coverURL (str .cover)}}" alt="{{.name}} 封面" onerror="this.remove()">{{end}}<span class="ggd-cover-ph">{{.name}}</span></span>
+      </div>
+      <div class="ggd-bookinfo-main">
+        <h1 class="ggd-booktitle">{{.name}}</h1>
+        <p class="ggd-booktag">
+          <a class="ggd-red" href="{{viewHrefSearch (str .author) $.SiteID}}">{{.author}}</a>
+          <span class="ggd-blue">{{fmtWords .wordCount}}</span>
+          <span class="ggd-cat-tag">[{{or .category "小说"}}]</span>
+        </p>
+        <p class="ggd-bookintro">{{if .intro}}{{excerpt .intro 120}}{{else}}暂无简介{{end}}</p>
+        <div class="ggd-bookmore">
+          <a class="ggd-btn-info" href="{{$.PrimaryBookHref}}">查看书籍详情</a>
+          <a class="ggd-btn-info" href="{{tocHref (str .id) (num .num) $.SiteID}}">章节目录</a>
+        </div>
+      </div>
+      <div class="ggd-clear"></div>
+    </div>
+    {{end}}
+  </div>
+  <div class="ggd-box">
+    <h2>其他相关书籍</h2>
+    {{if .Others}}
+    <ul class="ggd-catlist">
+      {{range .Others}}
+      <li>
+        <span class="ggd-cat-tag">[{{or .category "小说"}}]</span>
+        <a href="{{bookHref (str .id) (num .num) $.SiteID}}" title="{{.name}}">{{.name}}</a>
+        <span class="ggd-li-author">{{.author}}</span>
+      </li>
+      {{end}}
+    </ul>
+    {{else}}<p class="ggd-none">暂无相关书籍</p>{{end}}
+  </div>
+  {{if .Related}}
+  <div class="ggd-box">
+    <p class="ggd-tuijian">
+      <span class="ggd-tj-label">相关词：</span>
+      {{range .Related}}<a href="{{viewHrefKeyword . $.SiteID}}">{{.}}</a>{{end}}
+    </p>
+  </div>
+  {{end}}
+</div>
+{{end}}

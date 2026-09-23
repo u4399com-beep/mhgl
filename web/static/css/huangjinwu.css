@@ -1,0 +1,172 @@
+/* ============================================================
+   huangjinwu(黄金屋) 主题样式 — 1:1 对照 src/components/public/sites/HuangjinwuHome.tsx + huangjinwu/*.tsx
+   真站实测色板(:root light): --secondary #2563eb / --text #1e293b / --text-light #64748b
+   --border #dbe4f0 / --hover #e8f1ff / --bg #f0f4fb / --card #fff
+   阴影 0 1px 2px rgba(15,23,42,.04)+0 4px 16px rgba(37,99,235,.06); 圆角 10px
+   计数徽章 top3: #2563eb / #6692f1 / #acc4f7; 页脚 #e2eaf5
+   [R60-2a] 移植: 13 页全量 + 移动端 760px 断点(390px 单列零横滚)
+   ============================================================ */
+body.clone-huangjinwu{margin:0;color:#1e293b;background:linear-gradient(180deg,#f5f8ff,#eef3fb) fixed,#f0f4fb;font:15px/1.6 -apple-system,BlinkMacSystemFont,"Microsoft YaHei","PingFang SC","Segoe UI","Helvetica Neue",Arial,sans-serif}
+body.clone-huangjinwu a{color:#2563eb;text-decoration:none}
+body.clone-huangjinwu a:hover{color:#1d4ed8}
+body.clone-huangjinwu h1,body.clone-huangjinwu h2,body.clone-huangjinwu h3,body.clone-huangjinwu p,body.clone-huangjinwu ul,body.clone-huangjinwu ol,body.clone-huangjinwu li{margin:0;padding:0}
+body.clone-huangjinwu ul,body.clone-huangjinwu ol{list-style:none}
+.hjw-clear{clear:both}
+
+/* ---------- 头部(白卡条) ---------- */
+.hjw-header{background:#fff;border-bottom:1px solid #dbe4f0;box-shadow:0 1px 2px rgba(15,23,42,.04)}
+.hjw-header-in{max-width:1180px;margin:0 auto;padding:12px 16px}
+.hjw-logo{display:inline-flex;align-items:center;gap:6px;font-size:20px;font-weight:700;color:#1d4ed8}
+.hjw-logo:hover{color:#1d4ed8}
+.hjw-navbar{display:inline-flex;flex-wrap:wrap;gap:2px;margin-left:18px;vertical-align:middle}
+.hjw-navbar a{padding:6px 12px;border-radius:8px;font-size:15px;color:#1e293b}
+.hjw-navbar a:hover{background:#e8f1ff;color:#2563eb}
+.hjw-hsearch{float:right;display:flex;height:38px;margin-top:4px}
+.hjw-hsearch input{width:180px;box-sizing:border-box;border:1px solid #dbe4f0;border-right:none;border-radius:10px 0 0 10px;outline:none;padding:0 12px;font-size:14px;color:#1e293b;background:#f0f4fb}
+.hjw-hsearch button{border:none;cursor:pointer;border-radius:0 10px 10px 0;padding:0 16px;font-size:14px;color:#fff;background:#2563eb}
+.hjw-hsearch button:hover{background:#1d4ed8}
+
+/* ---------- 4 字分类导航条 ---------- */
+.hjw-catbar{background:rgba(255,255,255,.86);border-bottom:1px solid #dbe4f0}
+.hjw-catbar-in{max-width:1180px;margin:0 auto;padding:4px 16px;display:flex;flex-wrap:wrap;gap:2px}
+.hjw-catbar-in a{padding:6px 11px;border-radius:8px;font-size:14px;color:#64748b}
+.hjw-catbar-in a:hover{background:#e8f1ff;color:#2563eb}
+.hjw-catbar-in a.is-active{background:#2563eb;color:#fff}
+
+/* ---------- 版心与卡片 ---------- */
+.hjw-main{min-height:56vh}
+.hjw-container{max-width:1180px;margin:0 auto;padding:16px}
+.hjw-section{margin-bottom:28px}
+.hjw-page-title{display:flex;align-items:center;gap:8px;margin-bottom:18px;padding-left:16px;border-left:4px solid #2563eb;border-radius:2px 0 0 2px;font-size:21px;font-weight:600;letter-spacing:-.02em;color:#1e293b}
+.hjw-page-title .hjw-ico{font-size:18px}
+.hjw-title-sub{font-size:13px;font-weight:400;color:#94a3b8;letter-spacing:0}
+.hjw-card{background:#fff;border:1px solid rgba(219,228,240,.85);border-radius:10px;padding:16px;box-shadow:0 1px 2px rgba(15,23,42,.04),0 4px 16px rgba(37,99,235,.06)}
+.hjw-none{padding:18px 0;text-align:center;font-size:14px;color:#94a3b8}
+.hjw-desc{padding:4px 2px;font-size:14px;line-height:1.8;color:#64748b}
+
+/* ---------- 封面卡(hjw-book-card) ---------- */
+.hjw-book-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
+.hjw-book-card{display:block;overflow:hidden;background:#fff;border:1px solid rgba(219,228,240,.85);border-radius:10px;box-shadow:0 1px 2px rgba(15,23,42,.04),0 4px 16px rgba(37,99,235,.06);transition:transform .3s,border-color .3s,box-shadow .3s;color:#1e293b}
+.hjw-book-card:hover{transform:translateY(-2px);border-color:#89aaee;box-shadow:0 8px 24px rgba(37,99,235,.14),0 2px 8px rgba(15,23,42,.06)}
+.hjw-book-cover{position:relative;display:block;height:170px;background:linear-gradient(135deg,#dbe4f0,#e8f1ff);overflow:hidden}
+.hjw-book-cover img{width:100%;height:100%;object-fit:cover;display:block}
+.hjw-cover-ph{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:8px;background:linear-gradient(135deg,#2563eb,#6692f1);color:#fff;font-weight:700;font-size:14px;line-height:1.5;text-align:center}
+.hjw-book-cover img + .hjw-cover-ph{display:none}
+.hjw-book-info{display:block;padding:12px 14px}
+.hjw-book-title{display:block;margin-bottom:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:16px;font-weight:500;line-height:1.4;color:#1e293b}
+.hjw-book-card:hover .hjw-book-title{color:#2563eb}
+.hjw-book-author{display:block;margin-bottom:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;color:#64748b}
+.hjw-book-desc{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:2.55em;margin-bottom:8px;font-size:14px;line-height:1.5;color:#64748b}
+.hjw-grid-nodesc .hjw-book-desc{display:none}
+.hjw-book-badges{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.hjw-badge{display:inline-block;border-radius:10px;padding:3px 12px;font-size:12px;font-weight:500;line-height:1.5}
+.hjw-badge-cat{background:#2563eb;color:#fff}
+.hjw-badge-status{background:#e8f1ff;border:1px solid #dbe4f0;color:#1e293b}
+.hjw-badge-words{border:1px solid #dbe4f0;color:#64748b}
+
+/* ---------- 分类排行榜(ranking-module) ---------- */
+.hjw-mod-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
+.hjw-rankmod{overflow:hidden;background:#fff;border:1px solid #dbe4f0;border-radius:10px;box-shadow:0 1px 2px rgba(15,23,42,.04),0 4px 16px rgba(37,99,235,.06)}
+.hjw-rankmod-head{display:flex;align-items:center;gap:8px;padding:12px 16px;border-bottom:1px solid #dbe4f0;background:#f0f4fb;font-size:17px;font-weight:600;color:#1e293b}
+.hjw-rankmod-bar{flex:0 0 3px;width:3px;height:16px;border-radius:6px;background:#2563eb}
+.hjw-rankmod-list{padding:4px 0}
+.hjw-rankmod-list li{display:flex;align-items:center;gap:10px;padding:8px 16px;border-bottom:1px solid #dbe4f0}
+.hjw-rankmod-list li:last-child{border-bottom:none}
+.hjw-rankmod-list li:hover{background:#e8f1ff}
+.hjw-rankmod-list li a{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:15px;font-weight:500;color:#1e293b}
+.hjw-rankmod-list li:hover a{color:#2563eb}
+.hjw-rankmod-author{flex:0 0 auto;max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;color:#64748b}
+.hjw-rankbadge{flex:0 0 24px;width:24px;height:24px;border-radius:10px;text-align:center;font-size:13px;font-weight:600;line-height:24px;background:#e8f1ff;color:#64748b}
+.hjw-rankbadge-top{background:#2563eb;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.22)}
+.hjw-rankmod-list li:nth-child(2) .hjw-rankbadge-top{background:#6692f1}
+.hjw-rankmod-list li:nth-child(3) .hjw-rankbadge-top{background:#acc4f7;text-shadow:none;color:#fff}
+
+/* ---------- 书页 hero ---------- */
+.hjw-hero-cover{float:left;width:170px}
+.hjw-coverbox{position:relative;display:block;width:100%;aspect-ratio:3/4;background:linear-gradient(135deg,#dbe4f0,#e8f1ff);border-radius:10px;overflow:hidden}
+.hjw-coverbox img{width:100%;height:100%;object-fit:cover;display:block}
+.hjw-coverbox .hjw-cover-ph{inset:0}
+.hjw-hero-info{margin-left:194px}
+.hjw-hero-title{margin-bottom:6px;font-size:24px;font-weight:700;line-height:1.35;color:#1e293b}
+.hjw-hero-desc{margin:10px 0;font-size:14px;line-height:1.8;color:#64748b}
+.hjw-hero-time{font-size:13px;color:#94a3b8}
+.hjw-hero-actions{margin-top:14px;display:flex;flex-wrap:wrap;gap:8px}
+.hjw-btn-primary,.hjw-btn{display:inline-flex;align-items:center;justify-content:center;border-radius:10px;padding:9px 20px;font-size:14px;cursor:pointer;border:1px solid transparent}
+.hjw-btn-primary{background:#2563eb;color:#fff}
+.hjw-btn-primary:hover{background:#1d4ed8;color:#fff}
+.hjw-btn{background:#e8f1ff;border-color:#dbe4f0;color:#1e293b}
+.hjw-btn:hover{background:#dbe4f0;color:#1e293b}
+.is-disabled{opacity:.5;cursor:not-allowed;pointer-events:none}
+.hjw-tocmore{margin-top:14px;text-align:center}
+
+/* ---------- 章节网格 ---------- */
+.hjw-chgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px}
+.hjw-chitem{display:block;overflow:hidden;padding:10px 14px;border:1px solid #dbe4f0;border-radius:10px;font-size:14px;color:#1e293b;white-space:nowrap;text-overflow:ellipsis}
+.hjw-chitem:hover{border-color:#2563eb;background:#e8f1ff;color:#2563eb}
+
+/* ---------- 阅读卡 ---------- */
+.hjw-read-card{padding:0;overflow:hidden}
+.hjw-text-set{padding:10px 16px;border-bottom:1px solid #dbe4f0;background:#f0f4fb;font-size:13px;line-height:2.1;color:#64748b}
+.hjw-text-set b{color:#2563eb;font-weight:500;margin:0 4px}
+.hjw-fs{display:inline-block;margin:0 2px;padding:1px 9px;border:1px solid #dbe4f0;border-radius:8px;background:#fff;color:#1e293b}
+.hjw-fs.is-active{border-color:#2563eb;color:#2563eb}
+.hjw-c{display:inline-block;width:18px;height:18px;margin:0 2px;border:1px solid #dbe4f0;border-radius:5px;vertical-align:-4px}
+.hjw-c.is-active{border-color:#2563eb;box-shadow:0 0 0 1px #2563eb}
+.ajx-ys a{margin-right:10px;color:#1e293b}
+.ajx-ys a.is-active{font-weight:700;text-decoration:underline}
+.hjw-read-title{padding:18px 16px 4px;text-align:center;font-size:22px;font-weight:700;color:#1e293b}
+.hjw-read-info{padding-bottom:10px;text-align:center;font-size:13px;color:#94a3b8}
+.hjw-readcontent{padding:6px 16px 10px;border-top:1px dashed #dbe4f0}
+.hjw-read-txt{font-size:19px;line-height:1.9;color:#1e293b;letter-spacing:.02em}
+.hjw-read-txt p{margin:0 0 1em}
+.hjw-read-nav{padding:12px 16px;border-top:1px dashed #dbe4f0;justify-content:center;display:flex;flex-wrap:wrap;gap:8px}
+
+/* ---------- 分页/标签/行列表 ---------- */
+.hjw-pager{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:8px;margin-top:14px;font-size:14px;color:#64748b}
+.hjw-tags{margin-top:14px;font-size:14px;line-height:2;color:#64748b}
+.hjw-tags b{color:#2563eb;margin-right:6px}
+.hjw-tags a{margin-right:12px}
+.hjw-histlist li{padding:8px 2px;border-bottom:1px solid #dbe4f0}
+.hjw-histlist li:last-child{border-bottom:none}
+.hjw-rowlist li{display:flex;align-items:center;gap:10px}
+.hjw-rowbadge{flex:0 0 auto;background:#e8f1ff;border:1px solid #dbe4f0;border-radius:10px;padding:2px 10px;font-size:12px;color:#2563eb}
+.hjw-rowlist li a{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:15px;font-weight:500;color:#1e293b}
+.hjw-rowlist li:hover a{color:#2563eb}
+.hjw-rowmeta{flex:0 0 auto;font-size:13px;color:#94a3b8}
+
+/* ---------- 404 ---------- */
+.hjw-404card{text-align:center;padding:44px 16px}
+.hjw-404-code{font-size:64px;font-weight:700;color:#2563eb;line-height:1.2}
+.hjw-404card .hjw-pager{justify-content:center}
+
+/* ---------- 页脚(#e2eaf5) ---------- */
+.hjw-fsec{margin-top:16px;padding:26px 0;border-top:1px solid rgba(219,228,240,.7);background:#e2eaf5;color:#64748b;text-align:center;font-size:14px;line-height:1.7}
+.hjw-fsec-in{max-width:1180px;margin:0 auto;padding:0 16px}
+.hjw-fmap a{margin:0 2px;color:#64748b}
+.hjw-fmap a:hover{color:#2563eb}
+
+/* ---------- 响应式(≤1000 三列→两列 / ≤760 单列 / 390 零横滚) ---------- */
+@media (max-width:1000px){
+  .hjw-book-grid,.hjw-mod-grid{grid-template-columns:repeat(2,1fr)}
+}
+@media (max-width:760px){
+  .hjw-hsearch{float:none;margin:8px 0 0}
+  .hjw-hsearch input{width:calc(100% - 84px)}
+  .hjw-book-grid,.hjw-mod-grid{grid-template-columns:1fr;gap:14px}
+  .hjw-hero-cover{float:none;width:150px;margin:0 auto}
+  .hjw-hero-info{margin-left:0}
+  .hjw-chgrid{grid-template-columns:1fr}
+  .hjw-read-txt{font-size:17px}
+  .hjw-navbar{margin-left:0;display:flex}
+  .hjw-page-title{font-size:19px}
+  .hjw-container{padding:12px}
+  .hjw-rankmod-list li{min-height:44px}
+}
+@media (max-width:390px){
+  .hjw-logo{font-size:18px}
+  .hjw-navbar a{padding:5px 8px;font-size:14px}
+  .hjw-hsearch input{width:calc(100% - 76px)}
+}
+
+/* ---- R60 裸奔类补齐(主控核收) ---- */
+body.clone-huangjinwu .hjw-logo-icon{display:inline-block;margin-right:6px;font-size:18px;vertical-align:-3px}

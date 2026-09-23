@@ -1,0 +1,27 @@
+{{define "content"}}{{/* huangjinwu 排行榜: 三榜各一个计数徽章榜单(真站 ranking-module 形态) */}}
+<div class="hjw-container">
+  <section class="hjw-section">
+    <h2 class="hjw-page-title"><span class="hjw-ico" aria-hidden="true">📊</span>排行榜</h2>
+    <div class="hjw-mod-grid">
+      {{range $bi, $board := .Boards}}
+      <div class="hjw-rankmod" id="hjw-rank-{{.Key}}">
+        <div class="hjw-rankmod-head"><span class="hjw-rankmod-bar" aria-hidden="true"></span>{{.Label}}<small class="hjw-title-sub">TOP24</small></div>
+        {{if .Books}}
+        <ol class="hjw-rankmod-list">
+          {{range $i, $b := .Books}}
+          {{if lt $i 24}}
+          <li>
+            <span class="hjw-rankbadge{{if lt $i 3}} hjw-rankbadge-top{{end}}">{{$i | add 1}}</span>
+            <a href="{{bookHref (str $b.id) (num $b.num) $.SiteID}}" title="{{$b.name}}">{{$b.name}}</a>
+            <span class="hjw-rankmod-author">{{$b.author}}</span>
+          </li>
+          {{end}}
+          {{end}}
+        </ol>
+        {{else}}<p class="hjw-none">榜单暂无书籍</p>{{end}}
+      </div>
+      {{end}}
+    </div>
+  </section>
+</div>
+{{end}}

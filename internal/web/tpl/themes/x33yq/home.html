@@ -1,0 +1,72 @@
+{{define "content"}}{{/* x33yq 首页(33言情): #hotcontent 6 封面卡 + GARAN 新书排行榜图文卡 33 + #newscontent .l 最近更新(s1-s5)/.r 最新上架 */}}
+<div id="xq-main">
+  <div id="xq-hotcontent">
+    <div class="xq-l">
+      {{if .Books}}
+      {{range firstN 6 .Books}}
+      <div class="xq-item">
+        <a class="xq-image" href="{{bookHref (str .id) (num .num) $.SiteID}}" aria-label="{{.name}}">
+          <span class="xq-cover">{{if .cover}}<img src="{{coverURL (str .cover)}}" alt="{{.name}} 封面" loading="lazy" onerror="this.remove()">{{end}}<span class="xq-cover-ph">{{.name}}</span></span>
+        </a>
+        <dl>
+          <dt><span>{{.author}}</span><a href="{{bookHref (str .id) (num .num) $.SiteID}}" title="{{.name}}">{{.name}}</a></dt>
+          <dd>{{if .intro}}{{excerpt .intro 80}}{{else}}暂无简介{{end}}</dd>
+        </dl>
+        <div class="xq-clear"></div>
+      </div>
+      {{end}}
+      {{else}}<div class="xq-box-con-inner">暂无推荐书籍</div>{{end}}
+      <div class="xq-clear"></div>
+    </div>
+  </div>
+  {{if .Books}}
+  <div class="xq-novelslist">
+    <div class="xq-GARAN">
+      <h2>新书排行榜(*^__^*)</h2>
+      {{range firstN 33 .Books}}
+      <div class="xq-top">
+        <a class="xq-image" href="{{bookHref (str .id) (num .num) $.SiteID}}" aria-label="{{.name}}">
+          <span class="xq-cover xq-cover-sm">{{if .cover}}<img src="{{coverURL (str .cover)}}" alt="{{.name}} 封面" loading="lazy" onerror="this.remove()">{{end}}<span class="xq-cover-ph">{{.name}}</span></span>
+        </a>
+        <dl>
+          <dt><a href="{{bookHref (str .id) (num .num) $.SiteID}}" title="{{.name}}">{{.name}}</a> / 著：{{.author}}</dt>
+          <dd>{{if .intro}}{{excerpt .intro 60}}{{else}}暂无简介{{end}}</dd>
+        </dl>
+        <div class="xq-clear"></div>
+      </div>
+      {{end}}
+      <div class="xq-clear"></div>
+    </div>
+  </div>
+  {{end}}
+  <div id="xq-newscontent">
+    <div class="xq-nc-l">
+      <h2>最近更新小说列表</h2>
+      <ul>
+        {{range .Books}}
+        <li>
+          <span class="xq-s1">[{{or .category "小说"}}]</span>
+          <span class="xq-s2"><a class="xq-mu" href="{{tocHref (str .id) (num .num) $.SiteID}}" aria-label="{{.name}}目录">[目]</a><a href="{{bookHref (str .id) (num .num) $.SiteID}}" title="{{.name}}">{{.name}}</a></span>
+          <span class="xq-s3">{{or .latestChapter ""}}</span>
+          <span class="xq-s4">{{.author}}</span>
+          <span class="xq-s5">{{dateDay .updatedAt}}</span>
+        </li>
+        {{end}}
+      </ul>
+    </div>
+    <div class="xq-nc-r">
+      <h2>最新上架小说</h2>
+      <ul>
+        {{range firstN 24 .Books}}
+        <li>
+          <span class="xq-s1">[{{or .category "小说"}}]</span>
+          <span class="xq-s2"><a class="xq-mu" href="{{tocHref (str .id) (num .num) $.SiteID}}" aria-label="{{.name}}目录">[目]</a><a href="{{bookHref (str .id) (num .num) $.SiteID}}" title="{{.name}}">{{.name}}</a>/{{.author}}</span>
+          <span class="xq-s5">{{dateShort .updatedAt}}</span>
+        </li>
+        {{end}}
+      </ul>
+    </div>
+    <div class="xq-clear"></div>
+  </div>
+</div>
+{{end}}

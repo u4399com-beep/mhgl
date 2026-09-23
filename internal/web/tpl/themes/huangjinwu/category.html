@@ -1,0 +1,28 @@
+{{define "content"}}{{/* huangjinwu 分类页: 标题(共 N 本) + 卡片墙 + 分页 */}}
+<div class="hjw-container">
+  <section class="hjw-section">
+    <h2 class="hjw-page-title"><span class="hjw-ico" aria-hidden="true">📚</span>{{.CatName}}<small class="hjw-title-sub">（共 {{.Pager.Total}} 本）</small></h2>
+    {{if .Books}}
+    <div class="hjw-book-grid">
+      {{range .Books}}
+      <a class="hjw-book-card" href="{{bookHref (str .id) (num .num) $.SiteID}}">
+        <span class="hjw-book-cover">{{if .cover}}<img src="{{coverURL (str .cover)}}" alt="{{.name}} 封面" loading="lazy" onerror="this.remove()">{{end}}<span class="hjw-cover-ph">{{.name}}</span></span>
+        <span class="hjw-book-info">
+          <span class="hjw-book-title">{{.name}}</span>
+          <span class="hjw-book-author">作者：{{.author}}</span>
+          <span class="hjw-book-badges"><span class="hjw-badge hjw-badge-cat">{{or .category "小说"}}</span><span class="hjw-badge hjw-badge-words">{{fmtWords .wordCount}}</span></span>
+        </span>
+      </a>
+      {{end}}
+    </div>
+    {{else}}<div class="hjw-card hjw-none">暂无相关书籍</div>{{end}}
+    <div class="hjw-card hjw-pager">
+      {{with .Pager}}
+      <a class="hjw-btn{{if not .PrevURL}} is-disabled{{end}}" href="{{if .PrevURL}}{{.PrevURL}}{{else}}javascript:void(0){{end}}" rel="prev">上一页</a>
+      <span>第 {{.Page}} / {{.TotalPages}} 页</span>
+      <a class="hjw-btn{{if not .NextURL}} is-disabled{{end}}" href="{{if .NextURL}}{{.NextURL}}{{else}}javascript:void(0){{end}}" rel="next">下一页</a>
+      {{end}}
+    </div>
+  </section>
+</div>
+{{end}}

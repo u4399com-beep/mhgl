@@ -1,0 +1,56 @@
+{{define "content"}}{{/* ggd66 书页: 面包屑 + 书籍主体(封面 120×160 + bookinfo: 书名/tag/简介/最新章节/更新时间/动作钮) + 章节两栏 + 猜您喜欢 */}}
+<div class="ggd-catpage">
+  <ol class="ggd-crumb">
+    <li><a href="{{.HomeHref}}">首页</a></li>
+    <li><a href="{{catIDHref (str .Book.categoryId) .SiteID}}">{{or .Book.category "小说"}}</a></li>
+    <li class="is-active">{{.Book.name}}</li>
+  </ol>
+  <div class="ggd-box ggd-book-body">
+    <div class="ggd-bookcover">
+      <span class="ggd-cover ggd-cover-lg">{{if .Book.cover}}<img src="{{coverURL (str .Book.cover)}}" alt="{{.Book.name}} 封面" onerror="this.remove()">{{end}}<span class="ggd-cover-ph">{{.Book.name}}</span></span>
+    </div>
+    <div class="ggd-bookinfo-main">
+      <h1 class="ggd-booktitle">{{.Book.name}}</h1>
+      <p class="ggd-booktag">
+        <a class="ggd-red" href="{{viewHrefSearch (str .Book.author) .SiteID}}">{{.Book.author}}</a>
+        <span class="ggd-blue">{{fmtWords .Book.wordCount}}</span>
+        <span class="ggd-red">{{statusLabel (str .Book.status)}}</span>
+      </p>
+      <p class="ggd-bookintro">{{if .Book.intro}}{{.Book.intro}}{{else}}暂无简介{{end}}</p>
+      <p>最新章节：{{if .LatestChapters}}<a class="ggd-bookchapter" href="{{with index .LatestChapters 0}}{{chapterHref (str .id) (num $.Book.num) (num .idx) $.SiteID}}{{end}}">{{with index .LatestChapters 0}}{{.title}}{{end}}</a>{{else}}暂无{{end}}</p>
+      <p class="ggd-booktime">更新时间：{{dateDay .Book.updatedAt}}</p>
+      <div class="ggd-bookmore">
+        {{if .ReadFirstHref}}<a class="ggd-btn-info" href="{{.ReadFirstHref}}">开始阅读</a>{{end}}
+        <a class="ggd-btn-info" href="{{.TocHref}}">完整目录</a>
+        <a class="ggd-btn-info ggd-btn-plain" href="/api/public/download?book={{qesc (str .Book.id)}}" target="_blank" rel="noreferrer">TXT下载</a>
+      </div>
+    </div>
+    <div class="ggd-clear"></div>
+  </div>
+  <div class="ggd-box">
+    <h2>《{{.Book.name}}》最新章节</h2>
+    <div class="ggd-chlist">
+      <ul>
+        {{if .LatestChapters}}
+        {{range .LatestChapters}}<li><a href="{{chapterHref (str .id) (num $.Book.num) (num .idx) $.SiteID}}" title="{{.title}}">{{.title}}</a></li>{{end}}
+        {{else}}<li><span class="ggd-none">暂无章节</span></li>{{end}}
+      </ul>
+    </div>
+    <p class="ggd-toc-more"><a class="ggd-btn-info" href="{{.TocHref}}">查看完整目录（共 {{.ChapterCount}} 章）</a></p>
+  </div>
+  {{if .Recs}}
+  <div class="ggd-box">
+    <h2>猜您喜欢</h2>
+    <ul class="ggd-catlist ggd-rel-list">
+      {{range .Recs}}
+      <li>
+        <span class="ggd-cat-tag">[{{or .category "小说"}}]</span>
+        <a href="{{bookHref (str .id) (num .num) $.SiteID}}" title="{{.name}}">{{.name}}</a>
+        <span class="ggd-li-author">{{.author}}</span>
+      </li>
+      {{end}}
+    </ul>
+  </div>
+  {{end}}
+</div>
+{{end}}

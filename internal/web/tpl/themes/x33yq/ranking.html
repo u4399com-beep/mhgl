@@ -1,0 +1,41 @@
+{{define "content"}}{{/* x33yq 排行榜: 第二 .nav1 榜型栏(三榜) + #alist 图文行(与分类页同形态) */}}
+<div id="xq-main">
+  <div class="xq-nav1 xq-nav1-rank" role="tablist" aria-label="榜单切换">
+    <ul>
+      {{range $bi, $b := .Boards}}<li{{if eqStr (str .Key) "latest"}} class="xq-on"{{end}}><a href="#xq-rank-{{.Key}}" role="tab">{{.Label}}</a></li>{{end}}
+    </ul>
+  </div>
+  <div id="xq-hotcontent">
+    <div class="xq-l">
+      <div class="xq-alist">
+        {{range $bi, $board := .Boards}}
+        <div id="xq-rank-{{.Key}}" class="xq-ranksec">
+          <h3 class="xq-alist-h3">{{.Label}}<small>TOP24 · 每小时随采集更新</small></h3>
+          {{if .Books}}
+          <div class="xq-alist-body">
+            {{range $i, $b := .Books}}
+            {{if lt $i 24}}
+            <div class="xq-alistbox">
+              <a class="xq-pic" href="{{bookHref (str $b.id) (num $b.num) $.SiteID}}" aria-label="{{$b.name}}">
+                <span class="xq-cover xq-cover-al">{{if $b.cover}}<img src="{{coverURL (str $b.cover)}}" alt="{{$b.name}} 封面" loading="lazy" onerror="this.remove()">{{end}}<span class="xq-cover-ph">{{$b.name}}</span></span>
+              </a>
+              <div class="xq-info">
+                <div class="xq-title"><em class="xq-rankno">{{$i | add 1}}</em><a href="{{bookHref (str $b.id) (num $b.num) $.SiteID}}" title="{{$b.name}}">《{{$b.name}}》</a><span>作者：{{$b.author}}</span></div>
+                <div class="xq-sys">最新更新：{{or $b.latestChapter "暂无章节"}} · {{or $b.category "小说"}} · {{fmtWords $b.wordCount}}</div>
+                <div class="xq-intro-list">{{if $b.intro}}{{excerpt $b.intro 88}}{{else}}暂无简介{{end}}</div>
+                <div class="xq-yuedu"><a href="{{bookHref (str $b.id) (num $b.num) $.SiteID}}">开始阅读</a></div>
+              </div>
+              <div class="xq-clear"></div>
+            </div>
+            {{end}}
+            {{end}}
+            <div class="xq-clear"></div>
+          </div>
+          {{else}}<div class="xq-box-con-inner">榜单暂无书籍</div>{{end}}
+        </div>
+        {{end}}
+      </div>
+    </div>
+  </div>
+</div>
+{{end}}

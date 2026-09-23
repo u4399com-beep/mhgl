@@ -1,0 +1,42 @@
+{{define "content"}}{{/* qb23 阅读页(mxone): 白卡阅读器 + 字号/背景/字色控件 + 翻章钮 */}}
+<div class="qb-content">
+  <div class="qb-list">
+    <div class="qb-box qb-read-box" data-page="read" data-book-id="{{.Book.id}}" data-chapter-id="{{.Chapter.id}}" data-chapter-title="{{.Chapter.title}}">
+      <div class="qb-text-set" role="group" aria-label="阅读设置">
+        <b>字号：</b>
+        <a class="ajx-s qb-fs" href="javascript:void(0)" data-fs="15">15px</a>
+        <a class="ajx-s qb-fs" href="javascript:void(0)" data-fs="19">19px</a>
+        <a class="ajx-s qb-fs" href="javascript:void(0)" data-fs="23">23px</a>
+        <b>背景：</b>
+        <span role="group" aria-label="背景色">
+          <a class="ajx-c qb-c" style="background:#ffffff" href="javascript:void(0)" data-bg="#ffffff" aria-label="背景 白"></a>
+          <a class="ajx-c qb-c" style="background:#fef0e5" href="javascript:void(0)" data-bg="#fef0e5" aria-label="背景 暖杏"></a>
+          <a class="ajx-c qb-c" style="background:#e3efe3" href="javascript:void(0)" data-bg="#e3efe3" aria-label="背景 淡绿"></a>
+          <a class="ajx-c qb-c" style="background:#f2e8c8" href="javascript:void(0)" data-bg="#f2e8c8" aria-label="背景 护眼"></a>
+          <a class="ajx-c qb-c" style="background:#222222" href="javascript:void(0)" data-bg="#222222" aria-label="背景 夜间"></a>
+        </span>
+        <b>字色：</b>
+        <span class="ajx-ys" role="group" aria-label="字体颜色">
+          <a href="javascript:void(0)" data-ink="#282828" style="color:#282828">黑</a>
+          <a href="javascript:void(0)" data-ink="#686868" style="color:#686868">灰</a>
+          <a href="javascript:void(0)" data-ink="#ff2a14" style="color:#ff2a14">红</a>
+        </span>
+      </div>
+      <h1 class="qb-read-title">{{.Chapter.title}}</h1>
+      <div class="qb-read-info">{{.Book.name}} · {{.Book.author}}</div>
+      <div class="qb-readcontent">
+        {{if .Chapter.content}}
+        <div id="view_content_txt" class="qb-read-txt">{{readHTML (str .Chapter.content)}}</div>
+        {{else}}
+        <div id="view_content_txt" class="qb-read-txt"><p class="qb-none">本章内容尚未采集, 请稍后再来或返回目录阅读其他章节。</p></div>
+        {{end}}
+      </div>
+      <div class="qb-pager qb-read-nav">
+        {{if .PrevHref}}<a class="qb-btn-primary" id="ajx-prev" href="{{.PrevHref}}" rel="prev">上一章</a>{{else}}<span class="qb-btn-primary is-disabled" id="ajx-prev" aria-disabled="true">上一章</span>{{end}}
+        <a class="qb-btn" href="{{.BookHref}}">书页</a>
+        {{if .NextHref}}<a class="qb-btn-primary" id="ajx-next" href="{{.NextHref}}" rel="next">下一章</a>{{else}}<span class="qb-btn-primary is-disabled" id="ajx-next" aria-disabled="true">下一章</span>{{end}}
+      </div>
+    </div>
+  </div>
+</div>
+{{end}}

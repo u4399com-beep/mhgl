@@ -1,0 +1,56 @@
+{{define "content"}}{{/* huangjinwu 书页: hero 卡(封面+徽章+简介+动作钮) + 最新章节/正文试读 + 猜您喜欢卡墙 */}}
+<div class="hjw-container">
+  <section class="hjw-section">
+    <div class="hjw-card hjw-hero">
+      <div class="hjw-hero-cover">
+        <span class="hjw-coverbox">{{if .Book.cover}}<img src="{{coverURL (str .Book.cover)}}" alt="{{.Book.name}} 封面" onerror="this.remove()">{{end}}<span class="hjw-cover-ph">{{.Book.name}}</span></span>
+      </div>
+      <div class="hjw-hero-info">
+        <h1 class="hjw-hero-title">{{.Book.name}}</h1>
+        <div class="hjw-book-author">作者：{{.Book.author}}</div>
+        <div class="hjw-book-badges">
+          <span class="hjw-badge hjw-badge-cat">{{or .Book.category "小说"}}</span>
+          <span class="hjw-badge hjw-badge-status">{{statusLabel (str .Book.status)}}</span>
+          <span class="hjw-badge hjw-badge-words">{{fmtWords .Book.wordCount}}</span>
+        </div>
+        <p class="hjw-hero-desc">{{if .Book.intro}}{{.Book.intro}}{{else}}暂无简介{{end}}</p>
+        <p class="hjw-hero-time">更新：{{dateDay .Book.updatedAt}} · 最新连载：{{or .Book.latestChapter "暂无"}}</p>
+        <div class="hjw-hero-actions">
+          {{if .ReadFirstHref}}<a class="hjw-btn-primary" href="{{.ReadFirstHref}}">开始阅读</a>{{end}}
+          <a class="hjw-btn" href="{{.TocHref}}">完整目录</a>
+          <a class="hjw-btn" href="/api/public/download?book={{qesc (str .Book.id)}}" target="_blank" rel="noreferrer">TXT下载</a>
+        </div>
+      </div>
+      <div class="hjw-clear"></div>
+    </div>
+  </section>
+  <section class="hjw-section">
+    <h2 class="hjw-page-title"><span class="hjw-ico" aria-hidden="true">📌</span>最新章节</h2>
+    <div class="hjw-card">
+      {{if .LatestChapters}}
+      <div class="hjw-chgrid">
+        {{range .LatestChapters}}<a class="hjw-chitem" href="{{chapterHref (str .id) (num $.Book.num) (num .idx) $.SiteID}}" title="{{.title}}">{{.title}}</a>{{end}}
+      </div>
+      {{else}}<p class="hjw-none">暂无章节</p>{{end}}
+      <p class="hjw-tocmore"><a class="hjw-btn-primary" href="{{.TocHref}}">查看完整目录（共 {{.ChapterCount}} 章）</a></p>
+    </div>
+  </section>
+  {{if .Recs}}
+  <section class="hjw-section">
+    <h2 class="hjw-page-title"><span class="hjw-ico" aria-hidden="true">✨</span>猜您喜欢</h2>
+    <div class="hjw-book-grid hjw-grid-nodesc">
+      {{range .Recs}}
+      <a class="hjw-book-card" href="{{bookHref (str .id) (num .num) $.SiteID}}">
+        <span class="hjw-book-cover">{{if .cover}}<img src="{{coverURL (str .cover)}}" alt="{{.name}} 封面" loading="lazy" onerror="this.remove()">{{end}}<span class="hjw-cover-ph">{{.name}}</span></span>
+        <span class="hjw-book-info">
+          <span class="hjw-book-title">{{.name}}</span>
+          <span class="hjw-book-author">作者：{{.author}}</span>
+          <span class="hjw-book-badges"><span class="hjw-badge hjw-badge-cat">{{or .category "小说"}}</span></span>
+        </span>
+      </a>
+      {{end}}
+    </div>
+  </section>
+  {{end}}
+</div>
+{{end}}

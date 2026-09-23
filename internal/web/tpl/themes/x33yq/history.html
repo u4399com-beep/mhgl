@@ -1,0 +1,13 @@
+{{define "content"}}{{/* x33yq 阅读历史(localStorage 本机渲染, site.js 注入 #ajx-history-list) */}}
+<div id="xq-main">
+  <div class="xq-box-con">
+    <div class="xq-con-top">阅读历史</div>
+    <div id="xq-list">
+      <p class="xq-hist-desc">阅读历史仅保存在本机浏览器(localStorage), 不上传服务器。</p>
+      <div id="ajx-history-empty" class="xq-box-con-inner" style="display:none">暂无阅读历史, 去首页挑一本书开始阅读吧。</div>
+      <ul class="xq-histlist" id="ajx-history-list"></ul>
+      <p class="xq-hist-actions"><a class="xq-btopt-a" href="{{.HomeHref}}">去逛首页</a><a class="xq-btopt-a" href="{{.SearchHref}}">搜索书籍</a></p>
+    </div>
+  </div>
+</div>
+{{end}}

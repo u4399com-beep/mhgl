@@ -5,12 +5,57 @@
     <div class="adm-toolbar">
       <select class="adm-input is-select" id="fb-filter" aria-label="状态筛选">
         <option value="">全部</option>
-        <option value="pending">待处理</option>
-        <option value="resolved">已处理</option>
+        <option value="new">待处理(new)</option>
+        <option value="read">已读(read)</option>
+        <option value="resolved">已处理(resolved)</option>
+        <option value="ignored">已忽略(ignored)</option>
       </select>
       <button class="adm-btn is-tiny" id="fb-refresh" type="button">刷新</button>
     </div>
   </div>
   <div id="fb-list" class="adm-state">加载中…</div>
 </section>
+<section class="adm-card" style="margin-top:16px">
+  <div class="adm-card-head">
+    <h2>反馈开关</h2>
+    <a class="adm-btn is-tiny is-ghost" href="/feedback" target="_blank" rel="noopener">公开反馈页 ↗</a>
+  </div>
+  <p class="adm-muted" style="margin:0 0 12px">关闭后: 公开反馈页(/feedback)展示关闭态, POST /api/public/feedback 返回 403「反馈功能已关闭」。后台管理面不受影响。</p>
+  <div class="adm-toolbar" id="fbset-row">
+    <label style="display:inline-flex;align-items:center;gap:8px;font-size:14px">
+      <input type="checkbox" id="fbset-enabled" aria-label="启用用户反馈">
+      <span>启用用户反馈(公开提交)</span>
+    </label>
+    <button class="adm-btn is-primary is-tiny" id="fbset-save" type="button">保存开关</button>
+    <span class="adm-muted" id="fbset-state" aria-live="polite"></span>
+  </div>
+</section>
+<script>
+/* R60-2b 反馈开关(自包含, 独立于 admin.js: 直读/直写 Setting.feedback.enabled) */
+(function () {
+  function $(id) { return document.getElementById(id); }
+  function load() {
+    fetch('/api/admin/settings', { credentials: 'same-origin' }).then(function (r) { return r.json(); }).then(function (j) {
+      var fb = j && (j.data || j).feedback;
+      var on = !(fb && fb.enabled === false);
+      $('fbset-enabled').checked = on;
+      $('fbset-state').textContent = on ? '当前: 开启' : '当前: 关闭';
+    }).catch(function () { $('fbset-state').textContent = '读取失败'; });
+  }
+  $('fbset-save').addEventListener('click', function () {
+    var on = $('fbset-enabled').checked;
+    $('fbset-state').textContent = '保存中…';
+    fetch('/api/admin/settings', {
+      method: 'PUT',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ feedback: { enabled: on } })
+    }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); }).then(function (res) {
+      var fb = res.j && (res.j.data || res.j).feedback;
+      $('fbset-state').textContent = res.ok && fb && fb.enabled === on ? '已保存: ' + (on ? '开启' : '关闭') : '保存失败';
+    }).catch(function () { $('fbset-state').textContent = '保存失败'; });
+  });
+  if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', load); } else { load(); }
+})();
+</script>
 {{end}}

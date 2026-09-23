@@ -1,0 +1,22 @@
+{{define "content"}}{{/* huangjinwu 目录页: 章节网格卡 + 分页(上一页/返回书页/下一页) */}}
+<div class="hjw-container">
+  <section class="hjw-section">
+    <h2 class="hjw-page-title"><span class="hjw-ico" aria-hidden="true">📖</span>{{.Book.name}} 完整目录<small class="hjw-title-sub">（共 {{.Total}} 章）</small></h2>
+    <div class="hjw-card">
+      {{if .Chapters}}
+      <div class="hjw-chgrid">
+        {{range .Chapters}}<a class="hjw-chitem" href="{{chapterHref (str .id) (num $.Book.num) (num .idx) $.SiteID}}" title="{{.title}}">{{.title}}</a>{{end}}
+      </div>
+      {{else}}<p class="hjw-none">目录暂未收录, 请稍后再来</p>{{end}}
+      <div class="hjw-pager">
+        {{with .Pager}}
+        <a class="hjw-btn{{if not .PrevURL}} is-disabled{{end}}" href="{{if .PrevURL}}{{.PrevURL}}{{else}}javascript:void(0){{end}}" rel="prev">上一页</a>
+        <span>第 {{.Page}} / {{.TotalPages}} 页</span>
+        <a class="hjw-btn{{if not .NextURL}} is-disabled{{end}}" href="{{if .NextURL}}{{.NextURL}}{{else}}javascript:void(0){{end}}" rel="next">下一页</a>
+        {{end}}
+        <a class="hjw-btn" href="{{.BookHref}}">返回书页</a>
+      </div>
+    </div>
+  </section>
+</div>
+{{end}}

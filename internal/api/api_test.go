@@ -52,6 +52,10 @@ CREATE TABLE "DownloadJob" (id TEXT PRIMARY KEY, bookId TEXT, options TEXT DEFAU
 status TEXT DEFAULT 'pending', filePath TEXT, error TEXT, size INTEGER DEFAULT 0, createdAt DATETIME);
 CREATE TABLE "FriendLink" (id TEXT PRIMARY KEY, name TEXT, url TEXT, logo TEXT,
 sortOrder INTEGER DEFAULT 0, enabled BOOLEAN DEFAULT 1, createdAt DATETIME, updatedAt DATETIME);
+CREATE TABLE "PseoPage" (id TEXT PRIMARY KEY, siteId TEXT, keyword TEXT NOT NULL, slug TEXT NOT NULL,
+title TEXT NOT NULL DEFAULT '', description TEXT NOT NULL DEFAULT '', keywords TEXT NOT NULL DEFAULT '',
+primaryBookId TEXT, matchedBookIds TEXT NOT NULL DEFAULT '[]', status TEXT NOT NULL DEFAULT 'active',
+source TEXT NOT NULL DEFAULT 'suggest', createdAt DATETIME, updatedAt DATETIME);
 CREATE TABLE "FreeProxy" (id TEXT PRIMARY KEY, protocol TEXT NOT NULL, host TEXT NOT NULL,
 port INTEGER NOT NULL, anonymity TEXT NOT NULL DEFAULT '', country TEXT NOT NULL DEFAULT '',
 countryName TEXT NOT NULL DEFAULT '', exitIp TEXT NOT NULL DEFAULT '', latencyMs INTEGER,

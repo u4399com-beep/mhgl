@@ -1,0 +1,13 @@
+{{define "content"}}{{/* x33yq 美观 404(box_con 形态) */}}
+<div id="xq-main">
+  <div class="xq-box-con">
+    <div class="xq-con-top">404 Not Found</div>
+    <div class="xq-404-body">
+      <div class="xq-404-code">404</div>
+      <h1>页面不存在</h1>
+      <p class="xq-box-con-inner">{{if .Msg}}{{.Msg}}{{else}}你访问的页面不存在或已被移除{{end}}</p>
+      <p class="xq-hist-actions"><a class="xq-btopt-a" href="{{.HomeHref}}">返回首页</a><a class="xq-btopt-a" href="{{.SearchHref}}">搜索书籍</a></p>
+    </div>
+  </div>
+</div>
+{{end}}

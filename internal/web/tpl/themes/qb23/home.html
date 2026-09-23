@@ -1,0 +1,37 @@
+{{define "content"}}{{/* qb23 首页(mxone): .box 白卡封面网格(斜角序号 top1 #e50914/top2 #f73/top3 #ffa82e) + 12 分类榜单列(01 #fc4274/02 #ff8155/03 #fcb80a) */}}
+<div class="qb-content">
+  <div class="qb-list">
+    <div class="qb-box">
+      <div class="qb-module qb-hot-grid" aria-label="热门点击榜">
+        {{if .QbHot}}
+        {{range $i, $b := .QbHot}}
+        <div class="qb-module-item">
+          <a class="qb-module-item-cover" href="{{bookHref (str $b.id) (num $b.num) $.SiteID}}" aria-label="查看《{{$b.name}}》详情">
+            {{if $b.cover}}<img class="qb-module-item-pic" src="{{coverURL (str $b.cover)}}" alt="{{$b.name}} 封面" loading="lazy" onerror="this.remove()">{{else}}<span class="qb-module-item-pic qb-pic-ph">{{$b.name}}</span>{{end}}
+            <span class="qb-item-top" aria-hidden="true"><i class="qb-top-corner qb-top-{{if lt $i 3}}{{add $i 1}}{{else}}rest{{end}}"></i><b class="qb-top-num">{{$i | add 1}}</b></span>
+            <span class="qb-item-caption"><em>{{$b.author}}</em><em>{{or $b.category "小说"}}</em></span>
+          </a>
+          <div class="qb-module-item-titlebox"><a class="qb-module-item-title" href="{{bookHref (str $b.id) (num $b.num) $.SiteID}}">{{$b.name}}</a></div>
+          <p class="qb-module-item-text">{{$b.author}}</p>
+        </div>
+        {{end}}
+        {{else}}<p class="qb-none">暂无热门书籍</p>{{end}}
+      </div>
+    </div>
+  </div>
+  {{if .QbCols}}
+  <div class="qb-rankcols">
+    {{range .QbCols}}
+    <section class="qb-list-item" aria-label="{{.Name}}排行榜">
+      <h3 class="qb-item-title"><span class="qb-flame" aria-hidden="true">🔥</span>{{.Name}}</h3>
+      <ul class="qb-rank-list">
+        {{range $i, $b := .Books}}
+        <li><a href="{{bookHref (str $b.id) (num $b.num) $.SiteID}}" title="{{$b.name}}"><em class="qb-rank-no{{if lt $i 3}} qb-rank-top{{end}}">{{printf "%02d" (add $i 1)}}</em><span class="qb-rank-name">{{$b.name}}</span></a></li>
+        {{end}}
+      </ul>
+    </section>
+    {{end}}
+  </div>
+  {{end}}
+</div>
+{{end}}

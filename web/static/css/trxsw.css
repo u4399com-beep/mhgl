@@ -317,3 +317,8 @@
 }
 /* 页型根横向溢出兜底 */
 .clone-trxsw .trx-home,.clone-trxsw .trx-cat,.clone-trxsw .trx-book,.clone-trxsw .trx-toc,.clone-trxsw .trx-read,.clone-trxsw .trx-search,.clone-trxsw .trx-ranking,.clone-trxsw .trx-full,.clone-trxsw .trx-keyword,.clone-trxsw .trx-pseo,.clone-trxsw .trx-history,.clone-trxsw .trx-404page{overflow-x:hidden}
+
+/* ---- R60 裸奔类补齐(主控核收) ---- */
+.clone-trxsw .trx-ft-links{text-align:center;color:#9aa3c7;font-size:12px;padding:14px 0 20px;border-top:1px dashed #d5dcf0;margin-top:22px}
+.clone-trxsw .trx-ft-links a{color:#6f78a7;margin:0 4px}
+.clone-trxsw .trx-nav1-rank{display:flex;gap:8px;flex-wrap:wrap;padding:10px 12px;background:#fff;border:1px solid #d9e6f2;border-radius:3px;margin-bottom:12px}

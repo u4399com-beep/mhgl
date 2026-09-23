@@ -1,0 +1,30 @@
+{{define "content"}}{{/* qb23 全本·书库页: 封面网格 + 分页 */}}
+<div class="qb-content">
+  <div class="qb-list">
+    <div class="qb-box">
+      <div class="qb-blocktitle">全部书库<small>（共 {{.Pager.Total}} 本）</small></div>
+      {{if .Books}}
+      <div class="qb-module qb-cat-grid" aria-label="全部书库">
+        {{range .Books}}
+        <div class="qb-module-item">
+          <a class="qb-module-item-cover" href="{{bookHref (str .id) (num .num) $.SiteID}}" aria-label="查看《{{.name}}》详情">
+            {{if .cover}}<img class="qb-module-item-pic" src="{{coverURL (str .cover)}}" alt="{{.name}} 封面" loading="lazy" onerror="this.remove()">{{else}}<span class="qb-module-item-pic qb-pic-ph">{{.name}}</span>{{end}}
+            <span class="qb-item-caption"><em>{{.author}}</em><em>{{or .category "小说"}}</em></span>
+          </a>
+          <div class="qb-module-item-titlebox"><a class="qb-module-item-title" href="{{bookHref (str .id) (num .num) $.SiteID}}">{{.name}}</a></div>
+          <p class="qb-module-item-text">{{.author}}</p>
+        </div>
+        {{end}}
+      </div>
+      {{else}}<p class="qb-none">暂无书籍</p>{{end}}
+      <nav class="qb-page" aria-label="分页导航">
+        {{with .Pager}}
+        <span class="qb-pageinfo">第{{.Page}}/{{.TotalPages}}页</span>
+        {{if .PrevURL}}<a class="qb-pagebtn" href="{{.PrevURL}}" rel="prev">上一页</a>{{end}}
+        {{if .NextURL}}<a class="qb-pagebtn" href="{{.NextURL}}" rel="next">下一页</a>{{end}}
+        {{end}}
+      </nav>
+    </div>
+  </div>
+</div>
+{{end}}

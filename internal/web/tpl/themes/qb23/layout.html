@@ -1,0 +1,60 @@
+{{define "layout.html"}}<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>{{.Head.Title}}</title>
+{{if .Head.Description}}<meta name="description" content="{{.Head.Description}}">{{end}}
+{{if .Head.Keywords}}<meta name="keywords" content="{{.Head.Keywords}}">{{end}}
+{{if .Head.Canonical}}<link rel="canonical" href="{{.Head.Canonical}}">{{end}}
+<meta property="og:type" content="{{.Head.OgType}}">
+<meta property="og:title" content="{{.Head.Title}}">
+{{if .Head.Description}}<meta property="og:description" content="{{.Head.Description}}">{{end}}
+{{if .Head.Canonical}}<meta property="og:url" content="{{.Head.Canonical}}">{{end}}
+{{with .Site}}{{if .geoRegion}}<meta name="geo.region" content="{{.geoRegion}}">{{end}}
+{{if .geoPlacename}}<meta name="geo.placename" content="{{.geoPlacename}}">{{end}}
+{{if .icbm}}<meta name="ICBM" content="{{.icbm}}">{{end}}{{end}}
+<meta name="theme-color" content="#282828">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" type="image/png" href="/static/icons/icon-192.png">
+<link rel="stylesheet" href="/static/css/qb23.css?v=r60-2a">
+</head>
+<body class="clone-qb23">
+<header class="qb-header" role="banner">
+  <div class="qb-header-in">
+    <div class="qb-nav-search">
+      <a class="qb-logo" href="{{.HomeHref}}">{{siteTitle .Site}}</a>
+      <form class="qb-search-dh" action="/" method="get" role="search">
+        {{if .SiteID}}<input type="hidden" name="site" value="{{.SiteID}}">{{end}}
+        <input type="hidden" name="view" value="search">
+        <input type="search" name="q" aria-label="搜索" placeholder="书名 / 作者" value="{{.Q}}">
+        <button type="submit">搜索</button>
+        <a class="qb-search-cupfox" href="{{.FulltextHref}}">书库</a>
+      </form>
+    </div>
+    <nav class="qb-nav" aria-label="主导航">
+      <ul class="qb-nav-items">
+        <li class="qb-nav-item{{if eqStr .Head.OgType "website"}} qb-selected{{end}}"><a href="{{.HomeHref}}"><span>首页</span></a></li>
+        {{range firstN 9 .NavCats}}<li class="qb-nav-item"><a href="{{catHref . $.SiteID}}"><span>{{.}}</span></a></li>{{end}}
+        <li class="qb-nav-item"><a href="{{.RankingHref}}"><span>排行榜</span></a></li>
+        <li class="qb-nav-item"><a href="{{.HistoryHref}}"><span>书架</span></a></li>
+      </ul>
+    </nav>
+  </div>
+</header>
+<nav class="qb-catbar" aria-label="分类导航">
+  <div class="qb-catbar-in">
+    <a{{if eqStr .CatName "全部"}} class="is-active"{{end}} href="{{viewHrefCategoryAll .SiteID}}">全部</a>
+    {{range $cat := .NavCats}}<a{{if eqStr (str $.CatName) $cat}} class="is-active"{{end}} href="{{catHref $cat $.SiteID}}">{{$cat}}</a>{{end}}
+  </div>
+</nav>
+<main class="qb-wrapper">{{block "content" .}}<div class="qb-content"><div class="qb-box">加载中…</div></div>{{end}}</main>
+<footer class="qb-fsec">
+  <p class="qb-fmap"><a href="{{.HomeHref}}">首页</a><span class="qb-fsep"></span><a href="{{.FulltextHref}}">书库</a><span class="qb-fsep"></span><a href="{{.RankingHref}}">排行榜</a><span class="qb-fsep"></span><a href="{{.HistoryHref}}">阅读历史</a><span class="qb-fsep"></span><a href="/admin">管理</a></p>
+  <p>本站所有小说均由网友上传, 如有侵权请联系删除</p>
+  <p>Copyright © {{siteTitle .Site}}</p>
+</footer>
+<script src="/static/js/site.js?v=r56-2c" defer></script>
+<script src="/static/js/pwa.js?v=r56-2c" defer></script>
+</body>
+</html>{{end}}

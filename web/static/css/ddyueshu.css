@@ -338,3 +338,10 @@ body.clone-ddyueshu .ddy-404-btns a:hover { background: #2b5b84; color: #fff; te
   body.clone-ddyueshu .ddy-read-txt { font-size: 16px; }
   body.clone-ddyueshu .ddy-text-set b { margin-left: 4px; }
 }
+
+/* ---- R60 裸奔类补齐(主控核收) ---- */
+.dd-wrapper .ddy-home,.dd-wrapper .ddy-book{display:block}
+.dd-wrapper .ddy-toc-page{margin:0;padding:10px 0}
+.dd-wrapper .ddy-footer-link{height:0;font-size:0;line-height:0;overflow:hidden}
+.dd-wrapper .ddy-fs{display:inline-block;padding:3px 10px;border:1px solid #ccc;border-radius:2px;margin-right:6px;font-size:12px;cursor:pointer;background:#fff;color:#333}
+.dd-wrapper .ddy-fs:hover{border-color:#2b5b84;color:#2b5b84}

@@ -1,0 +1,13 @@
+{{define "content"}}{{/* qb23 阅读历史(localStorage 本机渲染, site.js 注入 #ajx-history-list) */}}
+<div class="qb-content">
+  <div class="qb-list">
+    <div class="qb-box">
+      <div class="qb-blocktitle">阅读历史</div>
+      <p class="qb-desc">阅读历史仅保存在本机浏览器(localStorage), 不上传服务器。</p>
+      <div id="ajx-history-empty" class="qb-none" style="display:none">暂无阅读历史, 去首页挑一本书开始阅读吧。</div>
+      <ul class="qb-rowlist" id="ajx-history-list"></ul>
+      <div class="qb-pager"><a class="qb-btn-primary" href="{{.HomeHref}}">去逛首页</a><a class="qb-btn" href="{{.SearchHref}}">搜索书籍</a></div>
+    </div>
+  </div>
+</div>
+{{end}}

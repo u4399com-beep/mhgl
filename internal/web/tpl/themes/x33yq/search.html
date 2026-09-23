@@ -1,0 +1,27 @@
+{{define "content"}}{{/* x33yq 搜索页: .novelslistss 行式结果(s1 分类/s2 书名/s3 简介/s4 作者) + .place 相关词 */}}
+<div id="xq-main">
+  <div class="xq-novelslistss">
+    <h2>搜索「{{.Q}}」的结果{{if .Q}}(共 {{.Total}} 条){{end}}</h2>
+    {{if .Q}}
+    {{if .Books}}
+    <ul>
+      {{range .Books}}
+      <li title="{{.name}}/{{.author}}">
+        <span class="xq-s1">[{{or .category "小说"}}]</span>
+        <span class="xq-s2"><a href="{{bookHref (str .id) (num .num) $.SiteID}}" title="{{.name}}">{{.name}}</a></span>
+        <span class="xq-s3">{{if .intro}}{{excerpt .intro 30}}{{else}}暂无简介{{end}}</span>
+        <span class="xq-s4">{{.author}}</span>
+      </li>
+      {{end}}
+    </ul>
+    {{else}}<div class="xq-box-con-inner">未找到相关书籍, 换个关键词试试</div>{{end}}
+    {{else}}<div class="xq-box-con-inner">输入书名 / 作者关键词开始搜索。</div>{{end}}
+  </div>
+  {{if .Tags}}
+  <div class="xq-place">
+    <span>相关词：</span>
+    {{range .Tags}}<a href="{{viewHrefKeyword .tag $.SiteID}}">{{.tag}}</a>{{end}}
+  </div>
+  {{end}}
+</div>
+{{end}}

@@ -1,0 +1,36 @@
+{{define "content"}}{{/* qb23 排行榜(真站今日热榜): 三榜 tab chip + 斜角序号封面网格 */}}
+<div class="qb-content">
+  <div class="qb-heading">
+    <h1 class="qb-page-title">今日热榜</h1>
+    <span class="qb-heading-sub">{{siteTitle .Site}} · 三榜 TOP60</span>
+  </div>
+  <div class="qb-list">
+    <div class="qb-box">
+      <div class="qb-tabline" role="tablist" aria-label="榜单切换">
+        {{range $bi, $b := .Boards}}<a class="qb-chip qb-chip-lg{{if eqStr (str .Key) "latest"}} qb-chip-on{{end}}" href="#qb-rank-{{.Key}}" role="tab" aria-selected="{{if eqStr (str .Key) "latest"}}true{{else}}false{{end}}">{{.Label}}</a>{{end}}
+      </div>
+      {{range $bi, $board := .Boards}}
+      <div class="qb-ranksec" id="qb-rank-{{.Key}}">
+        <div class="qb-blocktitle">{{.Label}}<small>TOP24 · 每小时随采集更新</small></div>
+        {{if .Books}}
+        <div class="qb-module qb-hot-grid" aria-label="{{.Label}}列表">
+          {{range $i, $b := .Books}}
+          {{if lt $i 24}}
+          <div class="qb-module-item">
+            <a class="qb-module-item-cover" href="{{bookHref (str $b.id) (num $b.num) $.SiteID}}" aria-label="查看《{{$b.name}}》详情">
+              {{if $b.cover}}<img class="qb-module-item-pic" src="{{coverURL (str $b.cover)}}" alt="{{$b.name}} 封面" loading="lazy" onerror="this.remove()">{{else}}<span class="qb-module-item-pic qb-pic-ph">{{$b.name}}</span>{{end}}
+              <span class="qb-item-top" aria-hidden="true"><i class="qb-top-corner qb-top-{{if lt $i 3}}{{add $i 1}}{{else}}rest{{end}}"></i><b class="qb-top-num">{{$i | add 1}}</b></span>
+            </a>
+            <div class="qb-module-item-titlebox"><a class="qb-module-item-title" href="{{bookHref (str $b.id) (num $b.num) $.SiteID}}">{{$b.name}}</a></div>
+            <p class="qb-module-item-text">{{$b.author}}</p>
+          </div>
+          {{end}}
+          {{end}}
+        </div>
+        {{else}}<p class="qb-none">榜单暂无数据</p>{{end}}
+      </div>
+      {{end}}
+    </div>
+  </div>
+</div>
+{{end}}

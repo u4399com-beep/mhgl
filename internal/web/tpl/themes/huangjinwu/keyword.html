@@ -1,0 +1,52 @@
+{{define "content"}}{{/* huangjinwu 关键词专题页: Primary hero 卡 + Others 卡墙 + 相关词 */}}
+<div class="hjw-container">
+  <section class="hjw-section">
+    <h2 class="hjw-page-title"><span class="hjw-ico" aria-hidden="true">🏷️</span>关键词专题：{{if .Tag}}{{.Tag}}{{else}}缺少关键词参数{{end}}</h2>
+    {{with .Primary}}
+    <div class="hjw-card hjw-hero">
+      <div class="hjw-hero-cover">
+        <span class="hjw-coverbox">{{if .cover}}<img src="{{coverURL (str .cover)}}" alt="{{.name}} 封面" onerror="this.remove()">{{end}}<span class="hjw-cover-ph">{{.name}}</span></span>
+      </div>
+      <div class="hjw-hero-info">
+        <h1 class="hjw-hero-title">{{.name}}</h1>
+        <div class="hjw-book-author">作者：{{.author}}</div>
+        <div class="hjw-book-badges">
+          <span class="hjw-badge hjw-badge-cat">{{or .category "小说"}}</span>
+          <span class="hjw-badge hjw-badge-status">{{statusLabel (str .status)}}</span>
+          <span class="hjw-badge hjw-badge-words">{{fmtWords .wordCount}}</span>
+        </div>
+        <p class="hjw-hero-desc">{{if .intro}}{{excerpt .intro 120}}{{else}}暂无简介{{end}}</p>
+        <div class="hjw-hero-actions">
+          <a class="hjw-btn-primary" href="{{$.PrimaryBookHref}}">查看书籍详情</a>
+          <a class="hjw-btn" href="{{tocHref (str .id) (num .num) $.SiteID}}">章节目录</a>
+        </div>
+      </div>
+      <div class="hjw-clear"></div>
+    </div>
+    {{end}}
+  </section>
+  <section class="hjw-section">
+    <h2 class="hjw-page-title"><span class="hjw-ico" aria-hidden="true">✨</span>其他相关书籍</h2>
+    {{if .Others}}
+    <div class="hjw-book-grid hjw-grid-nodesc">
+      {{range .Others}}
+      <a class="hjw-book-card" href="{{bookHref (str .id) (num .num) $.SiteID}}">
+        <span class="hjw-book-cover">{{if .cover}}<img src="{{coverURL (str .cover)}}" alt="{{.name}} 封面" loading="lazy" onerror="this.remove()">{{end}}<span class="hjw-cover-ph">{{.name}}</span></span>
+        <span class="hjw-book-info">
+          <span class="hjw-book-title">{{.name}}</span>
+          <span class="hjw-book-author">作者：{{.author}}</span>
+          <span class="hjw-book-badges"><span class="hjw-badge hjw-badge-cat">{{or .category "小说"}}</span></span>
+        </span>
+      </a>
+      {{end}}
+    </div>
+    {{else}}<div class="hjw-card hjw-none">暂无相关书籍</div>{{end}}
+  </section>
+  {{if .Related}}
+  <div class="hjw-card hjw-tags">
+    <b>相关词：</b>
+    {{range .Related}}<a href="{{viewHrefKeyword . $.SiteID}}">{{.}}</a>{{end}}
+  </div>
+  {{end}}
+</div>
+{{end}}

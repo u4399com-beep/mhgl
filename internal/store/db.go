@@ -64,6 +64,7 @@ func (d *DB) pingAndSeed() error {
 		}
 	}
 	d.ensureProxyIndexes()
+	d.ensureFeedbackTable() // R60-2b: Feedback 表自举(已存在则空转, 幂等)
 	log.Printf("[store] opened %s (mode=wal, maxConns=1)", d.path)
 	return nil
 }

@@ -1,0 +1,13 @@
+{{define "content"}}{{/* huangjinwu 阅读历史(localStorage 本机渲染, site.js 注入 #ajx-history-list) */}}
+<div class="hjw-container">
+  <section class="hjw-section">
+    <h2 class="hjw-page-title"><span class="hjw-ico" aria-hidden="true">🕘</span>阅读历史</h2>
+    <div class="hjw-card">
+      <p class="hjw-desc">阅读历史仅保存在本机浏览器(localStorage), 不上传服务器。</p>
+      <div id="ajx-history-empty" class="hjw-none" style="display:none">暂无阅读历史, 去首页挑一本书开始阅读吧。</div>
+      <ul class="hjw-histlist" id="ajx-history-list"></ul>
+      <div class="hjw-pager"><a class="hjw-btn-primary" href="{{.HomeHref}}">去逛首页</a><a class="hjw-btn" href="{{.SearchHref}}">搜索书籍</a></div>
+    </div>
+  </section>
+</div>
+{{end}}

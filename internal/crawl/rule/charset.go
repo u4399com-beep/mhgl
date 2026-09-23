@@ -69,7 +69,7 @@ func DecodeBody(body []byte, charset string) string {
 	}
 	decoded, err := enc.NewDecoder().Bytes(body)
 	if err != nil && len(decoded) == 0 {
-		// 解码器容错模式下极少整体失败; 全败时按 UTF-8 兕底
+		// 解码器容错模式下极少整体失败; 全败时按 UTF-8 兜底
 		return stripBOM(body)
 	}
 	return stripBOM(decoded)

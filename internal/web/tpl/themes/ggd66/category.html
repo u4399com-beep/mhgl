@@ -1,0 +1,42 @@
+{{define "content"}}{{/* ggd66 分类页: .class 分类导航白盒 + .book 表格白盒({CatName}小说列表 + bookbox 三列带封面 + .pages 分页) */}}
+<div class="ggd-catpage">
+  <div class="ggd-class">
+    <ul>
+      <li><a{{if eqStr .CatName "全部"}} class="is-active"{{end}} href="{{viewHrefCategoryAll .SiteID}}">全部</a></li>
+      {{range $cat := .NavCats}}<li><a{{if eqStr (str $.CatName) $cat}} class="is-active"{{end}} href="{{catHref $cat $.SiteID}}">{{$cat}}</a></li>{{end}}
+    </ul>
+    <div class="ggd-clear"></div>
+  </div>
+  <div class="ggd-box ggd-bookbox-wrap">
+    <h2 class="ggd-h2-c">{{.CatName}}小说列表</h2>
+    {{if .Books}}
+    <div class="ggd-bgrid">
+      {{range $i, $b := .Books}}
+      <div class="ggd-bookbox">
+        <div class="ggd-p10">
+          <span class="ggd-num">{{$i | add 1}}</span>
+          <span class="ggd-bb-cov">{{if $b.cover}}<img src="{{coverURL (str $b.cover)}}" alt="{{$b.name}} 封面" loading="lazy" onerror="this.remove()">{{end}}<span class="ggd-cover-ph">{{$b.name}}</span></span>
+          <div class="ggd-bookinfo">
+            <h4><a href="{{bookHref (str $b.id) (num $b.num) $.SiteID}}" title="{{$b.name}}">{{$b.name}}</a></h4>
+            <div class="ggd-bb-line">作者：{{$b.author}}</div>
+            <div class="ggd-bb-line">分类：<a class="ggd-bb-cat" href="{{catHref (str $b.category) $.SiteID}}">{{or $b.category "小说"}}</a> · 字数：{{fmtWords $b.wordCount}}</div>
+            <div class="ggd-bb-line">更新到：<a class="ggd-bb-last" href="{{bookHref (str $b.id) (num $b.num) $.SiteID}}" title="{{$b.latestChapter}}">{{or $b.latestChapter "暂无章节"}}</a></div>
+            <div class="ggd-bb-update">简介：{{if $b.intro}}{{excerpt $b.intro 64}}{{else}}暂无简介{{end}}</div>
+          </div>
+          <span class="ggd-readbtn"><a href="{{bookHref (str $b.id) (num $b.num) $.SiteID}}">阅读</a></span>
+          <div class="ggd-clear"></div>
+        </div>
+      </div>
+      {{end}}
+    </div>
+    {{else}}<p class="ggd-none">该分类暂无书籍</p>{{end}}
+    <div class="ggd-pages">
+      {{with .Pager}}
+      {{if .PrevURL}}<a href="{{.PrevURL}}" rel="prev">&lt;</a>{{end}}
+      <span>第 {{.Page}} / {{.TotalPages}} 页 · 共 {{.Total}} 本</span>
+      {{if .NextURL}}<a href="{{.NextURL}}" rel="next">&gt;</a>{{end}}
+      {{end}}
+    </div>
+  </div>
+</div>
+{{end}}
