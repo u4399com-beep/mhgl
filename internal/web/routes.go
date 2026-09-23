@@ -1,11 +1,14 @@
 // ============================================================
-// 3-c 路由注册 — 前台 SSR + 后台管理页 + SEO 静态面
+// 3-c 路由注册 — 前台 SSR + 后台管理页 + SEO 静态面 + PWA
 // 路由面口径对齐 PLAN §2(查询串路由保留 / 伪静态 /book/{num}.html /read/... /p/{slug}.html)
 // ============================================================
 package web
 
 import (
+	"log"
 	"net/http"
+	"os"
+	"path"
 )
 
 func registerRoutes(mux *http.ServeMux, d Deps) {
@@ -23,6 +26,12 @@ func registerRoutes(mux *http.ServeMux, d Deps) {
 	mux.HandleFunc("GET /robots.txt", d.handleRobots)
 	mux.HandleFunc("GET /sitemap.xml", d.handleSitemap)
 
+	// ---- PWA(R56-2c) ----
+	mux.HandleFunc("GET /manifest.webmanifest", serveWebStatic("manifest.webmanifest", "application/manifest+json; charset=utf-8", 300))
+	mux.HandleFunc("GET /sw.js", serveWebStatic("sw.js", "text/javascript; charset=utf-8", 0))
+	mux.HandleFunc("GET /offline.html", serveWebStatic("offline.html", "text/html; charset=utf-8", 0))
+	mux.HandleFunc("GET /favicon.ico", serveWebStatic("icons/icon-192.png", "image/png", 3600))
+
 	// 全局兜底 404(其余未匹配路径 → 美观 404; 更具体模式优先, /api/ 未匹配保持纯文本)
 	mux.HandleFunc("GET /{rest...}", d.handleNotFoundPretty)
 
@@ -34,6 +43,36 @@ func registerRoutes(mux *http.ServeMux, d Deps) {
 		mux.HandleFunc("GET /admin/"+sec.path, d.adminGuard(func(w http.ResponseWriter, r *http.Request) {
 			d.handleAdminSection(w, r, sec)
 		}))
+	}
+}
+
+// staticRoot 静态资源根(与 cmd/server http.Dir("web/static") 同口径, 进程工作目录相对)。
+const staticRoot = "web/static"
+
+// serveWebStatic PWA 根路径静态件(注册于固定字面路径, 无用户输入 → 无路径遍历面)。
+// maxAge<=0 → no-cache(sw.js/离线页要求浏览器每次校验); 文件缺失 → 404 纯文本。
+func serveWebStatic(name, ctype string, maxAge int) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		fp := path.Join(staticRoot, name)
+		f, err := os.Open(fp)
+		if err != nil {
+			log.Printf("[web] static asset missing: %s (%v)", name, err)
+			http.NotFound(w, r)
+			return
+		}
+		defer func() { _ = f.Close() }()
+		st, err := f.Stat()
+		if err != nil || st.IsDir() {
+			http.NotFound(w, r)
+			return
+		}
+		if maxAge > 0 {
+			w.Header().Set("Cache-Control", "public, max-age=3600")
+		} else {
+			w.Header().Set("Cache-Control", "no-cache")
+		}
+		w.Header().Set("Content-Type", ctype)
+		http.ServeContent(w, r, path.Base(name), st.ModTime(), f)
 	}
 }
 

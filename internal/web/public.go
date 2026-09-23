@@ -19,6 +19,7 @@ import (
 )
 
 // resolveSite 站点解析链: ?site=(status 校验) → 默认站 → 任意启用站(对齐 resolveMetaSite)。
+// 永不返回 nil(无站行 → 空表): 防模板对 siteTitle(map) 传 nil 值报类型错(全页面破碎)。
 func (d Deps) resolveSite(r *http.Request) map[string]any {
 	if sid := strings.TrimSpace(r.URL.Query().Get("site")); sid != "" {
 		if m, ok, _ := d.DB.SiteByID(sid); ok && store.ToBool(m["status"]) {
@@ -28,7 +29,7 @@ func (d Deps) resolveSite(r *http.Request) map[string]any {
 	if m, ok, _ := d.DB.DefaultSite(); ok {
 		return m
 	}
-	return nil
+	return map[string]any{}
 }
 
 func siteID(site map[string]any) string {
@@ -391,11 +392,20 @@ func (d Deps) renderToc(w http.ResponseWriter, r *http.Request, sp map[string][]
 	data["Chapters"] = chapters
 	data["Total"] = int64(total)
 	data["Pager"] = makePager(page, int64(total), size, func(p int) string {
-		return joinSite(base, sid) + "&page=" + strconv.Itoa(p)
+		return appendQueryParam(joinSite(base, sid), "page", strconv.Itoa(p))
 	})
 	data["BookHref"] = bookHref(bid, bnum, sid)
 	data["HomeHref"] = viewHref("home", sid, nil)
 	render(w, "toc", data)
+}
+
+// appendQueryParam 追加查询参数(自动选 ?/& 连接; 修 toc 分页 URL: /read/{num}/ 无查询时误拼 "&page=")。
+func appendQueryParam(u, k, v string) string {
+	sep := "?"
+	if strings.Contains(u, "?") {
+		sep = "&"
+	}
+	return u + sep + k + "=" + queryEscapeLocal(v)
 }
 
 // ---------------- 阅读页 ----------------
@@ -698,7 +708,11 @@ func (d Deps) renderHistory(w http.ResponseWriter, r *http.Request, sp map[strin
 // handlePseo /p/{slug}[.html]。
 func (d Deps) handlePseo(w http.ResponseWriter, r *http.Request) {
 	slug := strings.Trim(r.PathValue("slug"), "/")
-	slug = strings.TrimSuffix(strings.TrimSuffix(slug, ".html"), ".htm")
+	if low := strings.ToLower(slug); strings.HasSuffix(low, ".html") {
+		slug = slug[:len(slug)-5]
+	} else if strings.HasSuffix(low, ".htm") {
+		slug = slug[:len(slug)-4]
+	}
 	if slug == "" || len(slug) > 256 || strings.Contains(slug, "/") {
 		d.render404(w, r, "专题页不存在")
 		return
@@ -761,8 +775,8 @@ func (d Deps) handlePseo(w http.ResponseWriter, r *http.Request) {
 	data["SiteName"] = name
 	data["HomeHref"] = viewHref("home", sid, nil)
 	data["SearchHref"] = viewHref("search", sid, nil)
-	// 站内书籍链接
-	var booksView []map[string]any
+	// 站内书籍链接(恒非 nil: pseo 页脚 firstN 6 .BookViews 需 []map 类型, nil 传参模板类型错)
+	booksView := make([]map[string]any, 0, len(books))
 	for _, b := range books {
 		booksView = append(booksView, map[string]any{
 			"Book":     b,
@@ -810,6 +824,28 @@ func (d Deps) handleRobots(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(b.String()))
 }
 
+// xmlEscape XML 文本转义(sitemap <loc>/<lastmod> 拼接层; origin 含 Host 头不可信, 全值过此)。
+func xmlEscape(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		switch r {
+		case '&':
+			b.WriteString("&amp;")
+		case '<':
+			b.WriteString("&lt;")
+		case '>':
+			b.WriteString("&gt;")
+		case '"':
+			b.WriteString("&quot;")
+		case '\'':
+			b.WriteString("&apos;")
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
 func (d Deps) handleSitemap(w http.ResponseWriter, r *http.Request) {
 	site := d.resolveSite(r)
 	sid := siteID(site)
@@ -823,12 +859,12 @@ func (d Deps) handleSitemap(w http.ResponseWriter, r *http.Request) {
 	add := func(loc, lastmod string) {
 		b.WriteString("<url><loc>")
 		if origin != "" {
-			b.WriteString(origin)
+			b.WriteString(xmlEscape(origin))
 		}
-		b.WriteString(loc)
+		b.WriteString(xmlEscape(loc))
 		b.WriteString("</loc>")
 		if lastmod != "" {
-			b.WriteString("<lastmod>" + lastmod + "</lastmod>")
+			b.WriteString("<lastmod>" + xmlEscape(lastmod) + "</lastmod>")
 		}
 		b.WriteString("</url>\n")
 	}

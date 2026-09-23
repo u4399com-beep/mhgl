@@ -1,0 +1,36 @@
+{{define "content"}}
+<div class="ss-pseo">
+  <section class="ss-card">
+    <p class="ss-title">🏷 {{.Heading}} <small>关键词专题</small></p>
+    <p class="ss-info-meta">关键词: {{.Row.keyword}}{{if .SiteName}} · {{.SiteName}}{{end}}{{if .Row.updatedAt}} · 更新于 {{dateDay .Row.updatedAt}}{{end}}</p>
+    <div class="ss-info-desc">{{if .Row.description}}{{.Row.description}}{{else}}{{.Row.keyword}} — {{.SiteName}}聚合相关小说资源，提供全文免费在线阅读。{{end}}</div>
+    {{with .Primary}}
+    <div class="ss-info-desc">主打作品《{{.name}}》由 {{.author}} 创作，{{statusLabel (str .status)}}，全文约 {{fmtWords .wordCount}} 字{{if .latestChapter}}，最新章节「{{.latestChapter}}」{{end}}。{{if .intro}}简介：{{excerpt .intro 150}}{{end}}</div>
+    {{end}}
+  </section>
+  <section class="ss-card">
+    <p class="ss-title">📚 相关书籍推荐（{{len .Books}}）</p>
+    {{if .BookViews}}
+    <ul class="ss-store ss-store-2col">
+      {{range .BookViews}}
+      <li class="ss-store-item">
+        <div class="ss-img_span">
+          <a href="{{.BookHref}}" aria-label="{{.Book.name}}">
+            {{if .Book.cover}}<img src="{{coverURL (str .Book.cover)}}" alt="{{.Book.name}} 封面" loading="lazy" onerror="this.remove()">{{end}}
+            <span class="ss-mask" style="background:rgba(0,0,0,.4)">{{or .Book.category "小说"}}</span>
+          </a>
+        </div>
+        <div class="ss-w100">
+          <a class="ss-h2" href="{{.BookHref}}">{{.Book.name}}</a>
+          <p class="ss-indent">{{if .Book.intro}}{{excerpt .Book.intro 70}}{{else}}{{or .Book.category "小说"}} · {{.Book.author}}{{end}}</p>
+          <p class="ss-li_bottom"><a href="{{.TocHref}}">章节目录</a>
+            <em class="ss-orange">{{fmtWords .Book.wordCount}}</em>
+          </p>
+        </div>
+      </li>
+      {{end}}
+    </ul>
+    {{else}}<p class="ss-empty">暂无相关书籍数据</p>{{end}}
+  </section>
+</div>
+{{end}}

@@ -164,8 +164,8 @@ func TestLooksBlockedSamples(t *testing.T) {
 		{"长页正常标题豁免", "<html><head><title>斗破苍穹最新章节列表</title></head><body>" + long + "本站早已废除验证码公告。</body></html>", 200, "", false},
 	}
 	for _, c := range cases {
-		if got := LooksBlocked(c.html, c.status, c.server); got != c.want {
-			t.Fatalf("%s: LooksBlocked = %v, want %v", c.name, got, c.want)
+		if got := looksBlocked(c.html, c.status, c.server); got != c.want {
+			t.Fatalf("%s: looksBlocked = %v, want %v", c.name, got, c.want)
 		}
 	}
 }

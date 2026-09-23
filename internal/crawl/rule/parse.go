@@ -1012,15 +1012,15 @@ func jsFloatFormat(f float64) string {
 
 // ---------------- 提取上下文与统一提取 ----------------
 
-// ExtractCtx 提取上下文: json=当前作用域 JSON 根值; vars=const 模板占位符取值表
-type ExtractCtx struct {
+// extractCtx 提取上下文: json=当前作用域 JSON 根值; vars=const 模板占位符取值表
+type extractCtx struct {
 	JSON interface{}
 	Vars map[string]string
 }
 
-// ExtractField 统一提取入口: 按 rule.type 分发 + applyTransform 后处理。
+// extractField 统一提取入口: 按 rule.type 分发 + applyTransform 后处理。
 // htmlStr=当前作用域 HTML(regex 用), doc=goquery 文档(css 用), ctx=json/const 上下文
-func ExtractField(htmlStr string, doc *goquery.Document, scope *goquery.Selection, rule *FieldRule, ctx *ExtractCtx) string {
+func extractField(htmlStr string, doc *goquery.Document, scope *goquery.Selection, rule *FieldRule, ctx *extractCtx) string {
 	var v string
 	switch rule.Type {
 	case "css":
@@ -1186,7 +1186,7 @@ func pickNextHref(doc *goquery.Document, nextRule *FieldRule, scopeHTML, base, d
 				}
 			}
 		} else {
-			raws = append(raws, ExtractField(scopeHTML, doc, nil, nextRule, nil))
+			raws = append(raws, extractField(scopeHTML, doc, nil, nextRule, nil))
 		}
 	}
 	// 常见文案兜底(:contains 由 cascadia 支持)

@@ -13,6 +13,7 @@ package api
 import (
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"mhgl/internal/store"
@@ -105,7 +106,7 @@ func (d Deps) adminCategoryDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	count, _ := d.DB.Count(`SELECT count(*) FROM "Book" WHERE categoryId=?`, id)
 	if count > 0 {
-		apiErr(w, http.StatusBadRequest, "该分类下有 "+itoa(count)+" 本书, 请先移除")
+		apiErr(w, http.StatusBadRequest, "该分类下有 "+strconv.Itoa(count)+" 本书, 请先移除")
 		return
 	}
 	if _, err := d.DB.Exec(`DELETE FROM "Category" WHERE id=?`, id); err != nil {
@@ -139,7 +140,7 @@ func (d Deps) adminCategoriesBatch(w http.ResponseWriter, r *http.Request) {
 			count, _ := d.DB.Count(`SELECT count(*) FROM "Book" WHERE categoryId=?`, id)
 			if count > 0 && !force {
 				apiErr(w, http.StatusConflict, "以下分类仍有书籍, 已整批拒绝删除: 「"+
-					strOf(row["name"], 50)+"」"+itoa(count)+" 本。可勾选「强制删除」将书籍移出分类后再删")
+					strOf(row["name"], 50)+"」"+strconv.Itoa(count)+" 本。可勾选「强制删除」将书籍移出分类后再删")
 				return
 			}
 			if count > 0 {
@@ -542,9 +543,9 @@ FROM "Category" c ORDER BY bc DESC LIMIT 5`)
 	}
 	chapterPhrase := ""
 	if chapterCount > 0 {
-		chapterPhrase = "、" + itoa(chapterCount) + " 章节"
+		chapterPhrase = "、" + strconv.Itoa(chapterCount) + " 章节"
 	}
-	description := name + "(" + domain + ")提供" + catPhrase + "免费在线阅读, 现已收录 " + itoa(bookCount) + " 部作品" +
+	description := name + "(" + domain + ")提供" + catPhrase + "免费在线阅读, 现已收录 " + strconv.Itoa(bookCount) + " 部作品" +
 		chapterPhrase + ", 每日持续更新, 支持全本 TXT 打包下载。"
 	kws := append(append([]string{}, catNames...), "免费小说", "全本小说", "小说大全", "小说下载", name)
 	seen := map[string]bool{}

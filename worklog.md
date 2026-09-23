@@ -7009,3 +7009,83 @@ Stage Summary:
 - 实测: E2E 全绿 + 生产三大部头单体续采(RSS 17MB)+UI 全链浏览器验证; TS 时代源码保留 src/(历史参照)推送 GitHub 保全
 - 采集+反反爬: 引擎代码级保真(R51~R54 资产零改动并入), 三大根因 bug(状态机/重排/建章)E2E 实证修复; 噪声清洗 1.06万→3 章残留
 - 遗留: 其余 10 主题 Go 移植序列(theme-audit.md)/PWA/backup restore/代理收割器并入/残余 3 章水印
+---
+Task ID: R56-2a
+Agent: general-purpose (Go 采集引擎逐行深审, 断连由主控核收补记)
+Task: internal/crawl 逐行深审抓虫+代理收割器并入+反反爬对齐自查+清理
+
+Work Log:
+- [核收说明] 代理完成全部修复后死于收尾(无 worklog 无报告); 主控逐 hunk 核验全部改动+修复其遗留测试缺陷后补记本条
+- [收割器并入] 新建 internal/crawl/proxy/(proxy.go 917 行+proxy_test.go 545 行): 12 公开源(thespeedx/monosans/proxyscrape/proxifly/mmpx12/roosterkid 等)并发抓取(20s 超时+5MB 体量防线+UA 伪装)→逐源解析器(文本行/JSON 数组/geonode 结构三形态)→跨源去重→幂等入库 FreeProxy 表(已存条目保验证数据); Check 校验器(unchecked/stale/alive 三模式+limit/concurrency/country/protocol 过滤+healthScore 记账), http/socks5 走 Transport.Proxy 原生, socks4/4a 自实现最小握手拨号器; 探针 ip-api 形态(出口 IP/国别/匿名度派生); 新增测试含假 HTTP/假 socks4 代理(httptest+裸 listener)
+- [R56-2a-1·tokenCache 泄漏修复] fetch.go prefetchToken: {url} 签名形态按完整 tokenUrl 作键, 长任务键集随章节数线性增长且永不出表(10 万章任务即 10 万条常驻); 修后 miss 重取插入点全表清扫过期项, 键集有界于 TTL 窗口活跃数
+- [R56-2a-2·stop 计数错账修复] task/pipeline.go 新增 stopInterrupted(): stop 已表态(ctx 取消)时在飞书籍页/目录页/章节请求的 context.Canceled 失败不计连败链/stats.Errors/lastError(修前 stop 瞬间在飞请求全计真实失败并推进熔断链); pause 不取消 ctx 不受影响
+- [R56-2a-3·发现循环断页 bug] task/queue.go: 单轮上限命中时 break 只退出条目循环, 页循环继续逐页空转(每页仍抓取+解析+追加 1 条越限项, ListEnd 大时白烧源站配额); 修后 labeled break pageLoop+discoverPages 骨架参数化 maxURLs 注入小上限回归断页
+- [R56-2a-4·多段目录 stale 误删防护] bridge/bridge_content.go: >5000 章分片目录阶段 E 的 stale 判定基准=本批 tocItems, seq=1 且 final=false 时未到分片章节被误判「目录外」删除; 修后非 final 分片跳过阶段 E(宁可残留不可误删)
+- [清理] 导出面收敛: LooksBlocked→looksBlocked/UA_POOL→uaPool/ExtractField→extractField/DefaultConfig→defaultConfig 等 unexport(消费面零变化, 测试同步)
+- [门禁] gofmt 空/vet 0/go test 全绿; 主控补修两处测试缺陷(见 R56-3)
+- [遗留] socks4 假代理测试依赖 loopback 全段可绑(127/8, 标准 Linux 语义)
+
+Stage Summary:
+- 采集+反反爬双增强: 收割器 12 源并入(主控接线 POST /api/admin/proxy-pool/harvest|check 实战 30790 代理入库, check 120 验 20 活)+四真 bug 修复(tokenCache 无界增长/stop 计数错账/发现循环空转/多段目录误删)
+- 导出面收敛清理; 全部门禁绿
+---
+Task ID: R56-2b
+Agent: general-purpose (Go 单体 API/Store/Auth 逐行深审, 断连由主控核收补记)
+Task: internal/api+store+auth 逐行深审抓虫+备份恢复端点补全+清理
+
+Work Log:
+- [核收说明] 代理完成全部修复+测试后死于收尾; 主控逐 hunk 核验+门禁全绿后补记本条
+- [R56-2b-1·XFF 伪造漏洞] api/auth.go clientIP: 修前任意客户端可伪造 x-forwarded-for 轮换身份绕过登录爆破限流(5次/分)与反馈频控(5条/时); 修后仅当直连对端为回环/私网(本机反代之后)才采信 XFF, 公网直连一律用对端地址; itoa 手写轮子删改 strconv
+- [R56-2b-2·UTF-8 斩断乱码] api/middleware.go strOf: 修前按字节切片 s[:maxLen], 中文多字节序列被斩断产生非法 UTF-8(json.Marshal 整体替换 U+FFFD, 标题/简介尾部乱码); 修后 truncateBytesSafe 按字节上限回退完整 rune 边界
+- [R56-2b-3·DSN pragma 断链] store/db.go: 修前 path 无条件追加空 query 生成 "file:db??" 双问号, modernc 按首个 ? 切 query 致排头 busy_timeout 静默失效(实测 PRAGMA busy_timeout=0); 修后去该分支, pragma 链路完整(/tmp 探针实证 wal+busy_timeout=10000+foreign_keys=1)
+- [R56-2b-4·RMW 丢更新] store: JSON 合并降级兜底路径读-改-写两语句非事务(maxConns=1 下语句间仍可插队并发合并致丢失更新); 修后包进事务原子化
+- [R56-2b-5·json 路径注入防御深度] store: stats 键名拼 json 路径前本层再验 ^[A-Za-z_][A-Za-z0-9_]{0,63}$ 白名单(store 不应信任调用侧过滤)
+- [R56-2b-6·errors.Is] store/api/auth 三处 err.Error()==="sql: no rows in result set" 字符串比较改 errors.Is(sql.ErrNoRows)
+- [R56-2b-7·413 判定] api/middleware.go: MaxBytesReader 超限判定由字符串匹配改 errors.As(*http.MaxBytesError)
+- [备份恢复端点] api/admin_ops.go adminBackupRestore(+332 行): POST /api/admin/backup/restore?strategy=overwrite|skip, 备份 JSON→事务内按表 schema 内省恢复(restoreRowTx 类型矫正/Task running→paused 对齐 recoverOnBoot/Setting value 非串 JSON 化/Book 内嵌 chapters-tags 摘出延后 FK 顺序保障/failed 明细封顶 20+总数全量), 8 新测试(api_test.go/auth_test.go/store_test.go)
+- [门禁] gofmt 空(主控 -w 两测试文件)/vet 0/test 全绿/整仓 build 过
+
+Stage Summary:
+- 安全+正确性七修复: XFF 伪造(限流绕过)/UTF-8 斩断/DSN pragma 断链/RMW 丢更新/json 路径白名单/errors.Is/413 类型判定
+- 备份恢复端点补全(R55 遗留闭环): 事务+schema 内省+策略参数+FK 顺序, 8 新测试
+---
+Task ID: R56-2c
+Agent: general-purpose (Web 层+多主题+PWA, 断连由主控核收补记)
+Task: internal/web 逐行深审抓虫+多主题基础设施+2 主题移植+PWA+清理
+
+Work Log:
+- [核收说明] 代理完成全部产出后死于收尾; 主控核验(13 模板迁移字节级一致+浏览器三主题实测)+门禁全绿后补记本条
+- [多主题基础设施] web/render.go 重构: tpl/themes/{themeId}/ 目录结构(Site.themeId 选择/缺省 aijjxs), themeRe 目录名白名单防拼接逃逸, 目录缺失/非法回落缺省, 主题模板集惰性加载+进程内缓存(重启生效), 后台模板独立装载; tpl/public/* 迁移至 tpl/themes/aijjxs/(13 页字节级一致)
+- [主题移植×2] web/tpl/themes/pili/(13 页, 橙色霹雳视觉: 顶部品牌+橙渐变导航+独家推荐大卡)+themes/shipsay/(13 页, 红色书说视觉: 红色顶栏+大神小说/热门小说双栏卡网格); CSS 按主题分文件(web/static/css/pili.css/shipsay.css); handler 数据层零改动纯模板切换
+- [PWA 补全] web/static/manifest.webmanifest(name/short_name/icons/start_url)+sw.js(静态 cache-first+页面 network-first+离线回落 offline.html)+pwa.js 注册脚本+icons/(192/512); routes.go 注册 4 固定字面路由(无用户输入无穿越面, sw.js/离线页 no-cache); 三主题 layout 均注入 <link rel="manifest">
+- [R56-2c-1·nil 崩溃防护] public.go: siteTitle 无站行返回 nil 致模板类型错全页破碎→恒返空 map; pseo 页脚 .BookViews nil 传参类型错→恒非 nil make 切片
+- [R56-2c-2·分页 URL 误拼] toc 分页 /read/{num}/ 无查询时误拼 "&page=" → appendQueryParam 自动选 ?/& 
+- [R56-2c-3·sitemap XML 注入] seo.go: origin 含 Host 头不可信, sitemap <loc>/<lastmod> 拼接层全值 xmlEscape
+- [R56-2c-4·后缀剥离] .html/.htm 剥离大小写不敏感(修前 .HTML 残留)
+- [浏览器实证(主控执行)] aijjxs/pili/shipsay 三主题首页渲染各具视觉+书籍页/阅读页全链(正文 2350 字+阅读控制条)+移动端 390px 无横向溢出+零 console 错误
+- [门禁] gofmt 空/vet 0/test 全绿(web_test.go 模板渲染自测)
+
+Stage Summary:
+- R55 遗留三项闭环: 多主题基础设施+2 主题移植(pili/shipsay)+PWA(manifest/sw/offline/icons)
+- Web 层四修复: nil 模板崩溃×2/分页 URL/XML 注入转义
+- 三主题浏览器实测全通过
+---
+Task ID: R56（主控收口）
+Agent: Z.ai Code 主控
+Task: ③待办续作+全面审查 ④多代理并行(采集+反反爬着重)+逐行抓虫 ⑤清理精简 + 沙箱重置全量恢复 + 受控部署 + 浏览器实证
+
+Work Log:
+- [环境恢复] 沙箱四度重置: DB 整库清空(0 任务/0 书)+Go 工具链丢失(install-go.sh 恢复 go1.26.0)+进程全灭; .build/mhgl 二进制与 web/covers 幸存(封面已入库 git); bootstrap-db.ts 一键恢复(35 规则/默认站点/三大部头任务 --start)+任务三连 start 全 200
+- [三代理并行] 2a(crawl)/2b(api+store+auth)/2c(web+themes) 三路文件所有权互斥派发; 三代理均死于收尾断连(Task 工具超时)但产出完整落盘, 主控逐 hunk 核验+补 worklog(见 R56-2a/2b/2c 各条)
+- [主控核验] 模板迁移字节级 diff 一致(13 页)/全仓 build+vet+test 门禁/三主题浏览器实测(截图 7 张 agent-ctx/shots-r56/)
+- [主控补修] 收割器测试两缺陷: ①TestCheckFiltersAndLimit 用 10.0.0.x 不可达地址全判死→newFakeProxyOn 绑定 127.0.0.2~5 独立回环假代理(DE 行指向死地址顺带证明国别过滤) ②TestCheckHTTPProxyAliveAndDead 断言 WHERE host=? 歧义(假代理行与死行同 host, 扫到存活行误报)→host+port 精确匹配
+- [收割器接线] admin_ops.go: harvest/check 由「外部工具触发留痕」改真实现(proxy.NewHarvester(d.DB.DB) 同步执行+mode/limit/concurrency/countries/protocols 参数透传), proxy-pool GET 的 sources 暴露 12 源定义+job note 更新; 实战: harvest 3.6s 收 30790 入库/check 120 验 20 活(16.7% 免费代理典型存活率)
+- [受控部署] go build .build/mhgl→SIGTERM 优雅停(三任务无损)→新二进制启动(recoverOnBoot running→paused×2)→resume×2 全 200; 最终版含主控接线改动再重建重启一次; 运行态: healthy/RSS 42MB(对比 dev 时代 2GB)/GC 288 次
+- [浏览器实证] 后台登录→仪表盘(6 书/1.1 万章/2776 万字/35 规则/3 任务 2 活动/xbqg777 53/414+xyetianlian 338/2517 实时进度/任务日志流)全渲染零 console 错; 移动端 390px 无溢出
+- [⑥推送] 见 git log(R56 提交)
+- [遗留] 剩余 8 主题移植序列(aijjxs/pili/shipsay 已就位)/sw.js Service Worker 注册需 https 或 localhost 语义(沙箱反代环境实测以浏览器 devtools 为准)/代理收割需周期化(cron/手动, 现为手动端点)/三大部头持续增量
+
+Stage Summary:
+- ③④⑤闭环: 环境恢复→三代理并行产出(4 真采集 bug+7 安全正确性修复+备份恢复端点+多主题+PWA+收割器)→主控核验补漏接线→受控部署→浏览器全链实证
+- 反反爬能力面扩充: 代理池从「静态留痕」升级为「收割 12 源+校验+健康记账」全内建闭环
+- 全部门禁绿: gofmt/vet/test(build)/tsc 不适用(Go 单体); 任务无损失(优雅停+断点续采)

@@ -1,0 +1,32 @@
+{
+  "name": "mhgl 小说站",
+  "short_name": "mhgl",
+  "description": "mhgl 小说聚合站 — 热门小说免费在线阅读与 TXT 下载",
+  "lang": "zh-CN",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f4f4f4",
+  "theme_color": "#0f766e",
+  "icons": [
+    {
+      "src": "/static/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/static/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/static/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

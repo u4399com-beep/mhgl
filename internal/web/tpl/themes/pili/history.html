@@ -1,0 +1,16 @@
+{{define "content"}}
+<div class="pli-history">
+  <div class="pli-rank-wr">
+    <div class="pli-rank-head">阅读历史<small>（仅保存在本机浏览器 localStorage）</small></div>
+    <div class="pli-rank-panel">
+      <div id="ajx-history-empty" class="pli-empty" style="display:none">暂无阅读历史, 去首页挑一本书开始阅读吧。</div>
+      <ol class="pli-in-rank-list pli-in-panel" id="ajx-history-list"></ol>
+      <div class="pli-clear"></div>
+      <div class="pli-btns">
+        <a class="pli-btn-orange" href="{{.HomeHref}}">去逛首页</a>
+        <a class="pli-btn-line" href="{{.SearchHref}}">搜索书籍</a>
+      </div>
+    </div>
+  </div>
+</div>
+{{end}}

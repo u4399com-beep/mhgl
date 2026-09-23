@@ -1,0 +1,39 @@
+{{define "content"}}
+<div class="ss-keyword">
+  <section class="ss-card">
+    <p class="ss-title">🏷 关键词专题：{{if .Tag}}{{.Tag}}{{else}}缺少关键词参数{{end}}</p>
+    {{if .Primary}}
+    <div class="ss-info-flex ss-novel_info">
+      <div class="ss-info-cover">
+        {{if .Primary.cover}}<img src="{{coverURL (str .Primary.cover)}}" alt="{{.Primary.name}} 封面" onerror="this.remove()">{{end}}
+      </div>
+      <div class="ss-info-main">
+        <h2><a href="{{.PrimaryBookHref}}">{{.Primary.name}}</a></h2>
+        <p class="ss-info-meta">作者：{{.Primary.author}} · 分类：{{or .Primary.category "未分类"}} · {{statusLabel (str .Primary.status)}} · {{fmtWords .Primary.wordCount}}字</p>
+        <div class="ss-info-desc">{{if .Primary.intro}}{{excerpt .Primary.intro 120}}{{else}}暂无简介{{end}}</div>
+        <div class="ss-info-btns">
+          <a class="ss-btn is-primary" href="{{.PrimaryBookHref}}">查看书籍详情</a>
+          <a class="ss-btn" href="{{tocHref (str .Primary.id) (num .Primary.num) .SiteID}}">章节目录</a>
+        </div>
+      </div>
+    </div>
+    {{else}}<p class="ss-empty">{{if .Tag}}暂无与「{{.Tag}}」直接匹配的主打书籍{{else}}暂无可展示的关键词书籍{{end}}</p>{{end}}
+  </section>
+  {{if .Others}}
+  <section class="ss-card">
+    <p class="ss-title">📚 其他相关书籍</p>
+    <ul class="ss-popular ss-2col">
+      {{range $i, $b := .Others}}
+      <li><em class="ss-no">{{$i | add 1}}</em><a href="{{bookHref (str $b.id) (num $b.num) $.SiteID}}">{{$b.name}}</a><span class="ss-gray">{{$b.author}}</span></li>
+      {{end}}
+    </ul>
+  </section>
+  {{end}}
+  {{if .Related}}
+  <section class="ss-card">
+    <p class="ss-title">🔗 相关关键词</p>
+    <div class="ss-tagwall">{{range .Related}}<a href="{{viewHrefKeyword . $.SiteID}}">{{.}}</a>{{end}}</div>
+  </section>
+  {{end}}
+</div>
+{{end}}

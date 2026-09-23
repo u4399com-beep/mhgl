@@ -63,10 +63,10 @@ const (
 	proxyFailMax  = 10 * time.Minute
 )
 
-// UA 池(对齐 TS UA_POOL 摘要: Chrome 137~142/Edge/Safari17-18/Firefox126-130/移动端,
+// UA 池(对齐 TS uaPool 摘要: Chrome 137~142/Edge/Safari17-18/Firefox126-130/移动端,
 // 完整列表以 TS 侧为准; Go 侧维护同版本段等效池; 含移动端条目 → uaMode=mobile/desktop
 // 可按子集筛选, capability 不再报 unsupported)
-var UA_POOL = []string{
+var uaPool = []string{
 	"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
 	"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36 Edg/137.0.0.0",
 	"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
@@ -90,8 +90,8 @@ var (
 )
 
 func filterUA(mobile bool) []string {
-	out := make([]string, 0, len(UA_POOL))
-	for _, ua := range UA_POOL {
+	out := make([]string, 0, len(uaPool))
+	for _, ua := range uaPool {
 		if isMobileUA(ua) == mobile {
 			out = append(out, ua)
 		}
@@ -515,7 +515,7 @@ func (c *Client) pickUA(host string) string {
 	if ua, ok := c.uaPin[host]; ok {
 		return ua
 	}
-	pool := UA_POOL
+	pool := uaPool
 	switch c.cfg.UaMode {
 	case "mobile":
 		pool = mobileUAPool
@@ -1227,7 +1227,7 @@ func (c *Client) fetch(ctx context.Context, rawURL, refererURL string, directOnl
 	charset := rule.SniffCharset([]byte(res.contentType), res.body)
 	htmlStr := rule.DecodeBody(res.body, charset)
 	// 拦截页/挑战壳出口判定(blockcheck.go; 词表语义权威在 TS fetcher.ts)
-	blocked := LooksBlocked(htmlStr, res.status, res.server)
+	blocked := looksBlocked(htmlStr, res.status, res.server)
 	if blocked {
 		c.blockedCount.Add(1)
 	}
@@ -1266,7 +1266,17 @@ func (c *Client) prefetchToken(ctx context.Context, reqURL string) string {
 	token := c.fetchTokenDirect(ctx, tu)
 	if token != "" && cacheKey != "" {
 		c.mu.Lock()
-		c.tokenCache[cacheKey] = tokenEntry{token: token, exp: time.Now().Add(tokenCacheTTL)}
+		// [R56-2a] 插入时机泪扫过期项: {url} 逐请求签名形态按完整 tokenUrl 作键, 长任务
+		// 键集随已抓章节数线性增长且此前永不出表(仅同键覆盖) —— 10 万章任务即 10 万
+		// 条 token 常驻。miss 重取是唯一插入点, 全表清扫 O(n) 摊还可控, 修后键集有界于
+		// TTL 窗口内的活跃 URL 数
+		now := time.Now()
+		for k, ent := range c.tokenCache {
+			if !now.Before(ent.exp) {
+				delete(c.tokenCache, k)
+			}
+		}
+		c.tokenCache[cacheKey] = tokenEntry{token: token, exp: now.Add(tokenCacheTTL)}
 		c.mu.Unlock()
 	}
 	return token

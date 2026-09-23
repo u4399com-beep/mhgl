@@ -1,0 +1,16 @@
+{{define "content"}}
+<div class="ss-ranking">
+  {{range .Boards}}
+  <section class="ss-card">
+    <p class="ss-title">📈 {{.Label}} <small>TOP60</small></p>
+    {{if .Books}}
+    <ul class="ss-popular ss-2col">
+      {{range $i, $b := .Books}}
+      <li><em class="ss-no">{{$i | add 1}}</em><a href="{{bookHref (str $b.id) (num $b.num) $.SiteID}}">{{$b.name}}</a><span class="ss-gray">{{$b.author}}</span></li>
+      {{end}}
+    </ul>
+    {{else}}<p class="ss-empty">榜单暂无数据</p>{{end}}
+  </section>
+  {{end}}
+</div>
+{{end}}

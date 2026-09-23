@@ -3,6 +3,11 @@
 // ============================================================
 package store
 
+import (
+	"database/sql"
+	"errors"
+)
+
 // ChapterURLIndex 书内 url→idx 映射(增量决策 existUrlMap 口径)。
 func (d *DB) ChapterURLIndex(bookID string) (map[string]int, error) {
 	rows, err := d.Query(`SELECT url, idx FROM "Chapter" WHERE bookId=? AND url<>''`, bookID)
@@ -36,7 +41,7 @@ func (d *DB) UnfetchedChapterCount(bookID string) (int, error) {
 func (d *DB) LastChapterURL(bookID string) (string, error) {
 	var u string
 	err := d.QueryRow(`SELECT url FROM "Chapter" WHERE bookId=? AND url<>'' ORDER BY idx DESC LIMIT 1`, bookID).Scan(&u)
-	if err != nil && err.Error() == "sql: no rows in result set" {
+	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
 	}
 	return u, err

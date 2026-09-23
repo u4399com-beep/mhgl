@@ -75,12 +75,23 @@ func (t *Task) buildRangeQueue() ([]string, error) {
 	if listTpl == "" {
 		listTpl = t.ruleC.List.UrlTemplate // task.listUrl 缺省回退规则列表模板
 	}
+	filtered := t.discoverPages(listTpl, discoveryMaxURLs)
+	t.logf("info", "列表发现完成: %d 本(bookStart=%d, bookEnd=%d)", len(filtered), t.info.BookStart, t.info.BookEnd)
+	return filtered, nil
+}
+
+// discoverPages 页循环发现骨架(maxURLs 参数化: 生产=discoveryMaxURLs; 单测注入小上限
+// 回归断页循环真实停转 —— [R56-2a] 修前单轮上限命中时 break 只退出条目循环, 页循环
+// 继续逐页空转: 每页仍抓取+解析+追加 1 条越限项, warn 文案「停止翻页」与实际行为相悖,
+// ListEnd 大时白烧源站配额)
+func (t *Task) discoverPages(listTpl string, maxURLs int) []string {
 	t.setPhase("discovery", fmt.Sprintf("列表发现: P%d~P%d", t.info.ListStart, t.info.ListEnd))
 
 	seen := make(map[string]struct{}, 1024) // 进度集合: map[string]struct{}(内存纪律)
 	var urls []string
 	failStreak, emptyStreak := 0, 0
 
+pageLoop:
 	for page := t.info.ListStart; page <= t.info.ListEnd; page++ {
 		if !t.gate() { // 暂停/停止等待门(页边界; stop 后以已发现部分收尾——stop 语义优先)
 			break
@@ -121,9 +132,9 @@ func (t *Task) buildRangeQueue() ([]string, error) {
 			seen[u] = struct{}{}
 			urls = append(urls, u)
 			added++
-			if len(urls) >= discoveryMaxURLs {
-				t.logf("warn", "发现书籍数已达单轮上限 %d, 停止翻页(余量请用 bookStart/bookEnd 或续采分批)", discoveryMaxURLs)
-				break
+			if len(urls) >= maxURLs {
+				t.logf("warn", "发现书籍数已达单轮上限 %d, 停止翻页(余量请用 bookStart/bookEnd 或续采分批)", maxURLs)
+				break pageLoop // [R56-2a] 修前 break 只退出条目循环, 页循环空转(见 discoverPages 注)
 			}
 		}
 		if added == 0 {
@@ -155,7 +166,7 @@ func (t *Task) buildRangeQueue() ([]string, error) {
 		t.logf("info", "书籍序号过滤: %d → %d 本(bookStart=%d, bookEnd=%d)",
 			len(urls), len(filtered), t.info.BookStart, t.info.BookEnd)
 	}
-	return filtered, nil
+	return filtered
 }
 
 // sliceByBookStartEnd 全局序号切片(1-based, 0=不限; 纯函数供单测)

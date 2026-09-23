@@ -148,6 +148,9 @@ func contentDisposition(name string) string {
 
 // ---------------- feedback(公开提交) ----------------
 
+// feedbackURLRe 反垃圾链接计数([R56-2b] 修前每请求编译一次, 上提到包级)。
+var feedbackURLRe = regexp.MustCompile(`https?://\S+`)
+
 // (d Deps) publicFeedbackPost POST /api/public/feedback
 func (d Deps) publicFeedbackPost(w http.ResponseWriter, r *http.Request) {
 	siteID := strings.TrimSpace(strOf(r.URL.Query().Get("site"), 64))
@@ -171,8 +174,7 @@ func (d Deps) publicFeedbackPost(w http.ResponseWriter, r *http.Request) {
 	feedbackURL := strings.TrimSpace(strOf(body["url"], 2000))
 
 	// 反垃圾: URL 数量 / 全大写 / 同 IP 频率
-	urlRe := regexp.MustCompile(`https?://\S+`)
-	if len(urlRe.FindAllString(content, -1)) > 3 {
+	if len(feedbackURLRe.FindAllString(content, -1)) > 3 {
 		apiErr(w, http.StatusBadRequest, "反馈内容包含过多链接, 请精简后重试")
 		return
 	}

@@ -16,7 +16,6 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
-	"net/url"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -33,10 +32,12 @@ type DB struct {
 }
 
 // Open 打开既有 SQLite 文件(零迁移: 表结构与数据由 Prisma 历史轮次建好)。
+//
+// [R56-2b-fix] 修前 path 被无条件追加 "?"(url.Values{}.Encode() 恒空串), DSN 变成
+// "file:db??" 双问号 —— modernc 驱动按首个 "?" 切 query, 首个键名解析为 "?_pragma",
+// 导致排头的 busy_timeout(10000) 静默失效(实测 PRAGMA busy_timeout=0)。去掉该分支,
+// pragma 链路完整生效(/tmp 探针实证: wal + busy_timeout=10000 + foreign_keys=1)。
 func Open(path string) (*DB, error) {
-	if !strings.Contains(path, "?") {
-		path += "?" + url.Values{}.Encode()
-	}
 	// busy_timeout 先行; WAL 提升读写并发(fail-safe: 已是 WAL 或不支持时忽略错误)
 	dsn := fmt.Sprintf("file:%s?_pragma=busy_timeout(10000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(1)", path)
 	sdb, err := sql.Open("sqlite", dsn)

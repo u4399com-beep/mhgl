@@ -1,0 +1,22 @@
+{{define "content"}}
+<div class="ss-toc">
+  <section class="ss-card">
+    <p class="ss-title">📑 {{.Book.name}} 目录 <small>共 {{.Total}} 章</small></p>
+    <p class="ss-toc-meta">{{.Book.author}} · {{or .Book.category "小说"}} · {{statusLabel (str .Book.status)}} · <a href="{{.BookHref}}">书籍页</a></p>
+    {{if .Chapters}}
+    <ul class="ss-chlist ss-3col">
+      {{range .Chapters}}
+      <li><a href="{{chapterHref (str .id) (num $.Book.num) (num .idx) $.SiteID}}" title="{{.title}}">{{.title}}</a></li>
+      {{end}}
+    </ul>
+    {{else}}<p class="ss-empty">目录暂未收录, 请稍后再来</p>{{end}}
+    {{with .Pager}}
+    <div class="ss-pager">
+      {{if .PrevURL}}<a class="ss-pg" href="{{.PrevURL}}">上一页</a>{{else}}<span class="ss-pg" aria-disabled="true">上一页</span>{{end}}
+      <span class="ss-pg-cur">第 {{.Page}} / {{.TotalPages}} 页</span>
+      {{if .NextURL}}<a class="ss-pg" href="{{.NextURL}}">下一页</a>{{else}}<span class="ss-pg" aria-disabled="true">下一页</span>{{end}}
+    </div>
+    {{end}}
+  </section>
+</div>
+{{end}}

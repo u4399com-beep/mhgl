@@ -1,0 +1,46 @@
+{{define "content"}}
+<div class="pli-read" data-page="read" data-book-id="{{.Book.id}}" data-chapter-id="{{.Chapter.id}}" data-chapter-title="{{.Chapter.title}}">
+  <div class="pli-text-set">
+    <b>背景</b>
+    <span role="group" aria-label="背景色">
+      <a class="ajx-c" style="background:#fffdf8" href="javascript:void(0)" data-bg="#fffdf8" aria-label="背景 p1"></a>
+      <a class="ajx-c" style="background:#cde4ff" href="javascript:void(0)" data-bg="#cde4ff" aria-label="背景 p2"></a>
+      <a class="ajx-c" style="background:#cfe7d4" href="javascript:void(0)" data-bg="#cfe7d4" aria-label="背景 p3"></a>
+      <a class="ajx-c" style="background:#f2e7ab" href="javascript:void(0)" data-bg="#f2e7ab" aria-label="背景 p4"></a>
+      <a class="ajx-c" style="background:#f4ced6" href="javascript:void(0)" data-bg="#f4ced6" aria-label="背景 p5"></a>
+    </span>
+    <b>字号</b>
+    <span role="group" aria-label="字号">
+      <a class="ajx-s" href="javascript:void(0)" data-fs="15">A-</a>
+      <a class="ajx-s" href="javascript:void(0)" data-fs="17">A</a>
+      <a class="ajx-s" href="javascript:void(0)" data-fs="20">A+</a>
+      <a class="ajx-s" href="javascript:void(0)" data-fs="24">特大</a>
+    </span>
+    <b>字体颜色</b>
+    <span class="ajx-ys" role="group" aria-label="字体颜色">
+      <a href="javascript:void(0)" data-ink="#333333" style="color:#333333">墨黑</a>
+      <a href="javascript:void(0)" data-ink="#7d360f" style="color:#7d360f">棕褐</a>
+      <a href="javascript:void(0)" data-ink="#174f8d" style="color:#174f8d">蓝</a>
+      <a href="javascript:void(0)" data-ink="#2c6b33" style="color:#2c6b33">绿</a>
+    </span>
+    <b>双击滚屏</b>
+  </div>
+  <div class="pli-panel pli-read-panel">
+    <h1 class="pli-read-title">{{.Book.name}}</h1>
+    <p class="pli-read-sub">{{.Chapter.title}}</p>
+    <p class="pli-read-info">{{.Book.author}} · {{or .Book.category "小说"}}</p>
+    <div class="pli-readcontent">
+      {{if .Chapter.content}}
+      <div id="view_content_txt" class="pli-read-txt">{{readHTML (str .Chapter.content)}}</div>
+      {{else}}
+      <div id="view_content_txt" class="pli-read-txt"><div class="pli-empty">本章内容尚未采集, 请稍后再来或返回目录阅读其他章节。</div></div>
+      {{end}}
+    </div>
+    <div class="pli-pager">
+      {{if .PrevHref}}<a class="pli-pg" id="ajx-prev" href="{{.PrevHref}}">上一章</a>{{else}}<span class="pli-pg is-disabled" id="ajx-prev" aria-disabled="true">上一章</span>{{end}}
+      <a class="pli-pg" href="{{.TocHref}}">目录</a>
+      {{if .NextHref}}<a class="pli-pg" id="ajx-next" href="{{.NextHref}}">下一章</a>{{else}}<span class="pli-pg is-disabled" id="ajx-next" aria-disabled="true">下一章</span>{{end}}
+    </div>
+  </div>
+</div>
+{{end}}

@@ -1,0 +1,31 @@
+{{define "content"}}
+<div class="pli-pseo">
+  <div class="pli-rank-wr">
+    <div class="pli-rank-head">{{.Heading}}<small>（关键词专题）</small></div>
+    <div class="pli-rank-panel">
+      <p class="pli-book-intro">{{if .Row.description}}{{.Row.description}}{{else}}{{.Row.keyword}} — {{.SiteName}}聚合相关小说资源，提供全文免费在线阅读。{{end}}</p>
+      {{with .Primary}}
+      <p class="pli-book-intro">主打作品《{{.name}}》由 {{.author}} 创作，{{statusLabel (str .status)}}，全文约 {{fmtWords .wordCount}} 字{{if .latestChapter}}，最新章节「{{.latestChapter}}」{{end}}。{{if .intro}}简介：{{excerpt .intro 150}}{{end}}</p>
+      {{end}}
+    </div>
+  </div>
+  <div class="pli-rank-wr">
+    <div class="pli-rank-head">相关书籍推荐（{{len .Books}}）</div>
+    <div class="pli-rank-panel">
+      {{if .BookViews}}
+      <div class="pli-latest-grid">
+        {{range .BookViews}}
+        <a class="pli-book-cell" href="{{.BookHref}}">
+          {{if .Book.cover}}<img src="{{coverURL (str .Book.cover)}}" alt="{{.Book.name}} 封面" loading="lazy" onerror="this.remove()">{{end}}
+          <span class="pli-book-cell-name">{{.Book.name}}</span>
+        </a>
+        {{end}}
+      </div>
+      <div class="pli-tagwall">
+        {{range .BookViews}}<a class="pli-tag" href="{{.TocHref}}">{{.Book.name}} 目录</a>{{end}}
+      </div>
+      {{else}}<div class="pli-empty">暂无相关书籍数据</div>{{end}}
+    </div>
+  </div>
+</div>
+{{end}}

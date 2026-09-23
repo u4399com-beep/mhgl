@@ -1,0 +1,38 @@
+{{define "content"}}
+<div class="ss-search">
+  <section class="ss-card">
+    <p class="ss-title">🔍 {{if .Q}}「{{.Q}}」的搜索结果{{else}}全站搜索{{end}}</p>
+    {{if .Q}}
+    {{if .Books}}
+    <ul class="ss-store">
+      {{range .Books}}
+      <li class="ss-store-item">
+        <div class="ss-img_span">
+          <a href="{{bookHref (str .id) (num .num) $.SiteID}}" aria-label="{{.name}}">
+            {{if .cover}}<img src="{{coverURL (str .cover)}}" alt="{{.name}} 封面" loading="lazy" onerror="this.remove()">{{end}}
+            <span class="ss-mask" style="background:{{if eqStr (str .status) "completed"}}rgba(191,44,36,.75){{else}}rgba(0,0,0,.4){{end}}">{{or .category "小说"}} / {{if eqStr (str .status) "completed"}}全本{{else}}连载{{end}}</span>
+          </a>
+        </div>
+        <div class="ss-w100">
+          <a class="ss-h2" href="{{bookHref (str .id) (num .num) $.SiteID}}">{{.name}}</a>
+          <p class="ss-indent">{{if .intro}}{{excerpt .intro 70}}{{else}}{{or .category "小说"}} · {{.author}}{{end}}</p>
+          <p class="ss-li_bottom"><a href="{{viewHrefSearch (str .author) $.SiteID}}">{{.author}}</a>
+            <em class="ss-orange">{{fmtWords .wordCount}}</em>
+            <em class="ss-blue">{{dateShort .updatedAt}}</em>
+          </p>
+        </div>
+      </li>
+      {{end}}
+    </ul>
+    <p class="ss-total">共 {{.Total}} 条结果</p>
+    {{else}}<p class="ss-empty">未找到相关书籍, 换个关键词试试</p>{{end}}
+    {{else}}<p class="ss-empty">输入关键词开始搜索, 支持书名 / 作者 / 关键词。</p>{{end}}
+  </section>
+  <section class="ss-card">
+    <p class="ss-title">🔗 相关阅读</p>
+    {{if .Tags}}
+    <div class="ss-tagwall">{{range .Tags}}<a href="{{viewHrefKeyword (str .tag) $.SiteID}}">{{.tag}}</a>{{end}}</div>
+    {{else}}<p class="ss-empty">暂无相关词</p>{{end}}
+  </section>
+</div>
+{{end}}

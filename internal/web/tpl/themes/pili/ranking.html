@@ -1,0 +1,31 @@
+{{define "content"}}
+<div class="pli-ranking">
+  <div class="pli-rank-wr">
+    <div class="pli-rank-head">排行榜<small>（更新榜 / 字数榜 / 新书榜 TOP60 · 每小时随采集更新）</small></div>
+    {{range .Boards}}
+    <div class="pli-panel">
+      <div class="pli-rank-head">{{.Label}}</div>
+      <div class="pli-rank-panel">
+        {{if .Books}}
+        <ol class="pli-in-rank-list pli-pr10">
+          {{range $i, $b := .Books}}
+          {{if lt $i 30}}
+          <li><sub class="{{if lt $i 3}}pli-no-orange{{else}}pli-no-gray{{end}}">{{$i | add 1}}</sub><a class="pli-rank-name" href="{{bookHref (str $b.id) (num $b.num) $.SiteID}}">{{$b.name}}</a><i class="pli-rank-author">{{$b.author}}</i></li>
+          {{end}}
+          {{end}}
+        </ol>
+        <ol class="pli-in-rank-list">
+          {{range $i, $b := .Books}}
+          {{if ge $i 30}}
+          <li><sub class="pli-no-gray">{{$i | add 1}}</sub><a class="pli-rank-name" href="{{bookHref (str $b.id) (num $b.num) $.SiteID}}">{{$b.name}}</a><i class="pli-rank-author">{{$b.author}}</i></li>
+          {{end}}
+          {{end}}
+        </ol>
+        <div class="pli-clear"></div>
+        {{else}}<div class="pli-empty">榜单暂无数据</div>{{end}}
+      </div>
+    </div>
+    {{end}}
+  </div>
+</div>
+{{end}}

@@ -1,0 +1,158 @@
+/* ============================================================
+   shipsay(船说 CMS demo) 主题样式 — 船说 V4.2 默认模板还原
+   移植自 src/components/public/sites/shipsay 实测色值(R24 直测):
+   960px 版心 / body #f4f4f4 / 白卡无圆角 / #1a1a1a 链接 / #ed4259 hover /
+   #555 标题 / em 蓝 #4284ed 橙 #f0643a / 完本遮罩 rgba(191,44,36,.75)
+   全部选择器以 .clone-shipsay 作用域(body class)。
+   ============================================================ */
+.clone-shipsay{margin:0;background:#f4f4f4;color:#666;font:14px/1.6 "微软雅黑","Microsoft Yahei",Arial,Tahoma,Verdana,sans-serif;-webkit-text-size-adjust:100%}
+.clone-shipsay a{color:#1a1a1a;text-decoration:none}
+.clone-shipsay a:hover{color:#ed4259}
+.clone-shipsay img{max-width:100%}
+.clone-shipsay .ss-container{width:960px;max-width:100%;margin:0 auto;padding:0 4px}
+.clone-shipsay .ss-empty{padding:24px 0;text-align:center;color:#999}
+
+/* 头区(白底卡面 + 红点睛) */
+.clone-shipsay .ss-header{background:#fff;border-bottom:2px solid #bf2c24;margin-bottom:10px}
+.clone-shipsay .ss-head-in{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:16px 10px 10px}
+.clone-shipsay .ss-logo{font-size:26px;font-weight:800;color:#bf2c24;letter-spacing:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:44%}
+.clone-shipsay .ss-slogan{font-size:12px;color:#999;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.clone-shipsay .ss-search{display:flex;width:320px;max-width:100%;height:36px;border:1px solid #e3e3e3;background:#fff}
+.clone-shipsay .ss-search input[type=search]{flex:1;border:none;outline:none;padding:0 12px;font-size:13px;color:#333;min-width:0}
+.clone-shipsay .ss-search button{border:none;background:#bf2c24;color:#fff;font-size:14px;padding:0 18px;cursor:pointer}
+.clone-shipsay .ss-search button:hover{background:#ed4259}
+.clone-shipsay .ss-nav{display:flex;flex-wrap:wrap;padding:0 6px 8px}
+.clone-shipsay .ss-nav a{color:#1a1a1a;font-size:14px;padding:4px 10px}
+.clone-shipsay .ss-nav a:hover{color:#ed4259}
+
+/* 白卡面板 */
+.clone-shipsay .ss-card{background:#fff;padding:0 0 6px;margin-bottom:10px}
+.clone-shipsay .ss-title{margin:0;border-bottom:1px solid #e3e3e3;padding:10px 12px;font-size:16px;font-weight:700;color:#555}
+.clone-shipsay .ss-title small{font-size:12px;color:#999;font-weight:400;margin-left:8px}
+.clone-shipsay .ss-row{display:flex;gap:10px;align-items:stretch}
+.clone-shipsay .ss-grow{flex:1;min-width:0}
+.clone-shipsay .ss-side{width:250px;max-width:30%;flex-shrink:0}
+
+/* 大神小说遮罩卡(img_span 100×133 + 状态遮罩条) */
+.clone-shipsay .ss-cards{list-style:none;margin:0;padding:12px;display:grid;grid-template-columns:1fr 1fr;gap:12px 16px}
+.clone-shipsay .ss-star{display:flex;min-width:0}
+.clone-shipsay .ss-img_span{position:relative;flex-shrink:0;width:100px;height:133px;margin-right:10px;overflow:hidden;background:#eee}
+.clone-shipsay .ss-img_span a{display:block;width:100%;height:100%}
+.clone-shipsay .ss-img_span img{width:100%;height:100%;object-fit:cover;border-radius:0;transition:transform .2s}
+.clone-shipsay .ss-img_span a:hover img{transform:scale(1.08)}
+.clone-shipsay .ss-mask{position:absolute;left:0;right:0;bottom:0;display:block;padding:3px 6px;font-size:12px;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.clone-shipsay .ss-w100{min-width:0;flex:1}
+.clone-shipsay .ss-h2{display:block;max-width:100%;font-size:15px;font-weight:700;line-height:1.4;color:#555;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.clone-shipsay .ss-h2:hover{color:#ed4259}
+.clone-shipsay .ss-indent{margin:4px 0 0;font-size:12px;line-height:19px;color:#666;text-indent:2em;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.clone-shipsay .ss-li_bottom{margin:4px 0 0;display:flex;align-items:center;font-size:12px;color:#1a1a1a}
+.clone-shipsay .ss-li_bottom a{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.clone-shipsay em.ss-orange{font-style:normal;margin-left:auto;color:#f0643a;flex-shrink:0}
+.clone-shipsay em.ss-blue{font-style:normal;margin-left:8px;color:#4284ed;flex-shrink:0}
+
+/* 行式列表(热门/最新) */
+.clone-shipsay .ss-popular{list-style:none;margin:0;padding:6px 12px}
+.clone-shipsay .ss-popular li{display:flex;align-items:center;border-bottom:1px dashed #e3e3e3;padding:5px 0;line-height:22px}
+.clone-shipsay .ss-popular li:last-child{border-bottom:none}
+.clone-shipsay .ss-popular li > a:first-child{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:14px}
+.clone-shipsay .ss-gray{color:#999;font-size:12px;padding-left:8px;flex-shrink:0;white-space:nowrap}
+.clone-shipsay .ss-no{font-style:normal;width:22px;color:#999;font-size:12px;flex-shrink:0}
+.clone-shipsay .ss-2col{display:block}
+.clone-shipsay .ss-updates{list-style:none;margin:0;padding:6px 12px}
+.clone-shipsay .ss-updates li{display:flex;align-items:center;gap:8px;border-bottom:1px dashed #e3e3e3;padding:5px 0;line-height:22px}
+.clone-shipsay .ss-updates li:last-child{border-bottom:none}
+.clone-shipsay .ss-updates .ss-cat{color:#ed4259;font-size:12px;flex-shrink:0}
+.clone-shipsay .ss-updates li > a:first-of-type{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-shrink:0}
+.clone-shipsay .ss-updates li > a.ss-gray{flex:1;min-width:0;color:#999;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* 书页(novel_info_main) */
+.clone-shipsay .ss-novel_info{padding:12px}
+.clone-shipsay .ss-info-flex{display:flex;gap:14px}
+.clone-shipsay .ss-info-cover{flex-shrink:0;width:120px;height:160px;overflow:hidden;background:#eee}
+.clone-shipsay .ss-info-cover img{width:100%;height:100%;object-fit:cover}
+.clone-shipsay .ss-info-main{min-width:0;flex:1}
+.clone-shipsay .ss-info-main h1,.clone-shipsay .ss-info-main h2{margin:0 0 6px;font-size:20px;color:#555}
+.clone-shipsay .ss-info-main h2 a{color:#555}
+.clone-shipsay .ss-info-meta{margin:0 0 4px;font-size:13px;color:#999}
+.clone-shipsay .ss-info-meta a{color:#1a1a1a}
+.clone-shipsay .ss-info-meta a:hover{color:#ed4259}
+.clone-shipsay .ss-info-desc{margin:8px 0;color:#666;font-size:13.5px;line-height:1.9}
+.clone-shipsay .ss-info-btns{margin-top:10px;display:flex;gap:10px;flex-wrap:wrap}
+.clone-shipsay .ss-btn{display:inline-block;border:1px solid #e3e3e3;border-radius:3px;background:#fff;color:#666;padding:7px 20px;font-size:14px}
+.clone-shipsay .ss-btn:hover{border-color:#ed4259;color:#ed4259}
+.clone-shipsay .ss-btn.is-primary{border-color:#bf2c24;background:#bf2c24;color:#fff}
+.clone-shipsay .ss-btn.is-primary:hover{background:#ed4259;border-color:#ed4259;color:#fff}
+.clone-shipsay .ss-btn.is-disabled{opacity:.5;cursor:not-allowed}
+
+/* 目录/章节列表 */
+.clone-shipsay .ss-toc-meta{margin:8px 12px 0;font-size:13px;color:#999}
+.clone-shipsay .ss-toc-meta a{color:#1a1a1a}
+.clone-shipsay .ss-chlist{list-style:none;margin:8px 12px;padding:0;display:grid;gap:2px 14px}
+.clone-shipsay .ss-chlist.ss-2col{grid-template-columns:repeat(auto-fill,minmax(300px,1fr))}
+.clone-shipsay .ss-chlist.ss-3col{grid-template-columns:repeat(auto-fill,minmax(220px,1fr))}
+.clone-shipsay .ss-chlist li a{display:block;font-size:13.5px;color:#1a1a1a;padding:6px 8px;border-bottom:1px dashed #efefef;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.clone-shipsay .ss-chlist li a:hover{color:#ed4259}
+
+/* 阅读页(read_bg 白卡 + text_set) */
+.clone-shipsay .ss-section_style{padding:12px}
+.clone-shipsay .ss-text_set{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;border-bottom:1px solid #e3e3e3;padding-bottom:8px;margin-bottom:10px}
+.clone-shipsay .ss-cog{font-size:12px;color:#ed4259}
+.clone-shipsay .ss-text_control{display:inline-flex;align-items:center;gap:10px;flex-wrap:wrap}
+.clone-shipsay .ss-text_control button{border:1px solid #e3e3e3;border-radius:3px;background:#fff;color:#1a1a1a;font-size:13px;padding:2px 10px;cursor:pointer}
+.clone-shipsay .ss-text_control button:hover{border-color:#ed4259;color:#ed4259}
+.clone-shipsay .ss-style_h1{margin:0 0 4px;text-align:center;font-size:18px;font-weight:700;color:#555}
+.clone-shipsay .ss-text_info{margin:0 0 12px;display:flex;justify-content:center;gap:16px;flex-wrap:wrap;font-size:12.5px;color:#999}
+.clone-shipsay .ss-content{min-height:300px}
+.clone-shipsay .ss-readcontent{color:#444;font-size:16px;line-height:1.7}
+.clone-shipsay .ss-readcontent p{margin:0 0 10px;text-indent:2em}
+.clone-shipsay .ss-read_nav{border-top:1px solid #e3e3e3;padding-top:10px;text-align:center;margin-top:12px}
+.clone-shipsay .ss-navbtn{display:inline-block;margin:2px;border:1px solid #e3e3e3;border-radius:3px;background:#fff;color:#1a1a1a;font-size:14px;padding:7px 18px}
+.clone-shipsay .ss-navbtn:hover{border-color:#ed4259;color:#ed4259}
+.clone-shipsay span.ss-navbtn{opacity:.5;cursor:not-allowed}
+
+/* 封面卡列表(.store) */
+.clone-shipsay .ss-store{list-style:none;margin:0;padding:12px;display:grid;grid-template-columns:1fr;gap:12px}
+.clone-shipsay .ss-store-2col{grid-template-columns:1fr 1fr;gap:12px 16px}
+.clone-shipsay .ss-store-item{display:flex;min-width:0}
+.clone-shipsay .ss-total{margin:0;padding:0 12px 8px;font-size:12px;color:#999}
+
+/* 标签墙/分页 */
+.clone-shipsay .ss-tagwall{display:flex;flex-wrap:wrap;gap:8px;padding:10px 12px}
+.clone-shipsay .ss-tagwall a{border:1px solid #e3e3e3;border-radius:3px;padding:3px 12px;font-size:13px;color:#1a1a1a}
+.clone-shipsay .ss-tagwall a:hover{border-color:#ed4259;color:#ed4259}
+.clone-shipsay .ss-pager{text-align:center;padding:12px 0 8px}
+.clone-shipsay .ss-pg{display:inline-block;margin:0 4px;border:1px solid #e3e3e3;border-radius:3px;background:#fff;color:#666;font-size:13px;padding:6px 16px}
+.clone-shipsay a.ss-pg:hover{background:#ed4259;color:#fff;border-color:#ed4259}
+.clone-shipsay .ss-pg-cur{color:#999}
+
+/* 页脚(船说 红条) */
+.clone-shipsay .ss-footer{background:#bf2c24;color:#f7d9d5;text-align:center;font-size:12.5px;padding:14px 8px 16px;margin-bottom:12px}
+.clone-shipsay .ss-footer p{margin:4px 0 0}
+.clone-shipsay .ss-footer a{color:#fff}
+.clone-shipsay .ss-ft-links{line-height:1.8}
+.clone-shipsay .ss-ft-links a{color:#ffd9d4}
+
+/* 阅读历史(site.js 注入 li 兼容) */
+.clone-shipsay #ajx-history-list li a{font-size:14px;color:#1a1a1a}
+.clone-shipsay #ajx-history-list li a:hover{color:#ed4259}
+
+/* 404 */
+.clone-shipsay .ss-404{padding:40px 0}
+.clone-shipsay .ss-404-card{max-width:560px;margin:0 auto;text-align:center;padding:28px 16px 20px}
+.clone-shipsay .ss-404-code{font-size:60px;font-weight:800;color:#bf2c24;line-height:1}
+.clone-shipsay .ss-404-card h1{font-size:20px;color:#555;margin:10px 0 6px}
+.clone-shipsay .ss-404-card p{color:#999;margin:0 0 8px}
+
+/* 回到顶部按钮(site.js 注入 #ajx-backtop) */
+.clone-shipsay #ajx-backtop{position:fixed;right:16px;bottom:80px;z-index:60;display:none;width:44px;height:44px;border:1px solid #e3e3e3;border-radius:3px;background:#fff;color:#666;font-size:13px;cursor:pointer}
+.clone-shipsay #ajx-backtop.is-show{display:block}
+.clone-shipsay #ajx-backtop:hover{border-color:#ed4259;color:#ed4259}
+
+/* ================= 移动端(375px 无横向滚动) ================= */
+@media (max-width: 700px){
+  .clone-shipsay .ss-row{flex-direction:column}
+  .clone-shipsay .ss-side{width:100%;max-width:none}
+  .clone-shipsay .ss-cards,.clone-shipsay .ss-store-2col{grid-template-columns:1fr}
+  .clone-shipsay .ss-popular.ss-2col{columns:1}
+  .clone-shipsay .ss-logo{max-width:60%}
+}

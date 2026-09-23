@@ -1,0 +1,49 @@
+{{define "content"}}
+<div class="pli-keyword">
+  <div class="pli-rank-wr">
+    <div class="pli-rank-head">关键词专题：{{if .Tag}}{{.Tag}}{{else}}缺少关键词参数{{end}}</div>
+    {{if .Primary}}
+    <div class="pli-panel pli-book-head">
+      <span class="pli-ani-img pli-ani-img-sm">
+        {{if .Primary.cover}}<img src="{{coverURL (str .Primary.cover)}}" alt="{{.Primary.name}} 封面" onerror="this.remove()">{{end}}
+      </span>
+      <div class="pli-ani-text">
+        <h1 class="pli-book-title">{{.Primary.name}}</h1>
+        <div class="pli-ani-text1">
+          <a class="pli-ani-author" href="{{viewHrefSearch (str .Primary.author) .SiteID}}">{{.Primary.author}}</a>
+          <span class="pli-book-badge">{{statusLabel (str .Primary.status)}}</span>
+          <span class="pli-book-badge pli-badge-orange">{{or .Primary.category "未分类"}}</span>
+        </div>
+        <p class="pli-book-intro">{{if .Primary.intro}}{{excerpt .Primary.intro 120}}{{else}}暂无简介{{end}}</p>
+        <div class="pli-btns">
+          <a class="pli-btn-orange" href="{{.PrimaryBookHref}}">查看书籍详情</a>
+          <a class="pli-btn-line" href="{{tocHref (str .Primary.id) (num .Primary.num) .SiteID}}">章节目录</a>
+        </div>
+      </div>
+      <div class="pli-clear"></div>
+    </div>
+    {{else}}<div class="pli-rank-panel"><div class="pli-empty">{{if .Tag}}暂无与「{{.Tag}}」直接匹配的主打书籍{{else}}暂无可展示的关键词书籍{{end}}</div></div>{{end}}
+  </div>
+  {{if .Others}}
+  <div class="pli-rank-wr">
+    <div class="pli-rank-head">其他相关书籍</div>
+    <div class="pli-rank-panel">
+      <ol class="pli-in-rank-list pli-in-panel">
+        {{range $i, $b := .Others}}
+        <li><sub class="{{if lt $i 3}}pli-no-orange{{else}}pli-no-gray{{end}}">{{$i | add 1}}</sub><a class="pli-rank-name" href="{{bookHref (str $b.id) (num $b.num) $.SiteID}}">{{$b.name}}</a><i class="pli-rank-author">{{$b.author}}</i></li>
+        {{end}}
+      </ol>
+      <div class="pli-clear"></div>
+    </div>
+  </div>
+  {{end}}
+  {{if .Related}}
+  <div class="pli-rank-wr">
+    <div class="pli-rank-head">相关关键词</div>
+    <div class="pli-rank-panel">
+      <div class="pli-tagwall">{{range .Related}}<a class="pli-tag" href="{{viewHrefKeyword . $.SiteID}}">{{.}}</a>{{end}}</div>
+    </div>
+  </div>
+  {{end}}
+</div>
+{{end}}

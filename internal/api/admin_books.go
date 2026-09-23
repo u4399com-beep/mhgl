@@ -167,11 +167,29 @@ func nullString(v any) any {
 	return v
 }
 
+// minInt 小值。
 func minInt(a, b int) int {
 	if a < b {
 		return a
 	}
 	return b
+}
+
+// safeFsToken 文件系统路径 token 校验(cuid/书号形态 [a-z0-9]);
+// [R56-2b-fix] 防御深度: PathValue 拼进 os.RemoveAll 前验字符集,
+// 阻断 ".." / 分隔符 / 控制字符等任何形态的目录拼接风险。
+func safeFsToken(id string) bool {
+	if id == "" || len(id) > 64 {
+		return false
+	}
+	for i := 0; i < len(id); i++ {
+		c := id[i]
+		if c >= 'a' && c <= 'z' || c >= '0' && c <= '9' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 // (d Deps) adminBookDetail GET /api/admin/books/{id}
@@ -310,7 +328,9 @@ func (d Deps) adminBookDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// 章节/标签/下载任务由 DDL 级联清理; txt 章节目录尽力清理
-	_ = os.RemoveAll("web/novels/" + id)
+	if safeFsToken(id) {
+		_ = os.RemoveAll("web/novels/" + id)
+	}
 	if _, err := d.DB.Exec(`DELETE FROM "Book" WHERE id=?`, id); err != nil {
 		apiErr(w, http.StatusInternalServerError, "服务器内部错误")
 		return
@@ -527,7 +547,9 @@ func (d Deps) adminBooksBatch(w http.ResponseWriter, r *http.Request) {
 				skipped = append(skipped, skipItem("书籍不存在(可能已删除)", ""))
 				continue
 			}
-			_ = os.RemoveAll("web/novels/" + id)
+			if safeFsToken(id) {
+				_ = os.RemoveAll("web/novels/" + id)
+			}
 			if _, err := d.DB.Exec(`DELETE FROM "Book" WHERE id=?`, id); err != nil {
 				skipped = append(skipped, skipItem("操作失败(内部错误), 请重试", ""))
 				continue

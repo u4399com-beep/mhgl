@@ -19,6 +19,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"mhgl/internal/crawl"
@@ -186,7 +187,7 @@ func (d Deps) adminRuleDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	inUse, _ := d.DB.Count(`SELECT count(*) FROM "Task" WHERE ruleId=?`, id)
 	if inUse > 0 {
-		apiErr(w, http.StatusBadRequest, "该规则被 "+itoa(inUse)+" 个采集任务引用, 请先删除任务")
+		apiErr(w, http.StatusBadRequest, "该规则被 "+strconv.Itoa(inUse)+" 个采集任务引用, 请先删除任务")
 		return
 	}
 	if _, err := d.DB.Exec(`DELETE FROM "Rule" WHERE id=?`, id); err != nil {
@@ -230,7 +231,7 @@ func (d Deps) adminRulesBatch(w http.ResponseWriter, r *http.Request) {
 			if row, ok, _ := d.DB.QueryMap(`SELECT name FROM "Rule" WHERE id=?`, rf.ruleID); ok {
 				name = strOf(row["name"], 100)
 			}
-			parts = append(parts, "「"+name+"」("+itoa(rf.count)+" 个任务)")
+			parts = append(parts, "「"+name+"」("+strconv.Itoa(rf.count)+" 个任务)")
 		}
 		apiErr(w, http.StatusConflict, "以下规则仍被采集任务引用, 已整批拒绝删除: "+strings.Join(parts, "、"))
 		return
@@ -362,11 +363,11 @@ func (d Deps) adminRulesImportBuiltin(w http.ResponseWriter, r *http.Request) {
 		uniq = append(uniq, k)
 	}
 	if len(uniq) > 500 {
-		apiErr(w, http.StatusBadRequest, "单次最多导入 500 条规则(内置规则库共 "+itoa(len(all))+" 条)")
+		apiErr(w, http.StatusBadRequest, "单次最多导入 500 条规则(内置规则库共 "+strconv.Itoa(len(all))+" 条)")
 		return
 	}
 	results := make([]map[string]any, 0, len(uniq))
-	created, removedOld, updated := 0, 0, 0
+	created, updated := 0, 0
 	for _, key := range uniq {
 		br := byKey[key]
 		if br == nil {
@@ -388,7 +389,8 @@ func (d Deps) adminRulesImportBuiltin(w http.ResponseWriter, r *http.Request) {
 				results = append(results, map[string]any{"key": key, "name": name, "deletedOld": 0, "error": "操作失败(内部错误), 请重试"})
 				continue
 			}
-			created++
+			// [R56-2b-fix] 修前 update 路径也 created++, 二次导入时 created/updated
+			// 双双虚高(TS 原件 created 仅计实际新建); updated 单独已有计数。
 			updated++
 			results = append(results, map[string]any{"key": key, "name": name, "id": id, "deletedOld": 0, "updated": true})
 			continue
@@ -402,6 +404,5 @@ func (d Deps) adminRulesImportBuiltin(w http.ResponseWriter, r *http.Request) {
 		created++
 		results = append(results, map[string]any{"key": key, "name": name, "id": nid, "deletedOld": 0})
 	}
-	_ = removedOld
 	apiOK(w, map[string]any{"created": created, "removedOld": 0, "updated": updated, "results": results})
 }

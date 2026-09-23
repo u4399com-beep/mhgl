@@ -62,7 +62,7 @@ func TestConstTemplateArithmetic(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			fr := field(t, "const", c.expr)
-			got := ExtractField("", nil, nil, fr, &ExtractCtx{Vars: c.vars})
+			got := extractField("", nil, nil, fr, &extractCtx{Vars: c.vars})
 			if got != c.want {
 				t.Fatalf("constTemplate(%q) = %q, want %q", c.expr, got, c.want)
 			}
@@ -74,7 +74,7 @@ func TestConstTemplateArithmetic(t *testing.T) {
 
 func TestJSONDotPath(t *testing.T) {
 	body := `{"data":{"list":[{"id":1,"name":"第一本"},{"id":2,"name":"第二本"}],"total":2}}`
-	ctx := &ExtractCtx{JSON: parseJsonBody(body)}
+	ctx := &extractCtx{JSON: parseJsonBody(body)}
 	cases := []struct {
 		path string
 		want string
@@ -87,20 +87,20 @@ func TestJSONDotPath(t *testing.T) {
 	}
 	for _, c := range cases {
 		fr := field(t, "json", c.path)
-		if got := ExtractField("", nil, nil, fr, ctx); got != c.want {
+		if got := extractField("", nil, nil, fr, ctx); got != c.want {
 			t.Fatalf("jsonGet(%q) = %q, want %q", c.path, got, c.want)
 		}
 	}
 	// 根为数组形态: TS jsonGet 语义 —— 数组根 + 字段名段 → undefined(数组必须经
 	// itemSelector=json 定位后逐元素作用域提取, ParseList JSON 模式即此形态)
-	arrRoot := &ExtractCtx{JSON: parseJsonBody(`[{"n":"a"},{"n":"b"}]`)}
+	arrRoot := &extractCtx{JSON: parseJsonBody(`[{"n":"a"},{"n":"b"}]`)}
 	fr := field(t, "json", "n")
-	if got := ExtractField("", nil, nil, fr, arrRoot); got != "" {
+	if got := extractField("", nil, nil, fr, arrRoot); got != "" {
 		t.Fatalf("json 数组根+字段名应返回空(TS 口径), got %q", got)
 	}
 	// 正确形态: itemSelector 定位数组 → 逐元素为作用域 → 字段提取
 	arr := parseJsonBody(`[{"n":"a"},{"n":"b"}]`).([]interface{})
-	if got := ExtractField("", nil, nil, fr, &ExtractCtx{JSON: arr[1]}); got != "b" {
+	if got := extractField("", nil, nil, fr, &extractCtx{JSON: arr[1]}); got != "b" {
 		t.Fatalf("json 元素作用域取值 = %q, want %q", got, "b")
 	}
 }
@@ -119,28 +119,28 @@ func TestCSSExtract(t *testing.T) {
 		t.Fatal(err)
 	}
 	// attr href
-	got := ExtractField("", doc, nil, &FieldRule{Type: "css", Expression: "a.t", Attr: "href"}, nil)
+	got := extractField("", doc, nil, &FieldRule{Type: "css", Expression: "a.t", Attr: "href"}, nil)
 	if got != "/book/42.html" {
 		t.Fatalf("css href = %q", got)
 	}
 	// text
-	got = ExtractField("", doc, nil, &FieldRule{Type: "css", Expression: "span.a"}, nil)
+	got = extractField("", doc, nil, &FieldRule{Type: "css", Expression: "span.a"}, nil)
 	if got != "天蚕土豆" {
 		t.Fatalf("css text = %q", got)
 	}
 	// stripTags(取 html 后剥标签)
-	got = ExtractField("", doc, nil, &FieldRule{Type: "css", Expression: "#intro", Attr: "html", StripTags: true}, nil)
+	got = extractField("", doc, nil, &FieldRule{Type: "css", Expression: "#intro", Attr: "html", StripTags: true}, nil)
 	if strings.Contains(got, "<") || !strings.Contains(got, "第一段加粗") {
 		t.Fatalf("css stripTags = %q", got)
 	}
 	// replaceFrom 正则替换(剥"字数: ... 字"壳)
-	got = ExtractField("", doc, nil, &FieldRule{Type: "css", Expression: "#meta",
+	got = extractField("", doc, nil, &FieldRule{Type: "css", Expression: "#meta",
 		ReplaceFrom: "字数:\\s*([0-9,]+)\\s*字", ReplaceTo: "$1"}, nil)
 	if got != "3,456,789" {
 		t.Fatalf("css replaceFrom = %q", got)
 	}
 	// index 逗号分段
-	got = ExtractField("", doc, nil, &FieldRule{Type: "css", Expression: "#meta",
+	got = extractField("", doc, nil, &FieldRule{Type: "css", Expression: "#meta",
 		ReplaceFrom: "字数:\\s*", ReplaceTo: "", Index: intPtr(2)}, nil)
 	if got != "789 字" {
 		t.Fatalf("css index = %q", got)
@@ -153,7 +153,7 @@ func intPtr(i int) *int { return &i }
 
 func TestRegexExtract(t *testing.T) {
 	htmlStr := `<a href="/novel/1234/">书</a>`
-	got := ExtractField(htmlStr, nil, nil, &FieldRule{Type: "regex", Expression: `href="([^"]+)"`, Flags: ""}, nil)
+	got := extractField(htmlStr, nil, nil, &FieldRule{Type: "regex", Expression: `href="([^"]+)"`, Flags: ""}, nil)
 	if got != "/novel/1234/" {
 		t.Fatalf("regex group1 = %q", got)
 	}

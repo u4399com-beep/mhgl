@@ -1,0 +1,28 @@
+{{define "content"}}
+<div class="pli-toc">
+  <div class="pli-panel">
+    <ul class="pli-tab-group">
+      <li class="is-active">章节列表</li>
+      <li><a href="{{.BookHref}}">返回《{{.Book.name}}》</a></li>
+    </ul>
+    <div class="pli-toc-head">
+      <h1 class="pli-read-title">{{.Book.name}} 目录 <small>共 {{.Total}} 章</small></h1>
+      <p class="pli-read-info">{{.Book.author}} · {{or .Book.category "小说"}} · {{statusLabel (str .Book.status)}}</p>
+    </div>
+    {{if .Chapters}}
+    <div class="pli-chgrid">
+      {{range .Chapters}}
+      <a href="{{chapterHref (str .id) (num $.Book.num) (num .idx) $.SiteID}}" title="{{.title}}">{{.title}}</a>
+      {{end}}
+    </div>
+    {{else}}<div class="pli-empty">目录暂未收录, 请稍后再来</div>{{end}}
+    {{with .Pager}}
+    <div class="pli-pager">
+      {{if .PrevURL}}<a class="pli-pg" href="{{.PrevURL}}">上一页</a>{{else}}<span class="pli-pg is-disabled">上一页</span>{{end}}
+      <span>第 {{.Page}} / {{.TotalPages}} 页 · 共 {{.Total}} 章</span>
+      {{if .NextURL}}<a class="pli-pg" href="{{.NextURL}}">下一页</a>{{else}}<span class="pli-pg is-disabled">下一页</span>{{end}}
+    </div>
+    {{end}}
+  </div>
+</div>
+{{end}}

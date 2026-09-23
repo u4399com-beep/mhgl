@@ -1,0 +1,13 @@
+{{define "content"}}
+<div class="pli-404">
+  <div class="pli-rank-panel pli-404-card">
+    <div class="pli-404-code">404</div>
+    <h1>页面不存在</h1>
+    <p>{{if .Msg}}{{.Msg}}{{else}}你访问的页面不存在或已被移除{{end}}</p>
+    <div class="pli-btns">
+      <a class="pli-btn-orange" href="{{.HomeHref}}">返回首页</a>
+      <a class="pli-btn-line" href="{{.SearchHref}}">搜索书籍</a>
+    </div>
+  </div>
+</div>
+{{end}}

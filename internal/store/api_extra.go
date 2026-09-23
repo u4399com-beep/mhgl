@@ -6,6 +6,7 @@ package store
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -44,7 +45,7 @@ func (d *DB) APIUpsertCategoryByName(name string, sortOrder int) (string, error)
 	if err == nil {
 		return id, nil
 	}
-	if err.Error() != "sql: no rows in result set" {
+	if !errors.Is(err, sql.ErrNoRows) {
 		return "", err
 	}
 	id = d.NewID()

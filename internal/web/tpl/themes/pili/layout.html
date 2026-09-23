@@ -1,0 +1,52 @@
+{{define "layout.html"}}<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>{{.Head.Title}}</title>
+{{if .Head.Description}}<meta name="description" content="{{.Head.Description}}">{{end}}
+{{if .Head.Keywords}}<meta name="keywords" content="{{.Head.Keywords}}">{{end}}
+{{if .Head.Canonical}}<link rel="canonical" href="{{.Head.Canonical}}">{{end}}
+<meta property="og:type" content="{{.Head.OgType}}">
+<meta property="og:title" content="{{.Head.Title}}">
+{{if .Head.Description}}<meta property="og:description" content="{{.Head.Description}}">{{end}}
+{{if .Head.Canonical}}<meta property="og:url" content="{{.Head.Canonical}}">{{end}}
+<meta name="theme-color" content="#f65400">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" type="image/png" href="/static/icons/icon-192.png">
+<link rel="stylesheet" href="/static/css/pili.css?v=r56-2c">
+</head>
+<body class="clone-pili">
+<header class="pli-top-wr">
+  <div class="pli-top-head">
+    <a class="pli-logo" href="{{.HomeHref}}">{{siteTitle .Site}}</a>
+    <form class="pli-search" action="/" method="get">
+      {{if .SiteID}}<input type="hidden" name="site" value="{{.SiteID}}">{{end}}
+      <input type="hidden" name="view" value="search">
+      <input type="search" name="q" aria-label="搜索全站" placeholder="输入书名 / 作者关键词…" value="{{.Q}}">
+      <button type="submit">搜索</button>
+    </form>
+    <ul class="pli-top-tag">
+      <li><a href="{{.FulltextHref}}">全站书库</a></li>
+      <li><a href="{{.RankingHref}}">排行榜</a></li>
+      <li><a href="{{.HistoryHref}}">阅读历史</a></li>
+    </ul>
+  </div>
+  <nav class="pli-top-nav-wr" aria-label="分类导航">
+    <ul class="pli-top-nav-list">
+      <li class="active"><a href="{{.HomeHref}}"><span>首页</span></a></li>
+      {{range $cat := .NavCats}}<li><a href="{{catHref $cat $.SiteID}}"><span>{{$cat}}</span></a></li>{{end}}
+      <li><a href="{{.FulltextHref}}"><span>全本</span></a></li>
+      <li><a href="{{.RankingHref}}"><span>排行</span></a></li>
+    </ul>
+  </nav>
+</header>
+<main class="pli-wrap">{{block "content" .}}<div class="pli-empty">加载中…</div>{{end}}</main>
+<footer class="pli-footer">
+  <p>{{siteTitle .Site}} · 小说免费阅读 · 本站所有小说均由网友上传, 如有侵权请联系删除</p>
+  {{if .Links}}<p class="pli-ft-links">友情链接：{{range $i, $l := .Links}}{{if $i}} · {{end}}<a href="{{safeHref $l.url}}" rel="noopener" target="_blank">{{$l.name}}</a>{{end}}</p>{{end}}
+</footer>
+<script src="/static/js/site.js?v=r56-2c" defer></script>
+<script src="/static/js/pwa.js?v=r56-2c" defer></script>
+</body>
+</html>{{end}}

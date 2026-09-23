@@ -119,9 +119,9 @@ func visibleTextLen(h string) string {
 	return strings.TrimSpace(s)
 }
 
-// LooksBlocked 拦截页/挑战壳判定(出口判定: charset 解码后的 HTML + 状态 + Server 头)。
+// looksBlocked 拦截页/挑战壳判定(出口判定: charset 解码后的 HTML + 状态 + Server 头)。
 // blocked=true 时编排层按等价 httpStatusError{403} 计失败路径, 内容不入库不回调
-func LooksBlocked(h string, status int, serverHeader string) bool {
+func looksBlocked(h string, status int, serverHeader string) bool {
 	if h == "" {
 		return true
 	}

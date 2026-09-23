@@ -42,8 +42,8 @@ var categoryKeywords = []struct {
 	{"现实", []string{"现实", "职场", "创业", "商战", "生活", "家庭", "医生", "教师"}},
 }
 
-// CanonicalCategories 主分类白名单(词表行数派生; 词表行数即白名单)
-var CanonicalCategories = func() []string {
+// canonicalCategories 主分类白名单(词表行数派生; 词表行数即白名单)
+var canonicalCategories = func() []string {
 	out := make([]string, 0, len(categoryKeywords))
 	for _, row := range categoryKeywords {
 		out = append(out, row.Name)
@@ -52,8 +52,8 @@ var CanonicalCategories = func() []string {
 }()
 
 var canonSet = func() map[string]struct{} {
-	m := make(map[string]struct{}, len(CanonicalCategories))
-	for _, c := range CanonicalCategories {
+	m := make(map[string]struct{}, len(canonicalCategories))
+	for _, c := range canonicalCategories {
 		m[c] = struct{}{}
 	}
 	return m
@@ -137,10 +137,10 @@ var (
 	asciiAlphaRe     = regexp.MustCompile(`(?i)^[a-z]+$`)
 )
 
-// CanonicalizeCategoryName [R46-2c-1] 源站分类名 → 主分类语义归一:
+// canonicalizeCategoryName [R46-2c-1] 源站分类名 → 主分类语义归一:
 // ① 剥包裹符/内部空白 → ② 精确映射表 → ③ 循环剥离通用前后缀(≤3 轮)再查表 →
 // ④ 包含关系回退(最长命中, 同长按词表序; 排除"其他"自包含)。无法归一返回 ""。
-func CanonicalizeCategoryName(raw string) string {
+func canonicalizeCategoryName(raw string) string {
 	s0 := strings.TrimSpace(raw)
 	if s0 == "" {
 		return ""
@@ -175,7 +175,7 @@ func CanonicalizeCategoryName(raw string) string {
 	}
 	// 包含关系回退: 取最长命中(同长取词表序前者), 排除"其他"自包含
 	best := ""
-	for _, c := range CanonicalCategories {
+	for _, c := range canonicalCategories {
 		if c == FallbackCategory {
 			continue
 		}
@@ -279,7 +279,7 @@ type CategoryResult struct {
 func SmartCategory(bookName, intro, sourceCategory string, existingCategories []string) CategoryResult {
 	sc := strings.TrimSpace(sourceCategory)
 	if sc != "" {
-		if canon := CanonicalizeCategoryName(sc); canon != "" {
+		if canon := canonicalizeCategoryName(sc); canon != "" {
 			return CategoryResult{Category: canon, Method: "source"}
 		}
 		for _, n := range existingCategories {

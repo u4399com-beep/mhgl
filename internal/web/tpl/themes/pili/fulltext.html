@@ -1,0 +1,26 @@
+{{define "content"}}
+<div class="pli-full">
+  <div class="pli-rank-wr">
+    <div class="pli-rank-head">全站书库<small>（最新上架 · 免费在线阅读与 TXT 下载）</small></div>
+    <div class="pli-rank-panel">
+      {{if .Books}}
+      <div class="pli-latest-grid">
+        {{range .Books}}
+        <a class="pli-book-cell" href="{{bookHref (str .id) (num .num) $.SiteID}}">
+          {{if .cover}}<img src="{{coverURL (str .cover)}}" alt="{{.name}} 封面" loading="lazy" onerror="this.remove()">{{end}}
+          <span class="pli-book-cell-name">{{.name}}</span>
+        </a>
+        {{end}}
+      </div>
+      {{else}}<div class="pli-empty">暂无书籍</div>{{end}}
+      {{with .Pager}}
+      <div class="pli-pager">
+        {{if .PrevURL}}<a class="pli-pg" href="{{.PrevURL}}">上一页</a>{{else}}<span class="pli-pg is-disabled">上一页</span>{{end}}
+        <span>第 {{.Page}} / {{.TotalPages}} 页 · 共 {{.Total}} 本</span>
+        {{if .NextURL}}<a class="pli-pg" href="{{.NextURL}}">下一页</a>{{else}}<span class="pli-pg is-disabled">下一页</span>{{end}}
+      </div>
+      {{end}}
+    </div>
+  </div>
+</div>
+{{end}}

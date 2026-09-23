@@ -1,0 +1,36 @@
+{{define "content"}}
+<div class="ss-full">
+  <section class="ss-card">
+    <p class="ss-title">📕 全站书库 <small>最新上架 · 全本免费在线阅读与 TXT 下载</small></p>
+    {{if .Books}}
+    <ul class="ss-store ss-store-2col">
+      {{range .Books}}
+      <li class="ss-store-item">
+        <div class="ss-img_span">
+          <a href="{{bookHref (str .id) (num .num) $.SiteID}}" aria-label="{{.name}}">
+            {{if .cover}}<img src="{{coverURL (str .cover)}}" alt="{{.name}} 封面" loading="lazy" onerror="this.remove()">{{end}}
+            <span class="ss-mask" style="background:{{if eqStr (str .status) "completed"}}rgba(191,44,36,.75){{else}}rgba(0,0,0,.4){{end}}">{{or .category "小说"}} / {{if eqStr (str .status) "completed"}}全本{{else}}连载{{end}}</span>
+          </a>
+        </div>
+        <div class="ss-w100">
+          <a class="ss-h2" href="{{bookHref (str .id) (num .num) $.SiteID}}">{{.name}}</a>
+          <p class="ss-indent">{{if .intro}}{{excerpt .intro 70}}{{else}}{{or .category "小说"}} · {{.author}}{{end}}</p>
+          <p class="ss-li_bottom"><a href="{{viewHrefSearch (str .author) $.SiteID}}">{{.author}}</a>
+            <em class="ss-orange">{{fmtWords .wordCount}}</em>
+            <em class="ss-blue">{{dateShort .updatedAt}}</em>
+          </p>
+        </div>
+      </li>
+      {{end}}
+    </ul>
+    {{else}}<p class="ss-empty">暂无书籍</p>{{end}}
+    {{with .Pager}}
+    <div class="ss-pager">
+      {{if .PrevURL}}<a class="ss-pg" href="{{.PrevURL}}">上一页</a>{{else}}<span class="ss-pg" aria-disabled="true">上一页</span>{{end}}
+      <span class="ss-pg-cur">第 {{.Page}} / {{.TotalPages}} 页 · 共 {{.Total}} 本</span>
+      {{if .NextURL}}<a class="ss-pg" href="{{.NextURL}}">下一页</a>{{else}}<span class="ss-pg" aria-disabled="true">下一页</span>{{end}}
+    </div>
+    {{end}}
+  </section>
+</div>
+{{end}}

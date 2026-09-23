@@ -111,8 +111,11 @@ func (s *Service) IssueSession() (string, error) {
 }
 
 // ClearSession 注销 Cookie(Expires+Max-Age 双保险, 对齐 R3-33)。
+// [R56-2b-fix] 修前传 maxAge=0 —— Go http.Cookie 语义中 MaxAge==0 表示「不输出
+// Max-Age 属性」, 实际 Set-Cookie 只有手动追加的 Expires; 改传 -1 显式产出
+// Max-Age=0, 与 TS clearSessionCookie 的双保险口径逐字对齐。
 func (s *Service) ClearSession() string {
-	return cookieHeader(CookieName, "", 0) + "; Expires=Thu, 01 Jan 1970 00:00:00 GMT"
+	return cookieHeader(CookieName, "", -1) + "; Expires=Thu, 01 Jan 1970 00:00:00 GMT"
 }
 
 func cookieHeader(name, val string, maxAge int) string {

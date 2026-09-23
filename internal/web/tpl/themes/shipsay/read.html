@@ -1,0 +1,46 @@
+{{define "content"}}
+<div class="ss-read" data-page="read" data-book-id="{{.Book.id}}" data-chapter-id="{{.Chapter.id}}" data-chapter-title="{{.Chapter.title}}">
+  <section class="ss-card ss-section_style">
+    <div class="ss-text">
+      <div class="ss-text_set">
+        <span class="ss-cog">⚙ 阅读设置</span>
+        <span class="ss-text_control" role="group" aria-label="阅读设置">
+          <span class="ss-fontsize">
+            <button type="button" class="ajx-s" data-fs="15">A-</button>
+            <button type="button" class="ajx-s" data-fs="17">A</button>
+            <button type="button" class="ajx-s" data-fs="20">A+</button>
+          </span>
+          <span class="ajx-ys" role="group" aria-label="字体颜色">
+            <a href="javascript:void(0)" data-ink="#333333">墨黑</a>
+            <a href="javascript:void(0)" data-ink="#bf2c24">暗红</a>
+            <a href="javascript:void(0)" data-ink="#174f8d">蓝</a>
+          </span>
+          <span class="ss-bglist" role="group" aria-label="背景色">
+            <a class="ajx-c" href="javascript:void(0)" data-bg="#ffffff" aria-label="背景 白">白</a>
+            <a class="ajx-c" href="javascript:void(0)" data-bg="#cde4ff" aria-label="背景 蓝">蓝</a>
+            <a class="ajx-c" href="javascript:void(0)" data-bg="#cfe7d4" aria-label="背景 绿">绿</a>
+            <a class="ajx-c" href="javascript:void(0)" data-bg="#f5e5c0" aria-label="背景 黄">黄</a>
+          </span>
+        </span>
+      </div>
+      <div class="ss-text_title">
+        <p class="ss-style_h1">{{.Chapter.title}}</p>
+        <p class="ss-text_info"><span>{{.Book.name}}</span><span>{{.Book.author}}</span><span>{{or .Book.category "小说"}}</span></p>
+      </div>
+      <article class="ss-content" id="article">
+        {{if .Chapter.content}}
+        <div id="view_content_txt" class="ss-readcontent">{{readHTML (str .Chapter.content)}}</div>
+        {{else}}
+        <div id="view_content_txt" class="ss-readcontent"><p class="ss-empty">本章内容尚未采集, 请稍后再来或返回目录阅读其他章节。</p></div>
+        {{end}}
+      </article>
+    </div>
+    <div class="ss-read_nav">
+      {{if .PrevHref}}<a class="ss-navbtn" id="ajx-prev" href="{{.PrevHref}}">◀ 上一章</a>{{else}}<span class="ss-navbtn" id="ajx-prev" aria-disabled="true">◀ 上一章</span>{{end}}
+      <a class="ss-navbtn" href="{{.BookHref}}">书页</a>
+      <a class="ss-navbtn" href="{{.TocHref}}">目录</a>
+      {{if .NextHref}}<a class="ss-navbtn" id="ajx-next" href="{{.NextHref}}">下一章 ▶</a>{{else}}<span class="ss-navbtn" id="ajx-next" aria-disabled="true">下一章 ▶</span>{{end}}
+    </div>
+  </section>
+</div>
+{{end}}

@@ -1,0 +1,56 @@
+{{define "content"}}
+<div class="ss-book">
+  <section class="ss-card ss-novel_info">
+    <div class="ss-info-flex">
+      <div class="ss-info-cover">
+        {{if .Book.cover}}<img src="{{coverURL (str .Book.cover)}}" alt="{{.Book.name}} 封面" onerror="this.remove()">{{end}}
+      </div>
+      <div class="ss-info-main">
+        <h1>{{.Book.name}}</h1>
+        <p class="ss-info-meta">作者：<a href="{{viewHrefSearch (str .Book.author) .SiteID}}">{{.Book.author}}</a> · 分类：<a href="{{catIDHref (str .Book.categoryId) .SiteID}}">{{or .Book.category "未分类"}}</a></p>
+        <p class="ss-info-meta">{{statusLabel (str .Book.status)}} · {{.ChapterCount}} 章 · {{fmtWords .Book.wordCount}}字 · 更新：{{dateDay .Book.updatedAt}}</p>
+        <div class="ss-info-desc">{{if .Book.intro}}{{.Book.intro}}{{else}}暂无简介{{end}}</div>
+        <div class="ss-info-btns">
+          {{if .ReadFirstHref}}<a class="ss-btn is-primary" href="{{.ReadFirstHref}}">开始阅读</a>{{else}}<span class="ss-btn is-disabled">开始阅读</span>{{end}}
+          <a class="ss-btn" href="{{.TocHref}}">查看目录</a>
+        </div>
+      </div>
+    </div>
+  </section>
+  {{if .LatestChapters}}
+  <section class="ss-card">
+    <p class="ss-title">📄 最新章节</p>
+    <ul class="ss-chlist ss-2col">
+      {{range .LatestChapters}}
+      <li><a href="{{chapterHref (str .id) (num $.Book.num) (num .idx) $.SiteID}}" title="{{.title}}">{{.title}}</a></li>
+      {{end}}
+    </ul>
+  </section>
+  {{end}}
+  <section class="ss-card">
+    <p class="ss-title">📚 猜您喜欢</p>
+    {{if .Recs}}
+    <ul class="ss-cards">
+      {{range .Recs}}
+      <li class="ss-star">
+        <div class="ss-img_span">
+          <a href="{{bookHref (str .id) (num .num) $.SiteID}}" aria-label="{{.name}}">
+            {{if .cover}}<img src="{{coverURL (str .cover)}}" alt="{{.name}} 封面" loading="lazy" onerror="this.remove()">{{end}}
+            <span class="ss-mask" style="background:rgba(0,0,0,.4)">{{or .category "小说"}}</span>
+          </a>
+        </div>
+        <div class="ss-w100">
+          <a class="ss-h2" href="{{bookHref (str .id) (num .num) $.SiteID}}">{{.name}}</a>
+          <p class="ss-indent">{{if .intro}}{{excerpt .intro 64}}{{else}}{{or .category "小说"}} · {{.author}}{{end}}</p>
+          <p class="ss-li_bottom"><a href="{{viewHrefSearch (str .author) $.SiteID}}">{{.author}}</a>
+            <em class="ss-orange">{{fmtWords .wordCount}}</em>
+            <em class="ss-blue">{{dateShort .updatedAt}}</em>
+          </p>
+        </div>
+      </li>
+      {{end}}
+    </ul>
+    {{else}}<p class="ss-empty">暂无推荐</p>{{end}}
+  </section>
+</div>
+{{end}}

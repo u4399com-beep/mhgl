@@ -15,12 +15,14 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"math"
 	"net/http"
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"mhgl/internal/store"
 )
@@ -57,8 +59,9 @@ func readBodyMap(w http.ResponseWriter, r *http.Request, maxBytes int64) map[str
 	}
 	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBytes))
 	if err != nil {
-		// MaxBytesReader 超限时 ErrTooLarge 类错误 → 413
-		if strings.Contains(err.Error(), "request body too large") {
+		// MaxBytesReader 超限 → 413(用类型断言替代字符串匹配, [R56-2b] 清理)
+		var mbe *http.MaxBytesError
+		if errors.As(err, &mbe) {
 			apiErr(w, http.StatusRequestEntityTooLarge, "请求体过大(超过上限)")
 		} else {
 			apiErr(w, http.StatusBadRequest, "请求体非法")
@@ -92,7 +95,10 @@ func bodyOK(m map[string]any) bool { return m != nil }
 
 // ---------------- 标量消毒(对齐 _lib/http.ts) ----------------
 
-// strOf 非字符串→” / 超长截断。
+// strOf 非字符串→"" / 超长截断。
+// [R56-2b-fix] 修前按字节切片(s[:maxLen]) —— 中文输入会把多字节 rune 斩断,
+// 产出非法 UTF-8(json.Marshal 再整体替换为 U+FFFD), 标题/简介末尾出现乱码;
+// 改为码点安全截断(不超 maxLen 字节前提下回退到完整 rune 边界)。
 func strOf(v any, maxLen int) string {
 	s, ok := v.(string)
 	if !ok {
@@ -102,9 +108,25 @@ func strOf(v any, maxLen int) string {
 		s = store.ToStr(v)
 	}
 	if maxLen > 0 && len(s) > maxLen {
-		s = s[:maxLen]
+		s = truncateBytesSafe(s, maxLen)
 	}
 	return s
+}
+
+// truncateBytesSafe 按字节上限截断但不斩断 UTF-8 多字节序列
+// (截断点落在多字节序列内部时回退到序列之前的完整边界)。
+func truncateBytesSafe(s string, maxLen int) string {
+	if maxLen <= 0 || len(s) <= maxLen {
+		return s
+	}
+	cut := s[:maxLen]
+	for i := 0; i < 4 && len(cut) > 0; i++ {
+		if r, size := utf8.DecodeLastRuneInString(cut); r != utf8.RuneError || size != 1 {
+			return cut // 末尾是完整 rune(或合法 ASCII), 边界安全
+		}
+		cut = cut[:len(cut)-1] // 尾部是不完整序列, 丢弃一个字节重试
+	}
+	return cut
 }
 
 // clampIntOf 整数钳制: 缺失(nil/空串)→默认; NaN/越界→边界。
@@ -140,14 +162,18 @@ func clampIntOf(v any, def, min, max int) int {
 	if math.IsNaN(n) || math.IsInf(n, 0) {
 		return def
 	}
-	iv := int64(n)
-	if iv < int64(min) {
-		return min
-	}
-	if iv > int64(max) {
+	// [R56-2b-fix] 修前先 int64(n) 再比较 —— float 超出 int64 范围时该转换是
+	// 实现定义行为(amd64 得到 -2^63), 1e19 之类会命中下边界而非上边界,
+	// 与 TS Math.min/max 口径相悖; 改为在 float 域先行钳制, 无溢出路径。
+	fn := float64(max)
+	fm := float64(min)
+	if n > fn {
 		return max
 	}
-	return int(iv)
+	if n < fm {
+		return min
+	}
+	return int(n)
 }
 
 // likeSafe 搜索词清洗: trim + LIKE 通配符替换为空格 + 截断。

@@ -4,13 +4,17 @@
 // ============================================================
 package store
 
-import "encoding/json"
+import (
+	"database/sql"
+	"encoding/json"
+	"errors"
+)
 
 // GetSetting 读设置; 不存在 → ("", false, nil)。
 func (d *DB) GetSetting(key string) (string, bool, error) {
 	var v string
 	err := d.QueryRow(`SELECT value FROM "Setting" WHERE key=?`, key).Scan(&v)
-	if err != nil && err.Error() == "sql: no rows in result set" {
+	if errors.Is(err, sql.ErrNoRows) {
 		return "", false, nil
 	}
 	if err != nil {

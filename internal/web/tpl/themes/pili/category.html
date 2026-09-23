@@ -1,0 +1,45 @@
+{{define "content"}}
+<div class="pli-cat">
+  <div class="pli-rank-wr">
+    <div class="pli-rank-head">{{.CatName}}小说{{if .Cat}}列表{{else}}· 全部{{end}}<small>（最新上传）</small></div>
+    <div class="pli-rank-panel">
+      {{if .Books}}
+      <ul class="pli-result-list">
+        {{range .Books}}
+        <li>
+          <a class="pli-sr-cover" href="{{bookHref (str .id) (num .num) $.SiteID}}">
+            {{if .cover}}<img src="{{coverURL (str .cover)}}" alt="{{.name}} 封面" loading="lazy" onerror="this.remove()">{{end}}
+            <span class="pli-sr-mask">{{or .latestChapter .name}}</span>
+          </a>
+          <div class="pli-sr-main">
+            <a class="pli-sr-title" href="{{bookHref (str .id) (num .num) $.SiteID}}">{{.name}}</a>
+            <p class="pli-sr-meta">作者：{{.author}}</p>
+            <p class="pli-sr-meta">分类：{{or .category "小说"}} · 字数：{{fmtWords .wordCount}}</p>
+            <p class="pli-sr-desc">{{excerpt .intro 60}}</p>
+            <a class="pli-btn-read" href="{{bookHref (str .id) (num .num) $.SiteID}}">开始阅读</a>
+          </div>
+        </li>
+        {{end}}
+      </ul>
+      {{else}}<div class="pli-empty">暂无相关书籍</div>{{end}}
+      {{with .Pager}}
+      <div class="pli-pager">
+        {{if .PrevURL}}<a class="pli-pg" href="{{.PrevURL}}">上一页</a>{{else}}<span class="pli-pg is-disabled">上一页</span>{{end}}
+        <span>第 {{.Page}} / {{.TotalPages}} 页 · 共 {{.Total}} 本</span>
+        {{if .NextURL}}<a class="pli-pg" href="{{.NextURL}}">下一页</a>{{else}}<span class="pli-pg is-disabled">下一页</span>{{end}}
+      </div>
+      {{end}}
+    </div>
+  </div>
+  <div class="pli-rank-wr">
+    <div class="pli-rank-head">全部分类</div>
+    <div class="pli-rank-panel">
+      <div class="pli-tagwall">
+        {{range .Cats}}<a class="pli-tag" href="{{catIDHref (str .id) $.SiteID}}">{{.name}}</a>{{end}}
+        <a class="pli-tag" href="{{.FulltextHref}}">全站书库</a>
+        <a class="pli-tag" href="{{.RankingHref}}">排行榜</a>
+      </div>
+    </div>
+  </div>
+</div>
+{{end}}

@@ -194,6 +194,17 @@ func (t *Task) progressPayloadNow() map[string]interface{} {
 
 // ---------------- 单书流水线 ----------------
 
+// stopInterrupted 停止引发的请求取消判定([R56-2a] 计数错账修复): stop 已表态(ctx 取消)
+// 时在飞请求会以 context.Canceled 失败 —— 该失败非源站真实故障, 不计连败链/stats.Errors,
+// 不置 lastError(修前 stop 瞬间的在飞章节/书籍页请求被计入真实失败并推进熔断链, 任务
+// 收尾日志残留「章节失败/书籍失败: context canceled」噪声)。pause 不取消 ctx, 不受影响
+func (t *Task) stopInterrupted() bool {
+	t.mu.Lock()
+	stopped := t.stopped
+	t.mu.Unlock()
+	return stopped && t.ctx.Err() != nil
+}
+
 // processBook 单书流水线。
 // 返回 true = 决策类回调失败已自动暂停(书保持未采, 恢复后重试本书, 游标不推进);
 // 返回 false = 书已收尾(成功/跳过/失败弃书均含, booksDone 已推进)
@@ -206,6 +217,9 @@ func (t *Task) processBook(bookURL string) bool {
 	// ---- 1. 抓书籍页/API ----
 	res, err := t.fetcher.Fetch(t.ctx, bookURL, "")
 	if err != nil {
+		if t.stopInterrupted() {
+			return false // [R56-2a] stop 引发的取消非真实失败: 不计熔断链/errors, 收尾交由 run 循环
+		}
 		if t.bookFailed(fmt.Sprintf("书籍页抓取失败: %v", err), bookURL) {
 			return false
 		}
@@ -268,6 +282,9 @@ func (t *Task) processBook(bookURL string) bool {
 		if abs := rule.AbsolutizeURL(link, bookURL); abs != "" {
 			tocRes, err := t.fetcher.Fetch(t.ctx, abs, bookURL) // 目录页带书籍页 Referer(契约 §4)
 			if err != nil {
+				if t.stopInterrupted() {
+					return false // [R56-2a] stop 引发的取消非真实失败(同书籍页口径)
+				}
 				if t.bookFailed(fmt.Sprintf("目录页抓取失败: %v", err), bookURL) {
 					return false
 				}
@@ -526,6 +543,11 @@ func (t *Task) crawlContentBatches(bookURL, bookName, tocURL string, needURLs []
 func (t *Task) crawlChapter(chapterURL, title, tocReferer string) (callback.ChapterItem, bool) {
 	res, err := t.fetcher.FetchContentRef(t.ctx, chapterURL, tocReferer)
 	if err != nil {
+		if t.stopInterrupted() {
+			// [R56-2a] stop 引发的取消非真实失败: 不计连败链/stats.Errors(修前 stop 瞬间
+			// 在飞章节全部计为「章节失败」并推进熔断链, 纯计数噪声)
+			return callback.ChapterItem{}, false
+		}
 		t.chapterFailed(chapterURL, err)
 		return callback.ChapterItem{}, false
 	}

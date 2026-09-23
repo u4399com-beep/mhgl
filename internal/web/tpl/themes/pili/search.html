@@ -1,0 +1,38 @@
+{{define "content"}}
+<div class="pli-search">
+  <div class="pli-rank-wr">
+    <div class="pli-rank-head">{{if .Q}}「{{.Q}}」的搜索结果<small>（共 {{.Total}} 条）</small>{{else}}全站搜索{{end}}</div>
+    <div class="pli-rank-panel">
+      {{if .Q}}
+      {{if .Books}}
+      <ul class="pli-result-list">
+        {{range .Books}}
+        <li>
+          <a class="pli-sr-cover" href="{{bookHref (str .id) (num .num) $.SiteID}}">
+            {{if .cover}}<img src="{{coverURL (str .cover)}}" alt="{{.name}} 封面" loading="lazy" onerror="this.remove()">{{end}}
+            <span class="pli-sr-mask">{{or .latestChapter .name}}</span>
+          </a>
+          <div class="pli-sr-main">
+            <a class="pli-sr-title" href="{{bookHref (str .id) (num .num) $.SiteID}}">{{.name}}</a>
+            <p class="pli-sr-meta">作者：{{.author}}</p>
+            <p class="pli-sr-meta">分类：{{or .category "小说"}} · 字数：{{fmtWords .wordCount}}</p>
+            <p class="pli-sr-desc">{{excerpt .intro 60}}</p>
+            <a class="pli-btn-read" href="{{bookHref (str .id) (num .num) $.SiteID}}">开始阅读</a>
+          </div>
+        </li>
+        {{end}}
+      </ul>
+      {{else}}<div class="pli-empty">未找到相关书籍, 换个关键词试试</div>{{end}}
+      {{else}}<div class="pli-empty">输入关键词开始搜索, 支持书名 / 作者 / 关键词。</div>{{end}}
+    </div>
+  </div>
+  <div class="pli-rank-wr">
+    <div class="pli-rank-head">相关阅读</div>
+    <div class="pli-rank-panel">
+      {{if .Tags}}
+      <div class="pli-tagwall">{{range .Tags}}<a class="pli-tag" href="{{viewHrefKeyword (str .tag) $.SiteID}}">{{.tag}}</a>{{end}}</div>
+      {{else}}<div class="pli-empty">暂无相关词</div>{{end}}
+    </div>
+  </div>
+</div>
+{{end}}

@@ -1,0 +1,13 @@
+{{define "content"}}
+<div class="ss-history">
+  <section class="ss-card">
+    <p class="ss-title">🕘 阅读历史 <small>仅保存在本机浏览器 localStorage</small></p>
+    <div id="ajx-history-empty" class="ss-empty" style="display:none">暂无阅读历史, 去首页挑一本书开始阅读吧。</div>
+    <ul class="ss-popular" id="ajx-history-list"></ul>
+    <div class="ss-info-btns">
+      <a class="ss-btn is-primary" href="{{.HomeHref}}">去逛首页</a>
+      <a class="ss-btn" href="{{.SearchHref}}">搜索书籍</a>
+    </div>
+  </section>
+</div>
+{{end}}

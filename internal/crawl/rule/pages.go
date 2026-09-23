@@ -70,7 +70,7 @@ func ParseList(htmlStr, baseURL string, pageRule *PageRule, urlFields []string) 
 				if r == nil || r.Type == "const" {
 					continue
 				}
-				rec[key] = ExtractField("", nil, nil, r, &ExtractCtx{JSON: scope, Vars: phase1Vars})
+				rec[key] = extractField("", nil, nil, r, &extractCtx{JSON: scope, Vars: phase1Vars})
 			}
 			phase2Vars := mergeVars(varsBase, map[string]string{"index": fmt.Sprintf("%d", idx)})
 			phase2Vars = mergeVars(phase2Vars, rec)
@@ -78,7 +78,7 @@ func ParseList(htmlStr, baseURL string, pageRule *PageRule, urlFields []string) 
 				if r == nil || r.Type != "const" {
 					continue
 				}
-				rec[key] = ExtractField("", nil, nil, r, &ExtractCtx{Vars: phase2Vars})
+				rec[key] = extractField("", nil, nil, r, &extractCtx{Vars: phase2Vars})
 			}
 			absolutizeFields(rec, urlFields, baseURL)
 			// 列表项链接收紧(qq-e): 含 url/bookUrl 链接字段而全部为空的项不入列
@@ -100,7 +100,7 @@ func ParseList(htmlStr, baseURL string, pageRule *PageRule, urlFields []string) 
 		rec := map[string]string{}
 		for key, r := range fields {
 			if r != nil {
-				rec[key] = ExtractField(htmlStr, doc, nil, r, nil)
+				rec[key] = extractField(htmlStr, doc, nil, r, nil)
 			}
 		}
 		if len(rec) > 0 {
@@ -130,7 +130,7 @@ func ParseList(htmlStr, baseURL string, pageRule *PageRule, urlFields []string) 
 		if scopeDoc != nil {
 			for key, r := range fields {
 				if r != nil {
-					rec[key] = ExtractField(scopeHTML, scopeDoc, nil, r, nil)
+					rec[key] = extractField(scopeHTML, scopeDoc, nil, r, nil)
 				}
 			}
 		}
@@ -303,20 +303,20 @@ func ParseToc(ctx context.Context, firstURL, htmlStr string, pageRule *PageRule,
 				if r == nil || r.Type == "const" {
 					continue
 				}
-				rec[key] = ExtractField("", nil, nil, r, &ExtractCtx{JSON: it, Vars: phase1Vars})
+				rec[key] = extractField("", nil, nil, r, &extractCtx{JSON: it, Vars: phase1Vars})
 			}
 			title := rec["title"]
 			if titleRule != nil && titleRule.Type == "const" {
 				v := mergeVars(varsBase, rec)
 				v["index"] = fmt.Sprintf("%d", i+1)
-				title = ExtractField("", nil, nil, titleRule, &ExtractCtx{Vars: v})
+				title = extractField("", nil, nil, titleRule, &extractCtx{Vars: v})
 			}
 			href := ""
 			if urlRule != nil && urlRule.Type == "const" {
 				v := mergeVars(varsBase, rec)
 				v["index"] = fmt.Sprintf("%d", i+1)
 				v["title"] = title
-				href = ExtractField("", nil, nil, urlRule, &ExtractCtx{JSON: it, Vars: v})
+				href = extractField("", nil, nil, urlRule, &extractCtx{JSON: it, Vars: v})
 			} else if urlRule != nil {
 				href = rec["url"]
 			}
@@ -326,7 +326,7 @@ func ParseToc(ctx context.Context, firstURL, htmlStr string, pageRule *PageRule,
 				v := mergeVars(varsBase, rec)
 				v["index"] = fmt.Sprintf("%d", i+1)
 				v["title"] = title
-				volume = ExtractField("", nil, nil, volumeRule, &ExtractCtx{Vars: v})
+				volume = extractField("", nil, nil, volumeRule, &extractCtx{Vars: v})
 			}
 			if title == "" && href == "" {
 				continue
@@ -429,13 +429,13 @@ func ParseToc(ctx context.Context, firstURL, htmlStr string, pageRule *PageRule,
 			title, href, vol := "", "", ""
 			if scopeDoc != nil {
 				if titleRule != nil {
-					title = ExtractField(scopeHTML, scopeDoc, nil, titleRule, nil)
+					title = extractField(scopeHTML, scopeDoc, nil, titleRule, nil)
 				}
 				if urlRule != nil {
-					href = ExtractField(scopeHTML, scopeDoc, nil, urlRule, nil)
+					href = extractField(scopeHTML, scopeDoc, nil, urlRule, nil)
 				}
 				if volumeRule != nil {
-					vol = ExtractField(scopeHTML, scopeDoc, nil, volumeRule, nil)
+					vol = extractField(scopeHTML, scopeDoc, nil, volumeRule, nil)
 				}
 			}
 			if title == "" && href == "" {
@@ -557,7 +557,7 @@ func ParseContent(ctx context.Context, firstURL, htmlStr string, pageRule *PageR
 			break
 		}
 		base := docBase(doc, firstOr(currentURL, firstURL))
-		part := ExtractField(currentHTML, doc, nil, contentRule, nil)
+		part := extractField(currentHTML, doc, nil, contentRule, nil)
 		if contentRule.Type == "css" {
 			if p == 1 {
 				// 低质触发备用选择器重试: 空/文本量过小/短行占比过高, 而"最长文本容器"
@@ -785,8 +785,8 @@ func EncodeURIComponent(s string) string {
 	return b.String()
 }
 
-// RenderBookIdTemplate 书籍页 URL 模板渲染: {bookId} → encodeURIComponent(书号)
-func RenderBookIdTemplate(template, id string) string {
+// renderBookIdTemplate 书籍页 URL 模板渲染: {bookId} → encodeURIComponent(书号)
+func renderBookIdTemplate(template, id string) string {
 	return strings.ReplaceAll(template, "{bookId}", EncodeURIComponent(id))
 }
 
@@ -795,7 +795,7 @@ func BuildBookIdQueue(ids []string, template string) []string {
 	seen := map[string]struct{}{}
 	var out []string
 	for _, id := range ids {
-		u := RenderBookIdTemplate(template, id)
+		u := renderBookIdTemplate(template, id)
 		if _, dup := seen[u]; dup {
 			continue
 		}
@@ -828,7 +828,7 @@ func BuildBookIdQueueFromRange(from, to int64, template string) []string {
 	seen := map[string]struct{}{}
 	out := make([]string, 0, to-from+1)
 	for id := from; id <= to; id++ {
-		u := RenderBookIdTemplate(template, fmt.Sprintf("%d", id))
+		u := renderBookIdTemplate(template, fmt.Sprintf("%d", id))
 		if _, dup := seen[u]; dup {
 			continue
 		}

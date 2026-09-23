@@ -1,0 +1,186 @@
+/* ============================================================
+   pili(霹雳书屋) 主题样式 — wmcms 橙棕系
+   移植自 src/components/public/sites/pili/index.ts 实测色值:
+   #fd8929 主橙 / #f65400 深橙 / #7d360f 棕 / #fa8729 hover / 1200px 版心
+   全部选择器以 .clone-pili 作用域(body class)。
+   ============================================================ */
+.clone-pili{margin:0;background:#f7f3ee;color:#333;font:14px/1.6 '微软雅黑','Microsoft YaHei',Arial,sans-serif;-webkit-text-size-adjust:100%}
+.clone-pili a{color:#333;text-decoration:none}
+.clone-pili img{max-width:100%}
+.clone-pili .pli-clear{clear:both;height:0;overflow:hidden}
+.clone-pili .pli-wrap{width:1200px;max-width:100%;margin:0 auto;padding:0 0 20px}
+.clone-pili .pli-empty{padding:24px 0;text-align:center;color:#999}
+
+/* 头区(cream 渐变 + 橙 logo + 橙框搜索) */
+.clone-pili .pli-top-wr{background:linear-gradient(180deg,#fffdf8 0%,#fdf3e4 100%);border-bottom:1px solid #f1e4d0}
+.clone-pili .pli-top-head{width:1200px;max-width:100%;margin:0 auto;padding:20px 10px 12px;display:flex;align-items:center;gap:24px;flex-wrap:wrap}
+.clone-pili .pli-logo{width:260px;font-size:30px;font-weight:800;color:#f65400;text-decoration:none;letter-spacing:2px;text-shadow:0 1px 0 #fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.clone-pili .pli-search{display:flex;width:470px;max-width:100%;height:44px;border:2px solid #fd8929;border-radius:2px;overflow:hidden;background:#fff}
+.clone-pili .pli-search input[type=search]{flex:1;border:none;outline:none;padding:0 14px;font-size:14px;color:#333;min-width:0}
+.clone-pili .pli-search button{border:none;width:74px;background:linear-gradient(180deg,#fd8929,#f65400);color:#fff;font-size:15px;cursor:pointer}
+.clone-pili .pli-top-tag{list-style:none;margin:0 0 0 auto;padding:0;display:flex;gap:12px}
+.clone-pili .pli-top-tag a{color:#717171;font-size:13px;text-decoration:none}
+.clone-pili .pli-top-tag a:hover{color:#fa8729;text-decoration:underline}
+
+/* 导航条(橙渐变斜切 tab) */
+.clone-pili .pli-top-nav-wr{background:linear-gradient(180deg,#fd8929 0%,#f65400 100%)}
+.clone-pili .pli-top-nav-list{list-style:none;width:1200px;max-width:100%;margin:0 auto;padding:0;display:flex;flex-wrap:wrap}
+.clone-pili .pli-top-nav-list a{display:block;height:52px;line-height:52px;text-decoration:none;padding:0 4px}
+.clone-pili .pli-top-nav-list a span{display:block;padding:0 18px;font-size:16px;color:#fff}
+.clone-pili .pli-top-nav-list li.active a span,.clone-pili .pli-top-nav-list a:hover span{color:#7d360f;font-weight:700}
+.clone-pili .pli-top-nav-list li.active a{background:#fdf3e4;border-radius:6px 6px 0 0}
+
+/* 独家推荐(wmcms mod-animate 形态) */
+.clone-pili .pli-tags-wr,.clone-pili .pli-rank-wr,.clone-pili .pli-panel{margin-top:14px}
+.clone-pili .pli-animate-list{list-style:none;margin:0;padding:0}
+.clone-pili .pli-ico-animate{display:inline-block;background:linear-gradient(90deg,#fd8929,#f65400);color:#fff;font-size:14px;padding:4px 14px;border-radius:4px 4px 0 0}
+.clone-pili .pli-ani-info{background:#fff;border:1px solid #c6c5c5;border-radius:0 4px 4px 4px;padding:14px 14px 12px}
+.clone-pili .pli-ani-img{display:block;float:left;margin-right:14px;width:210px;height:280px;overflow:hidden;position:relative;background:#eee}
+.clone-pili .pli-ani-img img{width:100%;height:100%;object-fit:cover;border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,.16)}
+.clone-pili .pli-ani-img-sm{width:120px;height:160px}
+.clone-pili .pli-ani-text{overflow:hidden;min-width:0}
+.clone-pili .pli-ani-text1{display:flex;justify-content:space-between;align-items:center;gap:10px;padding-top:10px}
+.clone-pili .pli-ani-title{font-size:18px;font-weight:400;line-height:22px;color:#333;text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.clone-pili .pli-ani-title:hover{color:#fd8929}
+.clone-pili .pli-ani-author{color:#333;font-weight:700;font-size:14px;line-height:22px;text-decoration:none;white-space:nowrap}
+.clone-pili .pli-ani-author:hover{color:#fd8929}
+.clone-pili .pli-ani-text2{padding-top:6px;font-size:13.5px;color:#666}
+.clone-pili .pli-ani-text2 a{color:#333;text-decoration:none}
+.clone-pili .pli-ani-fplay{display:inline;margin-right:10px;color:#666;font-weight:400}
+.clone-pili .pli-ani-desc{margin:8px 0 0;color:#888;font-size:13px;line-height:1.8}
+.clone-pili .pli-first{margin-bottom:12px}
+.clone-pili .pli-ani-a{display:block;height:34px;line-height:18px;color:#666;font-size:14px;padding-left:20px;margin-top:6px;overflow:hidden;text-decoration:none}
+.clone-pili .pli-ani-a::before{content:'';display:inline-block;width:0;height:0;border-top:4px solid transparent;border-bottom:4px solid transparent;border-left:6px solid #f65400;margin-right:7px;vertical-align:middle}
+.clone-pili .pli-ani-a:hover{color:#ff9a6a}
+.clone-pili .pli-animate-list > li:not(.pli-first){float:left;width:49.5%;box-sizing:border-box}
+.clone-pili .pli-animate-list > li:not(.pli-first):nth-child(2n){float:right}
+
+/* 面板/榜单 */
+.clone-pili .pli-rank-head{font-size:17px;font-weight:700;color:#333;border-left:4px solid #fd8929;padding-left:10px;margin:0 0 8px}
+.clone-pili .pli-rank-head small{font-size:12px;color:#999;font-weight:400}
+.clone-pili .pli-rank-panel,.clone-pili .pli-panel-body{background:#fff;border:1px solid #dcd8d4;border-radius:4px;padding:12px}
+.clone-pili .pli-panel{background:#fff;border:1px solid #dcd8d4;border-radius:4px;padding:12px}
+.clone-pili .pli-in-rank-list{list-style:none;float:left;width:50%;margin:0;padding:0 10px 0 0}
+.clone-pili .pli-in-rank-list li{height:30px;line-height:30px;overflow:hidden;font-size:14px}
+.clone-pili .pli-in-rank-list li sub{display:inline-block;width:20px;height:20px;line-height:20px;text-align:center;border-radius:3px;margin-right:8px;font-size:12px;color:#fff;vertical-align:middle}
+.clone-pili .pli-no-orange{background:#fd8929}
+.clone-pili .pli-no-gray{background:#ccc}
+.clone-pili .pli-rank-name{color:#333;text-decoration:none}
+.clone-pili .pli-rank-name:hover{color:#f65400;text-decoration:underline}
+.clone-pili .pli-rank-author{float:right;color:#999;font-size:12.5px;font-style:normal}
+.clone-pili .pli-pr10{padding-right:16px;border-right:1px dashed #eee}
+.clone-pili .pli-c{text-align:center;margin:12px 0}
+
+/* 封面格(最新上架/全本/推荐) */
+.clone-pili .pli-latest-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:14px}
+.clone-pili .pli-book-cell{display:block;text-decoration:none;text-align:center;color:#333}
+.clone-pili .pli-book-cell img{width:100%;border-radius:4px;box-shadow:0 3px 8px rgba(0,0,0,.14);background:#eee}
+.clone-pili .pli-book-cell-name{display:block;margin-top:6px;font-size:13px;color:#333;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.clone-pili .pli-book-cell:hover .pli-book-cell-name{color:#f65400}
+
+/* 书页 */
+.clone-pili .pli-book-head{padding:16px}
+.clone-pili .pli-book-title{margin:0 0 8px;font-size:22px;color:#333;font-weight:700}
+.clone-pili .pli-book-badge{display:inline-block;font-size:12px;border-radius:3px;padding:2px 8px;margin:0 6px 6px 0;background:#fafafa;border:1px solid #e5e0da;color:#666}
+.clone-pili .pli-badge-orange{background:#fff3e6;border-color:#fd8929;color:#f65400}
+.clone-pili .pli-book-intro{margin:8px 0;color:#666;font-size:13.5px;line-height:1.9}
+.clone-pili .pli-book-time{color:#999;font-size:12.5px}
+.clone-pili .pli-btns{margin-top:10px}
+.clone-pili .pli-btn-orange{display:inline-block;border:none;border-radius:3px;background:linear-gradient(180deg,#fd8929,#f65400);color:#fff;padding:8px 22px;font-size:14px;cursor:pointer;margin-right:10px;text-decoration:none}
+.clone-pili .pli-btn-orange:hover{background:linear-gradient(180deg,#fa8729,#e84e00)}
+.clone-pili .pli-btn-orange.is-disabled{opacity:.5;cursor:not-allowed}
+.clone-pili .pli-btn-line{display:inline-block;border:1px solid #d4351b;border-radius:3px;background:#fff;color:#d4351b;padding:8px 22px;font-size:14px;cursor:pointer;text-decoration:none}
+.clone-pili .pli-btn-line:hover{background:#fff3e6}
+
+/* 结果卡(ret-search-item: 封面黑条 + 标题/作者/分类字数/简介/开始阅读) */
+.clone-pili .pli-result-list{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:1fr 1fr}
+.clone-pili .pli-result-list li{display:flex;gap:16px;padding:14px;border-right:1px solid #e8e7e6;border-bottom:1px solid #e8e7e6}
+.clone-pili .pli-search-grid{display:grid;grid-template-columns:1fr 1fr}
+.clone-pili .pli-search-grid .pli-sr-item{display:flex;gap:16px;padding:14px;border-right:1px solid #e8e7e6;border-bottom:1px solid #e8e7e6}
+.clone-pili .pli-sr-cover{position:relative;display:block;flex-shrink:0;width:100px;height:133px;overflow:hidden;border-radius:2px;background:#eee}
+.clone-pili .pli-sr-cover img{width:100%;height:100%;object-fit:cover}
+.clone-pili .pli-sr-mask{position:absolute;left:0;right:0;bottom:0;background:rgba(0,0,0,.6);color:#fff;font-size:10px;text-align:center;padding:4px 2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.clone-pili .pli-sr-main{min-width:0;flex:1}
+.clone-pili .pli-sr-title{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:17px;line-height:1.35;color:#333}
+.clone-pili .pli-sr-title:hover{color:#fa8729}
+.clone-pili .pli-sr-meta{margin:6px 0 0;font-size:12px;color:#666;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.clone-pili .pli-sr-desc{margin:4px 0 0;font-size:12px;line-height:18px;color:#999;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.clone-pili .pli-btn-read{display:inline-block;margin-top:8px;height:30px;line-height:28px;border-radius:3px;padding:0 14px;font-size:13px;color:#5a4b32;background:linear-gradient(180deg,#fffdf9,#fef8f0);border:1px solid #e0cfb1;text-decoration:none}
+.clone-pili .pli-btn-read:hover{background:#faead0}
+
+/* 标签墙 */
+.clone-pili .pli-tagwall{display:flex;flex-wrap:wrap;gap:8px}
+.clone-pili .pli-tag{border:1px solid #e5e0da;border-radius:3px;padding:3px 12px;font-size:13px;color:#666;text-decoration:none}
+.clone-pili .pli-tag:hover{border-color:#fd8929;color:#f65400;background:#fff3e6}
+
+/* 目录页(works-chapter-menu 橙 tab + 多列格) */
+.clone-pili .pli-tab-group{list-style:none;margin:0 0 10px;padding:0;border-bottom:2px solid #ff9a6a;display:flex;flex-wrap:wrap;gap:2px}
+.clone-pili .pli-tab-group li{padding:8px 18px;font-size:14px;background:#fff;border:1px solid #e5e0da;border-bottom:none;border-radius:4px 4px 0 0;color:#999}
+.clone-pili .pli-tab-group li.is-active{color:#fa8729;font-weight:700}
+.clone-pili .pli-tab-group li a{color:#999;text-decoration:none}
+.clone-pili .pli-tab-group li a:hover{color:#fa8729}
+.clone-pili .pli-toc-head{text-align:left;margin-bottom:6px}
+.clone-pili .pli-chgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:2px 14px}
+.clone-pili .pli-chgrid a{font-size:13.5px;color:#333;padding:7px 8px;border-radius:3px;text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.clone-pili .pli-chgrid a:visited{color:#a75646}
+.clone-pili .pli-chgrid a:hover{background:#fff3e6;color:#f65400}
+
+/* 阅读页 */
+.clone-pili .pli-text-set{background:#fff;border:1px solid #dcd8d4;border-radius:4px 4px 0 0;padding:10px 14px;font-size:13px;color:#666;border-bottom:0}
+.clone-pili .pli-text-set b{font-weight:400;color:#999;margin:0 4px}
+.clone-pili .pli-text-set a{border:1px solid #e5e0da;border-radius:3px;padding:1px 8px;margin:0 2px;color:#666;text-decoration:none;cursor:pointer}
+.clone-pili .pli-text-set a:hover{border-color:#fd8929;color:#f65400}
+.clone-pili .pli-read-panel{border-radius:0 4px 4px 4px}
+.clone-pili .pli-read-title{margin:16px 0 4px;font-size:20px;color:#333;text-align:center}
+.clone-pili .pli-read-sub{margin:0;text-align:center;font-size:15px;color:#666}
+.clone-pili .pli-read-info{text-align:center;font-size:12.5px;color:#999;margin:4px 0 12px}
+.clone-pili .pli-readcontent{color:#444;min-height:320px;padding:0 14px}
+.clone-pili .pli-readcontent p{margin:0 0 1.1em;text-indent:2em}
+
+/* 分页 */
+.clone-pili .pli-pager{text-align:center;padding:14px 0 4px}
+.clone-pili .pli-pager span{margin:0 10px;color:#999;font-size:13px}
+.clone-pili .pli-pg{display:inline-block;border:1px solid #dcd8d4;background:#fff;border-radius:3px;padding:6px 18px;margin:0 5px;color:#666;font-size:13.5px;text-decoration:none}
+.clone-pili .pli-pg:hover{border-color:#fd8929;color:#f65400;background:#fff9f2}
+.clone-pili .pli-pg.is-disabled{opacity:.45;cursor:not-allowed}
+
+/* 页脚(wmcms 深棕底白字) */
+.clone-pili .pli-footer{margin-top:18px;background:#2f1c10;color:#cbb9a9;text-align:center;font-size:13px;padding:18px 10px}
+.clone-pili .pli-footer p{margin:0 0 6px}
+.clone-pili .pli-footer a{color:#ffd9b0;text-decoration:none}
+.clone-pili .pli-footer a:hover{color:#fff}
+
+/* 阅读历史(site.js 注入 li 兼容) */
+.clone-pili #ajx-history-list li{height:32px;line-height:32px;font-size:14px;overflow:hidden}
+.clone-pili #ajx-history-list li a{color:#333}
+.clone-pili #ajx-history-list li a:hover{color:#f65400}
+
+/* 404 */
+.clone-pili .pli-404{padding:40px 0}
+.clone-pili .pli-404-card{max-width:560px;margin:0 auto;text-align:center;padding:32px 20px}
+.clone-pili .pli-404-code{font-size:64px;font-weight:800;color:#f65400;line-height:1}
+.clone-pili .pli-404-card h1{font-size:20px;color:#333;margin:12px 0 6px}
+.clone-pili .pli-404-card p{color:#999;margin:0 0 8px}
+
+/* 回到顶部按钮(site.js 注入 #ajx-backtop) */
+.clone-pili #ajx-backtop{position:fixed;right:16px;bottom:80px;z-index:60;display:none;width:44px;height:44px;border:1px solid #dcd8d4;border-radius:4px;background:#fff;color:#666;font-size:13px;cursor:pointer}
+.clone-pili #ajx-backtop.is-show{display:block}
+.clone-pili #ajx-backtop:hover{border-color:#fd8929;color:#f65400}
+
+/* ================= 移动端(375px 无横向滚动) ================= */
+@media (max-width: 1220px){
+  .clone-pili .pli-wrap,.clone-pili .pli-top-head,.clone-pili .pli-top-nav-list{padding-left:10px;padding-right:10px;box-sizing:border-box}
+}
+@media (max-width: 860px){
+  .clone-pili .pli-animate-list > li:not(.pli-first){width:100%!important;float:none!important}
+  .clone-pili .pli-in-rank-list{width:100%!important;border-right:0!important;padding-right:0}
+  .clone-pili .pli-latest-grid{grid-template-columns:repeat(auto-fill,minmax(88px,1fr));gap:10px}
+  .clone-pili .pli-result-list,.clone-pili .pli-search-grid{grid-template-columns:1fr}
+  .clone-pili .pli-top-head{gap:12px}
+  .clone-pili .pli-logo{width:auto;font-size:24px}
+  .clone-pili .pli-top-nav-list a span{padding:0 12px;font-size:14px}
+}
+@media (max-width: 480px){
+  .clone-pili .pli-ani-img:not(.pli-ani-img-sm){width:110px;height:146px}
+}
+.clone-pili .pli-wrap,.clone-pili .pli-home,.clone-pili .pli-cat,.clone-pili .pli-book,.clone-pili .pli-toc,.clone-pili .pli-read,.clone-pili .pli-search,.clone-pili .pli-ranking,.clone-pili .pli-full{overflow-x:hidden}

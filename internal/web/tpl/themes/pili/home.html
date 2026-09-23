@@ -1,0 +1,89 @@
+{{define "content"}}
+<div class="pli-home">
+  <div class="pli-tags-wr">
+    <ul class="pli-animate-list">
+      <li class="pli-first">
+        <span class="pli-ico-animate">独家推荐</span>
+        {{with .TopBook}}
+        <div class="pli-ani-info">
+          <a class="pli-ani-img" href="{{bookHref (str .id) (num .num) $.SiteID}}" aria-label="{{.name}}">
+            {{if .cover}}<img src="{{coverURL (str .cover)}}" alt="{{.name}} 封面" onerror="this.remove()">{{end}}
+          </a>
+          <div class="pli-ani-text">
+            <div class="pli-ani-text1">
+              <a class="pli-ani-title" href="{{bookHref (str .id) (num .num) $.SiteID}}">{{.name}}</a>
+              <a class="pli-ani-author" href="{{viewHrefSearch (str .author) $.SiteID}}">{{.author}}</a>
+            </div>
+            <div class="pli-ani-text2">
+              <p class="pli-ani-fplay">{{fmtWords .wordCount}} · {{or .category "小说"}}</p>
+              <span>开始阅读：</span>
+              <a href="{{bookHref (str .id) (num .num) $.SiteID}}">《{{.name}}》最新章节</a>
+            </div>
+            <p class="pli-ani-desc">{{excerpt .intro 80}}…</p>
+          </div>
+          <div class="pli-clear"></div>
+        </div>
+        {{end}}
+      </li>
+      {{range .WeekRank}}
+      <li>
+        <a class="pli-ani-a" href="{{bookHref (str .id) (num .num) $.SiteID}}">{{.name}}</a>
+        <div class="pli-ani-info">
+          <a class="pli-ani-img pli-ani-img-sm" href="{{bookHref (str .id) (num .num) $.SiteID}}" aria-label="{{.name}}">
+            {{if .cover}}<img src="{{coverURL (str .cover)}}" alt="{{.name}} 封面" onerror="this.remove()">{{end}}
+          </a>
+          <div class="pli-ani-text">
+            <div class="pli-ani-text1">
+              <a class="pli-ani-title" href="{{bookHref (str .id) (num .num) $.SiteID}}">{{.name}}</a>
+              <a class="pli-ani-author" href="{{viewHrefSearch (str .author) $.SiteID}}">{{.author}}</a>
+            </div>
+            <div class="pli-ani-text2">
+              <p class="pli-ani-fplay">{{fmtWords .wordCount}}</p>
+            </div>
+          </div>
+          <div class="pli-clear"></div>
+        </div>
+      </li>
+      {{end}}
+    </ul>
+  </div>
+  <div class="pli-rank-wr">
+    <div class="pli-rank-head">热门排行榜<small>（按字数）</small></div>
+    <div class="pli-rank-panel">
+      <ol class="pli-in-rank-list pli-pr10">
+        {{range $i, $b := .ClickRank}}
+        {{if lt $i 10}}
+        <li><sub class="{{if lt $i 3}}pli-no-orange{{else}}pli-no-gray{{end}}">{{$i | add 1}}</sub><a class="pli-rank-name" href="{{bookHref (str $b.id) (num $b.num) $.SiteID}}">{{$b.name}}</a></li>
+        {{end}}
+        {{end}}
+      </ol>
+      <ol class="pli-in-rank-list">
+        {{range $i, $b := .ClickRank}}
+        {{if ge $i 10}}{{if lt $i 20}}
+        <li><sub class="pli-no-gray">{{$i | add 1}}</sub><a class="pli-rank-name" href="{{bookHref (str $b.id) (num $b.num) $.SiteID}}">{{$b.name}}</a></li>
+        {{end}}{{end}}
+        {{end}}
+      </ol>
+      <div class="pli-clear"></div>
+    </div>
+  </div>
+  <div class="pli-rank-wr">
+    <div class="pli-rank-head">最新上架</div>
+    <div class="pli-rank-panel">
+      <div class="pli-latest-grid">
+        {{range .Books}}
+        <a class="pli-book-cell" href="{{bookHref (str .id) (num .num) $.SiteID}}">
+          {{if .cover}}<img src="{{coverURL (str .cover)}}" alt="{{.name}} 封面" loading="lazy" onerror="this.remove()">{{end}}
+          <span class="pli-book-cell-name">{{.name}}</span>
+        </a>
+        {{else}}<div class="pli-empty">暂无上传</div>{{end}}
+      </div>
+      {{if .Pager}}<div class="pli-pager">
+        {{if .Pager.PrevURL}}<a class="pli-pg" href="{{.Pager.PrevURL}}">上一页</a>{{else}}<span class="pli-pg is-disabled">上一页</span>{{end}}
+        <span>第 {{.Pager.Page}} / {{.Pager.TotalPages}} 页</span>
+        {{if .Pager.NextURL}}<a class="pli-pg" href="{{.Pager.NextURL}}">下一页</a>{{else}}<span class="pli-pg is-disabled">下一页</span>{{end}}
+      </div>{{end}}
+    </div>
+  </div>
+</div>
+{{end}}

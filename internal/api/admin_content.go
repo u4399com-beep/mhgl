@@ -75,10 +75,6 @@ func (d Deps) adminPseoGenerate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	useAll := body["all"] == true || len(bookIDs) == 0
-	if !useAll && len(bookIDs) == 0 {
-		apiErr(w, http.StatusBadRequest, "指定的书籍 id 均无效")
-		return
-	}
 	q := `SELECT id,name,author,categoryId,intro,status,keywords,wordCount FROM "Book"`
 	var args []any
 	if !useAll {

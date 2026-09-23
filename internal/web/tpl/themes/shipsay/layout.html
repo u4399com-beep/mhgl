@@ -1,0 +1,53 @@
+{{define "layout.html"}}<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>{{.Head.Title}}</title>
+{{if .Head.Description}}<meta name="description" content="{{.Head.Description}}">{{end}}
+{{if .Head.Keywords}}<meta name="keywords" content="{{.Head.Keywords}}">{{end}}
+{{if .Head.Canonical}}<link rel="canonical" href="{{.Head.Canonical}}">{{end}}
+<meta property="og:type" content="{{.Head.OgType}}">
+<meta property="og:title" content="{{.Head.Title}}">
+{{if .Head.Description}}<meta property="og:description" content="{{.Head.Description}}">{{end}}
+{{if .Head.Canonical}}<meta property="og:url" content="{{.Head.Canonical}}">{{end}}
+<meta name="theme-color" content="#ed4259">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" type="image/png" href="/static/icons/icon-192.png">
+<link rel="stylesheet" href="/static/css/shipsay.css?v=r56-2c">
+</head>
+<body class="clone-shipsay">
+<div class="ss-container">
+  <header class="ss-header">
+    <div class="ss-head-in">
+      <a class="ss-logo" href="{{.HomeHref}}">{{siteTitle .Site}}</a>
+      <span class="ss-slogan">快速找到你想要的TXT电子书</span>
+      <form class="ss-search" action="/" method="get">
+        {{if .SiteID}}<input type="hidden" name="site" value="{{.SiteID}}">{{end}}
+        <input type="hidden" name="view" value="search">
+        <input type="search" name="q" aria-label="搜索全站" placeholder="输入书名 / 作者关键词…" value="{{.Q}}">
+        <button type="submit">搜索</button>
+      </form>
+    </div>
+    <nav class="ss-nav" aria-label="站点导航">
+      <a href="{{.HomeHref}}">首页</a>
+      {{range $cat := .NavCats}}<a href="{{catHref $cat $.SiteID}}">{{$cat}}</a>{{end}}
+      <a href="{{.FulltextHref}}">全本</a>
+      <a href="{{.RankingHref}}">排行</a>
+      <a href="{{.HistoryHref}}">阅读历史</a>
+    </nav>
+  </header>
+  <main class="ss-main">{{block "content" .}}<div class="ss-empty">加载中…</div>{{end}}</main>
+  <footer class="ss-footer">
+    <div class="ss-ft-links">
+      <a href="{{.HomeHref}}">网站首页</a> · <a href="{{.FulltextHref}}">全站书库</a> ·
+      <a href="{{.RankingHref}}">排行榜</a> · <a href="{{.SearchHref}}">书库搜索</a>
+      {{if .Links}} · {{range $i, $l := .Links}}{{if $i}} · {{end}}<a href="{{safeHref $l.url}}" rel="noopener" target="_blank">{{$l.name}}</a>{{end}}{{end}}
+    </div>
+    <p>{{siteTitle .Site}} · 本站所有小说均系网友上传, 如有侵权请联系删除</p>
+  </footer>
+</div>
+<script src="/static/js/site.js?v=r56-2c" defer></script>
+<script src="/static/js/pwa.js?v=r56-2c" defer></script>
+</body>
+</html>{{end}}

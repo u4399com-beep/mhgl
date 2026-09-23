@@ -126,7 +126,12 @@ func (b *Bridge) Chapters(_ context.Context, p callback.ChaptersPayload) (callba
 			currentURLs = append(currentURLs, it.URL)
 		}
 	}
-	if len(currentURLs) > 0 {
+	// [R56-2a] 多段目录(>5000 章分片)防护: 阶段E 的 stale 判定基准=本批 tocItems,
+	// seq=1 且 final=false 时后续分片尚未到达, 未到分片的章节(idx>本批条目数)会被
+	// 误判「目录外」而删除(量闸+签名闸仅在部分场景兜底) —— 非 final 分片跳过阶段E;
+	// 单分片(≤5000 章绝大多数形态)恒 final=true, 行为零变化。多段书的陈旧章清理让位
+	// 于数据安全(宁可残留不可误删)
+	if len(currentURLs) > 0 && p.Final {
 		staleCount, err := b.db.CrawlStaleChaptersCount(bookID, len(tocItems), currentURLs)
 		if err != nil {
 			return callback.ChaptersDecision{}, err

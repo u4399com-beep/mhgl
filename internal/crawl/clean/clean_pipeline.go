@@ -99,7 +99,7 @@ func CleanIntro(raw string, maxLength int) string {
 	v = decodeEntitiesOnce(v)
 	v = ctrlCharsRe.ReplaceAllString(v, "")
 	v = invisibleCharsRe.ReplaceAllString(v, "")
-	v = removeAdLines(v, DefaultConfig().AdPatterns)
+	v = removeAdLines(v, defaultConfig().AdPatterns)
 	var lines []string
 	for _, l := range strings.Split(v, "\n") {
 		l = strings.TrimSpace(unicodeSpaceRe.ReplaceAllString(l, " "))

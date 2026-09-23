@@ -11,8 +11,12 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 )
+
+// statsKeyRe json_set 路径键白名单(Store 层防御深度; 正常键 booksCreated 等)。
+var statsKeyRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,63}$`)
 
 // ---------------- Task 状态机(条件写) ----------------
 
@@ -77,7 +81,9 @@ func (d *DB) CrawlMergeTaskJSONAtomically(id, col string, patch map[string]any) 
 // CrawlMergeStatsDelta stats 增量累加(Next-owned 计数: booksCreated/booksUpdated/
 // chaptersCreated/chaptersUpdated)。对齐 route.ts mergeStatsDelta ②: json_set 单语句
 // 原子累加, 每键恰好出现一次基于原始列值取旧数; 降级 RMW 一次。
-// 键名来自 STATS_KEYS 白名单(调用侧过滤), 数值经绑定参数传递, 无注入面。
+// 键名来自 STATS_KEYS 白名单(调用侧过滤), 数值经绑定参数传递。
+// [R56-2b-fix] 键名拼进 json 路径前在本层再验一次字符白名单(防御深度: store 不应
+// 信任调用侧过滤, 恶意键可把 json 路径拼成任意 SQL 片段)。
 func (d *DB) CrawlMergeStatsDelta(id string, patch map[string]int64) error {
 	if len(patch) == 0 {
 		return nil
@@ -87,6 +93,9 @@ func (d *DB) CrawlMergeStatsDelta(id string, patch map[string]int64) error {
 	for k, v := range patch {
 		if v == 0 {
 			continue
+		}
+		if !statsKeyRe.MatchString(k) {
+			return fmt.Errorf("crawl: invalid stats key %q", k)
 		}
 		keys = append(keys, k)
 		vals = append(vals, v)

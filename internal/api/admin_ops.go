@@ -7,16 +7,21 @@
 package api
 
 import (
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"mhgl/internal/crawl/proxy"
 	"mhgl/internal/store"
 )
 
@@ -614,8 +619,8 @@ func (d Deps) adminProxyPool(w http.ResponseWriter, r *http.Request) {
 	apiOK(w, map[string]any{
 		"stats":   stats,
 		"setting": setting,
-		"sources": []any{},
-		"job":     map[string]any{"running": false, "kind": "", "note": "harvest/check 由外部工具触发(Go 单体)"},
+		"sources": proxy.PROXY_SOURCES,
+		"job":     map[string]any{"running": false, "kind": "", "note": "harvest/check 已内建(R56-2a 收割器), POST harvest/check 即时执行"},
 		"total":   total, "page": page, "pageSize": pageSize, "list": list,
 	})
 }
@@ -694,14 +699,44 @@ func (d Deps) adminProxyPoolDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 // (d Deps) adminProxyHarvest POST /api/admin/proxy-pool/harvest
-// 简化档: 收割/验证由外部工具触发, 本端点留痕; 列表/删除/设置真实。
+// [R56 接线] R56-2a 收割器并入后真实现: 公开源抓取→去重→幂等入库(FreeProxy 表)。
+// 同步执行(源并发内建, 总耗时受 SourceFetchTimeout 约束), 失败源 perSource 留痕不阻断。
 func (d Deps) adminProxyHarvest(w http.ResponseWriter, r *http.Request) {
-	apiOK(w, map[string]any{"ok": true, "note": "外部工具触发"})
+	h := proxy.NewHarvester(d.DB.DB)
+	res := h.Harvest(r.Context())
+	apiOK(w, map[string]any{"ok": true, "harvest": res})
 }
 
 // (d Deps) adminProxyCheck POST /api/admin/proxy-pool/check
+// [R56 接线] 校验器真实现: mode=unchecked|stale|alive, limit/ concurrency 钳制在 CheckOptions 内。
 func (d Deps) adminProxyCheck(w http.ResponseWriter, r *http.Request) {
-	apiOK(w, map[string]any{"ok": true, "note": "外部工具触发"})
+	q := r.URL.Query()
+	mode := strings.ToLower(strings.TrimSpace(q.Get("mode")))
+	if mode == "" {
+		mode = "unchecked"
+	}
+	limit, _ := strconv.Atoi(q.Get("limit"))
+	conc, _ := strconv.Atoi(q.Get("concurrency"))
+	var countries, protocols []string
+	for _, c := range strings.Split(q.Get("countries"), ",") {
+		if c = strings.ToUpper(strings.TrimSpace(c)); c != "" {
+			countries = append(countries, c)
+		}
+	}
+	for _, p := range strings.Split(q.Get("protocols"), ",") {
+		if p = strings.ToLower(strings.TrimSpace(p)); p != "" {
+			protocols = append(protocols, p)
+		}
+	}
+	h := proxy.NewHarvester(d.DB.DB)
+	res, err := h.Check(r.Context(), proxy.CheckOptions{
+		Mode: mode, Limit: limit, Concurrency: conc, Countries: countries, Protocols: protocols,
+	})
+	if err != nil {
+		apiErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	apiOK(w, map[string]any{"ok": true, "check": res})
 }
 
 // (d Deps) adminProxyPrune POST /api/admin/proxy-pool/prune — 真实清理
@@ -771,4 +806,333 @@ func (d Deps) adminBackup(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(b)
+}
+
+// ---------------- backup restore(R56-2b 补全, R55 遗留①) ----------------
+
+// restoreMaxBody 备份包体积上限(512MB: 现库 137MB/1.3万章 全量导出约 60~100MB, 留余量)。
+const restoreMaxBody = 512 << 20
+
+// backupPayload adminBackup 导出形态(version 1: counts/data/warnings; data.books
+// 元素在 books≤200 时内嵌 chapters/tags 数组)。
+type backupPayload struct {
+	Version    int                         `json:"version"`
+	ExportedAt string                      `json:"exportedAt"`
+	Counts     map[string]any              `json:"counts"`
+	Warnings   []any                       `json:"warnings"`
+	Data       map[string][]map[string]any `json:"data"`
+}
+
+// tblSchema 表列缓存(PRAGMA table_info 每表只读一次, 免逐行重查)。
+type tblSchema struct {
+	cols, types []string
+	pk          string
+}
+
+// restoreTables 恢复目标表(有序: FK 依赖前置 —— 分类先于书, 规则先于任务, 书先于章/标签)。
+var restoreTables = []string{"settings", "categories", "sites", "friendLinks", "rules", "books", "tasks", "downloadJobs"}
+
+// nestedChaptersTagTables 书行内嵌数组对应的实体表。
+var nestedChaptersTagTables = map[string]string{"chapters": "Chapter", "tags": "BookTag"}
+
+// (d Deps) adminBackupRestore POST /api/admin/backup/restore?strategy=skip|overwrite
+// 上传 adminBackup 导出的 JSON → 单事务内逐表按主键恢复 → 返回恢复统计。
+//
+//	strategy=overwrite(缺省): 冲突以备份为准(存在同主键行则整行覆盖);
+//	strategy=skip: 已存在同主键行一律保留现库行。
+//	跨行唯一约束冲突(Book.num/Site.domain/Category.name 撞到别的行)不整批失败 ——
+//	该行计入 failed 继续; Task.status=running 不可信, 按启动恢复口径收编为 paused。
+//	全程单事务(事务持有唯一连接, 其他请求排队等待 —— 兼顾原子性与 maxConns=1)。
+func (d Deps) adminBackupRestore(w http.ResponseWriter, r *http.Request) {
+	strategy := strings.ToLower(strings.TrimSpace(strOf(r.URL.Query().Get("strategy"), 12)))
+	if strategy == "" {
+		strategy = "overwrite"
+	}
+	if strategy != "overwrite" && strategy != "skip" {
+		apiErr(w, http.StatusBadRequest, "strategy 仅支持 overwrite(备份为准)或 skip(保留现库)")
+		return
+	}
+	var payload backupPayload
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, restoreMaxBody))
+	if err := dec.Decode(&payload); err != nil {
+		var mbe *http.MaxBytesError
+		if errors.As(err, &mbe) {
+			apiErr(w, http.StatusRequestEntityTooLarge, "备份文件过大(超过上限)")
+		} else {
+			apiErr(w, http.StatusBadRequest, "备份 JSON 解析失败(需 adminBackup 导出形态)")
+		}
+		return
+	}
+	if payload.Data == nil {
+		apiErr(w, http.StatusBadRequest, "备份缺少 data 节点(需 adminBackup 导出形态)")
+		return
+	}
+
+	tx, err := d.DB.DB.BeginTx(r.Context(), nil)
+	if err != nil {
+		apiErr(w, http.StatusInternalServerError, "服务器内部错误")
+		return
+	}
+	defer tx.Rollback()
+
+	schemas := map[string]*tblSchema{}
+	schemaOf := func(tbl string) (*tblSchema, error) {
+		if s, ok := schemas[tbl]; ok {
+			return s, nil
+		}
+		cols, types, pk, err := tableColumnsTx(tx, tbl)
+		if err != nil {
+			return nil, err
+		}
+		s := &tblSchema{cols: cols, types: types, pk: pk}
+		schemas[tbl] = s
+		return s, nil
+	}
+
+	restored := map[string]int{}
+	skipped := map[string]int{}
+	failed := []map[string]any{} // 恒非 nil(响应形态稳定)
+	failedTotal := 0
+	addFail := func(table, id, msg string) {
+		failedTotal++
+		if len(failed) >= 20 {
+			return // 明细封顶, 总数在 failedTotal
+		}
+		failed = append(failed, map[string]any{"table": table, "id": id, "error": msg})
+	}
+
+	// 书行内嵌 chapters/tags 收集区(主表 books 落库后统一恢复, FK 顺序保障)
+	var nestedItems = map[string][]map[string]any{"chapters": nil, "tags": nil}
+	restoreOne := func(tbl string, row map[string]any) bool {
+		sch, serr := schemaOf(tbl)
+		if serr != nil {
+			addFail(tbl, store.ToStr(row[idOf(tbl)]), sanitizeRestoreErr(serr))
+			return false
+		}
+		ok2, err2 := restoreRowTx(tx, tbl, row, sch, strategy)
+		if err2 != nil {
+			addFail(tbl, store.ToStr(row[idOf(tbl)]), sanitizeRestoreErr(err2))
+			return false
+		}
+		if !ok2 {
+			skipped[tbl]++
+			return false
+		}
+		restored[tbl]++
+		return true
+	}
+
+	for _, dataKey := range restoreTables {
+		rows := payload.Data[dataKey]
+		if len(rows) == 0 {
+			continue
+		}
+		tbl := dataTableName(dataKey)
+		for _, row := range rows {
+			if row == nil || store.ToStr(row[idOf(tbl)]) == "" {
+				skipped[tbl]++
+				continue
+			}
+			if tbl == "Task" && store.ToStr(row["status"]) == "running" {
+				row["status"] = "paused" // 备份里的 running 不可信(对齐 recoverOnBoot)
+			}
+			if tbl == "Setting" { // value 列 TEXT: 备份异常非字符串值 → JSON 字符串化
+				if v, ok2 := row["value"]; ok2 {
+					if _, isStr := v.(string); !isStr {
+						if b, merr := json.Marshal(v); merr == nil {
+							row["value"] = string(b)
+						}
+					}
+				}
+			}
+			if tbl == "Book" { // 内嵌 chapters/tags 摘出延后
+				for key := range nestedItems {
+					if raw, ok2 := row[key]; ok2 {
+						if items, ok3 := raw.([]any); ok3 {
+							for _, it := range items {
+								if im, ok4 := it.(map[string]any); ok4 {
+									nestedItems[key] = append(nestedItems[key], im)
+								}
+							}
+						}
+						delete(row, key) // 非表列, 不进 INSERT/UPDATE
+					}
+				}
+			}
+			restoreOne(tbl, row)
+		}
+	}
+
+	// 内嵌 chapters/tags(+ 兼容备份 data 顶层的同名数组)—— books 已全部就位
+	for dataKey, tbl := range nestedChaptersTagTables {
+		items := nestedItems[dataKey]
+		if top, ok := payload.Data[dataKey]; ok && dataTableName(dataKey) == "" {
+			items = append(items, top...) // 顶层 chapters/tags 数组(防御性兼容)
+		}
+		for _, row := range items {
+			if row == nil || store.ToStr(row[idOf(tbl)]) == "" {
+				skipped[tbl]++
+				continue
+			}
+			restoreOne(tbl, row)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		apiErr(w, http.StatusInternalServerError, "恢复提交失败: "+sanitizeRestoreErr(err))
+		return
+	}
+	if restored["Setting"] > 0 {
+		invalidateBannedWordsCache() // 设置面变更即失效违禁词缓存(对齐 PUT 钩子)
+	}
+	apiOK(w, map[string]any{
+		"strategy":    strategy,
+		"restored":    restored,
+		"skipped":     skipped,
+		"failed":      failed,
+		"failedTotal": failedTotal,
+	})
+}
+
+// dataTableName 备份 data 键 → 实体表名(未知键返回 "" 即忽略)。
+func dataTableName(key string) string {
+	switch key {
+	case "settings":
+		return "Setting"
+	case "categories":
+		return "Category"
+	case "sites":
+		return "Site"
+	case "friendLinks":
+		return "FriendLink"
+	case "rules":
+		return "Rule"
+	case "books":
+		return "Book"
+	case "tasks":
+		return "Task"
+	case "downloadJobs":
+		return "DownloadJob"
+	}
+	return ""
+}
+
+// idOf 表主键列名(Prisma 单列 id; Setting 为 key)。
+func idOf(tbl string) string {
+	if tbl == "Setting" {
+		return "key"
+	}
+	return "id"
+}
+
+// tableColumnsTx 事务内读表列(PRAGMA table_info): 列名/声明类型/主键。
+func tableColumnsTx(tx *sql.Tx, tbl string) (cols, types []string, pk string, err error) {
+	rows, err := tx.Query(`PRAGMA table_info("` + tbl + `")`)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid, notNull, pkIdx int
+		var name, ctype string
+		var dflt any
+		if err := rows.Scan(&cid, &name, &ctype, &notNull, &dflt, &pkIdx); err != nil {
+			return nil, nil, "", err
+		}
+		if pkIdx == 1 {
+			pk = name
+		}
+		cols = append(cols, name)
+		types = append(types, ctype)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, "", err
+	}
+	if pk == "" {
+		return nil, nil, "", fmt.Errorf("table %s has no single-column primary key", tbl)
+	}
+	return cols, types, pk, nil
+}
+
+// restoreRowTx 单行恢复: 先判存在(区分新增/覆盖与 skip 语义)再写入。
+// 返回 (是否实际恢复入库, 错误); strategy=skip 且行已存在 → (false, nil)。
+func restoreRowTx(tx *sql.Tx, tbl string, row map[string]any, sch *tblSchema, strategy string) (bool, error) {
+	pk := sch.pk
+	pkv, ok := row[pk]
+	if !ok {
+		return false, fmt.Errorf("missing primary key %s", pk)
+	}
+	err := tx.QueryRow(`SELECT 1 FROM "`+tbl+`" WHERE "`+pk+`"=?`, pkv).Scan(new(any))
+	exists := err == nil
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return false, err
+	}
+	if exists && strategy == "skip" {
+		return false, nil
+	}
+
+	cols, types := sch.cols, sch.types
+	useCols := make([]string, 0, len(cols))
+	useArgs := make([]any, 0, len(cols))
+	for i, c := range cols {
+		v, ok := row[c]
+		if !ok {
+			continue // 备份行缺列 → 保留建表默认值, 不猜
+		}
+		useCols = append(useCols, c)
+		useArgs = append(useArgs, restoreCoerce(types[i], v))
+	}
+	if len(useCols) == 0 {
+		return false, fmt.Errorf("backup row has no known columns")
+	}
+	quoted := make([]string, len(useCols))
+	for i, c := range useCols {
+		quoted[i] = `"` + c + `"`
+	}
+	if exists { // overwrite: 整行覆盖(备份为准)
+		sets := make([]string, len(useCols))
+		for i, c := range useCols {
+			sets[i] = `"` + c + `"=?`
+		}
+		args := append(append([]any{}, useArgs...), pkv)
+		if _, err := tx.Exec(`UPDATE "`+tbl+`" SET `+strings.Join(sets, ",")+` WHERE "`+pk+`"=?`, args...); err != nil {
+			return false, err
+		}
+		return true, nil
+	}
+	ph := strings.TrimSuffix(strings.Repeat("?,", len(useCols)), ",")
+	if _, err := tx.Exec(`INSERT INTO "`+tbl+`" (`+strings.Join(quoted, ",")+`) VALUES (`+ph+`)`, useArgs...); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// restoreCoerce 按列声明类型规整 JSON 值(bool→0/1, 整值浮点→INTEGER)。
+func restoreCoerce(colType string, v any) any {
+	if v == nil {
+		return nil
+	}
+	t := strings.ToUpper(colType)
+	intish := strings.Contains(t, "INT") || strings.Contains(t, "BOOL") || strings.Contains(t, "DATETIME")
+	realish := strings.Contains(t, "REAL") || strings.Contains(t, "FLOA") || strings.Contains(t, "DOUB") || strings.Contains(t, "NUM")
+	switch x := v.(type) {
+	case bool:
+		if intish || realish {
+			return boolInt(x)
+		}
+	case float64:
+		if intish && x == math.Trunc(x) && x >= -9.2e18 && x <= 9.2e18 {
+			return int64(x)
+		}
+	}
+	return v
+}
+
+// sanitizeRestoreErr 错误文本消毒(不带出 DSN/绝对路径/驱动内部细节)。
+func sanitizeRestoreErr(err error) string {
+	msg := truncateRunes(err.Error(), 200)
+	if i := strings.Index(msg, "file:"); i >= 0 {
+		msg = msg[:i] + "…"
+	}
+	return msg
 }

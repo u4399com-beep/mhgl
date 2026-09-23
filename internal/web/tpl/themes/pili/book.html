@@ -1,0 +1,69 @@
+{{define "content"}}
+<div class="pli-book">
+  <div class="pli-panel pli-book-head">
+    <span class="pli-ani-img">
+      {{if .Book.cover}}<img src="{{coverURL (str .Book.cover)}}" alt="{{.Book.name}} 封面" onerror="this.remove()">{{end}}
+    </span>
+    <div class="pli-ani-text">
+      <h1 class="pli-book-title">{{.Book.name}}</h1>
+      <div class="pli-ani-text1">
+        <a class="pli-ani-author" href="{{viewHrefSearch (str .Book.author) .SiteID}}">{{.Book.author}}</a>
+        <span class="pli-book-badge">{{statusLabel (str .Book.status)}}</span>
+        <span class="pli-book-badge pli-badge-orange">{{or .Book.category "小说"}}</span>
+        <span class="pli-book-badge">{{fmtKB .Book.wordCount}}</span>
+      </div>
+      <p class="pli-book-intro">{{if .Book.intro}}{{.Book.intro}}{{else}}暂无简介{{end}}</p>
+      <p class="pli-book-time">更新：{{dateDay .Book.updatedAt}} · 共 {{.ChapterCount}} 章</p>
+      <div class="pli-btns">
+        {{if .ReadFirstHref}}<a class="pli-btn-orange" href="{{.ReadFirstHref}}">开始阅读</a>
+        {{else}}<span class="pli-btn-orange is-disabled">开始阅读</span>{{end}}
+        <a class="pli-btn-line" href="{{.TocHref}}">完整目录</a>
+      </div>
+    </div>
+    <div class="pli-clear"></div>
+  </div>
+  {{if .LatestChapters}}
+  <div class="pli-panel">
+    <div class="pli-rank-head">最新章节</div>
+    <ol class="pli-in-rank-list pli-in-panel">
+      {{range .LatestChapters}}
+      <li><a class="pli-rank-name" href="{{chapterHref (str .id) (num $.Book.num) (num .idx) $.SiteID}}">{{.title}}</a></li>
+      {{end}}
+    </ol>
+    <div class="pli-clear"></div>
+    <p class="pli-c"><a class="pli-btn-orange" href="{{.TocHref}}">查看完整目录（共 {{.ChapterCount}} 章）</a></p>
+  </div>
+  {{end}}
+  <div class="pli-panel">
+    <div class="pli-rank-head">相关推荐</div>
+    <div class="pli-latest-grid">
+      {{range .Recs}}
+      <a class="pli-book-cell" href="{{bookHref (str .id) (num .num) $.SiteID}}">
+        {{if .cover}}<img src="{{coverURL (str .cover)}}" alt="{{.name}} 封面" loading="lazy" onerror="this.remove()">{{end}}
+        <span class="pli-book-cell-name">{{.name}}</span>
+      </a>
+      {{else}}<div class="pli-empty">暂无推荐</div>{{end}}
+    </div>
+  </div>
+  <div class="pli-panel">
+    <div class="pli-rank-head">猜您喜欢</div>
+    <div class="pli-search-grid">
+      {{range .SideRank}}
+      <div class="pli-sr-item">
+        <a class="pli-sr-cover" href="{{bookHref (str .id) (num .num) $.SiteID}}">
+          {{if .cover}}<img src="{{coverURL (str .cover)}}" alt="{{.name}} 封面" loading="lazy" onerror="this.remove()">{{end}}
+          <span class="pli-sr-mask">{{or .latestChapter .name}}</span>
+        </a>
+        <div class="pli-sr-main">
+          <a class="pli-sr-title" href="{{bookHref (str .id) (num .num) $.SiteID}}">{{.name}}</a>
+          <p class="pli-sr-meta">作者：{{.author}}</p>
+          <p class="pli-sr-meta">分类：{{or .category "小说"}} · 字数：{{fmtWords .wordCount}}</p>
+          <p class="pli-sr-desc">{{excerpt .intro 56}}</p>
+          <a class="pli-btn-read" href="{{bookHref (str .id) (num .num) $.SiteID}}">开始阅读</a>
+        </div>
+      </div>
+      {{end}}
+    </div>
+  </div>
+</div>
+{{end}}

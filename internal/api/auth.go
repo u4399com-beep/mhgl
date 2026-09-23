@@ -11,7 +11,9 @@ package api
 
 import (
 	"encoding/json"
+	"net"
 	"net/http"
+	"strconv"
 	"strings"
 )
 
@@ -22,18 +24,24 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 }
 
 func clientIP(r *http.Request) string {
-	// 沙箱/反代环境: x-forwarded-for 首段优先(与原 middleware 口径一致)
+	host := r.RemoteAddr
+	if i := strings.LastIndexByte(host, ':'); i > 0 {
+		host = host[:i]
+	}
+	host = strings.Trim(host, "[]")
+	// [R56-2b-fix] XFF 信任收紧: 仅当直连对端是回环/私网(即处于本机反代之后)才采信
+	// x-forwarded-for; 公网直连一律用对端地址 —— 修前任意客户端可伪造 XFF 轮换身份,
+	// 绕过登录爆破限流与反馈频控(每 IP 5 次/窗口)。沙箱/反代部署形态不受影响。
+	if ip := net.ParseIP(host); ip != nil && !ip.IsLoopback() && !ip.IsPrivate() {
+		return host
+	}
 	if xf := r.Header.Get("x-forwarded-for"); xf != "" {
 		if i := strings.IndexByte(xf, ','); i > 0 {
 			return strings.TrimSpace(xf[:i])
 		}
 		return strings.TrimSpace(xf)
 	}
-	host := r.RemoteAddr
-	if i := strings.LastIndexByte(host, ':'); i > 0 {
-		host = host[:i]
-	}
-	return strings.Trim(host, "[]")
+	return host
 }
 
 func (d Deps) handleLogin(w http.ResponseWriter, r *http.Request) {
@@ -46,7 +54,7 @@ func (d Deps) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	ip := clientIP(r)
 	if !d.Auth.ConsumeAttempt(ip) {
-		w.Header().Set("Retry-After", itoa(d.Auth.RetryAfterSec(ip)))
+		w.Header().Set("Retry-After", strconv.Itoa(d.Auth.RetryAfterSec(ip)))
 		writeJSON(w, http.StatusTooManyRequests, map[string]any{"ok": false, "error": "尝试过于频繁, 请稍后再试"})
 		return
 	}
@@ -84,18 +92,4 @@ func (d Deps) handlePreviewHint(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "password": hint})
-}
-
-func itoa(n int) string {
-	if n <= 0 {
-		return "0"
-	}
-	var b [20]byte
-	i := len(b)
-	for n > 0 {
-		i--
-		b[i] = byte('0' + n%10)
-		n /= 10
-	}
-	return string(b[i:])
 }

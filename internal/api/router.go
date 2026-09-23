@@ -129,6 +129,7 @@ func Register(mux *http.ServeMux, d Deps) {
 
 	// ---- admin: 备份 ----
 	mux.HandleFunc("GET /api/admin/backup", admin(d.adminBackup))
+	mux.HandleFunc("POST /api/admin/backup/restore", admin(d.adminBackupRestore))
 
 	// ---- admin: PSEO / 违禁词 / SEO 模板 / 主题 / SEO 审计 ----
 	mux.HandleFunc("GET /api/admin/pseo", admin(d.adminPseoList))

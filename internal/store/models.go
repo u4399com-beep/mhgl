@@ -125,13 +125,21 @@ func (d *DB) UpdateTaskStatusIf(id, status, expectFrom string) (bool, error) {
 }
 
 // MergeTaskJSON 对 Task.progress / Task.stats 做「只覆盖出现的键」合并
-// (go-callback progress/stats 语义); 单连接串行化下天然免锁。
+// (go-callback progress/stats 语义); 主路径 CrawlMergeTaskJSONAtomically 走
+// json_patch 单语句原子合并, 本函数为其降级兜底 —— [R56-2b-fix] 修前 RMW 两语句
+// 非事务: maxConns=1 下两条语句间仍可被其他 goroutine 的合并插入(读A读B写A写B
+// 丢更新), 现包进事务让「读-改-写」对其他合并方原子。
 func (d *DB) MergeTaskJSON(id, col string, patch map[string]any) error {
 	if col != "progress" && col != "stats" {
 		return fmt.Errorf("merge: unsupported column %q", col)
 	}
+	tx, err := d.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
 	var cur string
-	if err := d.QueryRow(`SELECT `+col+` FROM "Task" WHERE id=?`, id).Scan(&cur); err != nil {
+	if err := tx.QueryRow(`SELECT `+col+` FROM "Task" WHERE id=?`, id).Scan(&cur); err != nil {
 		return err
 	}
 	m := map[string]any{}
@@ -145,8 +153,10 @@ func (d *DB) MergeTaskJSON(id, col string, patch map[string]any) error {
 	if err != nil {
 		return err
 	}
-	_, err = d.Exec(`UPDATE "Task" SET `+col+`=?, updatedAt=? WHERE id=?`, string(b), NowMS(), id)
-	return err
+	if _, err := tx.Exec(`UPDATE "Task" SET `+col+`=?, updatedAt=? WHERE id=?`, string(b), NowMS(), id); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // AppendTaskLog 追加任务日志(cap 由读取端裁剪, 对齐 task-log.ts 消费形态)。

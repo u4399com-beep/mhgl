@@ -1,7 +1,7 @@
 // ============================================================
 // 内容清洗系统 —— src/lib/crawl/cleaner.ts(756 行)语义移植
 // 语义权威: src/lib/crawl/cleaner.ts(R13/R21/R22/R25 历轮打磨资产)。
-// 规则 clean 配置驱动(DefaultConfig/FromRuleRaw 对齐 types.ts sanitizeCleanConfig);
+// 规则 clean 配置驱动(defaultConfig/FromRuleRaw 对齐 types.ts sanitizeCleanConfig);
 // 消费方: bridge contents 回调(章节正文清洗)+ book 回调(intro/字段清洗)。
 //
 // 已知移植偏差(留档, 语义等价面见 worklog R55-3a):
@@ -30,8 +30,8 @@ type Config struct {
 	PlainText       bool     `json:"plainText"`
 }
 
-// DefaultConfig 缺省清洗配置(逐条对齐 types.ts DEFAULT_CLEAN_CONFIG)
-func DefaultConfig() Config {
+// defaultConfig 缺省清洗配置(逐条对齐 types.ts DEFAULT_CLEAN_CONFIG)
+func defaultConfig() Config {
 	return Config{
 		RemoveSelectors: []string{"script", "style", "iframe", "ins", "noscript", ".adsbygoogle", ".ad", "#ad"},
 		AdPatterns: []string{
@@ -92,7 +92,7 @@ func jsonUnmarshal(data []byte, v any) error {
 // FromRuleRaw 规则 config JSON → 清洗配置(对齐 parseRuleConfig + sanitizeCleanConfig):
 // clean 段缺失/非对象 → 整段缺省; 各字段缺失 → 字段缺省(safeStrArr 钳制 + 白名单小写化)。
 func FromRuleRaw(raw []byte) Config {
-	def := DefaultConfig()
+	def := defaultConfig()
 	if len(raw) == 0 {
 		return def
 	}

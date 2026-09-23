@@ -1,0 +1,13 @@
+{{define "content"}}
+<div class="ss-404">
+  <section class="ss-card ss-404-card">
+    <div class="ss-404-code">404</div>
+    <h1>页面不存在</h1>
+    <p>{{if .Msg}}{{.Msg}}{{else}}你访问的页面不存在或已被移除{{end}}</p>
+    <div class="ss-info-btns">
+      <a class="ss-btn is-primary" href="{{.HomeHref}}">返回首页</a>
+      <a class="ss-btn" href="{{.SearchHref}}">搜索书籍</a>
+    </div>
+  </section>
+</div>
+{{end}}
