@@ -23,6 +23,59 @@
             {{end}}
           </ul>
           {{else}}<div class="ajx-empty">暂无上传</div>{{end}}
+          <div class="ajx-more-wrap"><a class="ajx-more-btn" href="{{.FulltextHref}}">展示更多最近上传的电子书</a></div>
+        </div>
+      </article>
+      {{if .CoverPicks}}
+      <article class="ajx-panel">
+        <h3 class="ajx-h3">封面推荐</h3>
+        <div class="ajx-body ajx-grid2">
+          {{range .CoverPicks}}
+          <div class="ajx-book-card">
+            {{if .cover}}<img src="{{coverURL (str .cover)}}" alt="{{.name}} 封面" loading="lazy" onerror="this.remove()">{{end}}
+            <h4><a href="{{bookHref (str .id) (num .num) $.SiteID}}">{{.name}}</a></h4>
+            <div class="ajx-meta">{{.author}} · {{or .category "小说"}} · {{fmtKB .wordCount}} · {{dateShort .updatedAt}}</div>
+            <div class="ajx-desc">{{excerpt .intro 56}}…</div>
+          </div>
+          {{end}}
+        </div>
+      </article>
+      {{end}}
+      {{if .CatGroups}}
+      <article class="ajx-panel">
+        <h3 class="ajx-h3">小说分类</h3>
+        <div class="ajx-body ajx-grid2">
+          {{range .CatGroups}}
+          <div class="ajx-catgroup">
+            <h4>{{.Name}}<a href="{{catHref (str .Name) $.SiteID}}">更多&gt;&gt;</a></h4>
+            {{if .Books}}
+            <ul class="ajx-lines ajx-books">
+              {{range .Books}}
+              <li class="ajx-line">
+                <span class="ajx-cover ajx-line-cov ajx-line-cov-sm">
+                  {{if .cover}}<img src="{{coverURL (str .cover)}}" alt="{{.name}} 封面" loading="lazy" onerror="this.remove()">{{end}}
+                  <span class="ajx-cover-ph">{{.name}}</span>
+                </span>
+                <span class="ajx-line-main">
+                  <a href="{{bookHref (str .id) (num .num) $.SiteID}}" title="{{.name}}">{{.name}}</a>
+                </span>
+                <span class="ajx-author">{{.author}}</span>
+                <span class="ajx-date"><span>{{dateShort .updatedAt}}</span></span>
+              </li>
+              {{end}}
+            </ul>
+            {{else}}<div class="ajx-empty">暂无书籍</div>{{end}}
+          </div>
+          {{end}}
+        </div>
+      </article>
+      {{end}}
+      <article class="ajx-panel">
+        <h3 class="ajx-h3">专题书单</h3>
+        <div class="ajx-body ajx-grid3">
+          <div class="ajx-topic"><strong>高分重生文</strong><br />节奏快、反转多、女性成长线清晰。</div>
+          <div class="ajx-topic"><strong>穿越种田合集</strong><br />日常经营、家长里短、慢热耐看。</div>
+          <div class="ajx-topic"><strong>都市爽文精选</strong><br />升级流、事业线、金手指开局。</div>
         </div>
       </article>
       {{if .Pager}}<div class="ajx-pager">
@@ -33,7 +86,7 @@
     </section>
     <aside>
       <article class="ajx-panel ajx-rank">
-        <h3 class="ajx-h3">点击榜</h3>
+        <h3 class="ajx-h3">24小时热榜</h3>
         <div class="ajx-body">
           {{if .ClickRank}}
           <ul class="ajx-lines">

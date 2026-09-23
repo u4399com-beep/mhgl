@@ -332,6 +332,10 @@ var tplFuncs = template.FuncMap{
 	"catHref": func(catName, sid string) string {
 		return viewHref("category", sid, map[string]string{"cat": "cat:" + catName})
 	},
+	// [R59-2a] 分类页筛选行链接: cat 为原始锚(可空/"cat:名"/id), sort/status 走查询串(空值不拼)。
+	"catFilterHref": func(cat, sort, status, sid string) string {
+		return viewHref("category", sid, map[string]string{"cat": cat, "sort": sort, "status": status})
+	},
 	"catIDHref":           func(catID, sid string) string { return viewHref("category", sid, map[string]string{"cat": catID}) },
 	"viewHrefSearch":      func(q, sid string) string { return viewHref("search", sid, map[string]string{"q": q}) },
 	"viewHrefKeyword":     func(tag, sid string) string { return viewHref("keyword", sid, map[string]string{"tag": tag}) },

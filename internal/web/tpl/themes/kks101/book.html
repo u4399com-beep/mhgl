@@ -17,6 +17,15 @@
     <div class="kks-clear"></div>
   </div>
   <div class="kks-mybox kks-bookintro">{{if .Book.intro}}{{.Book.intro}}{{else}}暫無簡介{{end}}</div>
+  {{if .Tags}}
+  <div class="kks-mybox kks-infotag">
+    <h3 class="kks-tagtitle">標籤</h3>
+    <ul class="kks-tagul">
+      {{range .Tags}}<li><a href="{{viewHrefKeyword . $.SiteID}}">{{.}}</a></li>{{end}}
+    </ul>
+    <div class="kks-clear"></div>
+  </div>
+  {{end}}
   {{if .LatestChapters}}
   <h3 class="kks-mytitle">最新章節</h3>
   <div class="kks-chgrid">

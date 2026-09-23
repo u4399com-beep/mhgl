@@ -3,7 +3,28 @@
   <div class="ss-row">
     <section class="ss-card ss-grow">
       <p class="ss-title">👍 大神小说</p>
-      {{if .TopBook}}
+      {{if .CoverRow}}
+      <ul class="ss-cards">
+        {{range firstN 6 .CoverRow}}
+        <li class="ss-star">
+          <div class="ss-img_span">
+            <a href="{{bookHref (str .id) (num .num) $.SiteID}}" aria-label="{{.name}}">
+              {{if .cover}}<img src="{{coverURL (str .cover)}}" alt="{{.name}} 封面" loading="lazy" onerror="this.remove()">{{end}}
+              <span class="ss-mask" style="background:{{if eqStr (str .status) "completed"}}rgba(191,44,36,.75){{else}}rgba(0,0,0,.4){{end}}">{{or .category "小说"}} / {{if eqStr (str .status) "completed"}}全本{{else}}连载{{end}}</span>
+            </a>
+          </div>
+          <div class="ss-w100">
+            <a class="ss-h2" href="{{bookHref (str .id) (num .num) $.SiteID}}">{{.name}}</a>
+            <p class="ss-indent">{{if .intro}}{{excerpt .intro 64}}{{else}}{{or .category "小说"}} · {{.author}}{{end}}</p>
+            <p class="ss-li_bottom"><a href="{{viewHrefSearch (str .author) $.SiteID}}">{{.author}}</a>
+              <em class="ss-orange">{{fmtWords .wordCount}}</em>
+              <em class="ss-blue">{{dateShort .updatedAt}}</em>
+            </p>
+          </div>
+        </li>
+        {{end}}
+      </ul>
+      {{else if .TopBook}}
       <ul class="ss-cards">
         {{with .TopBook}}
         <li class="ss-star">
@@ -55,6 +76,25 @@
       {{else}}<p class="ss-empty">暂无数据</p>{{end}}
     </aside>
   </div>
+
+  {{if .CatBlocks}}
+  <div class="ss-row ss-row-flex">
+    {{range .CatBlocks}}{{if .Books}}
+    <div class="ss-sortvisit">
+      <a class="ss-sv-title" href="{{catHref (str .Name) $.SiteID}}">{{.Name}}</a>
+      <ul class="ss-sv-list">
+        {{with index .Books 0}}
+        <li class="ss-sv-top">
+          <a href="{{bookHref (str .id) (num .num) $.SiteID}}" aria-label="{{.name}}">{{if .cover}}<img src="{{coverURL (str .cover)}}" alt="{{.name}} 封面" loading="lazy" onerror="this.remove()">{{end}}</a>
+          <p><a href="{{bookHref (str .id) (num .num) $.SiteID}}">{{.name}}</a><i>&nbsp;/&nbsp;{{.author}}</i></p>
+        </li>
+        {{end}}
+        {{range $i, $b := .Books}}{{if ge $i 1}}<li><a href="{{bookHref (str $b.id) (num $b.num) $.SiteID}}" title="{{$b.name}}">{{$b.name}}</a><i>&nbsp;/ {{$b.author}}</i></li>{{end}}{{end}}
+      </ul>
+    </div>
+    {{end}}{{end}}
+  </div>
+  {{end}}
 
   <div class="ss-row">
     <section class="ss-card ss-grow">

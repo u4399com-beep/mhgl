@@ -78,6 +78,42 @@
 .clone-pili .pli-book-cell-name{display:block;margin-top:6px;font-size:13px;color:#333;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .clone-pili .pli-book-cell:hover .pli-book-cell-name{color:#f65400}
 
+/* 强档推荐(wmcms in-strong: 2px 橙上边线 + 30px 标题压线 + 大封左 + 横卡右 + 封面条) */
+.clone-pili .pli-strong{margin-top:18px}
+.clone-pili .pli-strong-head{display:inline-block;position:relative;top:2px;background:#fff;border:2px solid #fd8929;border-bottom:0;border-radius:4px 4px 0 0;padding:2px 22px 6px;margin-left:10px;font-size:26px;font-weight:700;color:#333;line-height:1.2}
+.clone-pili .pli-strong-body{background:#fff;border:2px solid #fd8929;border-radius:0 4px 4px 4px;padding:14px}
+.clone-pili .pli-strong-big{display:block;float:left;position:relative;width:214px;height:284px;overflow:hidden;border-radius:4px;background:#eee;margin-right:16px}
+.clone-pili .pli-strong-big img{width:100%;height:100%;object-fit:cover;display:block}
+.clone-pili .pli-strong-big-name{position:absolute;left:0;right:0;bottom:0;background:rgba(55,53,51,.78);color:#fff;font-size:14px;text-align:center;padding:6px 8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.clone-pili .pli-strong-side{overflow:hidden;min-width:0}
+.clone-pili .pli-strong-item{padding:10px 0;border-bottom:1px dashed #ededed}
+.clone-pili .pli-strong-item:last-child{border-bottom:0}
+.clone-pili .pli-strong-item-title{display:block;font-size:18px;line-height:24px;color:#333;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.clone-pili .pli-strong-item-title:hover{color:#fd8929}
+.clone-pili .pli-strong-item-author{font-size:13px;color:#999;text-decoration:none}
+.clone-pili .pli-strong-item-author:hover{color:#fd8929}
+.clone-pili .pli-strong-item-desc{margin:6px 0 0;font-size:13px;line-height:20px;color:#999;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.clone-pili .pli-strong-strip{display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:12px;padding-top:14px;border-top:1px dashed #ededed;margin-top:14px}
+.clone-pili .pli-strong-strip .pli-book-cell img{aspect-ratio:3/4}
+
+/* 分类封面列(wmcms mod-cover-list 双列) */
+.clone-pili .pli-catcols{margin-top:14px}
+.clone-pili .pli-catcol{float:left;width:49.5%;box-sizing:border-box}
+.clone-pili .pli-catcol:first-child{margin-right:1%}
+.clone-pili .pli-catcol .pli-rank-head a{color:inherit;text-decoration:none}
+.clone-pili .pli-catcol .pli-rank-head a:hover{color:#f65400}
+.clone-pili .pli-catcol-list{background:#fff;border:1px solid #dcd8d4;border-radius:4px;padding:12px;display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.clone-pili .pli-book-cell-lg img{aspect-ratio:3/4}
+
+/* 分类筛选行(排序/完结态; 真站 ret-search-head #f3f3f3 形态) */
+.clone-pili .pli-filters{background:#fff;border:1px solid #dcd8d4;border-bottom:0;border-radius:4px 4px 0 0;padding:8px 12px 4px}
+.clone-pili .pli-frow{display:flex;align-items:center;flex-wrap:wrap;gap:4px;padding:3px 0}
+.clone-pili .pli-frow b{font-weight:400;color:#999;font-size:13px;margin-right:8px}
+.clone-pili .pli-frow a{display:inline-block;padding:3px 12px;font-size:13.5px;color:#666;border-radius:3px;text-decoration:none}
+.clone-pili .pli-frow a:hover{color:#f65400;background:#fff3e6}
+.clone-pili .pli-frow a.is-on{background:#fd8929;color:#fff}
+.clone-pili .pli-filters + .pli-rank-panel{border-radius:0 0 4px 4px}
+
 /* 书页 */
 .clone-pili .pli-book-head{padding:16px}
 .clone-pili .pli-book-title{margin:0 0 8px;font-size:22px;color:#333;font-weight:700}
@@ -179,6 +215,10 @@
   .clone-pili .pli-top-head{gap:12px}
   .clone-pili .pli-logo{width:auto;font-size:24px}
   .clone-pili .pli-top-nav-list a span{padding:0 12px;font-size:14px}
+  .clone-pili .pli-catcol{width:100%;float:none;margin-right:0;margin-bottom:12px}
+  .clone-pili .pli-catcol-list{grid-template-columns:repeat(2,1fr)}
+  .clone-pili .pli-strong-big{width:120px;height:160px;margin-right:12px}
+  .clone-pili .pli-strong-head{font-size:20px;padding:2px 14px 4px}
 }
 @media (max-width: 480px){
   .clone-pili .pli-ani-img:not(.pli-ani-img-sm){width:110px;height:146px}

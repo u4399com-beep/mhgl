@@ -61,6 +61,13 @@
 .clone-kks101 .kks-ranked .kks-bookbox:nth-child(2) .kks-bookimg::after{content:"2";background:#ff9800}
 .clone-kks101 .kks-ranked .kks-bookbox:nth-child(3) .kks-bookimg::after{content:"3";background:#ffc107}
 
+/* 快捷入口行(真站 indexdaohang: 4 图标位等宽横排) */
+.clone-kks101 .kks-quick ul{list-style:none;margin:0;padding:6px 4px;display:flex;flex-wrap:wrap}
+.clone-kks101 .kks-quick ul li{flex:1;min-width:80px;text-align:center}
+.clone-kks101 .kks-quick ul a{display:block;font-size:15px;font-weight:700;color:#333;padding:10px 4px;border-right:1px solid #f2f2f2;text-decoration:none}
+.clone-kks101 .kks-quick ul li:last-child a{border-right:0}
+.clone-kks101 .kks-quick ul a:hover{color:#1f6cb2;text-decoration:none}
+
 /* 书单卡(block_booklist: 紫渐变封面带 + 白衬封面 + meta 行) */
 .clone-kks101 .kks-booklist-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;margin-bottom:8px}
 .clone-kks101 .kks-booklist-card{background:#fff;border:1px solid rgba(0,0,0,.06);border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,.08);overflow:hidden;height:128px;transition:all .3s cubic-bezier(.4,0,.2,1)}
@@ -89,6 +96,22 @@
 .clone-kks101 .kks-cat-a{display:inline-block;color:#1f6cb2;font-size:14px;line-height:16px;padding:0 10px;border-right:1px solid #dfecf0;margin:0 0 6px}
 .clone-kks101 .kks-cat-a:last-child{border-right:0}
 .clone-kks101 .kks-cat-a.is-active{color:#404040;font-weight:700}
+
+/* 分类封面格牆(真站 newnovels/newnovels2: imgbox + h3 书名 + h4 作者 居中卡) */
+.clone-kks101 .kks-newnovels ul{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:14px 10px}
+.clone-kks101 .kks-newnovels ul a{text-decoration:none;display:block;text-align:center}
+.clone-kks101 .kks-imgbox{display:block;width:90px;height:120px;margin:0 auto;overflow:hidden;border-radius:5px;background:#e5e7e9}
+.clone-kks101 .kks-imgbox img{display:block;width:100%;height:100%;object-fit:cover}
+.clone-kks101 .kks-newnovels h3{margin:8px 0 0;font-size:14px;font-weight:600;color:#333;line-height:1.4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.clone-kks101 .kks-newnovels a:hover h3{color:#1f6cb2}
+.clone-kks101 .kks-newnovels h4{margin:2px 0 0;font-size:12px;font-weight:400;color:#818a91;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* 书页标签块(真站 infotag: tagtitle + tagul) */
+.clone-kks101 .kks-infotag{display:flex;align-items:flex-start}
+.clone-kks101 .kks-tagtitle{flex-shrink:0;margin:0 12px 0 0;font-size:14px;font-weight:400;color:#818a91;line-height:2rem}
+.clone-kks101 .kks-tagul{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap}
+.clone-kks101 .kks-tagul li a{display:inline-block;background:rgb(232,244,255);border:1px solid #56a6c3;color:#1f6cb2;border-radius:10px;padding:0 .725rem;margin:.25rem;font-size:.8rem;line-height:1.8rem;text-align:center;text-decoration:none}
+.clone-kks101 .kks-tagul li a:hover{color:#fff;background:#1f6cb2;border-color:#1f6cb2}
 
 /* 按钮/分页 */
 .clone-kks101 .kks-btn-primary{display:inline-block;border:none;border-radius:16px;background:#1f6cb2;color:#fff;padding:7px 20px;font-size:14px;cursor:pointer;margin-right:8px;text-decoration:none}
@@ -180,4 +203,7 @@
   .clone-kks101 .kks-bookhead .kks-bookinfo{width:calc(100% - 112px);padding-left:10px}
   .clone-kks101 .kks-bookinfo h1{font-size:18px}
   .clone-kks101 .kks-btn-primary,.clone-kks101 .kks-btn{padding:6px 14px}
+  .clone-kks101 .kks-newnovels ul{grid-template-columns:repeat(auto-fill,minmax(90px,1fr))}
+  .clone-kks101 .kks-imgbox{width:80px;height:107px}
+  .clone-kks101 .kks-quick ul li{flex:1 1 40%;border-bottom:1px solid #f2f2f2}
 }

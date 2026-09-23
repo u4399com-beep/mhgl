@@ -1,16 +1,30 @@
 {{define "content"}}
 <div class="kks-cat">
-  <h3 class="kks-mytitle">{{.CatName}}<small>（共 {{.Pager.Total}} 本）</small></h3>
-  <div class="kks-mybox">
-    {{range .Books}}{{template "kks-bookbox" (withSite $.SiteID .)}}{{else}}<div class="kks-empty">暫無相關書籍</div>{{end}}
-  </div>
-  {{template "kks-pager" .}}
+  {{/* 真站 /novels/class 顶部 droplist 分类行(小說分類 全部分類/各分类); 列表 = 封面格牆 */}}
   {{if .Cats}}
-  <h3 class="kks-mytitle kks-mytitle2">全部分類</h3>
+  <h3 class="kks-mytitle">小說分類</h3>
   <div class="kks-droplist">
     {{range .Cats}}<a class="kks-cat-a{{if eqStr (str .id) (str $.Cat)}} is-active{{end}}" href="{{catIDHref (str .id) $.SiteID}}">{{.name}}</a>{{end}}
     <a class="kks-cat-a" href="{{.FulltextHref}}">全部小說</a>
   </div>
   {{end}}
+  <h3 class="kks-mytitle">{{.CatName}}<small>（共 {{.Pager.Total}} 本）</small></h3>
+  {{if .Books}}
+  <div class="kks-mybox kks-newnovels">
+    <ul>
+      {{range .Books}}
+      <li>
+        <a href="{{bookHref (str .id) (num .num) $.SiteID}}" aria-label="{{.name}}">
+          <span class="kks-imgbox">{{if .cover}}<img src="{{coverURL (str .cover)}}" alt="{{.name}} 封面" loading="lazy" onerror="this.remove()">{{end}}</span>
+          <h3>{{.name}}</h3>
+          <h4>{{.author}}</h4>
+        </a>
+      </li>
+      {{end}}
+    </ul>
+    <div class="kks-clear"></div>
+  </div>
+  {{else}}<div class="kks-mybox"><div class="kks-empty">暫無相關書籍</div></div>{{end}}
+  {{template "kks-pager" .}}
 </div>
 {{end}}

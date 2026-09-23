@@ -7274,3 +7274,76 @@ Stage Summary:
 - 用户三问全闭环: 封面=列表模板补渲染（非服务端问题）/后台=页脚入口+/admin+密码/分类=4 字三方统一且导航不再 0 书
 - 主题矩阵 7/9+反反爬再进阶（healthScore 增量+加权随机+代理池统计/清理/索引面板化）
 - 遗留: 剩余 4 主题（ggd66/huangjinwu/qb23/x33yq 择期）/auth Secure 属性待生产部署形态决策/三大部头任务 done 可再启增量
+---
+Task ID: R59-2c-batch2
+Agent: general-purpose (crawl深审·批次2)
+Task: crawl 未审面逐行深审抓虫 + fetch 传输参数/UA 新鲜度小步增强 + 全包死代码/过时注释清理
+
+Work Log:
+- [R59-2c-b1·parseIDInt 溢出回绕为负] task/queue.go: 修前仅乘加后判 n>1<<62, 20 位数字串第 20 位乘 10 越过 int64 上限回绕为负("10000000000000000000"→-8446744073709551616), 负值不触发钳制且 to-from 双负跨度可 ≤BookIDMaxSpan 绕过 fail-closed, 直灌 BuildBookIdQueueFromRange 展开成垃圾书号逐个抓取; 修后乘 10 前预判(n>clamp/10)+乘加后双闸, 越界恒收敛 1<<62。新增 TestParseIDIntOverflowClamp(恰在界 1<<62-1/1<<62/界上1/19 位/两种 20 位回绕/2^64 多轮形态九断言)
+- [深审确认无虫(防重复怀疑)] engine.go(Start/Control resume 回落/buildPayload fail-closed/scheduleAutoRefresh 双查幂等/testResolveToc 重试链; DB running 卡死面由 cmd/server recoverOnBoot running→paused 兜底, Start 拒绝口径安全)/task.go(Start 持锁置 running 防双跑/removeIfSelf 身份校验/stop 收割 60s 兜底/gate cond 门)/pipeline.go(sendChapters 分片+空目录 final 一次/accountContentTotal 重入重算状态机/stopInterrupted 计数豁免/批间末批不睡)/proxyfeed.go(只增不减防抖)/proxyfeedback.go(MIN/MAX SQL 层钳界)/reorder.go(阶段A~E 纯函数: tt-c 动态基线/x-a 目标位含 moves/双闸)/bridge_content.go(seq≥2 尾插/阶段E 非 final 跳过/封面 10MB 闸)/smart.go(剥离环先尾后头逐中间态查表/包含回退排除兜底名/六断言矩阵+词表不变量回归充分; exactCanonMap 无限流=综合其他与测试钉子一致)/sorter/util/blockcheck/fingerprint 全过
+- [小步增强] ①fetch transportFor 代理 Transport 补 MaxIdleConnsPerHost=8(修前缺省 2 < MaxConnsPerHost=8: 批内并发下每请求冷启拨号+代理隧道重握手, 连接 churn 放大时延与指纹异常; 与直连 hc 同口径) ②UA 池新鲜度刷新: Chrome 137~141→140~143/Edge 137→143/Firefox 125(大版本黑名单风险区)→141/143/Safari 17.4~18.0→17.4~18.4/移动端 iOS 18.4+Android Chrome 142~143, 修注释与池三方脱节(注释 137~142/126~130 vs 池内实况); sec-ch-ua 品牌版本由 UA 正则自动派生零联动成本
+- [清理] ①全 crawl 包 AST 顶层符号死代码扫描(含 _test 引用面): 零死项(TestRule 为唯一候选, api/admin_rules.go:911 实引存活) ②过时注释对齐: task.go Stats「计数在 Next.js 侧权威」→R55 单体后 bridge 直连 store 权威在 Go; pipeline.go 三处「Next.js 侧 skip/清洗」→回调面 bridge.Contents; callback.go 两处「合并语义由 Next.js 侧承担」→bridge; pipeline.go 乱码「鉗」→「钳」 ③rule/types.go CleanConfig 头注(任务指定唯一允许改动): 「Go 侧不做内容清洗传回 TS 侧执行」→clean 包 FromRuleRaw 消费口径 ④bridge_content.go 超长正文 len([]rune)×2 → utf8.RuneCountInString(兆级正文免 4 字节/码点整份物化) ⑤crawlContentBatches threads<1 硬化(防 0 值直构批空 queue 不推进死循环; Sanitize 正常路径零变化)
+- [遗留备忘(rule 包只读未动, 下轮处置)] rule/types.go L15/L409「Next.js 回退 TS 引擎」与单体 fail-closed 现状不符/rule/pages.go 两处「Next.js 侧清洗/clean 传回 TS 侧」过时/rule/charset.go L72 乱码「兕底」→「兜底」; rule.parseBookIDNum(types.go ~L475)与 parseIDInt 同款回绕隐患(仅消费于 Validate 跨度预检, 上游修复后队列层已不受影响, 修它须 rule 包写权限)
+- [环境备注] 工作树中 6 个 crawl 文件曾被格式化为 space-indent(整文件 3000+ 行空白 diff), 按历轮「收尾 -w」口径 gofmt -w 统一回 tab, 本轮全部语义改动经 diff 复核为纯语义 hunk
+
+Stage Summary:
+- 一真 bug 修复(书号溢出回绕为负绕过跨度校验)+九断言钳制回归钉; 传输层代理连接复用补齐+UA 池版本段对齐当前主流(反指纹新鲜度)
+- 未审面 engine/task 全家/smart/bridge_content/reorder/proxyfeed/blockcheck/fingerprint/sorter/util 逐行过审无虫清单落档; 死代码零项
+- rule 包只读约束下唯一注释改动落地; 同族隐患 parseBookIDNum 与三处过时注释留档下轮; 门禁 gofmt 空/vet 0/crawl 10 包测试全绿/整仓 build 过
+
+---
+Task ID: R59-2b-batch2
+Agent: general-purpose (采集规则字段核查·批次2)
+Task: 接续批次1: 35 条规则 cover/category/latestChapter/wordCount/listCover 缺口逐条实测核查+可补者经 admin API 写回
+
+Work Log:
+- 盘点前批产物: /tmp/r59-exports/ 复用 fetch_pages.py/probe_fields.py/pages/ 快照 35+ 张/fetch-report.json/rules-dump.json; 登录 API 重拉 rules-live.json 与旧 dump 逐条 diff 确认 config 零漂移, 快照全部可复用
+- 快照核查 17 站(#2/3/4/8/10/11/14/15/17/18/19/25/28/30/33/34/35): 按「css 首元素/regex 首匹配(attr=组号)/json 点路径/index=逗号分段」引擎语义(读 rule/parse.go 对齐)拟 selector 并 python 实测命中; og:novel 组(#10/15/24/30/34)与结构化字段(#25 双 span/#33 chapter-entrance/#2 最新章节/#17 卷末章)逐条验证
+- JSON 站 3 条: #7 bqg713 book/list JSON 键全量盘点(无 cover/word/listCover); #13 taijiwang detail.json 有 last_chapter_title+word_number; #22 qimao 本地桥 :3013 存活实测 book.words=16434734
+- 不可达双尝试: #1 77shuku 关停(http/https/无-www 全 000)/#5 biquge.tw 403 CF×2+wap 断连/#9 dafeng 403×2/#20 pilishuwu 403×3/#21 qidian镜像 域名断连×2/#29 x33yq 直连断连(https 000+http301)/#31 xinjianpan 关停 — 均按「源站不可达」记矩阵不写回
+- 补抓实测: #6 book4.cc book 页(base64 内嵌 HTML 解码, 无字数)/#16 jpxs123 book 页 raw 重抓按 GB18030 正确解码(无类别/最新章节/字数, 前批快照系解码损毁非站无数据)/#17 kanunu8 另抓双卷本 yanxinji 验证贪婪尾锚 regex(单卷/多卷均取真末章)
+- 写回 11 条(#2/10/13/15/17/22/24/25/30/33/34)共 14 字段(latestChapter×4/category×5/wordCount×3/cover×1): 改前一规则一 json 备份 rules-backup/, PUT /api/admin/rules/{id} 仅携 merge 后 config(部分更新契约: 未携 name/description/enabled 不触碰), PUT 响应+重新 GET 双轮回读逐键 diff 验证「原字段一个不少+新字段就位」全 OK
+- fetch×编码一致性顺手核查: 35 条 fetch.charset 全部留空走自动探测, GBK 站(#16/17/18/19/24)观测 gb2312/gbk 正确识别, 无编码类 config 错误; #26/27 无缺口不动
+- 产出 /tmp/r59-exports/audit-matrix.md(35 行×[cover/category/latestChapter/wordCount/listCover 状态+证据片段]); 过程脚本 agent-ctx/r59-batch2-writeback.py; 新增快照 pages2/
+
+Stage Summary:
+- 14 个字段缺口补齐落库(11 规则), 22 处缺口判定「源站无此数据」(TXT 全集站无字数/章节、JSON 无封面、列表无图为三大主因), 6 处「源站不可达」(站点关停/CF/域名失效)
+- 服务未重启, 全程仅 Rule 表经 admin API 更新+tmp 产物, 未触碰 Go 源码/Book/Chapter
+- 遗留: #9/#20/#29/#5 不可达站带 browserFallback/needsProxy 配置, 生产引擎(浏览器兜底/代理池)或在采集期可达, 可任务运行期复查补核
+---
+Task ID: R59-2a-batch2（主控代录·代理死于收尾，产出已逐 hunk 核收）
+Agent: general-purpose (主题1:1复刻核查修复·批次2，主控核收代写)
+Task: 6 主题(pili/shipsay/x2552/kks101/trxsw/ddyueshu)与源站 1:1 复刻核查+修复整改
+
+Work Log:
+- [数据面·主题化] public.go renderHome 加主题 switch: pili/shipsay→CoverRow(带封面 10 本)、ddyueshu/shipsay→CatBlocks(6 组 4 字锚分类块×13 本, 字数序)；x2552 榜单行数对齐真站 15/21(其余主题维持 10/11)；全部走既有 WebListBooks 参数化查询零注入面, 非相关主题零开销
+- [pili] home 强档推荐面板(pli-strong 1 大图+2 横排+7 封面条)+pli-catcols 分类封面列；category 加排序/状态筛选行(pli-filters)；read/layout 微调
+- [shipsay] home 加 ss-sortvisit 6 分类块+大神封面行；kks101 home 快捷入口+封面格牆、category 新书格、book 标签块(kks-tagul)
+- [ddyueshu] home novelslist 6 分类块重整、category hot+up 双栏(ddy-up-l/ddy-up-r)
+- [x2552] home 公告条(x2-announce)+榜单行数扩容；trxsw home 微调
+- [回归钉] web_test.go 新增 TestThemes_1to1Panels: 11 组主题×面板渲染钉(pili×3/shipsay/ddyueshu×3/kks101×3/x2552)；与既有 RenderSmoke(缺键路径)+XSS 探针(7 主题)组互补
+- [主控核收补遗] 模板 nil 安全: category.html eq 比较对缺键补 (str .Key) 包裹(2 处)；gofmt -w 收敛 space-indent 重写；全量门禁绿
+
+Stage Summary:
+- 主题矩阵 7/7 全部完成 1:1 复刻核查修复(aijjxs 批次1+本批 6 主题)；数据面主题化按需计算；11 组新渲染钉+7 主题 XSS 探针全绿
+- 剩余未移植主题仅 ggd66/huangjinwu/qb23/x33yq 4 个(TS 参考资产在 src/components/public/sites/)
+---
+Task ID: R59（主控收口）
+Agent: Z.ai Code 主控
+Task: ①主题 1:1 复刻核查修复 ②采集规则字段完整性核查 ③④⑤常态循环+多 agent ⑥清理 ⑦推送
+
+Work Log:
+- [基线盘点] 35 规则字段缺口实测面锁定(book 无 cover 5/cat 12/latest 12/word 27/list 无 cover 11)；发现 CleanConfig「clean 传回 TS 侧」为过时注释(clean 包已落地)；TS 站点组件(src/components/public/sites/)为 1:1 复刻视觉权威
+- [三批并行] batch1 三代理死于 Task 断连(早期产出：2a aijjxs 三页+数据面、2c clean 增强+probe、2b /tmp 实测产物)——主控逐 hunk 核收(修 category.html nil eq 比较×2 处+gofmt 收敛)；batch2 两代理完整交付(2b 规则字段写回+2c 深审)，2a-batch2 产出完整死于收尾(6 主题模板+渲染钉)——主控核收+代录 worklog
+- [2b 成果] 11 条规则 API 写回 14 个新字段(latestChapter×4/category×5/wordCount×3/cover×1)，改前备份+PUT 回读+重 GET 双轮验证原字段零丢失；核查矩阵 /tmp/r59-exports/audit-matrix.md(35 行，含「源站无此数据/不可达」实证)；编码一致性全查无错
+- [2c 成果] parseIDInt 溢出回绕真 bug(20 位串绕过 fail-closed 直灌队列)+9 断言测试；fetch MaxIdleConnsPerHost=8+UA 池刷新(Chrome 140~143/FF 141/143/Safari 18.4)；engine/task/pipeline/proxyfeed/reorder/bridge/smart/sorter/util 已审无虫清单落档；AST 死代码扫描零死项；TLS 指纹现状留档待决策
+- [2a 成果] 7 主题 1:1 全覆盖：aijjxs(批次1: 封面推荐/分类 4 组/作者其它作品/分类筛选行)+pili(强档推荐面板/分类筛选)/shipsay(sortvisit 6 块)/ddyueshu(novelslist 6 块+hot-up 双栏)/kks101(快捷入口/新书格/标签块)/x2552(公告条+榜单 15/21 行对齐真站)/trxsw(微调)；数据面主题化按需计算零开销；11 组渲染钉+7 主题 XSS 探针全绿
+- [门禁] gofmt 全仓空/vet 0/go test -count=1 ./internal/... 13 包全绿/go build .build/mhgl
+- [部署实证] 14:31 新二进制上线；浏览器逐主题实证：aijjxs 首页封面推荐 2 卡+分类 4 组+31 图、pili 强档推荐+筛选行(sort=words 高亮联动)、shipsay/x2552/ddyueshu/kks101 面板标记全命中、trxsw 16 图；390px 零横滚零错误；截图 8 张 agent-ctx/shots-r59/；主题还原 aijjxs
+- [⑦推送] 本条 commit 见 git log
+
+Stage Summary:
+- 用户两问闭环: 主题 1:1=7/7 核查修复+面板级补齐(数据面+渲染钉)；规则完整性=35 条全核查+11 条补字段(源站实不可得者有据留档)
+- 真虫 3 处(parseIDInt 溢出回绕/brSpacer 漏 $1/模板 nil panic 面)+清洗底线层落地(31/35 规则自定义清洗漏通用残留的问题被 coreAdPatterns 无条件叠加根治)
+- 遗留: 4 主题移植(ggd66/huangjinwu/qb23/x33yq)/TLS 指纹仿真/auth Secure 属性/三大部头增量可再启

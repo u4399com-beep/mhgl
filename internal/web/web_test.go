@@ -416,6 +416,56 @@ func poisonedSink() map[string]any {
 	return d
 }
 
+// ---------------- 主题 1:1 复刻修复面板回归(R59-2a-batch2) ----------------
+
+// TestThemes_1to1Panels 本轮 1:1 复刻修复新增面板/行的渲染钉:
+//
+//	pili 强档推荐+分类封面列+分类筛选行 / shipsay sortvisit 分类块 / ddyueshu novelslist
+//	六分类块+分类页 hot+up 双栏 / kks101 快捷入口+封面格牆+书页标签块 / x2552 公告条。
+//	缺键路径由 TestThemeTemplateSets_RenderSmoke(kitchenSink 无新键)覆盖, 转义由 XSS 探针组覆盖。
+func TestThemes_1to1Panels(t *testing.T) {
+	cov := func(name string) map[string]any {
+		return map[string]any{"id": "b-" + name, "num": int64(1), "name": name, "author": "作者",
+			"cover": "covers/x.jpg", "intro": "简介", "wordCount": int64(9), "status": "ongoing",
+			"updatedAt": int64(1700000000000), "latestChapter": "第1章", "category": "玄幻奇幻"}
+	}
+	cases := []struct{ theme, page, marker string }{
+		{"pili", "home", "pli-strong"}, {"pili", "home", "pli-catcols"}, {"pili", "category", "pli-filters"},
+		{"shipsay", "home", "ss-sortvisit"},
+		{"ddyueshu", "home", "ddy-nl-content"}, {"ddyueshu", "category", "ddy-up-l"}, {"ddyueshu", "category", "ddy-up-r"},
+		{"kks101", "home", "kks-quick"}, {"kks101", "category", "kks-newnovels"}, {"kks101", "book", "kks-tagul"},
+		{"x2552", "home", "x2-announce"},
+	}
+	for _, c := range cases {
+		set := themeSet(c.theme)
+		if set == nil {
+			t.Fatalf("主题 %s 模板集装载失败", c.theme)
+		}
+		data := kitchenSinkData()
+		data["Site"] = map[string]any{"id": "s1", "name": "测试站", "themeId": c.theme}
+		if c.theme == "pili" || c.theme == "shipsay" {
+			data["CoverRow"] = []map[string]any{cov("甲"), cov("乙"), cov("丙"), cov("丁")}
+		}
+		if c.theme == "pili" {
+			data["CatGroups"] = []map[string]any{{"Name": "现代言情", "Books": []map[string]any{cov("甲"), cov("乙")}}}
+		}
+		if c.theme == "shipsay" || c.theme == "ddyueshu" {
+			data["CatBlocks"] = []map[string]any{{"Name": "玄幻奇幻", "Books": []map[string]any{cov("甲"), cov("乙")}}}
+		}
+		if c.theme == "ddyueshu" && c.page == "category" {
+			data["HotPicks"] = []map[string]any{cov("甲")}
+			data["SideRank"] = []map[string]any{cov("甲")}
+		}
+		w := httptest.NewRecorder()
+		if err := set[c.page].ExecuteTemplate(w, "layout.html", data); err != nil {
+			t.Fatalf("主题 %s 页 %s 渲染失败: %v", c.theme, c.page, err)
+		}
+		if !strings.Contains(w.Body.String(), c.marker) {
+			t.Fatalf("主题 %s 页 %s 未渲染 %s 面板", c.theme, c.page, c.marker)
+		}
+	}
+}
+
 func TestAllThemes_XSSProbe(t *testing.T) {
 	for _, theme := range []string{defaultTheme, "pili", "shipsay", "x2552", "kks101", "trxsw", "ddyueshu"} {
 		set := themeSet(theme)

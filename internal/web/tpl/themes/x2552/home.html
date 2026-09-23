@@ -1,5 +1,9 @@
 {{define "content"}}
 <div class="x2-page">
+  {{/* 真站板块①: 红字公告条(border #E4E4E4, line-height 25px; CSS .x2-announce 既有) */}}
+  <div class="x2-announce-wr">
+    <div class="x2-announce">公告：{{siteTitle .Site}}为小说 TXT 全本免费阅读下载站，每日更新玄幻奇幻、都市生活、现代言情等热门分类；本站所有小说均由网友上传，如有侵权请联系删除。</div>
+  </div>
   <div class="x2-bdtop"></div>
   <div class="x2-bdsub">
     <dl class="x2-board-dl">
@@ -51,8 +55,8 @@
       <div class="x2-block">
         <div class="x2-blocktitle"><span class="x2-bt-label">吾爱热门小说</span><a class="x2-a x2-more-a" href="{{.RankingHref}}">更多...</a></div>
         <ul class="x2-ultop">
-          {{range .WeekRank}}
-          <li><a class="x2-a" href="{{bookHref (str .id) (num .num) $.SiteID}}" title="{{.name}}">{{.name}}</a></li>
+          {{range firstN 20 .WeekRank}}
+          <li><a class="x2-a" href="{{bookHref (str .id) (num .num) $.SiteID}}" title="{{.name}}">{{.name}}</a><p>{{dateYY .updatedAt}}</p></li>
           {{else}}
           <li class="x2-ultop-empty">暂无数据</li>
           {{end}}

@@ -205,7 +205,7 @@ func CleanContentHTML(raw string, cfg Config) string {
 
 	if cfg.PlainText {
 		text := htmlToPlainLines(htmlIn)
-		text = removeAdLines(text, cfg.AdPatterns)
+		text = removeAdLines(text, withFloorPatterns(cfg.AdPatterns))
 		var lines []string
 		for _, l := range strings.Split(text, "\n") {
 			l = strings.TrimSpace(unicodeSpaceRe.ReplaceAllString(l, " "))
@@ -307,8 +307,9 @@ func cleanContentHTMLMode(htmlIn string, cfg Config) string {
 	})
 
 	out, _ := root.Html()
-	// 3. 广告正则清洗
-	out = removeAdLines(out, cfg.AdPatterns)
+	// 3. 广告正则清洗(底线模式无条件叠加: 规则自定义 adPatterns 为按站清单,
+	// 通用高置信残留请记住本书首发域名/整行 URL 等不可缺席 —— R59-2c DB 抽样实证)
+	out = removeAdLines(out, withFloorPatterns(cfg.AdPatterns))
 	// [R13-1] 块级段落结构判定(用包裹前状态)
 	hadParaStructure := paraStructureRe.MatchString(out)
 	// 4. 规范化
@@ -329,7 +330,10 @@ func cleanContentHTMLMode(htmlIn string, cfg Config) string {
 			}
 			next = emptyPOpenRe.ReplaceAllString(next, "<p>")
 			next = emptyPCloseRe.ReplaceAllString(next, "</p>")
-			next = brSpacerBetweenPRe.ReplaceAllString(next, "</p>")
+			// [R59-2c-1] 修前替换串漏 $1 —— 匹配尾部的下一个 <p…> 开标签被一并吞掉,
+			// "</p><br><p>段落二</p>" 变 "</p>段落二</p>"(段落二并入前段, 段落结构破坏,
+			// 探针实证); 捕获组改写语义按本 RE 注释本意回补 $1(原 <p 形态保留)
+			next = brSpacerBetweenPRe.ReplaceAllString(next, "</p>$1")
 			next = leadShellRe.ReplaceAllString(next, "")
 			next = trailShellRe.ReplaceAllString(next, "")
 			if next == out {

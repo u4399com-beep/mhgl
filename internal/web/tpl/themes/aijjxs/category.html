@@ -4,30 +4,43 @@
     <section>
       <div class="ajx-cen-main">
         <div class="ajx-article-info">
-          <h1>{{.CatName}}最新上传</h1>
+          <h1>{{.CatName}}电子书下载</h1>
         </div>
-        <div class="ajx-panel">
-          <div class="ajx-body">
-            {{if .Books}}
-            <ul class="ajx-lines ajx-books">
-              {{range .Books}}
-              <li class="ajx-line">
-                <span class="ajx-cover ajx-line-cov">
-                  {{if .cover}}<img src="{{coverURL (str .cover)}}" alt="{{.name}} 封面" loading="lazy" onerror="this.remove()">{{end}}
-                  <span class="ajx-cover-ph">{{.name}}</span>
-                </span>
-                <span class="ajx-line-main">
-                  <span class="ajx-cat">{{or .category "小说"}}</span>
-                  <a href="{{bookHref (str .id) (num .num) $.SiteID}}" title="{{.name}}">{{.name}}</a>
-                </span>
-                <span class="ajx-author">{{.author}}</span>
-                <span class="ajx-date"><span>{{dateShort .updatedAt}}</span></span>
-              </li>
-              {{end}}
-            </ul>
-            {{else}}<div class="ajx-empty">暂无相关书籍</div>{{end}}
+        <div class="ajx-filters">
+          <div class="ajx-frow">
+            <b>排序</b>
+            <a href="{{catFilterHref .Cat "latest" (str .Status) .SiteID}}"{{if eq (str .Sort) "latest"}} class="is-on"{{end}}>最新上传</a>
+            <a href="{{catFilterHref .Cat "words" (str .Status) .SiteID}}"{{if eq (str .Sort) "words"}} class="is-on"{{end}}>人气最高</a>
+            <a href="{{catFilterHref .Cat "new" (str .Status) .SiteID}}"{{if eq (str .Sort) "new"}} class="is-on"{{end}}>最新入库</a>
+          </div>
+          <div class="ajx-frow">
+            <b>状态</b>
+            <a href="{{catFilterHref .Cat (str .Sort) "" .SiteID}}"{{if not .Status}} class="is-on"{{end}}>全部</a>
+            <a href="{{catFilterHref .Cat (str .Sort) "completed" .SiteID}}"{{if eq (str .Status) "completed"}} class="is-on"{{end}}>只看完结</a>
+            <a href="{{catFilterHref .Cat (str .Sort) "ongoing" .SiteID}}"{{if eq (str .Status) "ongoing"}} class="is-on"{{end}}>连载中</a>
           </div>
         </div>
+        {{if .Books}}
+        <div class="ajx-catalog">
+          {{range .Books}}
+          <div class="ajx-listbg">
+            <span class="ajx-cover ajx-lb-img">
+              {{if .cover}}<img src="{{coverURL (str .cover)}}" alt="《{{.name}}》封面" loading="lazy" onerror="this.remove()">{{end}}
+              <span class="ajx-cover-ph">{{.name}}</span>
+            </span>
+            <span class="ajx-lb-title"><a href="{{bookHref (str .id) (num .num) $.SiteID}}" title="{{.name}}">{{.name}}</a></span>
+            <span class="ajx-lb-new">{{dateDay .updatedAt}} 上传</span>
+            <div class="ajx-lb-intro">{{if .intro}}{{excerpt .intro 76}}..{{else}}暂无简介{{end}}</div>
+            <div class="ajx-lb-meta">
+              <small>书籍作者：</small><a href="{{viewHrefSearch (str .author) $.SiteID}}" title="{{.author}}">{{.author}}</a>
+              <small>文件大小：</small>{{fmtKB .wordCount}}
+              <small>写作进度：</small>{{statusLabel (str .status)}}
+              <small>下载方式：</small>全本免费
+            </div>
+          </div>
+          {{end}}
+        </div>
+        {{else}}<div class="ajx-empty">暂无相关书籍</div>{{end}}
         {{with .Pager}}
         <div class="ajx-pager">
           {{if .PrevURL}}<a class="ajx-pager-btn" href="{{.PrevURL}}">上一页</a>{{else}}<span class="ajx-pager-btn is-disabled">上一页</span>{{end}}

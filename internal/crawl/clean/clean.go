@@ -30,22 +30,113 @@ type Config struct {
 	PlainText       bool     `json:"plainText"`
 }
 
-// defaultConfig 缺省清洗配置(逐条对齐 types.ts DEFAULT_CLEAN_CONFIG)
+// defaultConfig 缺省清洗配置(基底字段逐条对齐 types.ts DEFAULT_CLEAN_CONFIG;
+// AdPatterns 见 defaultAdPatterns —— TS 退役后在 TS 缺省 6 条之上叠加底线层与
+// DB 实证增强, 为本站唯一权威清单)
 func defaultConfig() Config {
 	return Config{
 		RemoveSelectors: []string{"script", "style", "iframe", "ins", "noscript", ".adsbygoogle", ".ad", "#ad"},
-		AdPatterns: []string{
-			`(www\.)?[a-z0-9-]+\.(com|net|cc|org|info|top|xyz|vip|site)(\/\S*)?`,
-			`本章未完.*?点击下一页继续阅读`,
-			`请记住本书.*?域名`,
-			`最新章节请到.*?查看`,
-			`[（(]?完?本[网站站][）)]?`,
-			`一秒记住.*?免费读`,
-		},
-		Whitelist: []string{"p", "br", "b", "strong", "em", "i", "u", "h1", "h2", "h3", "h4", "h5", "h6"},
-		Normalize: true,
-		PlainText: false,
+		AdPatterns:      defaultAdPatterns(),
+		Whitelist:       []string{"p", "br", "b", "strong", "em", "i", "u", "h1", "h2", "h3", "h4", "h5", "h6"},
+		Normalize:       true,
+		PlainText:       false,
 	}
+}
+
+// defaultAdPatterns 缺省广告正则全集 = 底线模式(coreAdPatterns, 无条件叠加层) ∪
+// TS 缺省 6 条 ∪ DB 实证增强(R59-2c: 对 /tmp 只读库抽样 1500 章残留噪声逐族归纳)。
+// TS 退役后本表为唯一权威; 增删条目须在 clean_test.go 配正例+防误伤反例。
+func defaultAdPatterns() []string {
+	out := make([]string, 0, 32)
+	out = append(out, coreAdPatterns...)
+	out = append(out, []string{
+		// TS DEFAULT_CLEAN_CONFIG 原始 6 条(域名条已并入 coreAdPatterns[0] 的
+		// 扩展形态: 子域标签 + 更多 TLD; 此处保留原形兼容历史规则字面)
+		`(www\.)?[a-z0-9-]+\.(com|net|cc|org|info|top|xyz|vip|site)(\/\S*)?`,
+		`本章未完.*?点击下一页继续阅读`,
+		`请记住本书.*?域名`,
+		`最新章节请到.*?查看`,
+		`[（(]?完?本[网站站][）)]?`,
+		`一秒记住.*?免费读`,
+		// ---- R59-2c DB 抽样增强(中等特异度; 全部经防误伤反例测试) ----
+		// 书名+地址尾巴族("万古神帝最新章节地址：/12192/")
+		`(?i)(?:最新章节|全文阅读|txt下载|手机阅读)地址[：:]?(?:[a-z0-9./-]{0,40})`,
+		`本书手机阅读(?:地址)?[：:]?`,
+		`言情阅读网址[：:]?`,
+		// 搜索引导族("获取我有一剑最新章节请搜索" / "最新章节百度搜索：")
+		`获取[^<>\n]{1,40}?最新章节请搜索[：:]?`,
+		`最新章节(?:百度|必应|搜狗|谷歌|360)搜索[：:]?`,
+		`最新最快首发(?:《[^<>\n]{1,40}》?)?`,
+		`最快更新最新章节[！!。]?`,
+		// 收藏/推荐套话族(整段长链)
+		`请向你的朋友[（(]QQ、博客、微信等方式[)）]推荐本书[，,]?谢谢您的支持[！!]*`,
+		`[【『\[(]?加入书签[，,]方便阅读[】』\])]?\s*`,
+		`更新快[，,]网站页面清爽[，,]广告少[，,]无弹窗`,
+		// 全角混淆 URL 族("一秒记住hｔｔps：//" / "ｗｗｗ.ｘｘ.ｃｏｍ")
+		`[hｈ][ｔt]{2}[ｐp][ｓs]?[：:]//[^\s<>\n]{0,60}`,
+		`一秒记住(?:[hｈ][ｔt]{2}[ｐp][ｓs]?[：:])?[a-z0-9ａ-ｚＡ-Ｚ０-９.．:：/／\-_~%?&#=]{1,60}`,
+	}...)
+	return out
+}
+
+// coreAdPatterns 反广告底线模式(硬底线, 语义同类先例: script/style 标签无视配置
+// 硬移除)。规则自定义 clean.adPatterns 为按站定制清单(R59-2c DB 实证: 35 规则中
+// 31 条自定义覆盖缺省, 恰恰漏掉请记住本书首发域名/整行 URL 等通用残留), 故通用
+// 高置信模式在此无条件叠加, 不受规则配置增删影响。仅收录误伤风险≈0 的形态,
+// 全部带防误伤反例测试(clean_test.go TestCoreAdPatternsFloor)。
+// 注: [2] 的 \uE000/\uE001 为 removeAdLines 内部 URL 掩码占位符 —— 带 scheme 的
+// URL 行被掩码保护不被域名模式删除, 底线改为按「整行仅剩掩码占位符」回收整行;
+// 消费顺序: removeAdLines 先掩码 → 逐条替换 → 掩码还原, 本组模式于掩码期间生效。
+var coreAdPatterns = []string{
+	// [1] 域名(含子域标签与 TLD 扩展: 修 "m.xxxx.com" 仅删 "xxxx.com" 残留 "m.")
+	`(?:[a-z0-9-]{1,20}\.){0,2}[a-z0-9-]+\.(?:com\.cn|net\.cn|org\.cn|com|net|cc|org|info|top|xyz|vip|site|cn|la|mobi|tv)(?:/\S*)?`,
+	// [2] 整行仅 URL(纯文本行形态 + <p> 包裹形态; 掩码占位符期生效)
+	"(?m)^\\s*\uE000\\d+\uE001[。．.!！]?\\s*$" +
+		"|<p[^>]*>\\s*(?:\xa0|\\s)*(?:<a\\b[^>]*>)?\\s*\uE000\\d+\uE001\\s*(?:</a>)?\\s*</p>",
+	// [3] 首发域名水印前缀(DB 残留 800+ 行/千章, 居首)
+	`请记住本书首发域名[：:]?`,
+	`请记住本站[：:]?`,
+	// [4] 手机版跳转引导残留("手机版阅读网址：m." / "记住手机版网址：")
+	`(?:记住)?手机版(?:阅读)?网址[：:]?`,
+	// [5] 章末标记("(本章完)"/"（本章完）", 含行尾内联形态)
+	`[（(]\s*本章完\s*[)）]`,
+	// [6] 移动端阅读体验插语("手机用户请浏览m.xxx.com阅读，更优质的阅读体验。")
+	`手机用户.{0,6}?浏览.{0,36}?更优质的阅读体验[。！!]?`,
+	// [7] 全角混淆域名("笔・趣・阁www.ｂｉｑｕｇｅ.ｉｎｆｏ" 的 URL 段; www 与 ｗｗｗ 双形态)
+	`[wｗ]{3}[.．][0-9A-Za-zａ-ｚＡ-Ｚ０-９.．]{2,40}`,
+	// [8] 间隔号规避品牌("笔・趣・阁"; 限定点隔形态, 直写"笔趣阁"归品牌词层)
+	`笔[・•·.．]\s*趣[・•·.．]\s*阁`,
+	// [9] 星号装饰手打行("★★手打★шшш..★"; 星饰+ш/w 混淆域, 整行回收)
+	"(?m)^\\s*[★☆✦✧*＊\\s]*手打\\s*[★☆✦✧*＊шωw3vvs\\s.．。·_]*$" +
+		"|<p[^>]*>\\s*(?:\xa0|\\s)*[★☆✦✧*＊\\s]*手打\\s*[★☆✦✧*＊шωw3vvs\\s.．。·_]*\\s*</p>",
+	// [10] 无错网会员手打尾注("…会员手打，更多章节请到网址：.")
+	`会员手打[，,]`,
+	`更多章节请到网址[：:.。]?`,
+	// [11] 失联/换址引导
+	`请访问最新地址[：:]?`,
+	// [12] 收藏/书架套话整段("为了方便下次阅读，你可以点击下方的…下次打开书架即可看到！")
+	`为了方便下次阅读[^<>\n]{0,80}?下次打开书架即可看到[！!]?`,
+}
+
+// withFloorPatterns 消费侧底线叠加: 规则自定义/缺省 AdPatterns 之外无条件并入
+// coreAdPatterns(按整串去重, 缺省表已含底线条目时为零开销等价)。恒返回新切片
+// (不触碰入参底层数组 —— cfg.AdPatterns 常为跨协程共享的任务级配置, 防 append
+// 别名写入竞态)。纯函数, 每次 CleanContentHTML 调用构建一次(千章量级 map 开销可忽略)。
+func withFloorPatterns(patterns []string) []string {
+	have := make(map[string]struct{}, len(patterns)+len(coreAdPatterns))
+	for _, p := range patterns {
+		have[p] = struct{}{}
+	}
+	out := make([]string, 0, len(patterns)+len(coreAdPatterns))
+	out = append(out, patterns...)
+	for _, p := range coreAdPatterns {
+		if _, dup := have[p]; dup {
+			continue
+		}
+		have[p] = struct{}{}
+		out = append(out, p)
+	}
+	return out
 }
 
 // safeStrArr 对齐 types.ts safeStrArr: 仅字符串项保留(截断 maxLen), 上限 maxCount 条

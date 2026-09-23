@@ -452,7 +452,7 @@ func (t *Task) accountContentTotal(bookURL string, needCount int) {
 }
 
 // crawlContentBatches 正文批次循环(契约 §5):
-// 批大小 = threadMin..threadMax 随机(每批重抽, 鉗 ≤20 章) → 批内 Fisher-Yates 洗牌
+// 批大小 = threadMin..threadMax 随机(每批重抽, 钳 ≤20 章) → 批内 Fisher-Yates 洗牌
 // → 批内并发抓取解析 → 单次 contents 回调(批 ≤20 章) → 批间 intervalMin..intervalMax
 // 随机 + jitterMs。pause 在批边界挂起(跑完在飞批次后挂起)。
 // contents 回调失败 → 任务自动暂停(恢复后整书流水线重跑, Next.js needUrls 增量
@@ -479,6 +479,9 @@ func (t *Task) crawlContentBatches(bookURL, bookName, tocURL string, needURLs []
 		}
 		batchNo++
 		threads := drawBatchThreads(t.rnd, t.info.ThreadMin, t.info.ThreadMax)
+		if threads < 1 { // [R59-2c-batch2] 硬化: Sanitize 已钳 ≥1, 防 0 值直构时批空 queue 不推进的死循环
+			threads = 1
+		}
 		if threads > len(queue) {
 			threads = len(queue)
 		}
@@ -497,7 +500,7 @@ func (t *Task) crawlContentBatches(bookURL, bookName, tocURL string, needURLs []
 				defer wg.Done()
 				item, ok := t.crawlChapter(chapterURL, titleMap[chapterURL], tocURL)
 				// [R52-5 P3] 空正文不入 results: 修前空正文章计入 contentDone(虚计)且
-				// 发往 contents 回调 —— Next.js 侧对空 contentHtml 本就 skip(章节保持
+				// 发往 contents 回调 —— 回调面(bridge.Contents)对空 contentHtml 本就 skip(章节保持
 				// fetched=false), 计数与回调双双虚高; 修后口径=仅真实落库章计入。
 				// 空正文属内容质量问题不喂连败链(crawlChapter 内 chapterOK 语义不变)
 				if ok && strings.TrimSpace(item.ContentHTML) != "" {
@@ -544,7 +547,7 @@ func (t *Task) crawlContentBatches(bookURL, bookName, tocURL string, needURLs []
 }
 
 // crawlChapter 单章抓取+解析(章节页带目录页 Referer, 契约 §4 refererChain)。
-// 返回 false = 真实失败(网络层, 计入连败链); 空/短正文按解析原样回调(清洗在 Next.js 侧)
+// 返回 false = 真实失败(网络层, 计入连败链); 空/短正文按解析原样回调(清洗在 bridge 侧)
 func (t *Task) crawlChapter(chapterURL, title, tocReferer string) (callback.ChapterItem, bool) {
 	res, err := t.fetcher.FetchContentRef(t.ctx, chapterURL, tocReferer)
 	if err != nil {
@@ -565,7 +568,7 @@ func (t *Task) crawlChapter(chapterURL, title, tocReferer string) (callback.Chap
 	parsed := rule.ParseContent(t.ctx, chapterURL, res.HTML, &t.ruleC.Content, t.pageFetch)
 	t.chapterOK() // 抓取成功即归零连败链(空正文为内容质量问题, 非真实失败)
 	if strings.TrimSpace(parsed.Content) == "" {
-		// [R52-5 P3] 空正文: 不入 contents 回调/不计 contentDone(Next.js 侧对空
+		// [R52-5 P3] 空正文: 不入 contents 回调/不计 contentDone(bridge.Contents 对空
 		// contentHtml 本就 skip, 计入=虚计), 章节保持未采由增量重试承担
 		t.logf("warn", "章节正文为空(不入库不计完成, 增量重试可恢复): %s", util.TruncateLog(chapterURL, 120))
 	}

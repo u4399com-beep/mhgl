@@ -4,7 +4,7 @@
     <section>
       <article class="ajx-panel">
         <h3 class="ajx-h3">《{{.Book.name}}》</h3>
-        <div class="ajx-body ajx-detail">
+        <div class="ajx-body ajx-detail{{if .AuthorOthers}} has-side{{end}}">
           <div class="ajx-pic">
             <span class="ajx-cover ajx-cover-lg">
               {{if .Book.cover}}<img src="{{coverURL (str .Book.cover)}}" alt="{{.Book.name}} 封面" loading="lazy" onerror="this.remove()">{{end}}
@@ -21,6 +21,12 @@
             <p><strong>上传时间：</strong>{{dateDay .Book.updatedAt}}</p>
             <p><strong>下载方式：</strong>全本免费</p>
           </div>
+          {{if .AuthorOthers}}
+          <div class="ajx-author-side">
+            <h4>作者其它作品：</h4>
+            {{range .AuthorOthers}}<span class="ajx-acat">[{{or .category "小说"}}]</span><a href="{{bookHref (str .id) (num .num) $.SiteID}}" title="{{.name}}">{{.name}}</a>{{end}}
+          </div>
+          {{end}}
         </div>
       </article>
       {{if .Tags}}
@@ -67,6 +73,7 @@
           {{if .Recs}}
           {{range .Recs}}
           <div class="ajx-book-card">
+            {{if .cover}}<img src="{{coverURL (str .cover)}}" alt="{{.name}} 封面" loading="lazy" onerror="this.remove()">{{end}}
             <h4><span class="ajx-badge">{{or .category "小说"}}</span>
               <a href="{{bookHref (str .id) (num .num) $.SiteID}}">{{.name}}</a>
             </h4>

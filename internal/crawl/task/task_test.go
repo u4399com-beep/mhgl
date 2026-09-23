@@ -96,6 +96,32 @@ func TestParseIDInt(t *testing.T) {
 	}
 }
 
+// TestParseIDIntOverflowClamp [R59-2c-batch2] 溢出恒收敛 1<<62: 修前 20 位数字串在
+// 第 20 位乘 10 时越过 int64 上限回绕为负(负值绕过越界钳制与跨度校验), 修后任何
+// 越界路径(乘 10 前预判/乘加后超限)恒返回 1<<62, 普通值与恰好在界的值不受影响
+func TestParseIDIntOverflowClamp(t *testing.T) {
+	const clamp = int64(1) << 62
+	cases := []struct {
+		in   string
+		want int64
+	}{
+		{"0", 0},
+		{"12345", 12345},
+		{"4611686018427387903", clamp - 1}, // 1<<62-1 恰在界内原样返回
+		{"4611686018427387904", clamp},     // 恰等于 1<<62
+		{"4611686018427387905", clamp},     // 界上 1 → 钳
+		{"9999999999999999999", clamp},     // 19 位越界
+		{"10000000000000000000", clamp},    // 20 位: 修前回绕为负(-8446744073709551616)
+		{"99999999999999999999", clamp},    // 20 位: 修前回绕为负
+		{"18446744073709551616", clamp},    // 2^64: 多轮回绕形态
+	}
+	for _, c := range cases {
+		if got := int64(parseIDInt(c.in)); got != c.want {
+			t.Errorf("parseIDInt(%q) = %d, want %d", c.in, got, c.want)
+		}
+	}
+}
+
 // ---------------- fixture E2E ----------------
 
 // recCallback mock 回调接收器记录

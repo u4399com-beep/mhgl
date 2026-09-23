@@ -40,8 +40,9 @@ const (
 // ErrTaskExists 同 taskId 已存在(running/paused) —— HTTP 层映射 409
 var ErrTaskExists = errors.New("task already exists")
 
-// Stats 任务本地统计(契约 §2 stats 回调; books/chapters 计数在 Next.js 侧权威, Go 只报自身;
-// blocked/rateLimited 为 R51-3-a 可观测新增: 拦截页命中/429+503 收到, 经 status 面暴露)
+// Stats 任务本地统计(契约 §2 stats 回调; R55 单体后回调面=bridge 直连 store, 计数权威
+// 在 Go 侧自身; blocked/rateLimited 为 R51-3-a 可观测新增: 拦截页命中/429+503 收到,
+// 经 status 面暴露)
 type Stats struct {
 	Errors      int64 `json:"errors,omitempty"`
 	CoversSaved int64 `json:"coversSaved,omitempty"`

@@ -1,4 +1,4 @@
-{{define "content"}}{{/* ddyueshu 首页(biquge): #hotcontent 4 封面卡 + 上期强推 + novelslist 三列块 + #newscontent 最近更新/最新入库 */}}
+{{define "content"}}{{/* ddyueshu 首页(biquge): #hotcontent 4 封面卡 + 上期强推 + novelslist 六分类封面块 + #newscontent 最近更新/最新入库 */}}
 <div class="ddy-home">
   <div id="ddy-main">
     <div class="ddy-hotcontent">
@@ -21,7 +21,7 @@
       <div class="ddy-hot-r">
         <h2>上期强推</h2>
         <ul>
-          {{range firstN 10 .WeekRank}}
+          {{range firstN 8 .WeekRank}}
           <li>
             <span class="ddy-s1">[{{or .category "小说"}}]</span>
             <span class="ddy-s2"><a href="{{bookHref (str .id) (num .num) $.SiteID}}" title="{{.name}}">{{.name}}</a></span>
@@ -32,10 +32,12 @@
       </div>
       <div class="ddy-clear"></div>
     </div>
+    {{if .CatBlocks}}
     <div class="ddy-novelslist">
+      {{range .CatBlocks}}{{if .Books}}
       <div class="ddy-nl-content">
-        <h2>点击榜</h2>
-        {{with .TopBook}}
+        <h2><a href="{{catHref (str .Name) $.SiteID}}" title="{{.Name}}分类">{{.Name}}</a></h2>
+        {{with index .Books 0}}
         <div class="ddy-nl-top">
           <a class="ddy-nl-img" href="{{bookHref (str .id) (num .num) $.SiteID}}" aria-label="{{.name}}">
             <div>{{if .cover}}<img src="{{coverURL (str .cover)}}" alt="{{.name}} 封面" loading="lazy" onerror="this.remove()">{{end}}</div>
@@ -48,35 +50,13 @@
         </div>
         {{end}}
         <ul>
-          {{range firstN 12 .ClickRank}}<li><a href="{{bookHref (str .id) (num .num) $.SiteID}}" title="{{.name}}">{{.name}}</a>/{{.author}}</li>{{end}}
+          {{range $i, $b := .Books}}{{if ge $i 1}}<li><a href="{{bookHref (str $b.id) (num $b.num) $.SiteID}}" title="{{$b.name}}">{{$b.name}}</a>/{{$b.author}}</li>{{end}}{{end}}
         </ul>
       </div>
-      <div class="ddy-nl-content">
-        <h2>最新上架</h2>
-        {{with .TopBook}}
-        <div class="ddy-nl-top">
-          <a class="ddy-nl-img" href="{{bookHref (str .id) (num .num) $.SiteID}}" aria-label="{{.name}}">
-            <div>{{if .cover}}<img src="{{coverURL (str .cover)}}" alt="{{.name}} 封面" loading="lazy" onerror="this.remove()">{{end}}</div>
-          </a>
-          <dl>
-            <dt><a href="{{bookHref (str .id) (num .num) $.SiteID}}" title="{{.name}}">{{.name}}</a></dt>
-            <dd>{{excerpt .intro 40}}</dd>
-          </dl>
-          <div class="ddy-clear"></div>
-        </div>
-        {{end}}
-        <ul>
-          {{range firstN 12 .WeekRank}}<li><a href="{{bookHref (str .id) (num .num) $.SiteID}}" title="{{.name}}">{{.name}}</a>/{{.author}}</li>{{end}}
-        </ul>
-      </div>
-      <div class="ddy-nl-content">
-        <h2>热门作者</h2>
-        <ul class="ddy-nl-authors">
-          {{if .Authors}}{{range .Authors}}<li><a href="{{viewHrefSearch . $.SiteID}}">{{.}}</a></li>{{end}}{{else}}<li>暂无数据</li>{{end}}
-        </ul>
-      </div>
+      {{end}}{{end}}
       <div class="ddy-clear"></div>
     </div>
+    {{end}}
     <div class="ddy-news">
       <div class="ddy-news-l">
         <h2>最近更新小说列表</h2>

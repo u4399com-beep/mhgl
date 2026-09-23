@@ -4,7 +4,7 @@
 //   - POST body: {taskId, kind, payload}
 //   - 鉴权: header x-go-callback-secret (payload.secret → env GO_CALLBACK_SECRET → 缺省 go-cb-2025-mhgl)
 //   - 8 种 kind: log/status/progress/stats/book/chapters/contents/cover
-//   - progress 类节流: 同类 ≥1 次/秒(超出静默丢弃, 合并语义由 Next.js 侧承担)
+//   - progress 类节流: 同类 ≥1 次/秒(超出静默丢弃, 合并语义由回调面(bridge)承担)
 //   - 失败重试 3 次(间隔 1s/2s/4s)仍败返回 error, 调用方(任务编排)据此把任务转 paused
 //   - book 响应 {ok,bookId,skipContent,lastChapterUrl} 与 chapters 响应 {ok,needUrls}
 //     必须解析并消费(增量语义核心)
@@ -152,7 +152,7 @@ func (c *Client) Send(ctx context.Context, kind string, payload interface{}) err
 }
 
 // SendProgress 进度回调: force=true 跳过节流(阶段切换/终态等重要节点必达),
-// 否则同类 ≥1 次/秒节流(超出静默丢弃, 合并语义由 Next.js 侧承担)。
+// 否则同类 ≥1 次/秒节流(超出静默丢弃, 合并语义由回调面(bridge)承担)。
 // [R50-1 联调修复] 原实现把 force 直接当 throttle 形参传入 —— 语义反转:
 // force=true 的终态/阶段切换进度恰落在 1s 窗口内被静默丢弃(实测任务 done 后
 // progress.phase 停在 content), 而 force=false 的常规进度反而永不节流。

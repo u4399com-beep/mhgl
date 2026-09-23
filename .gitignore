@@ -28,3 +28,4 @@ agent-ctx/
 watch-probe*.tmp
 *.tmp.log
 dev-server.pid
+.build/

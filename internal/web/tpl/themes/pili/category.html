@@ -2,6 +2,20 @@
 <div class="pli-cat">
   <div class="pli-rank-wr">
     <div class="pli-rank-head">{{.CatName}}小说{{if .Cat}}列表{{else}}· 全部{{end}}<small>（最新上传）</small></div>
+    <div class="pli-filters">
+      <div class="pli-frow">
+        <b>排序</b>
+        <a href="{{catFilterHref .Cat "latest" (str .Status) .SiteID}}"{{if eq (str .Sort) "latest"}} class="is-on"{{end}}>最新更新</a>
+        <a href="{{catFilterHref .Cat "words" (str .Status) .SiteID}}"{{if eq (str .Sort) "words"}} class="is-on"{{end}}>人气最高</a>
+        <a href="{{catFilterHref .Cat "new" (str .Status) .SiteID}}"{{if eq (str .Sort) "new"}} class="is-on"{{end}}>最新入库</a>
+      </div>
+      <div class="pli-frow">
+        <b>状态</b>
+        <a href="{{catFilterHref .Cat (str .Sort) "" .SiteID}}"{{if not .Status}} class="is-on"{{end}}>全部</a>
+        <a href="{{catFilterHref .Cat (str .Sort) "completed" .SiteID}}"{{if eq (str .Status) "completed"}} class="is-on"{{end}}>只看完结</a>
+        <a href="{{catFilterHref .Cat (str .Sort) "ongoing" .SiteID}}"{{if eq (str .Status) "ongoing"}} class="is-on"{{end}}>连载中</a>
+      </div>
+    </div>
     <div class="pli-rank-panel">
       {{if .Books}}
       <ul class="pli-result-list">

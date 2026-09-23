@@ -1,36 +1,71 @@
-{{define "content"}}{{/* ddyueshu 分类页(biquge #newscontent 行式列表 + .page 分页) */}}
-<div class="ddy-cat">
+{{define "content"}}{{/* ddyueshu 分类页(biquge 真站 /{锚}/ 形态): 面包屑 + .hot 6 封面位 + .up(.l 30 行 s1-s5 更新列表 + .r 同类人气榜) + .page 分页 */}}
+<div class="ddy-catpage">
   <div id="ddy-main">
     <div class="ddy-box-con">
       <div class="ddy-con-top">
         <a href="{{.HomeHref}}">{{siteTitle .Site}}</a> &gt; {{.CatName}}
       </div>
-      <div class="ddy-newscontent">
-        <div class="ddy-nc-l">
-          <h2>{{.CatName}}列表</h2>
-          {{if .Books}}
-          <ul class="ddy-ul-list">
-            {{range .Books}}
-            <li>
-              <span class="ddy-s1">[{{or .category "小说"}}]</span>
-              <span class="ddy-s2"><a href="{{bookHref (str .id) (num .num) $.SiteID}}" title="{{.name}}">{{.name}}</a></span>
-              <span class="ddy-s3">{{if .intro}}{{excerpt .intro 40}}{{else}}暂无简介{{end}}</span>
-              <span class="ddy-s5">{{.author}}</span>
-            </li>
-            {{end}}
-          </ul>
-          {{else}}<div class="ddy-box-con-inner">暂无相关书籍</div>{{end}}
-          <dl class="ddy-page">
-            <dd>
-              {{with .Pager}}
-              {{if .PrevURL}}<a href="{{.PrevURL}}" rel="prev">上一页</a>{{end}}
-              <span>第 {{.Page}} / {{.TotalPages}} 页 · 共 {{.Total}} 本</span>
-              {{if .NextURL}}<a href="{{.NextURL}}" rel="next">下一页</a>{{end}}
-              {{end}}
-            </dd>
+    </div>
+    {{if .HotPicks}}
+    <div class="ddy-box-con ddy-cat-hot">
+      <div class="ddy-hot-l">
+        {{range .HotPicks}}
+        <div class="ddy-hot-item">
+          <a class="ddy-hot-img" href="{{bookHref (str .id) (num .num) $.SiteID}}" aria-label="{{.name}}">
+            <div>{{if .cover}}<img src="{{coverURL (str .cover)}}" alt="{{.name}} 封面" loading="lazy" onerror="this.remove()">{{end}}</div>
+          </a>
+          <dl>
+            <dt><span>{{.author}}</span><a href="{{bookHref (str .id) (num .num) $.SiteID}}" title="{{.name}}">{{.name}}</a></dt>
+            <dd>{{if .intro}}{{excerpt .intro 52}}{{else}}暂无简介{{end}}</dd>
           </dl>
+          <div class="ddy-clear"></div>
         </div>
+        {{end}}
       </div>
+      <div class="ddy-clear"></div>
+    </div>
+    {{end}}
+    <div class="ddy-box-con ddy-up">
+      <div class="ddy-up-l">
+        <h2>好看的{{.CatName}}最近更新列表</h2>
+        {{if .Books}}
+        <ul class="ddy-ul-list">
+          {{range .Books}}
+          <li>
+            <span class="ddy-s1">[{{or .category "小说"}}]</span>
+            <span class="ddy-s2"><a href="{{bookHref (str .id) (num .num) $.SiteID}}" title="{{.name}}">{{.name}}</a></span>
+            <span class="ddy-s3"><a href="{{bookHref (str .id) (num .num) $.SiteID}}" title="{{.latestChapter}}">{{or .latestChapter "暂无章节"}}</a></span>
+            <span class="ddy-s4">{{.author}}</span>
+            <span class="ddy-s5">{{dateShort .updatedAt}}</span>
+          </li>
+          {{end}}
+        </ul>
+        {{else}}<div class="ddy-box-con-inner">暂无相关书籍</div>{{end}}
+        <dl class="ddy-page">
+          <dd>
+            {{with .Pager}}
+            {{if .PrevURL}}<a href="{{.PrevURL}}" rel="prev">上一页</a>{{end}}
+            <span>第 {{.Page}} / {{.TotalPages}} 页 · 共 {{.Total}} 本</span>
+            {{if .NextURL}}<a href="{{.NextURL}}" rel="next">下一页</a>{{end}}
+            {{end}}
+          </dd>
+        </dl>
+      </div>
+      {{if .SideRank}}
+      <div class="ddy-up-r">
+        <h2>{{.CatName}}人气榜单</h2>
+        <ul>
+          {{range .SideRank}}
+          <li>
+            <span class="ddy-s1">[{{or .category "小说"}}]</span>
+            <span class="ddy-s2"><a href="{{bookHref (str .id) (num .num) $.SiteID}}" title="{{.name}}">{{.name}}</a></span>
+            <span class="ddy-s5">{{.author}}</span>
+          </li>
+          {{end}}
+        </ul>
+      </div>
+      {{end}}
+      <div class="ddy-clear"></div>
     </div>
   </div>
 </div>

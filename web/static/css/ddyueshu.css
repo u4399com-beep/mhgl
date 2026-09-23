@@ -156,11 +156,28 @@ body.clone-ddyueshu .ddy-news-l .ddy-s2, body.clone-ddyueshu .ddy-ul-list .ddy-s
 body.clone-ddyueshu .ddy-news-l .ddy-s3 { display: inline-block; width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
 body.clone-ddyueshu .ddy-news-l .ddy-s4 { display: inline-block; width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
 
-/* ---------------- 分类页侧栏(ddy-cat) ---------------- */
-body.clone-ddyueshu .ddy-cat {
-  float: right; width: 278px; border: 1px solid #ddd; box-sizing: border-box; padding-bottom: 8px;
+/* ---------------- 分类页(ddy-catpage: 真站 /{锚}/ 形态 = .hot 6 封面位 + .up 双栏) ---------------- */
+body.clone-ddyueshu .ddy-catpage { }
+body.clone-ddyueshu .ddy-cat-hot .ddy-hot-l { float: none; width: 100%; }
+body.clone-ddyueshu .ddy-up-l {
+  float: left; width: 660px; max-width: 100%;
+  border: 1px solid #ddd; box-sizing: border-box;
 }
-body.clone-ddyueshu .ddy-cat h2, body.clone-ddyueshu .ddy-cat .ddy-con-top { margin: 0; }
+body.clone-ddyueshu .ddy-up-r {
+  float: right; width: 278px; border: 1px solid #ddd; box-sizing: border-box;
+}
+body.clone-ddyueshu .ddy-up-l h2, body.clone-ddyueshu .ddy-up-r h2 {
+  height: 32px; line-height: 32px; margin: 0; padding-left: 10px;
+  background: #2b5b84; color: #fff; font-size: 14px; font-weight: 400;
+}
+body.clone-ddyueshu .ddy-up-l .ddy-ul-list { padding: 6px 12px; }
+body.clone-ddyueshu .ddy-up-r ul { padding: 6px 10px; }
+body.clone-ddyueshu .ddy-up-r li { line-height: 30px; border-bottom: 1px dashed #e3e3e3; font-size: 13px; overflow: hidden; }
+body.clone-ddyueshu .ddy-up-r li:last-child { border-bottom: 0; }
+body.clone-ddyueshu .ddy-up-l .ddy-s2 { display: inline-block; width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+body.clone-ddyueshu .ddy-up-l .ddy-s3 { display: inline-block; width: 230px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+body.clone-ddyueshu .ddy-up-l .ddy-s3 a { color: #666; }
+body.clone-ddyueshu .ddy-up-l .ddy-s4 { display: inline-block; width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
 
 /* ---------------- 全站书库(ddy-novellist/ddy-full) ---------------- */
 body.clone-ddyueshu .ddy-novellist { padding: 10px 12px; }
@@ -305,10 +322,11 @@ body.clone-ddyueshu .ddy-404-btns a:hover { background: #2b5b84; color: #fff; te
   body.clone-ddyueshu .ddy-nav li a { padding: 0 12px; height: 38px; line-height: 38px; font-size: 14px; white-space: nowrap; }
   body.clone-ddyueshu .ddy-hot-l, body.clone-ddyueshu .ddy-hot-r,
   body.clone-ddyueshu .ddy-nl-content, body.clone-ddyueshu .ddy-news-l, body.clone-ddyueshu .ddy-news-r,
-  body.clone-ddyueshu .ddy-nc-l, body.clone-ddyueshu .ddy-cat,
+  body.clone-ddyueshu .ddy-nc-l, body.clone-ddyueshu .ddy-up-l, body.clone-ddyueshu .ddy-up-r,
   body.clone-ddyueshu .ddy-maininfo, body.clone-ddyueshu .ddy-sidebar {
     float: none; width: 100%; margin-right: 0;
   }
+  body.clone-ddyueshu .ddy-up-r { margin-top: 10px; }
   body.clone-ddyueshu .ddy-hot-item { width: 100%; }
   body.clone-ddyueshu .ddy-nl-content { min-height: 0; margin-bottom: 10px; }
   body.clone-ddyueshu .ddy-list .ddy-latest-dd li, body.clone-ddyueshu .ddy-toc .ddy-list dd { width: 50%; }

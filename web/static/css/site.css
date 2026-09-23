@@ -12,7 +12,11 @@
 html{-webkit-text-size-adjust:100%}
 body.clone-aijjxs{
   margin:0;min-height:100vh;display:flex;flex-direction:column;
-  background:var(--bg);color:var(--ink);
+  background:
+    radial-gradient(1000px 420px at 0 -10%, #e0f2fe 0%, transparent 60%),
+    radial-gradient(900px 520px at 100% 0, #ffedd5 0%, transparent 50%),
+    var(--bg);
+  color:var(--ink);
   font-family:"PingFang SC","Microsoft YaHei","Helvetica Neue",Arial,sans-serif;
   line-height:1.7;padding-top:58px;
 }
@@ -38,9 +42,9 @@ body.clone-aijjxs a:hover{color:var(--brand);text-decoration:underline}
 /* ===== header.top ===== */
 .clone-aijjxs .ajx-top{max-width:1192px;width:calc(100% - 28px);margin:18px auto 0;padding:16px;background:rgba(255,253,248,.9);border:1px solid var(--line);border-radius:14px;box-shadow:0 10px 30px rgba(17,24,39,.08)}
 .clone-aijjxs .ajx-top-1{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
-.clone-aijjxs .ajx-logo{position:relative;display:inline-flex;align-items:baseline;gap:8px;margin:0;font-size:clamp(18px,2.6vw,22px);font-weight:800;letter-spacing:1.2px;line-height:1.2;color:#7c2d12;text-shadow:0 1px 0 rgba(255,255,255,.65)}
-.clone-aijjxs .ajx-logo::after{content:"";position:absolute;left:0;bottom:-8px;width:min(210px,58%);height:4px;border-radius:999px;background:linear-gradient(90deg,#b45309,rgba(180,83,9,0))}
-.clone-aijjxs .ajx-logo small{font-size:13px;color:var(--muted);letter-spacing:0;font-weight:400}
+/* [R59-2a] 对齐真站 .logo: 素色 20px/字距 1px, 无装饰色/下划线 */
+.clone-aijjxs .ajx-logo{display:inline-flex;align-items:baseline;gap:8px;margin:0;font-size:20px;font-weight:700;letter-spacing:1px;line-height:1.2;color:var(--ink)}
+.clone-aijjxs .ajx-logo small{font-size:13px;color:var(--muted);letter-spacing:0;font-weight:400;margin-left:0}
 .clone-aijjxs .ajx-top-links{display:flex;gap:8px 10px;font-size:14px;flex-wrap:wrap;align-items:center;color:#475569;line-height:1.7}
 .clone-aijjxs .ajx-top-links em{color:var(--accent);font-style:normal;font-weight:700;background:#fff4d9;border:1px solid #f2d8a5;border-radius:999px;padding:1px 8px}
 .clone-aijjxs .ajx-top-links a{color:var(--brand);font-weight:600}
@@ -73,6 +77,8 @@ body.clone-aijjxs a:hover{color:var(--brand);text-decoration:underline}
 .clone-aijjxs .ajx-line-main>a{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .clone-aijjxs .ajx-author{flex:0 0 auto;font-size:12px;color:#64748b}
 .clone-aijjxs .ajx-date{flex:0 0 auto;min-width:42px;text-align:left;color:var(--muted);font-size:12px;white-space:nowrap}
+/* 48h 新书红标(真站 .new{color:#F03}) */
+.clone-aijjxs .ajx-date.ajx-new{color:#f03}
 .clone-aijjxs .ajx-rank{background:#fff5e6}
 .clone-aijjxs .ajx-rank .ajx-line{justify-content:flex-start}
 .clone-aijjxs .ajx-rank .ajx-line>a{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -106,6 +112,22 @@ body.clone-aijjxs a:hover{color:var(--brand);text-decoration:underline}
 .clone-aijjxs .ajx-line-cov-sm{width:45px;height:60px}
 .clone-aijjxs .ajx-line-cov .ajx-cover-ph{font-size:11px;letter-spacing:.08em;padding:2px}
 
+/* ===== [R59-2a] 首页补齐: 封面推荐/小说分类/专题书单(真站 .book/.grid3/.desc) ===== */
+.clone-aijjxs .ajx-grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.clone-aijjxs .ajx-book-card img{display:block;width:88px;height:122px;object-fit:cover;border-radius:8px;float:left;margin:2px 10px 4px 0}
+.clone-aijjxs .ajx-book-card .ajx-badge{margin-right:6px}
+.clone-aijjxs .ajx-topic{margin-top:8px;padding:10px;border-radius:10px;border:1px solid #ece2d2;background:#fff;color:#374151;font-size:14px;line-height:1.7}
+.clone-aijjxs .ajx-topic strong{color:var(--brand-dark)}
+.clone-aijjxs .ajx-topic:hover{border-color:#d8c9b0;background:#fffaf1;box-shadow:0 4px 12px rgba(17,24,39,.06)}
+/* 小说分类组标题(真站 .panel.latest-upload .body.grid2>div>h4 美化行) */
+.clone-aijjxs .ajx-catgroup h4{margin:0 0 8px;padding:8px 10px;display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid #d8ece7;border-radius:10px;background:linear-gradient(90deg,#f4fbf9 0%,#fff 100%);color:#134e4a;font-size:15px;font-weight:700;line-height:1.35}
+.clone-aijjxs .ajx-catgroup h4 a{flex:0 0 auto;font-size:12px;font-weight:600;color:var(--brand);background:#e9f8f4;border:1px solid #bfe5dc;border-radius:999px;padding:2px 9px;text-decoration:none}
+.clone-aijjxs .ajx-catgroup h4 a:hover{color:#fff;background:var(--brand);border-color:var(--brand);text-decoration:none}
+/* 最新上传“展示更多”按钮(真站 .latest-upload-more, 视觉件: 落点为书库页) */
+.clone-aijjxs .ajx-more-wrap{display:flex;justify-content:center;margin:12px 0 2px}
+.clone-aijjxs .ajx-more-btn{border:1px solid #e5e7eb;background:#fff;color:#555;border-radius:6px;padding:8px 22px;font-size:14px;cursor:pointer;text-decoration:none}
+.clone-aijjxs .ajx-more-btn:hover{border-color:#d6a63d;color:#b27400;background:#fffaf0;text-decoration:none}
+
 /* ===== 数据统计 hero ===== */
 .clone-aijjxs .ajx-hero{margin-top:14px;border:1px solid var(--line);border-radius:14px;background:linear-gradient(120deg,rgba(15,118,110,.12),rgba(180,83,9,.12));padding:18px}
 .clone-aijjxs .ajx-hero h2{position:relative;display:inline-block;margin:0 0 6px;padding-right:8px;font-size:clamp(18px,2.6vw,22px);font-weight:800;color:#0f4f4a;letter-spacing:1px}
@@ -123,6 +145,28 @@ body.clone-aijjxs a:hover{color:var(--brand);text-decoration:underline}
 .clone-aijjxs .ajx-filter-row{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
 .clone-aijjxs .ajx-cat-filter{font-size:13px;padding:5px 12px;border:1px solid var(--line);border-radius:999px;background:#fff;color:var(--brand-dark)}
 .clone-aijjxs .ajx-cat-filter.is-on{background:var(--brand);border-color:var(--brand);color:#fff}
+/* [R59-2a] 分类页真站 .catalog .listbg 图文卡列表 + 筛选行(.filters .row) */
+.clone-aijjxs .ajx-filters{margin-bottom:12px;display:flex;flex-direction:column;gap:6px}
+.clone-aijjxs .ajx-frow{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.clone-aijjxs .ajx-frow b{font-size:13px;color:var(--muted);font-weight:400;margin-right:2px}
+.clone-aijjxs .ajx-frow a{display:inline-block;padding:3px 10px;border:1px solid transparent;border-radius:999px;font-size:13px;color:var(--brand-dark);text-decoration:none}
+.clone-aijjxs .ajx-frow a:hover{background:#f3ede1;text-decoration:none}
+.clone-aijjxs .ajx-frow a.is-on{background:var(--brand);border-color:var(--brand);color:#fff}
+.clone-aijjxs .ajx-catalog{margin-top:4px}
+.clone-aijjxs .ajx-listbg{position:relative;margin:0 0 14px;min-height:144px;padding:16px 16px 14px 148px;border:1px solid #ecdcc6;border-radius:14px;background:linear-gradient(180deg,#fffefa 0%,#fffaf1 100%);box-shadow:0 8px 18px rgba(146,109,58,.08);overflow:hidden}
+.clone-aijjxs .ajx-listbg:last-child{margin-bottom:0}
+.clone-aijjxs .ajx-listbg .ajx-lb-img{position:absolute;left:16px;top:16px;width:112px;height:154px;box-sizing:border-box;padding:1px;border:1px solid #d8d8d8;background:#fff;overflow:hidden;display:block}
+.clone-aijjxs .ajx-listbg .ajx-lb-img img{display:block;width:100%;height:100%;object-fit:cover}
+.clone-aijjxs .ajx-listbg .ajx-lb-title a{color:#0b3b2e;font-size:18px;font-weight:700;line-height:1.5;text-decoration:none}
+.clone-aijjxs .ajx-listbg .ajx-lb-title a:hover{color:#09B295}
+.clone-aijjxs .ajx-listbg .ajx-lb-new{margin-left:8px;font-size:12px;color:#9ca3af}
+.clone-aijjxs .ajx-listbg .ajx-lb-intro{margin-top:8px;color:#555;font-size:14px;line-height:1.82}
+.clone-aijjxs .ajx-listbg .ajx-lb-meta{margin-top:8px}
+.clone-aijjxs .ajx-listbg .ajx-lb-meta small{display:inline;color:#aaa;font-size:13px;margin:0 3px 0 12px}
+.clone-aijjxs .ajx-listbg .ajx-lb-meta small:first-child{margin-left:0}
+.clone-aijjxs .ajx-listbg .ajx-lb-meta a{color:#915127;text-decoration:none}
+.clone-aijjxs .ajx-listbg .ajx-lb-meta a:hover{color:#c4551f;text-decoration:underline}
+.clone-aijjxs .ajx-lb-badge{display:inline-block;margin-right:6px;padding:0 6px;border-radius:5px;background:var(--accent);color:#fff;font-size:12px;line-height:20px;vertical-align:2px}
 .clone-aijjxs .ajx-pager{margin-top:14px;display:flex;gap:3px;flex-wrap:wrap;align-items:center}
 .clone-aijjxs .ajx-pager-btn,.clone-aijjxs .ajx-pager button{display:inline-flex;align-items:center;justify-content:center;min-width:44px;height:34px;padding:4px 10px;border-radius:8px;border:1px solid var(--line);background:#fff;color:var(--brand-dark);cursor:pointer;font-size:14px}
 .clone-aijjxs .ajx-pager-btn.is-disabled,.clone-aijjxs .ajx-pager button[disabled]{opacity:.45;cursor:not-allowed}
@@ -164,10 +208,10 @@ body.clone-aijjxs a:hover{color:var(--brand);text-decoration:underline}
 .clone-aijjxs .ajx-chapter-list a:hover{border-color:#cfd9e8;background:#f9fbff}
 .clone-aijjxs .ajx-chapter-list a.is-active{border-color:var(--brand);color:var(--brand);background:#e8f7f4}
 
-/* ===== 阅读页 ===== */
+/* ===== 阅读页 [R59-2a] 对齐真站 read-v3 暖纸色系(--panel #fff8ec/--line #e2d6c5/--link #6b3418) ===== */
 .clone-aijjxs .ajx-read{padding:0 0 8px}
-.clone-aijjxs .ajx-view-top,.clone-aijjxs .ajx-view-t,.clone-aijjxs .ajx-view-content{max-width:min(920px,calc(100% - 24px));margin:10px auto 0}
-.clone-aijjxs .ajx-sk-gb{border:1px solid var(--line);border-radius:13px;background:rgba(255,253,248,.86);padding:10px 12px}
+.clone-aijjxs .ajx-view-top,.clone-aijjxs .ajx-view-t,.clone-aijjxs .ajx-view-content{max-width:min(1080px,calc(100% - 24px));margin:10px auto 0}
+.clone-aijjxs .ajx-sk-gb{border:1px solid #e2d6c5;border-radius:14px;background:#fff8ec;padding:10px 12px;box-shadow:0 6px 18px rgba(33,21,11,.06)}
 .clone-aijjxs .ajx-duset{display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;font-size:13px;color:#6f4f34}
 .clone-aijjxs .ajx-duset b{color:#6f4f34;font-weight:700}
 .clone-aijjxs .ajx-skbglist{display:inline-flex;align-items:center;gap:6px}
@@ -183,16 +227,24 @@ body.clone-aijjxs a:hover{color:var(--brand);text-decoration:underline}
 .clone-aijjxs .ajx-ys a:hover{background:#f5efe6}
 .clone-aijjxs .ajx-ys a.is-active{border-color:#d8a366;background:#fbe8ce}
 .clone-aijjxs .ajx-dushint{font-size:12px;color:#9ca3af}
-.clone-aijjxs .ajx-view-t{text-align:center}
-.clone-aijjxs .ajx-view-t h1{margin:0 0 4px;font-size:24px;line-height:1.4;color:var(--ink);font-weight:700}
-.clone-aijjxs .ajx-view-intro{font-size:13px;color:var(--muted)}
-.clone-aijjxs .ajx-read-txt{padding:18px 20px 24px;border:1px solid var(--line);border-radius:13px;min-height:320px;font-size:17px;line-height:1.76;color:#27231f;background:#f8f8f8;word-break:break-word;overflow-wrap:break-word}
+.clone-aijjxs .ajx-view-t{text-align:center;padding:16px 13px 12px;border:1px solid #d9c4a6;border-radius:14px;background:linear-gradient(180deg,rgba(255,252,245,.74) 0%,rgba(248,237,221,.7) 100%);box-shadow:0 10px 28px rgba(33,21,11,.1)}
+.clone-aijjxs .ajx-view-t h1{margin:0;font-size:clamp(16px,2.1vw,22px);line-height:1.42;color:var(--ink);font-weight:700;letter-spacing:.02em}
+.clone-aijjxs .ajx-view-intro{margin-top:9px;padding-top:9px;border-top:1px dashed #d8c6af;font-size:13px;color:#75695b}
+.clone-aijjxs .ajx-read-txt{padding:0;border:0;border-radius:0;min-height:320px;font-size:17px;line-height:1.76;color:#27231f;background:transparent;word-break:break-word;overflow-wrap:break-word}
 .clone-aijjxs .ajx-read-txt p{margin:0 0 1.2em;text-indent:2.4em}
 .clone-aijjxs .ajx-read-txt p:first-child{text-indent:0}
-.clone-aijjxs .ajx-view-page{display:flex;justify-content:center;gap:10px;padding:10px 9px;border:1px solid var(--line);border-radius:13px;background:rgba(255,253,248,.86);max-width:min(920px,calc(100% - 24px));margin:10px auto 24px}
-.clone-aijjxs .ajx-rl{display:inline-flex;align-items:center;justify-content:center;min-width:96px;min-height:44px;padding:8px 18px;border:1px solid #d8cab7;border-radius:10px;background:#fff;color:#6b3418;font-size:14px;cursor:pointer;text-decoration:none}
+/* 正文外卡(真站 .view_content 玻璃纸卡); JS 记忆背景仍打在 #view_content_txt 内层, 不冲突 */
+.clone-aijjxs .ajx-view-content{border:1px solid #e2d6c5;border-radius:16px;background:rgba(255,252,246,.72);padding:clamp(24px,4vw,40px);box-shadow:0 10px 28px rgba(33,21,11,.1)}
+.clone-aijjxs .ajx-view-page{display:flex;justify-content:center;gap:10px;padding:10px 9px;border:1px solid #e2d6c5;border-radius:13px;background:rgba(255,252,246,.7);max-width:min(1080px,calc(100% - 24px));margin:10px auto 0}
+.clone-aijjxs .ajx-view-tips{max-width:min(1080px,calc(100% - 24px));margin:10px auto 24px;padding:10px 9px;border:1px dashed #d8c6af;border-radius:13px;text-align:center;font-size:13px;color:#75695b}
+.clone-aijjxs .ajx-rl{display:inline-flex;align-items:center;justify-content:center;min-width:88px;min-height:36px;padding:6px 16px;border:1px solid #d5b998;border-radius:8px;background:#fff8ec;color:#6b3418;font-size:14px;cursor:pointer;text-decoration:none}
 .clone-aijjxs .ajx-rl:hover:not(.is-disabled){background:#fbe8ce;border-color:#d8a366;color:#80410f;text-decoration:none}
 .clone-aijjxs .ajx-rl.is-disabled{opacity:.45;cursor:not-allowed}
+/* 阅读页整页暖底(真站 body.read-v3 渐变; :has 钩子, 不支持时回落全局米色) */
+body.clone-aijjxs:has(.ajx-read){background:linear-gradient(180deg,#efe6d8 0%,#eadfcf 100%)}
+body.clone-aijjxs:has(.ajx-read) .ajx-topfloat{background:linear-gradient(145deg,rgba(255,255,255,.52),rgba(255,255,255,.38));border-bottom:1px solid #e2d6c5;box-shadow:0 6px 16px rgba(33,21,11,.1)}
+body.clone-aijjxs:has(.ajx-read) .ajx-tf-a{color:#6b3418}
+body.clone-aijjxs:has(.ajx-read) .ajx-tf-a:hover{color:#a85a2a;background:rgba(255,255,255,.75)}
 
 /* ===== PSEO 落地页 ===== */
 .clone-aijjxs .ajx-crumb{display:flex;flex-wrap:wrap;gap:6px;font-size:12px;color:var(--muted);margin:14px 0 0}
@@ -215,8 +267,8 @@ body.clone-aijjxs a:hover{color:var(--brand);text-decoration:underline}
 .clone-aijjxs .ajx-404-card p{color:var(--muted);margin:0 0 18px}
 .clone-aijjxs .ajx-404-actions{display:flex;justify-content:center;flex-wrap:wrap;gap:10px}
 
-/* ===== 页脚 ===== */
-.clone-aijjxs .ajx-ft{flex-shrink:0;margin-top:24px;padding:18px 14px 30px;border-top:1px solid var(--line);font-size:13px;color:var(--muted);text-align:center;line-height:2;background:var(--paper)}
+/* ===== 页脚 [R59-2a] 对齐真站 .foot: 版心内左对齐, 无底色 ===== */
+.clone-aijjxs .ajx-ft{flex-shrink:0;max-width:1220px;width:100%;margin:24px auto 0;padding:12px 14px 30px;border-top:1px solid var(--line);font-size:13px;color:var(--muted);text-align:left;line-height:2}
 .clone-aijjxs .ajx-ft a{color:var(--brand-dark)}
 .clone-aijjxs .ajx-ft a:hover{text-decoration:underline}
 .clone-aijjxs .ajx-ft-links{margin-top:2px}
@@ -225,12 +277,16 @@ body.clone-aijjxs a:hover{color:var(--brand);text-decoration:underline}
 @media (max-width: 980px){
   .clone-aijjxs .ajx-layout{grid-template-columns:1fr}
   .clone-aijjxs .ajx-layout>aside{position:static;height:auto}
-  .clone-aijjxs .ajx-grid2{grid-template-columns:1fr}
+  .clone-aijjxs .ajx-grid2,.clone-aijjxs .ajx-grid3{grid-template-columns:1fr}
   .clone-aijjxs .ajx-kpi{grid-template-columns:repeat(2,minmax(0,1fr))}
   .clone-aijjxs .ajx-books-2col,.clone-aijjxs .ajx-gird2 .ajx-books{grid-template-columns:1fr}
   .clone-aijjxs .ajx-books-2col .ajx-line:nth-last-child(-n+2){border-bottom:1px dashed var(--line)}
   .clone-aijjxs .ajx-books-2col .ajx-line:last-child{border-bottom:0}
   .clone-aijjxs .ajx-pseo-grid{grid-template-columns:1fr}
+  /* [R59-2a] 窄屏 listbg 图文卡单列瘦身(真站断点同款) */
+  .clone-aijjxs .ajx-listbg{min-height:116px;padding:12px 12px 12px 116px}
+  .clone-aijjxs .ajx-listbg .ajx-lb-img{left:12px;top:12px;width:88px;height:118px}
+  .clone-aijjxs .ajx-listbg .ajx-lb-title a{font-size:16px}
 }
 @media (max-width: 900px){
   .clone-aijjxs .ajx-detail{grid-template-columns:102px minmax(0,1fr);gap:10px}
@@ -238,8 +294,7 @@ body.clone-aijjxs a:hover{color:var(--brand);text-decoration:underline}
 @media (max-width: 680px){
   body.clone-aijjxs{padding-top:54px}
   .clone-aijjxs .ajx-topfloat{padding:7px 10px}
-  .clone-aijjxs .ajx-logo{font-size:20px;letter-spacing:.6px}
-  .clone-aijjxs .ajx-logo::after{bottom:-6px;height:3px;width:52%}
+  .clone-aijjxs .ajx-logo{font-size:18px;letter-spacing:.6px}
   .clone-aijjxs form.ajx-search{grid-template-columns:1fr}
   .clone-aijjxs form.ajx-search input{font-size:16px}
   .clone-aijjxs .ajx-detail{grid-template-columns:84px minmax(0,1fr);gap:8px}

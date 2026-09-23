@@ -1,6 +1,16 @@
 {{define "content"}}
 <div class="kks-home">
   <div class="kks-adbanner kks-mybox">請支持我們的域名：{{siteTitle .Site}}</div>
+  {{/* 真站首屏 logo 面板下的 indexdaohang 快捷入口行(書架/閱讀記錄/排行榜/完本 → 本站對應視圖) */}}
+  <div class="kks-mybox kks-quick">
+    <ul>
+      <li><a href="{{.HistoryHref}}">閱讀記錄</a></li>
+      <li><a href="{{.RankingHref}}">排行榜</a></li>
+      <li><a href="{{.FulltextHref}}">完本小說</a></li>
+      <li><a href="{{.KeywordHref}}">熱門標籤</a></li>
+    </ul>
+    <div class="kks-clear"></div>
+  </div>
   <h3 class="kks-mytitle">熱門書單推薦</h3>
   <div class="kks-booklist-grid">
     {{range firstN 4 .WeekRank}}

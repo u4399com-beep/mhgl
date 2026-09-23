@@ -177,8 +177,14 @@ func (d Deps) renderHome(w http.ResponseWriter, r *http.Request, sp map[string][
 		d.render404(w, r, "数据加载失败")
 		return
 	}
-	clickRank, _ := d.DB.WebRankBooks("words", 10)
-	weekRank, _ := d.DB.WebRankBooks("latest", 11)
+	// [R59-2a-batch2] x2552(黑冰模板) 真站榜单行数 15/20+1(TS X2552Home: 总推荐榜 15 行/最新小说 20 行);
+	// 其余主题维持 10/11 既有口径(TopBook 恒取 latest 首位, WeekList = 其余)。
+	rankWords, rankLatest := 10, 11
+	if themeOf(site) == "x2552" {
+		rankWords, rankLatest = 15, 21
+	}
+	clickRank, _ := d.DB.WebRankBooks("words", rankWords)
+	weekRank, _ := d.DB.WebRankBooks("latest", rankLatest)
 	authors, _ := d.DB.WebHotAuthors(10)
 	booksN, authorsN, wordsN, chaptersN, _ := d.DB.WebSiteStats()
 
@@ -212,6 +218,21 @@ func (d Deps) renderHome(w http.ResponseWriter, r *http.Request, sp map[string][
 	data["WeekRank"] = weekList
 	data["Authors"] = authors
 	data["Stats"] = map[string]any{"Books": booksN, "Authors": authorsN, "Words": wordsN, "Chapters": chaptersN}
+	// [R59-2a] aijjxs 首页 1:1 补齐: 封面推荐(真站取最新 2 本带封面书) +
+	// 小说分类 4 组(真站 女生/纯美/男生/悬疑 → 本站 4 字锚 现代言情/耽美纯爱/玄幻奇幻/悬疑灵异, 各 10 本)。
+	data["CoverPicks"] = pickCoverBooks(books, 2)
+	data["CatGroups"] = d.homeCatGroups()
+	// [R59-2a-batch2] 主题化数据面(仅相关主题计算, 其余主题零开销):
+	//   pili/shipsay → CoverRow(最新上传带封面 10 本; pili 强档推荐 1 大+2 横+7 条, shipsay 大神小说 6 卡)
+	//   ddyueshu/shipsay → CatBlocks(6 组 4 字锚分类块 ×13 本; ddyueshu novelslist 6 块 / shipsay sortvisit 6 块)
+	switch themeOf(site) {
+	case "pili", "shipsay":
+		data["CoverRow"] = pickCoverBooks(books, 10)
+	}
+	switch themeOf(site) {
+	case "ddyueshu", "shipsay":
+		data["CatBlocks"] = d.homeCatBlocks()
+	}
 	data["Pager"] = makePager(page, total, size, func(p int) string {
 		return viewHref("home", sid, map[string]string{"page": strconv.Itoa(p)})
 	})
@@ -220,6 +241,52 @@ func (d Deps) renderHome(w http.ResponseWriter, r *http.Request, sp map[string][
 	data["FulltextHref"] = viewHref("fulltext", sid, nil)
 	data["RankingHref"] = viewHref("ranking", sid, nil)
 	render(w, "home", data)
+}
+
+// pickCoverBooks 从列表行里挑前 n 本有封面的书(首页「封面推荐」数据; 真站面板即取最新上传带图 2 本)。
+func pickCoverBooks(books []map[string]any, n int) []map[string]any {
+	var out []map[string]any
+	for _, b := range books {
+		if len(out) >= n {
+			break
+		}
+		if ToStrSafe(b["cover"]) != "" {
+			out = append(out, b)
+		}
+	}
+	return out
+}
+
+// homeCatGroups 首页「小说分类」4 组面板(真站 女生/纯美/男生/悬疑 → 本站 4 字锚同位映射)。
+// cat 锚走 cat:名 形态(WebResolveCatID 解析), 无该分类时 WebListBooks 返回空组由模板隐藏。
+func (d Deps) homeCatGroups() []map[string]any {
+	groupNames := []string{"现代言情", "耽美纯爱", "玄幻奇幻", "悬疑灵异"}
+	out := make([]map[string]any, 0, len(groupNames))
+	for _, name := range groupNames {
+		rows, _, err := d.DB.WebListBooks(1, 10, "cat:"+name, "", "latest", "")
+		if err != nil {
+			rows = nil
+		}
+		out = append(out, map[string]any{"Name": name, "Books": rows})
+	}
+	return out
+}
+
+// homeCatBlocks biquge 家族首页 6 组分类封面块(ddyueshu novelslist 真站 玄幻/武侠/都市/历史/
+// 网游/科幻小说 6 块 + shipsay sortvisit 6 块同构; 锚映射本站 4 字归一名)。
+// 每组 13 本: 首本作特推图位(.top/60×80 级), 后 12 本作「书名/作者」行; 字数序≈真站人气块。
+// 无该分类时组为空, 模板整块隐藏(不渲染空壳)。
+func (d Deps) homeCatBlocks() []map[string]any {
+	groupNames := []string{"玄幻奇幻", "武侠江湖", "都市生活", "历史演义", "游戏竞技", "科幻未来"}
+	out := make([]map[string]any, 0, len(groupNames))
+	for _, name := range groupNames {
+		rows, _, err := d.DB.WebListBooks(1, 13, "cat:"+name, "", "words", "")
+		if err != nil {
+			rows = nil
+		}
+		out = append(out, map[string]any{"Name": name, "Books": rows})
+	}
+	return out
 }
 
 // ---------------- 书籍页 ----------------
@@ -287,6 +354,13 @@ func (d Deps) renderBookPage(w http.ResponseWriter, r *http.Request, sp map[stri
 	recs, _ := d.DB.WebRecsBooks(ToStrSafe(book["categoryId"]), bid, 4)
 	sideRank, _ := d.DB.WebRecsBooks(ToStrSafe(book["categoryId"]), bid, 8)
 	tags, _ := d.DB.WebBookTags(bid, 16)
+	// [R59-2a] 真站书籍页「作者其它作品」侧卡(同作者他书, 排除本作, 取 6 本; 泛型 QueryMaps 不动 store 面)。
+	var authorOthers []map[string]any
+	if author := ToStrSafe(book["author"]); author != "" {
+		authorOthers, _ = d.DB.QueryMaps(`SELECT b.id, b.num, b.name, b.cover, c.name AS category
+FROM "Book" b LEFT JOIN "Category" c ON c.id=b.categoryId
+WHERE b.author=? AND b.id<>? ORDER BY b.updatedAt DESC LIMIT 6`, author, bid)
+	}
 
 	name := plainText(ToStrSafe(book["name"]))
 	author := plainText(ToStrSafe(book["author"]))
@@ -312,6 +386,7 @@ func (d Deps) renderBookPage(w http.ResponseWriter, r *http.Request, sp map[stri
 	data["Recs"] = recs
 	data["SideRank"] = sideRank
 	data["LatestChapters"] = latest
+	data["AuthorOthers"] = authorOthers
 	if len(first) > 0 {
 		data["FirstChapter"] = first[0]
 	}
@@ -611,7 +686,20 @@ func (d Deps) renderCategory(w http.ResponseWriter, r *http.Request, sp map[stri
 	site := d.resolveSite(r)
 	sid := siteID(site)
 	const size = 24
-	books, total, err := d.DB.WebListBooks(page, size, cat, "", "latest", "")
+	// [R59-2a] 真站分类页筛选行(排序/完结态)落地: sort∈latest|words|new, status 白名单同 store 层。
+	sortKey := firstQ(sp, "sort")
+	switch sortKey {
+	case "latest", "words", "new":
+	default:
+		sortKey = "latest"
+	}
+	statusKey := firstQ(sp, "status")
+	switch statusKey {
+	case "unknown", "ongoing", "completed":
+	default:
+		statusKey = ""
+	}
+	books, total, err := d.DB.WebListBooks(page, size, cat, "", sortKey, statusKey)
 	if err != nil {
 		d.render404(w, r, "数据加载失败")
 		return
@@ -637,8 +725,18 @@ func (d Deps) renderCategory(w http.ResponseWriter, r *http.Request, sp map[stri
 	data["Cat"] = cat
 	data["Cats"] = cats
 	data["Pager"] = makePager(page, total, size, func(p int) string {
-		return viewHref("category", sid, map[string]string{"cat": cat, "page": strconv.Itoa(p)})
+		return viewHref("category", sid, map[string]string{"cat": cat, "page": strconv.Itoa(p), "sort": sortKey, "status": statusKey})
 	})
+	data["Sort"] = sortKey
+	data["Status"] = statusKey
+	// [R59-2a-batch2] ddyueshu(biquge) 分类页 1:1: 真站 /{锚}/ 页顶部 .hot.bd 6 封面位 +
+	// 右栏同分类人气榜(真站 .up .r [分类]书名/作者 行; 本站以字数序近似真站人气)。
+	if themeOf(site) == "ddyueshu" {
+		hot, _, _ := d.DB.WebListBooks(1, 6, cat, "", "words", "")
+		data["HotPicks"] = hot
+		side, _, _ := d.DB.WebListBooks(1, 20, cat, "", "words", "")
+		data["SideRank"] = side
+	}
 	data["HomeHref"] = viewHref("home", sid, nil)
 	data["FulltextHref"] = viewHref("fulltext", sid, nil)
 	render(w, "category", data)

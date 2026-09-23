@@ -24,7 +24,8 @@
     <div class="trx-novelslist">
       <div class="trx-GARAN">
         <h2>新书排行榜(*^__^*)</h2>
-        {{range .Books}}
+        {{/* 真站 GARAN 恒 33 张图文卡(3 列×11 行), Books 每页 24 本不足全出 */}}
+        {{range firstN 33 .Books}}
         <div class="trx-top">
           <a class="trx-image" href="{{bookHref (str .id) (num .num) $.SiteID}}" aria-label="{{.name}}">
             <div>{{if .cover}}<img src="{{coverURL (str .cover)}}" alt="{{.name}} 封面" loading="lazy" onerror="this.remove()">{{end}}</div>
@@ -45,7 +46,8 @@
       <div class="trx-nc-l">
         <h2>最近更新小说列表</h2>
         <ul>
-          {{range .Books}}
+          {{/* 真站 .l 恒 30 行(s1-s5) */}}
+          {{range firstN 30 .Books}}
           <li>
             <span class="s1">[{{or .category "小说"}}]</span>
             <span class="s2"><a href="{{tocHref (str .id) (num .num) $.SiteID}}" aria-label="{{.name}}目录">[目]</a><a href="{{bookHref (str .id) (num .num) $.SiteID}}" title="{{.name}}">{{.name}}</a></span>

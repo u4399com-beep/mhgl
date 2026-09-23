@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 
 	"mhgl/internal/crawl/callback"
 	"mhgl/internal/crawl/clean"
@@ -320,8 +321,10 @@ func (b *Bridge) Contents(_ context.Context, p callback.ContentsPayload) error {
 		}
 		// [R51-3-b] 超长正文防静默截断: >1.5MB 整章 skip + taskLog warn(宁缺毋残),
 		// 章节保持 fetched=false 由下轮增量重试承担
-		if len([]rune(rawHtml)) > contentMaxRunes {
-			b.taskLog("warn", fmt.Sprintf("章节正文超长(%d 字符 > 1.5MB 上限), 跳过本章防截断残文入库: %s", len([]rune(rawHtml)), asStr(url, 120)))
+		// ([R59-2c-batch2] rune 计数改 utf8.RuneCountInString: 修前 len([]rune) 对
+		// 兆级正文整份物化 []rune 切片(4 字节/码点)纯为计数, 内存放大无谓)
+		if n := utf8.RuneCountInString(rawHtml); n > contentMaxRunes {
+			b.taskLog("warn", fmt.Sprintf("章节正文超长(%d 字符 > 1.5MB 上限), 跳过本章防截断残文入库: %s", n, asStr(url, 120)))
 			continue
 		}
 		if rawHtml == "" {

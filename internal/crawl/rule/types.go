@@ -78,8 +78,10 @@ type FetchConfig struct {
 	ProxyCountries    string            `json:"proxyCountries,omitempty"`
 }
 
-// CleanConfig 内容清洗配置 —— Go 侧不做内容清洗(契约 §4: clean 传回 TS 侧执行),
-// 仅解析保形供能力校验/透传, 引擎不消费
+// CleanConfig 内容清洗配置 —— [R55 起单体化] Go 引擎已内置内容清洗(clean 包
+// CleanContentHTML 消费本配置: bridge Contents/Book 与 engine TestRule 均经
+// clean.FromRuleRaw 按规则原始 JSON 构建), 旧「clean 传回 TS 侧执行」口径已废;
+// 本结构体保留用于 Sanitize/能力校验与字段形态对齐
 type CleanConfig struct {
 	RemoveSelectors []string `json:"removeSelectors"`
 	AdPatterns      []string `json:"adPatterns"`

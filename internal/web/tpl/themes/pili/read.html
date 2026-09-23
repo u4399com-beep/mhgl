@@ -26,9 +26,9 @@
     <b>双击滚屏</b>
   </div>
   <div class="pli-panel pli-read-panel">
-    <h1 class="pli-read-title">{{.Book.name}}</h1>
-    <p class="pli-read-sub">{{.Chapter.title}}</p>
-    <p class="pli-read-info">{{.Book.author}} · {{or .Book.category "小说"}}</p>
+    <h1 class="pli-read-title">{{.Chapter.title}}</h1>
+    <p class="pli-read-sub">《{{.Book.name}}》</p>
+    <p class="pli-read-info">{{.Book.author}} · {{or .Book.category "小说"}} · {{fmtWords .Book.wordCount}} · 更新：{{dateShort .Book.updatedAt}}</p>
     <div class="pli-readcontent">
       {{if .Chapter.content}}
       <div id="view_content_txt" class="pli-read-txt">{{readHTML (str .Chapter.content)}}</div>

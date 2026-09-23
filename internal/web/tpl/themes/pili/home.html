@@ -47,6 +47,55 @@
       {{end}}
     </ul>
   </div>
+  {{if .CoverRow}}
+  <div class="pli-strong">
+    <div class="pli-strong-head">强档推荐</div>
+    <div class="pli-strong-body">
+      {{with index .CoverRow 0}}
+      <a class="pli-strong-big" href="{{bookHref (str .id) (num .num) $.SiteID}}" aria-label="{{.name}}">
+        {{if .cover}}<img src="{{coverURL (str .cover)}}" alt="{{.name}} 封面" onerror="this.remove()">{{end}}
+        <span class="pli-strong-big-name">{{.name}}</span>
+      </a>
+      {{end}}
+      <div class="pli-strong-side">
+        {{range $i, $b := .CoverRow}}{{if ge $i 1}}{{if le $i 2}}
+        <div class="pli-strong-item">
+          <a class="pli-strong-item-title" href="{{bookHref (str $b.id) (num $b.num) $.SiteID}}">{{$b.name}}</a>
+          <a class="pli-strong-item-author" href="{{viewHrefSearch (str $b.author) $.SiteID}}">{{$b.author}}</a>
+          <p class="pli-strong-item-desc">{{if $b.intro}}{{excerpt $b.intro 64}}{{else}}暂无简介{{end}}</p>
+        </div>
+        {{end}}{{end}}{{end}}
+      </div>
+      <div class="pli-strong-strip">
+        {{range $i, $b := .CoverRow}}{{if ge $i 3}}{{if le $i 9}}
+        <a class="pli-book-cell" href="{{bookHref (str $b.id) (num $b.num) $.SiteID}}">
+          {{if $b.cover}}<img src="{{coverURL (str $b.cover)}}" alt="{{$b.name}} 封面" loading="lazy" onerror="this.remove()">{{end}}
+          <span class="pli-book-cell-name">{{$b.name}}</span>
+        </a>
+        {{end}}{{end}}{{end}}
+      </div>
+      <div class="pli-clear"></div>
+    </div>
+  </div>
+  {{end}}
+  {{if .CatGroups}}
+  <div class="pli-catcols">
+    {{range firstN 2 .CatGroups}}{{if .Books}}
+    <div class="pli-catcol">
+      <div class="pli-rank-head"><a href="{{catHref (str .Name) $.SiteID}}">{{.Name}}频道</a></div>
+      <div class="pli-catcol-list">
+        {{range firstN 4 .Books}}
+        <a class="pli-book-cell pli-book-cell-lg" href="{{bookHref (str .id) (num .num) $.SiteID}}">
+          {{if .cover}}<img src="{{coverURL (str .cover)}}" alt="{{.name}} 封面" loading="lazy" onerror="this.remove()">{{end}}
+          <span class="pli-book-cell-name">{{.name}}</span>
+        </a>
+        {{end}}
+      </div>
+    </div>
+    {{end}}{{end}}
+    <div class="pli-clear"></div>
+  </div>
+  {{end}}
   <div class="pli-rank-wr">
     <div class="pli-rank-head">热门排行榜<small>（按字数）</small></div>
     <div class="pli-rank-panel">

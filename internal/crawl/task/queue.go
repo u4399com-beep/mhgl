@@ -188,19 +188,27 @@ func sliceByBookStartEnd(urls []string, bookStart, bookEnd int) []string {
 	return urls[s:e]
 }
 
-// parseIDInt 书号字符串转 int(非数字 → 0)
+// parseIDInt 书号字符串转 int(非数字 → 0)。
+// [R59-2c-batch2] 溢出钳修后遗留回绕缺陷: 修前仅在乘加后判 n > 1<<62, 20 位数字串在
+// 第 20 位乘 10 时越过 int64 上限回绕为负(如 "10000000000000000000" → -8446744073709551616),
+// 负值既不触发钳制也被 to-from 跨度校验放行(双负数跨度可为小值), 直灌队列展开成垃圾书号
+// 逐个抓取; 修后乘 10 前预判(n > clamp/10)与乘加后双闸, 任何越界路径恒收敛 1<<62
 func parseIDInt(s string) int {
-	n := 0
+	const clamp = int64(1) << 62
+	n := int64(0)
 	for _, c := range s {
 		if c < '0' || c > '9' {
 			return 0
 		}
-		n = n*10 + int(c-'0')
-		if n > 1<<62 { // 防溢出
-			return 1 << 62
+		if n > clamp/10 { // 乘 10 前预判: 防回绕为负绕过越界检查
+			return int(clamp)
+		}
+		n = n*10 + int64(c-'0')
+		if n > clamp {
+			return int(clamp)
 		}
 	}
-	return n
+	return int(n)
 }
 
 // ---------------- 批次随机(纯函数供单测) ----------------
