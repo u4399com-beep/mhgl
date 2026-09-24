@@ -302,6 +302,8 @@ func normalizeTaskData(body map[string]any, full bool) (map[string]any, string) 
 		out["smartComplete"] = body["smartComplete"] != false
 	}
 	if when("autoSuggest") {
+		// [R63-c] autoSuggest 为透传预留字段: 落库但不被 Go 引擎消费(见 store.Task.AutoSuggest
+		// 注) —— 引擎侧 buildPayload/流水线无读取点, 开启与否不改变采集行为
 		out["autoSuggest"] = body["autoSuggest"] != false
 	}
 	if when("autoRefresh") {

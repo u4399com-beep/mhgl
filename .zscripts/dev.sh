@@ -106,7 +106,7 @@ wait_for_service() {
 
 cleanup() {
 	if [ -n "${DEV_PID:-}" ] && kill -0 "$DEV_PID" >/dev/null 2>&1; then
-		echo "Stopping Next.js dev server (PID: $DEV_PID)..."
+		echo "Stopping Go dev server (PID: $DEV_PID)..."
 		kill "$DEV_PID" >/dev/null 2>&1 || true
 	fi
 }
@@ -125,20 +125,24 @@ echo "[BUN] Installing dependencies..."
 bun install
 log_step_end "bun install"
 
-log_step_start "bun run db:push"
-echo "[BUN] Setting up database..."
-bun run db:push
-log_step_end "bun run db:push"
+# [R63-c] Go 单体化对齐: 原 `bun run db:push` 引用已随 src/ 删除而消失
+# (package.json 无此脚本, dev.log 实证 "error: Script not found" 后 set -e 中断,
+# 平台引导链断裂) —— 换为现行幂等引导脚本 bootstrap; 原 Next.js dev 换为
+# Go 单体启动链 scripts/dev-go.sh(构建+启动, scripts/ 现役实现)
+log_step_start "bun run bootstrap"
+echo "[BUN] Setting up database (bootstrap-db.ts 幂等引导)..."
+bun run bootstrap
+log_step_end "bun run bootstrap"
 
-log_step_start "Starting Next.js dev server"
-echo "[BUN] Starting development server..."
-bun run dev &
+log_step_start "Starting Go server"
+echo "[GO] Starting Go monolith server (scripts/dev-go.sh)..."
+bash scripts/dev-go.sh &
 DEV_PID=$!
-log_step_end "Starting Next.js dev server"
+log_step_end "Starting Go server"
 
-log_step_start "Waiting for Next.js dev server"
-wait_for_service "localhost" "3000" "Next.js dev server"
-log_step_end "Waiting for Next.js dev server"
+log_step_start "Waiting for Go server"
+wait_for_service "localhost" "3000" "Go server"
+log_step_end "Waiting for Go server"
 
 log_step_start "Health check"
 echo "[BUN] Performing health check..."
@@ -148,7 +152,7 @@ log_step_end "Health check"
 
 start_mini_services
 
-echo "Next.js dev server is running in background (PID: $DEV_PID)."
+echo "Go server is running in background (PID: $DEV_PID)."
 echo "Use 'kill $DEV_PID' to stop it."
 disown "$DEV_PID" 2>/dev/null || true
 unset DEV_PID

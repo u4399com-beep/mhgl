@@ -372,7 +372,19 @@ func TestRule(ruleConfigJSON, sampleURL string) (map[string]any, error) {
 	if stage == "list" {
 		fetchURL = rule.ExpandListURL(sampleURL, 1)
 	}
-	res, err := fc.Fetch(ctx, fetchURL, "")
+	// [R63-c] content 段对齐生产语义(FetchContentRef): contentProxyUrl 包裹优先+失败
+	// 降级直连 —— 与任务引擎 crawlChapter 同链路。修前 test 恒走普通 Fetch, contentProxyUrl
+	// 不生效(R62 实证: bqg713 test 直连 403 而生产经 unlock 包裹 200), 操作员按 test 结果
+	// 修规则会得出与生产行为相悖的结论。list/book/toc 段保持普通页面抓取语义不变
+	var (
+		res fetch.Result
+		err error
+	)
+	if stage == "content" {
+		res, err = fc.FetchContentRef(ctx, fetchURL, "")
+	} else {
+		res, err = fc.Fetch(ctx, fetchURL, "")
+	}
 	if err != nil {
 		return nil, fmt.Errorf("抓取失败: %v", err)
 	}

@@ -34,14 +34,19 @@ type Task struct {
 	IntervalMin, IntervalMax int
 	SmartCategory            bool
 	SmartComplete            bool
-	AutoSuggest              bool
-	AutoRefresh              bool
-	RefreshIntervalMin       int
-	Status                   string
-	Progress                 string // JSON
-	Stats                    string // JSON
-	CreatedAt                int64
-	UpdatedAt                int64
+	// AutoSuggest [R63-c] 存储/API 透传字段, Go 引擎零消费(预留): 任务创建/更新
+	// 可写入(admin_tasks normalizeTaskData), 引擎 buildPayload/流水线不读取 ——
+	// 历史语义为「采集词回填搜索联想词库」(TS 时代 suggestWords 统计键同源预留,
+	// bridge statsKeys 白名单中的 suggestWords 现亦无生产者)。接入前该开关仅落库
+	// 不改变采集行为
+	AutoSuggest        bool
+	AutoRefresh        bool
+	RefreshIntervalMin int
+	Status             string
+	Progress           string // JSON
+	Stats              string // JSON
+	CreatedAt          int64
+	UpdatedAt          int64
 }
 
 const taskCols = `id,name,ruleId,mode,bookUrl,bookIds,bookIdFrom,bookIdTo,listUrl,listStart,listEnd,bookStart,bookEnd,

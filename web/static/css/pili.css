@@ -234,3 +234,30 @@
 .clone-pili .pli-in-panel{padding-left:18px;list-style:decimal}
 .clone-pili .pli-in-panel li{line-height:2;border-bottom:1px dashed #efe7d8}
 .clone-pili .pli-in-panel li:last-child{border-bottom:0}
+
+/* ---- R63-a pili 首页 banner 轮播(源站 blur-banner bxSlider 形态复刻: 356px 高横向大图+底部渐变遮罩+橙色《书名》角标; 静态 CSS doubled-list 无缝 marquee, hover 暂停, 移动端降高) ---- */
+.clone-pili .pli-banner-wr{width:1200px;max-width:100%;margin:14px auto 0;background:#1c1611;border-radius:4px;overflow:hidden}
+.clone-pili .pli-banner{position:relative;height:320px;overflow:hidden;background:#241c14}
+.clone-pili .pli-banner::before{content:"";position:absolute;inset:0;background:radial-gradient(ellipse at 30% 40%,rgba(251,136,41,.14),transparent 60%),radial-gradient(ellipse at 75% 65%,rgba(120,80,30,.18),transparent 65%)}
+.clone-pili .pli-banner-con{position:absolute;inset:0}
+.clone-pili .pli-banner-list{display:flex;list-style:none;margin:0;padding:0;height:100%;width:max-content;animation:pliBannerScroll 28s linear infinite}
+.clone-pili .pli-banner-list:hover{animation-play-state:paused}
+.clone-pili .pli-banner-item{position:relative;flex:0 0 560px;height:100%;overflow:hidden;border-right:1px solid rgba(0,0,0,.35)}
+.clone-pili .pli-banner-item img{width:100%;height:100%;object-fit:cover;display:block;filter:brightness(.82) saturate(1.05)}
+.clone-pili .pli-banner-item a{display:block;height:100%;position:relative}
+.clone-pili .pli-banner-info{position:absolute;left:0;right:0;bottom:46px;margin:0;padding:26px 22px 10px;background:linear-gradient(transparent,rgba(10,6,2,.82));color:#fff}
+.clone-pili .pli-banner-info strong{font-size:19px;font-weight:700;letter-spacing:1px;text-shadow:0 1px 3px rgba(0,0,0,.6)}
+.clone-pili .pli-banner-name{position:absolute;left:22px;bottom:12px;display:inline-block;background:#fb8829;color:#fff;font-size:13px;line-height:1;padding:6px 10px;border-radius:2px;white-space:nowrap;max-width:calc(100% - 44px);overflow:hidden;text-overflow:ellipsis}
+.clone-pili .pli-banner-icon{display:inline-block;width:0;height:0;border-style:solid;border-width:4px 0 4px 6px;border-color:transparent transparent transparent #fff;margin-left:5px;vertical-align:middle}
+@keyframes pliBannerScroll{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
+@media (prefers-reduced-motion: reduce){.clone-pili .pli-banner-list{animation:none}}
+@media (max-width: 980px){
+  .clone-pili .pli-banner{height:240px}
+  .clone-pili .pli-banner-item{flex:0 0 420px}
+}
+@media (max-width: 640px){
+  .clone-pili .pli-banner{height:200px}
+  .clone-pili .pli-banner-item{flex:0 0 86vw}
+  .clone-pili .pli-banner-info strong{font-size:16px}
+  .clone-pili .pli-banner-name{bottom:10px}
+}

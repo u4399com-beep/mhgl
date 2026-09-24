@@ -9,6 +9,8 @@
 // sticky / pathJitter / SSRF 守卫(allowLoopback + tokenUrl/contentProxyUrl 隐式
 // 豁免 + 拨号后 RemoteAddr 复检防 DNS rebinding) / Retry-After 尊重(钳 120s/兜底 30s)
 // / 拦截页检测(blockcheck.go, Result.Blocked 出口判定)
+// / TLS 指纹仿真(utls.go, fetch.tlsFingerprint=chrome: 直连/代理隧道后 Chrome
+// ClientHello 重放, ALPN 钉 h1; 缺省关, 内部通道 token/contentProxy 不启用)
 // 语义权威: /home/z/my-project/src/lib/crawl/fetcher.ts(子集移植)
 // ============================================================
 package fetch
@@ -20,6 +22,8 @@ import (
 	"compress/zlib"
 	"context"
 	"crypto/rand"
+	"crypto/tls"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -407,15 +411,11 @@ func New(cfg rule.FetchConfig) *Client {
 	c.jar = jar
 	// CookieJar 恒开(契约 §4: autoCookie; 静态 Cookie 按目标 host 懒注入 jar, 见 seedJar)
 	// 直连传输带拨号级 SSRF 复检(dial 后 RemoteAddr 复用 isDeniedIP — DNS rebinding
-	// TOCTOU 防护: ssrfCheck 的 DNS 校验与实际拨号之间窗口)
+	// TOCTOU 防护: ssrfCheck 的 DNS 校验与实际拨号之间窗口); TLS 指纹仿真开启时
+	// https 目标经 newDirectTransport 的 DialTLSContext(utls)接管
 	c.hc = &http.Client{
-		Transport: &http.Transport{
-			MaxIdleConnsPerHost: 8,
-			MaxConnsPerHost:     0,
-			IdleConnTimeout:     60 * time.Second,
-			DialContext:         c.safeDialContext(cfg.AllowLoopback),
-		},
-		Jar: c.jar,
+		Transport: c.newDirectTransport(cfg.AllowLoopback),
+		Jar:       c.jar,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) >= 5 {
 				return errors.New("重定向次数过多")
@@ -527,6 +527,23 @@ func (c *Client) BlockedCount() int64 { return c.blockedCount.Load() }
 // RateLimitedCount 429/503 收到计数(可观测)
 func (c *Client) RateLimitedCount() int64 { return c.rateLimitedCount.Load() }
 
+// newDirectTransport 直连传输: 既有口径(DialContext=SSRF 复检拨号, 定制后无内建 h2);
+// fetch.tlsFingerprint=chrome 时 https 目标改走 DialTLSContext(TCP 拨号+SSRF 复检
+// 后 utls 握手, 见 utls.go), 空表 TLSNextProto 锁死 h1 与既有口径一致
+func (c *Client) newDirectTransport(allowLoopback bool) *http.Transport {
+	tr := &http.Transport{
+		MaxIdleConnsPerHost: 8,
+		MaxConnsPerHost:     0,
+		IdleConnTimeout:     60 * time.Second,
+		DialContext:         c.safeDialContext(allowLoopback),
+	}
+	if tlsFingerprintEnabled(c.cfg.TLSFingerprint) {
+		tr.DialTLSContext = c.safeTLSDialContext(allowLoopback)
+		tr.TLSNextProto = map[string]func(string, *tls.Conn) http.RoundTripper{}
+	}
+	return tr
+}
+
 // safeDialContext 拨号级 SSRF 复检: 拨号完成后校验 RemoteAddr 实连 IP(封 DNS rebinding
 // TOCTOU: 域名校验时解析到公网 IP, 实拨时被 rebinding 到私网的攻击面)。仅作用于直连
 // 传输; 代理传输的目标解析发生在代理侧, 操作员自担其代理配置。
@@ -601,7 +618,9 @@ func (c *Client) pickUA(host string) string {
 	case "desktop":
 		pool = desktopUAPool
 	}
-	ua := pool[int(randomIndex())%len(pool)]
+	// [R63-b 协同修复] randomIndex 全量 64 位后先模后转 int: 修前 int(randomIndex())%len
+	// 在 uint64 高位为 1 时 int 溢出为负 → 池内负索引 panic
+	ua := pool[int(randomIndex()%uint64(len(pool)))]
 	if host != "" {
 		if len(c.uaOrder) >= 200 { // FIFO 淘汰 20 最旧(R3-1 同口径)
 			drop := 20
@@ -619,11 +638,12 @@ func (c *Client) pickUA(host string) string {
 	return ua
 }
 
-// randomIndex crypto/rand 派生索引(独立于 pickUA 的历史实现, 复用时间熵回退)
+// randomIndex crypto/rand 派生索引(独立于 pickUA 的历史实现, 复用时间熵回退)。
+// [R63-c] 修前读 8 字节却只拼接低 4 字节(熵截半), 全量 64 位经 LittleEndian 还原
 func randomIndex() uint64 {
 	var b [8]byte
 	if _, err := rand.Read(b[:]); err == nil {
-		return uint64(b[0]) | uint64(b[1])<<8 | uint64(b[2])<<16 | uint64(b[3])<<24
+		return binary.LittleEndian.Uint64(b[:])
 	}
 	return uint64(time.Now().UnixNano())
 }
@@ -732,23 +752,41 @@ func (c *Client) markProxySuccess(pu *url.URL) {
 	}
 }
 
-// transportFor 代理传输复用(池内每代理一个 Transport)
-func (c *Client) transportFor(pu *url.URL) *http.Transport {
+// transportFor 代理传输复用(池内每代理一个 Transport)。httpsTarget 且开启
+// TLS 指纹仿真时改用 utls 隧道形态(独立键隔离, 不与普通形态互串):
+//
+//	普通形态: Proxy=代理URL(https 目标由 Transport 内建 CONNECT+crypto/tls)
+//	utls 形态: Proxy 置空(DialTLSContext 自管 CONNECT/SOCKS5 隧道+utls 握手,
+//	           Go Transport 对代理 https 的内建 TLS 无法注入); http 目标不经本形态,
+//	           DialContext 回落直连 SSRF 复检拨号(仅承接跨 scheme 重定向等边缘路径)
+func (c *Client) transportFor(pu *url.URL, httpsTarget bool) *http.Transport {
 	if pu == nil {
 		return c.hc.Transport.(*http.Transport)
 	}
+	useTLSFP := httpsTarget && tlsFingerprintEnabled(c.cfg.TLSFingerprint)
+	key := pu.String()
+	if useTLSFP {
+		key += "|tlsfp"
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if tr, ok := c.proxyTans[pu.String()]; ok {
+	if tr, ok := c.proxyTans[key]; ok {
 		return tr
 	}
 	tr := &http.Transport{
-		Proxy:               http.ProxyURL(pu),
 		MaxConnsPerHost:     8,
 		MaxIdleConnsPerHost: 8, // [R59-2c-batch2] 缺省 2 < MaxConnsPerHost=8: 批内 8 线程下每请求冷启拨号+代理隧道重握手, 连接churn放大时延与指纹异常; 与直连传输(hc)同口径对齐
 		IdleConnTimeout:     60 * time.Second,
 	}
-	c.proxyTans[pu.String()] = tr
+	if useTLSFP {
+		tr.Proxy = nil
+		tr.DialTLSContext = c.proxyTLSDialContext(pu)
+		tr.DialContext = c.safeDialContext(c.cfg.AllowLoopback)
+		tr.TLSNextProto = map[string]func(string, *tls.Conn) http.RoundTripper{}
+	} else {
+		tr.Proxy = http.ProxyURL(pu)
+	}
+	c.proxyTans[key] = tr
 	return tr
 }
 
@@ -971,7 +1009,16 @@ func (c *Client) rawFetch(ctx context.Context, rawURL, refererURL string, direct
 		}
 	}()
 
-	group := c.mirrorGroup(reqURL)
+	// [R63-c] 内部通道(contentProxy/token 直连, loopbackExempt=true)不做镜像组展开:
+	// mirrorGroup 会把 contentProxy URL 的 host 改写成源站镜像域 —— bqg713 实配
+	// contentProxyUrl(127.0.0.1:3010/unlock?url={url})+mirrorDomains(apige.cc 等)并存,
+	// 修前主代理失败一次即把 /unlock?url= 探针打向源站镜像(烧配额+向源站泄漏 unlock
+	// 代理形态), 且镜像站返回的 200 HTML 会被 contentProxy 通道当纯文本包进 <p> 污染
+	// 正文。token 预取本就经 doOnce 直连不走 rawFetch, 与此处豁免口径天然一致
+	group := []string{reqURL}
+	if !loopbackExempt {
+		group = c.mirrorGroup(reqURL)
+	}
 	attempts := 1 + c.cfg.Retries
 	var lastErr error
 	// [R53-2a] 非 403/429 的 4xx(400/401/405/412...)不可切换镜像(TS isMirrorSwitchableError
@@ -1187,7 +1234,7 @@ func (c *Client) doOnce(ctx context.Context, rawURL, refererURL string, extraHea
 		client = c.hcLocal
 	} else if !directOnly {
 		if pu = c.pickProxy(u); pu != nil {
-			client = &http.Client{Transport: c.transportFor(pu), Timeout: timeout, Jar: c.jar, CheckRedirect: c.hc.CheckRedirect}
+			client = &http.Client{Transport: c.transportFor(pu, u.Scheme == "https"), Timeout: timeout, Jar: c.jar, CheckRedirect: c.hc.CheckRedirect}
 		}
 	}
 	resp, err := client.Do(req)

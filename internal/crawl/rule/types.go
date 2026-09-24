@@ -74,6 +74,7 @@ type FetchConfig struct {
 	FetchMode         string            `json:"fetchMode,omitempty"` // scrapling-* 不支持
 	ScraplingBridge   string            `json:"scraplingBridgeUrl,omitempty"`
 	CurlImpersonate   string            `json:"curlImpersonate,omitempty"` // 不支持(capability)
+	TLSFingerprint    string            `json:"tlsFingerprint,omitempty"`  // ""|none(缺省关)|chrome(utls Chrome ClientHello 仿真, 仅 https 生效)
 	NeedsProxy        bool              `json:"needsProxy,omitempty"`      // 不支持(capability)
 	ProxyCountries    string            `json:"proxyCountries,omitempty"`
 }
@@ -329,9 +330,24 @@ func sanitizeFetchConfig(f *FetchConfig) {
 	f.JitterMs = clampZeroOK(f.JitterMs, 0, 30000) // 0 = 不抖动, 合法
 	f.ScraplingBridge = sanitizeSingleLine(sanitizeStr(f.ScraplingBridge, 300))
 	f.CurlImpersonate = sanitizeSingleLine(sanitizeStr(f.CurlImpersonate, 40))
+	// tlsFingerprint 枚举白名单(R63-b): 仅 "chrome" 开启(utls Chrome 规格仿真);
+	// 空/none/未知值一律归零关闭(脏值直通引擎会让未知指纹形态静默生效)
+	if strings.ToLower(strings.TrimSpace(f.TLSFingerprint)) == "chrome" {
+		f.TLSFingerprint = "chrome"
+	} else {
+		f.TLSFingerprint = ""
+	}
 	f.ProxyCountries = sanitizeStr(f.ProxyCountries, 100)
-	if f.ProxyRotation != "round-robin" && f.ProxyRotation != "random" &&
-		f.ProxyRotation != "least-used" && f.ProxyRotation != "sticky-host" {
+	// [R63-c] 轮换形态归一: 缺省("")保留 —— 引擎侧 pickProxy 缺省=加权随机(R58-2a,
+	// 成功计数为权; TS 语义权威 undefined/缺省=随机形态)。修前 "" 被强改 "round-robin",
+	// 使加权缺省在所有经 Sanitize 的生产路径(任务启动/TestRule)永不生效, 纯轮换劫持缺省。
+	// "roundrobin" 别名归一; least-used/sticky-host 形状保留(现行由加权缺省承接);
+	// 其余未知显式值回退历史纯轮换
+	switch f.ProxyRotation {
+	case "roundrobin":
+		f.ProxyRotation = "round-robin"
+	case "", "round-robin", "random", "least-used", "sticky-host":
+	default:
 		f.ProxyRotation = "round-robin"
 	}
 }

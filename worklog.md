@@ -7562,3 +7562,22 @@ Stage Summary:
 - R62 十一条指令全部有交付: ①Go 化零遗漏+src 删除 ②规则 bqg713 裁决闭环+字段矩阵 R61 基础上复核 ③智能 9 项审计(8 有效 1 留档)+TDK 2 真虫修 ⑥预览挂掉=recover.sh 实战验证+watchdog 5s 自愈实证 ⑦遗留四项(src/删除/auth Secure/TLS 留待/三大部头增量完成) ⑧多 agent+反反爬/采集逐行修复(auth 误报面分析/SSRF 形态裁决/清洗真虫) ⑨75MB+ 清理+脚本收敛 ⑩11 主题×5 页面矩阵+3 主题横滚修+伪影判定 ⑪清洗底线两真虫+7 变体增强+矩阵验收 PASS
 - 断连 8 次(全轮 12 agent 中 6 断)全按纪律核收: 断连代理成果无一丢失(62-d 矩阵/62-f 双接线/62-d2 四修/62-c3 七修全部实证采纳或修复落地)
 - 遗留移交: TLS 指纹仿真(待用户决策投入度)/autoSuggest Go 侧标注处置/三大部头后续增量/旧 git token 撤销提醒
+---
+Task ID: R63-主控收口
+Agent: 主控
+Task: R63 全轮收口——主题1:1源站对比深化+TLS指纹仿真+逐行抓虫+遗留收尾
+
+Work Log:
+- [开局] 沙箱首次连续轮存活(f069b10 在/服务 200/watchdog 在岗/DB 143MB); utls v1.8.2 沙箱网络拉取成功预检
+- [批1 断连核收×3] 63-a 留 8 源站摸底素材(/tmp/r63a-src 27 页+7 CSS vs /tmp/r63a-local 40 页); 63-b 留 utls.go(230 行)+utls_test.go(311 行)+fetch/engine/types 接线; 63-c 留 3 测试文件+TestRule/封面碰撞/ProxyRotation 修复+autoSuggest 标注+.zscripts 修复; 三者均断在 worklog 前, 主题 aijjxs 未受影响
+- [63-b TLS 指纹仿真·核收采纳] fetch.tlsFingerprint="chrome" 规则级开关(枚举白名单 Sanitize); utls.go 三路 dial 链路(直连 safeDialContext→utls 握手/CONNECT 隧道自管/SOCKS5)全部复用 SSRF 复检, 内部通道 token/contentProxy 恒不启用, ALPN 钉 h1(稳定优先), 证书校验保持; 代理传输独立键隔离(|tlsfp); 实测: yueyouxs base/chrome 双跑均 200 count=15(310ms)回归 PASS, fanqianxs chrome 仍 403=CF 多层校验预期内(规则本走桥采集); 定位=消除「Go 默认 JA3 精确识别」类拦截
+- [63-c 逐行抓虫·核收采纳] ①TestRule content 段对齐生产语义(FetchContentRef 包裹)——R62 发现的 test 语义局限正式修复(bqg713 test 复测待部署后, 本轮未及) ②saveCoverFile 并发碰撞(os.CreateTemp 原子命名替代 NowMS+rand 万分之一碰撞窗) ③ProxyRotation 缺省劫持(""被强改 round-robin, 加权随机缺省永不生效→归一保留) ④pickUA int 溢出负索引 panic(randomIndex 高位 1 时) ⑤randomIndex 熵截半(读 8 字节只用 4) ⑥task_test E2E flake 加固(waitForStatus 轮询, 全量负载下 done 回调迟到) ⑦autoSuggest 预留字段注释(admin_tasks+models) ⑧.zscripts/dev.sh 平台引导断链修复(db:push 已消失脚本→bootstrap+dev-go.sh)+README 留档 ⑨新增 bridge_cover/engine_testrule/contentproxy_mirror 三测试
+- [63-a 主题 1:1 对比·主控续做] 8 源站全活(aijjxs/pili/shipsay/kks101/ddyueshu/ggd66/huangjinwu/qb23; x2552/trxsw/x33yq 未及, 留下轮); 粗骨架 SequenceMatcher 读数被内容节点稀释不可用→改词干集合语义对比+人工核验; 误报甄别: aijjxs author-side(数据面+模板早已实现, 10 本库无同作者数据态空显)/kks101 booklist(已复刻, kks-cover-stack vs booklist-cover-stack 前缀异名)/ggd66 tuijian(ggd-fengtui 已对应)/huangjinwu book-grid(hjw-book-grid 已对应)/ddyueshu 友链(ddy-firendlink 已对应); **最终唯一真差异=pili 首页 banner 轮播块**(源站 bxSlider blur-banner 大图轮播)
+- [pili banner 复刻·主控实施] 模板 home.html 插 .pli-banner-wr 块(CoverRow 前 5 本 doubled); CSS 22 条(356px 源站高→320 实现/底部渐变遮罩/橙色 #fb8829《书名》角标+箭头 icon/静态 CSS marquee 动画+hover 暂停+prefers-reduced-motion 降级/980px 240px+640px 200vw 降高); CSS 版本 bump r59-2a→r63-a; web_test 加 pli-banner-item 渲染钉; 部署重启+浏览器实证: 5 item/5 图加载/sw 1280 与 390 双视口零横滚/截图视觉与源站形态一致
+- [门禁] gofmt 清(63-c 两文件+web_test 修后归一)/vet 0/14 包全绿/build OK/部署后服务 200
+- [git] 本 commit: utls TLS 指纹仿真+6 真虫修复(TestRule 语义/封面碰撞/ProxyRotation 劫持/pickUA panic/熵截半/flake)+.zscripts 引导修复+pili banner 复刻+渲染钉
+
+Stage Summary:
+- ⑥主题 1:1: 8 源站可达性摸底+语义级对比方法落地(词干集合+人工核验, 甄别出 5 处前缀异名误报), 7/8 主题确认形态同构, 唯一真差异 pili banner 本轮复刻交付; x2552/trxsw/x33yq 源站对比留下轮
+- ⑧反反爬: TLS 指纹仿真(utls Chrome ClientHello)全链交付(规则级开关/三路 dial/SSRF 保持/回归实证), 6 真虫修复(含 1 个平台引导断链+1 个 R62 遗留语义局限)
+- 遗留移交: bqg713 test 复测(部署后应过)/fanqianxs CF 多层校验(桥采集为主)/pili read 弹幕块(互动功能, 低优先)/x2552+trxsw+x33yq 源站对比/智能 PSEO 开关默认关(用户可后台开启)

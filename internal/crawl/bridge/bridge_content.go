@@ -8,7 +8,6 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"math/rand"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -434,11 +433,20 @@ func (b *Bridge) saveCoverFile(buf []byte, contentType string) (string, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
-	name := fmt.Sprintf("book_%d_%d%s", store.NowMS(), rand.Intn(10000), coverExtByType(contentType))
-	if err := os.WriteFile(filepath.Join(dir, name), buf, 0o644); err != nil {
+	// [R63-c] os.CreateTemp 原子唯一命名: 修前 NowMS+rand(10000) 在并发封面落盘的
+	// 同毫秒窗口可碰撞(1/10000), WriteFile 静默覆写 → 两本书指向同一封面文件
+	f, err := os.CreateTemp(dir, fmt.Sprintf("book_%d_*.%s", store.NowMS(), coverExtByType(contentType)))
+	if err != nil {
 		return "", err
 	}
-	return defaultCoverSubdir + "/" + name, nil
+	name := f.Name()
+	if err := f.Close(); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(name, buf, 0o644); err != nil {
+		return "", err
+	}
+	return defaultCoverSubdir + "/" + filepath.Base(name), nil
 }
 
 // tagStripRe 纯文本长度计算用标签剥离(与 <[^>]+> 同构)

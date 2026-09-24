@@ -78,6 +78,26 @@
     </div>
   </div>
   {{end}}
+  {{if .CoverRow}}
+  <div class="pli-banner-wr">
+    <div class="pli-banner">
+      <div class="pli-banner-con">
+        <ul class="pli-banner-list">
+          {{$n := 0}}
+          {{range .CoverRow}}{{if lt $n 5}}{{$n = add $n 1}}
+          <li class="pli-banner-item">
+            <a href="{{bookHref (str .id) (num .num) $.SiteID}}" title="{{.name}}">
+              {{if .cover}}<img src="{{coverURL (str .cover)}}" alt="{{.name}} 封面" loading="lazy" onerror="this.remove()">{{end}}
+              <p class="pli-banner-info"><strong>{{.name}}</strong></p>
+              <span class="pli-banner-name">《{{.name}}》<i class="pli-banner-icon"></i></span>
+            </a>
+          </li>
+          {{end}}{{end}}
+        </ul>
+      </div>
+    </div>
+  </div>
+  {{end}}
   {{if .CatGroups}}
   <div class="pli-catcols">
     {{range firstN 2 .CatGroups}}{{if .Books}}

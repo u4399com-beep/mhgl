@@ -194,6 +194,28 @@ func (m *mockCB) snapshot() []recCallback {
 	return append([]recCallback(nil), m.kinds...)
 }
 
+// waitForStatus 轮询等待指定终态回调到达(全量测试并行负载下 done 回调
+// 相对断言存在亚秒级迟到窗口, 单跑不现; [R63-c] 加固防 flake)。
+func (m *mockCB) waitForStatus(t *testing.T, status string, timeout time.Duration) recCallback {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for {
+		last := recCallback{}
+		for _, k := range m.snapshot() {
+			if k.Kind == "status" {
+				last = k
+			}
+		}
+		if last.Payload["status"] == status {
+			return last
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("等待 status=%s 超时(%v), 末次 = %v", status, timeout, last.Payload["status"])
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
 func (m *mockCB) countKind(kind string) int {
 	n := 0
 	for _, k := range m.snapshot() {
@@ -350,12 +372,7 @@ func TestE2ESingleMode(t *testing.T) {
 	if mock.countKind("cover") != 1 {
 		t.Fatalf("cover 回调数 = %d, want 1", mock.countKind("cover"))
 	}
-	last := recCallback{}
-	for _, k := range mock.snapshot() {
-		if k.Kind == "status" {
-			last = k
-		}
-	}
+	last := mock.waitForStatus(t, "done", 5*time.Second)
 	if last.Payload["status"] != "done" {
 		t.Fatalf("末次 status = %v, want done", last.Payload["status"])
 	}

@@ -490,6 +490,7 @@ func panelSeedData(theme, page string) map[string]any {
 func TestThemes_1to1Panels(t *testing.T) {
 	cases := []struct{ theme, page, marker string }{
 		{"pili", "home", "pli-strong"}, {"pili", "home", "pli-catcols"}, {"pili", "category", "pli-filters"},
+		{"pili", "home", "pli-banner-item"},
 		{"shipsay", "home", "ss-sortvisit"},
 		{"ddyueshu", "home", "ddy-nl-content"}, {"ddyueshu", "category", "ddy-up-l"}, {"ddyueshu", "category", "ddy-up-r"},
 		{"kks101", "home", "kks-quick"}, {"kks101", "category", "kks-newnovels"}, {"kks101", "book", "kks-tagul"},
