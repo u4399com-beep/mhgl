@@ -26,10 +26,11 @@ type TaskController interface {
 
 // Deps API 层依赖集。
 type Deps struct {
-	DB     *store.DB
-	Auth   *auth.Service
-	Tasks  TaskController
-	IsProd bool
+	DB           *store.DB
+	Auth         *auth.Service
+	Tasks        TaskController
+	IsProd       bool
+	CookieSecure bool // 会话 Cookie Secure 属性显式开关(config.COOKIE_SECURE; 请求经 https 时自动叠加, 见 auth.SecureFromRequest)
 }
 
 // Register 挂载全部 API 路由。

@@ -4,6 +4,9 @@
 //	Cookie: heis_admin = base64url({exp,nonce}).base64url(HMAC_SHA256(payload, secret))
 //	会话 12h; 校验 = 重算 HMAC + 等长短路 + constant-time 比较 + exp 检查
 //	+ payload 仅允许 {exp,nonce} 两键 + nonce 必须 32 位 hex(R3-32 防御深度)
+//	Cookie 属性: HttpOnly + SameSite=Lax + Path=/; Secure 跟随部署形态
+//	(api 层合成: COOKIE_SECURE=1 或请求经 https, 见 IssueSession/SecureFromRequest,
+//	缺省 false 保 http 沙箱预览可用 —— [R62-f] 接线, 替代 R58-2c 移除的死分支)
 //	登录限流: 每 IP 60s 滑窗 5 次, Map 容量 1 万 FIFO 淘汰 + 5min 周期清扫(R3-31)
 //	dev 缺省密码 audit-fix-2025 / secret heis-session-secret-fixed-2025(与原实现同源);
 //	生产(GO_ENV=production)缺失一律 fail-closed。
@@ -93,7 +96,11 @@ func (s *Service) sign(payload string) string {
 }
 
 // IssueSession 签发会话并写入 Set-Cookie; secret 缺失(生产)返回错误。
-func (s *Service) IssueSession() (string, error) {
+// secure: 是否附加 Secure 属性 —— 由部署形态决定(api 层合成: 显式 COOKIE_SECURE=1
+// 或请求经 https[TLS 直连/反代 X-Forwarded-Proto], 见 SecureFromRequest);
+// 缺省 false 保 http 沙箱预览可用(非 localhost 的 http 源上 Secure Cookie
+// 会被现代浏览器直接拒收, 登录全断)。
+func (s *Service) IssueSession(secure bool) (string, error) {
 	if s.secret == "" {
 		return "", fmt.Errorf("auth: SESSION_SECRET 未配置(fail-closed)")
 	}
@@ -107,18 +114,19 @@ func (s *Service) IssueSession() (string, error) {
 	})
 	payload := base64.RawURLEncoding.EncodeToString(payloadBytes)
 	token := payload + "." + s.sign(payload)
-	return cookieHeader(CookieName, token, int(sessionMaxAge.Seconds())), nil
+	return cookieHeader(CookieName, token, int(sessionMaxAge.Seconds()), secure), nil
 }
 
 // ClearSession 注销 Cookie(Expires+Max-Age 双保险, 对齐 R3-33)。
 // [R56-2b-fix] 修前传 maxAge=0 —— Go http.Cookie 语义中 MaxAge==0 表示「不输出
 // Max-Age 属性」, 实际 Set-Cookie 只有手动追加的 Expires; 改传 -1 显式产出
 // Max-Age=0, 与 TS clearSessionCookie 的双保险口径逐字对齐。
-func (s *Service) ClearSession() string {
-	return cookieHeader(CookieName, "", -1) + "; Expires=Thu, 01 Jan 1970 00:00:00 GMT"
+// secure 需与签发时一致(Secure Cookie 的注销报文同样带 Secure, 属性对齐防残留)。
+func (s *Service) ClearSession(secure bool) string {
+	return cookieHeader(CookieName, "", -1, secure) + "; Expires=Thu, 01 Jan 1970 00:00:00 GMT"
 }
 
-func cookieHeader(name, val string, maxAge int) string {
+func cookieHeader(name, val string, maxAge int, secure bool) string {
 	h := &http.Cookie{
 		Name:     name,
 		Value:    val,
@@ -126,14 +134,21 @@ func cookieHeader(name, val string, maxAge int) string {
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   maxAge,
+		Secure:   secure,
 	}
 	return h.String()
 }
 
-// [R58-2c 清理] 修前存在 var secureAttr="" 与「非空则追加 Secure」死分支 —— 无任何
-// 注入点(main 未接线), 分支永不可达。是否启用 Secure 取决于部署形态(当前沙箱为
-// http 直连/反代, 贸然启用会断后台登录); 如需启用应由主控在 NewService(isProd) 处
-// 显式接线后另行决策, 不保留不可达代码。
+// SecureFromRequest 请求是否经 https 到达(TLS 直连 或 反代 X-Forwarded-Proto: https)。
+// [R62-f] 误报面分析: 无反代直连 http 时客户端可伪造 X-Forwarded-Proto 骗取 Secure
+// 属性 —— 但 Set-Cookie 只回给伪造者自身, 且非 https 源上带 Secure 的 Set-Cookie
+// 会被浏览器拒收(只影响伪造者自己的会话), 无安全增益也无放大面, 故无需可信代白名单。
+func SecureFromRequest(r *http.Request) bool {
+	if r.TLS != nil {
+		return true
+	}
+	return strings.EqualFold(strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")), "https")
+}
 
 // VerifySession 校验 Cookie 值; 成功 true。
 func (s *Service) VerifySession(cookieValue string) bool {

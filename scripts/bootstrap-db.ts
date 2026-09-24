@@ -2,8 +2,8 @@
 // 空库一键引导脚本 (R54) —— 沙箱重置/DB 清空后完整重建运行态
 // 用法: bun run scripts/bootstrap-db.ts [--start]
 //   --start   重建后立即启动三大部头任务(缺省只创建不启动)
-// 前置: dev server 已在 3000 端口运行(bun run dev), Go 引擎已启动
-//       (mini-services/crawler-go)。幂等: 重复执行安全(规则先删后建/
+// 前置: Go 单体已在 3000 端口运行(bun run dev, 引擎内置于主二进制)。
+// 幂等: 重复执行安全(规则先删后建/
 //       站点按域名查重/任务按名称查重)。
 // 步骤:
 //   1. 登录取 heis_admin cookie(ADMIN_PASSWORD 可覆盖, 缺省同登录页)

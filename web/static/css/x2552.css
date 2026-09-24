@@ -132,6 +132,8 @@
 .clone-x2552 .x2-book-cov{display:block;flex-shrink:0;margin:0 0 0 15px;padding:7px;border:1px solid #e4e4e4;background:#fff}
 .clone-x2552 .x2-book-cov img{display:block;width:120px;height:150px;object-fit:cover;background:#eee}
 .clone-x2552 .x2-book-meta{flex:1 1 320px;min-width:0}
+/* [R62-d] 元数据表最新章列收缩(旧版 td overflow:hidden+max-width:0 口径; 修 390px 表格擑出页宽) */
+.clone-x2552 .x2-shrink{overflow:hidden;max-width:0}
 .clone-x2552 .x2-btnlinks{margin:10px 0 0;display:flex;flex-wrap:wrap;gap:8px}
 .clone-x2552 .x2-btn{display:inline-block;height:26px;line-height:24px;padding:0 14px;font-size:12px;background:linear-gradient(180deg,#fff 0%,#e5e5e5 100%);border:1px solid #e4e4e4;color:#2f468f;cursor:pointer;text-decoration:none}
 .clone-x2552 .x2-btn:hover{color:#ff6600;text-decoration:none;position:relative;top:1px}
@@ -201,7 +203,7 @@
 @media (max-width: 980px){
   .clone-x2552 .x2-main,.clone-x2552 .x2-m-head,.clone-x2552 .x2-m-menu-wr,.clone-x2552 .x2-announce-wr{box-sizing:border-box}
   .clone-x2552 .x2-center-side{width:100%;margin:8px 0 0}
-  .clone-x2552 .x2-centerm{padding-left:0;margin-top:8px}
+  .clone-x2552 .x2-centerm{padding-left:0;margin-top:8px;flex:1 1 100%}
   .clone-x2552 .x2-left{width:100%}
   .clone-x2552 .x2-deco{display:none}
   .clone-x2552 .x2-shelf{display:none}

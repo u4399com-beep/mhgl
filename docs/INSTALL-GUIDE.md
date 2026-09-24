@@ -50,7 +50,7 @@ cd mhgl
 ```
 
 预期：目录下可见 `cmd/`、`internal/`、`web/`、`scripts/`、`package.json`。
-`src/` 是 TS 时代历史资产（仅作主题复刻视觉参考），**不参与构建**，可忽略。
+（TS 时代历史源码 `src/` 已于 R62-a 移除，语义全部在 `internal/`；TS 时代规则种子归档于 `docs/legacy-seeds/`。）
 
 ---
 
@@ -219,6 +219,28 @@ curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3000/
 | `DB_PATH` | `db/custom.db` | SQLite 路径 |
 | `MEM_LIMIT_MB` | 600 | Go 内存软上限 |
 | `ADMIN_PASSWORD` | 见后台登录页提示 | 管理密码（生产**必改**） |
+| `COOKIE_SECURE` | `0` | 会话 Cookie `Secure` 属性（生产 https 才开，见下节） |
+
+### 生产 HTTPS / 反向代理：启用 Secure Cookie（[R62-f]）
+
+管理后台的会话 Cookie（`heis_admin`）默认带 `HttpOnly + SameSite=Lax + Path=/`，**不带 `Secure`**——这是为了 http 直连与 http 沙箱预览可用（浏览器会拒收非 localhost 的 http 源上带 `Secure` 的 Set-Cookie，误开会直接断后台登录）。生产 https 部署时按两种形态之一开启：
+
+1. **反代终结 TLS（Caddy / Nginx / 宝塔等，推荐）**：只需反代把 `X-Forwarded-Proto: https` 传给主服务，登录/注销报文会**自动**附加 `Secure`，无需任何配置。Nginx 参考片段：
+
+   ```nginx
+   location / {
+       proxy_pass http://127.0.0.1:3000;
+       proxy_set_header X-Forwarded-Proto $scheme;   # 关键：告知真实协议
+       proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+       proxy_set_header Host $host;
+   }
+   ```
+
+   Caddy 反代（`reverse_proxy 127.0.0.1:3000`）默认透传 `X-Forwarded-Proto`，零配置。
+
+2. **显式开关**：`COOKIE_SECURE=1`（等价 `true/yes/on`）强制所有登录/注销报文带 `Secure`，适合已确认整站只有 https 入口的部署。**http 访问的站点不要开**。
+
+判定口径：`Secure = COOKIE_SECURE=1 或 本次请求经 https 到达（TLS 直连或 X-Forwarded-Proto: https）`；注销报文与签发保持同一属性（防 Cookie 残留）。
 
 ---
 

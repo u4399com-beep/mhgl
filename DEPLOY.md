@@ -14,7 +14,7 @@ docker compose ps                # STATUS 出现 (healthy) 即就绪 → http://
 - 非 root 容器（uid 1001）：宿主机先 `sudo mkdir -p ./db ./data && sudo chown -R 1001:1001 ./db ./data`。
 - 数据全在宿主机 **`./db`**（SQLite）与 **`./data`**（封面/下载产物）——备份/迁移=搬这两个目录。
 
-**裸机（Bun）路线**：`bun install && bun run db:push && bun run build && bun run start`（进程常驻用 systemd/`Restart=on-failure`；dev 守护 `scripts/dev-watchdog.sh`）——详见教程 §6。
+**裸机路线**：`bun install && bash scripts/recover.sh`（装 Go→建表→启动→引导→看门狗，幂等；进程常驻用 systemd/`Restart=on-failure`）——详见教程 §6/§15。
 
 ## ② 环境变量表（权威全清单 = `.env.example`，每项带中文注释）
 
@@ -22,11 +22,12 @@ docker compose ps                # STATUS 出现 (healthy) 即就绪 → http://
 | --- | --- | --- |
 | `ADMIN_PASSWORD` | 回落 `audit-fix-2025` | **生产必改**；compose 自动透传进容器，改完 `docker compose up -d` 重建生效 |
 | `SESSION_SECRET` | 编译期常量 | 生产设独立随机长串（`openssl rand -hex 32`） |
+| `COOKIE_SECURE` | `0` | [R62-f] 生产 https 才设 `1`：登录/注销 Set-Cookie 附加 `Secure`；反代终结 TLS 时透传 `X-Forwarded-Proto: https` 也会自动叠加（http 预览误开会断后台登录）。见教程 §7.4 |
 | `DATABASE_URL` | 容器内 `file:/app/db/custom.db` | compose 已改写指向 `./db` 卷，无需手动设 |
 | `AUTO_FILL` | `1` | 装完自动导入规则+建任务；`=0` 关闭 |
 | `AUTO_FILL_RULES` | `fanqie,qimao,deqixs,80ge,jhssd,ttkan,bqg713` | 自动填充站点 key 清单（`pili`/`xjp` 需显式加） |
 | `LOG_LEVEL` | `info` | `debug`/`info`/`warn`/`error` |
-| `GO_CALLBACK_SECRET` / `GO_ENGINE_URL` / `GO_PORT` | `go-cb-2025-mhgl` / `http://127.0.0.1:3032` / `3032` | Go 引擎回调密钥与地址（单机无需改） |
+| `GO_CALLBACK_SECRET` | `go-cb-2025-mhgl` | 内置采集引擎回调密钥（单机无需改；引擎已并入主二进制，`GO_ENGINE_URL`/`GO_PORT` 已废弃） |
 | 反反爬开关 | 多数缺省关；`RETRY_AFTER_HONOR` **缺省开** | `CHALLENGE_ESCALATE` `RESPONSE_SANITY` `FETCH_BINARY_RETRY` `FETCH_BODY_LEN_CHECK` `FETCH_AL_POOL` `HOSTGATE_PACE_PROFILE` `PROXY_HEALTH_SCORING` —— 缺省值/作用/代价权威表见教程 §8 |
 | 内存护栏 | `FETCH_RSS_HALT_MB=1950` `FETCH_RSS_RESUME_MB=1900` `FETCH_RSS_SOFT_MB=1550` | 熔断线/恢复水位/软水位行为解释见教程 §9 |
 | 国内构建加速 | `USE_CN_MIRROR` `NPM_REGISTRY` `BUN_IMAGE` `NODE_IMAGE` 等 | install.sh 默认自适应；手动覆盖见教程 §6.8 |
@@ -37,6 +38,6 @@ docker compose ps                # STATUS 出现 (healthy) 即就绪 → http://
 | --- | --- |
 | **端口 3000 被占** | 改 `docker-compose.yml` ports 左侧（`"8080:3000"`）→ `docker compose up -d`；裸机 `ss -ltnp \| grep 3000` 杀旧进程（EADDRINUSE 详见教程 §13.1） |
 | **健康检查一直 starting / unhealthy** | `docker compose logs --tail 100`：见「数据库结构同步失败」→ 备份后强制同步流程（教程 §13.11）；见「/app/db 不可写」→ `sudo chown -R 1001:1001 ./db ./data`；慢机器把 start_period 调大 |
-| **任务大量超时 / 频繁自动暂停** | 超时(`code=28`)=源站慢/限速，引擎自动退避+镜像切换，人工放慢节奏（教程 §13.2）；「内存硬熔断 3/3 自动暂停」→ 等自动续采或**切 Go 引擎**（`bash scripts/install-go.sh` + `mini-services/crawler-go` 里 `bash run.sh`，教程 §5/§9/§13.3） |
+| **任务大量超时 / 频繁自动暂停** | 超时(`code=28`)=源站慢/限速，引擎自动退避+镜像切换，人工放慢节奏（教程 §13.2）；「内存硬熔断 3/3 自动暂停」→ 等自动续采；采集引擎已并入主二进制（R55 起），无需单独启动（教程 §5/§9/§13.3） |
 
-> 升级：Docker `git pull && bash install.sh`；裸机 `git pull && bun install && bun run db:push` + 重启 + Go 引擎 `bash run.sh` 自动重编。备份/回滚/深度 FAQ 全流程见 **[docs/INSTALL-GUIDE.md](./docs/INSTALL-GUIDE.md) §11~§13**。
+> 升级：Docker `git pull && bash install.sh`；裸机 `git pull && bun install && bash scripts/recover.sh`。备份/回滚/深度 FAQ 全流程见 **[docs/INSTALL-GUIDE.md](./docs/INSTALL-GUIDE.md) §11~§13**。

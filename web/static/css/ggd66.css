@@ -92,8 +92,10 @@ body.clone-ggd66 ul,body.clone-ggd66 ol{list-style:none}
 .ggd-class li a{display:block;padding:8px 0;font-size:16px;color:#00886d}
 .ggd-class li a:hover{color:#f50}
 .ggd-class li a.is-active{color:#f50;font-weight:700}
-.ggd-bgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding-top:4px}
-.ggd-p10{position:relative;height:100%;box-sizing:border-box;border:1px dashed #ccc;border-radius:4px;padding:10px 10px 10px 64px}
+/* [R62-d2] min-width:0 三连(bgrid 作为 bookbox-wrap 网格项/bookbox 网格项+p10 flex 项)——
+   默认 min-width:auto 让 nowrap 行最小内容宽(~637px)逐级擑破网格轨 → 390px 搜索/分类/书库页 sw=654 */
+.ggd-bgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding-top:4px;min-width:0}
+.ggd-p10{position:relative;height:100%;box-sizing:border-box;border:1px dashed #ccc;border-radius:4px;padding:10px 10px 10px 64px;min-width:0}
 .ggd-p10:hover{border-color:#f50}
 .ggd-num{position:absolute;left:10px;top:50%;margin-top:-12px;display:block;width:22px;height:24px;border-radius:4px;text-align:center;font-size:13px;font-weight:700;line-height:24px;color:#eee;background:#56ccb5}
 .ggd-p10:hover .ggd-num{background:#f50}
@@ -231,5 +233,5 @@ body.clone-ggd66 .ggd-searchbox,body.clone-ggd66 .ggd-searchform{display:flex;ga
 body.clone-ggd66 .ggd-searchform input[type=text]{flex:1;min-width:0;height:32px;border:1px solid #d8d8d8;border-radius:3px;padding:0 10px;font-size:14px}
 body.clone-ggd66 .ggd-searchform button{height:32px;padding:0 18px;border:0;border-radius:3px;background:#00886d;color:#fff;cursor:pointer}
 body.clone-ggd66 .ggd-bookbox-wrap{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px;padding:12px 0}
-body.clone-ggd66 .ggd-bookbox{display:flex;gap:10px;background:#fff;border:1px solid #e8e8e8;border-radius:3px;padding:10px}
+body.clone-ggd66 .ggd-bookbox{display:flex;gap:10px;min-width:0;background:#fff;border:1px solid #e8e8e8;border-radius:3px;padding:10px}
 body.clone-ggd66 .ggd-toc-body{background:#fff;border:1px solid #e8e8e8;border-radius:3px;padding:14px 16px;margin-bottom:14px}

@@ -203,12 +203,16 @@ type ParsedBook struct {
 	Cover         string `json:"coverUrl,omitempty"`
 	Status        string `json:"status,omitempty"`
 	LatestChapter string `json:"latestChapter,omitempty"`
+	// [R62-f] 引擎接线(R61-1B 盲区消除): book.fields.wordCount 提取值经 parseWordCount
+	// 归一(纯数字/「353.5万字」双形态); 作 Book.wordCount 初始值, 正文聚合完成后
+	// 聚合值覆写(bridge.Contents), 聚合值为 0(目录中断)时保留本值
+	WordCount int64 `json:"wordCount,omitempty"`
 }
 
 // ParseBook 书籍信息解析: 借道 ParseList(urlFields=['cover']) 提取字段。
 // status/keywords/latestChapter 的 cleanTextField 为其唯一清洗点(TS R25-2-5 同口径);
 // name/author/category/intro 由 bridge 回调层清洗(bridge.go book 回调经 clean.CleanTextField
-// /CleanIntro), 此处不重复
+// /CleanIntro), 此处不重复; wordCount 经 parseWordCount 归一([R62-f] 接线, 见上)
 func ParseBook(htmlStr, baseURL string, pageRule *PageRule) ParsedBook {
 	res := ParseList(htmlStr, baseURL, pageRule, []string{"cover"})
 	f := map[string]string{}
@@ -239,6 +243,9 @@ func ParseBook(htmlStr, baseURL string, pageRule *PageRule) ParsedBook {
 	}
 	if s := cleanTextFieldMinimal(f["latestChapter"], 0); s != "" {
 		pb.LatestChapter = s
+	}
+	if n := parseWordCount(f["wordCount"]); n > 0 {
+		pb.WordCount = n
 	}
 	return pb
 }

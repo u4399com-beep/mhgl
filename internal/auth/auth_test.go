@@ -10,8 +10,11 @@ package auth
 import (
 	"crypto/hmac"
 	"crypto/sha256"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -23,7 +26,7 @@ func newTestService() *Service {
 
 func TestIssueVerifyRoundtrip(t *testing.T) {
 	s := newTestService()
-	cookie, err := s.IssueSession()
+	cookie, err := s.IssueSession(false)
 	if err != nil {
 		t.Fatalf("IssueSession: %v", err)
 	}
@@ -66,7 +69,7 @@ func TestVerifySessionRejects(t *testing.T) {
 		}
 	}
 	// 结构被篡改(取合法会话改 mac)
-	good, _ := s.IssueSession()
+	good, _ := s.IssueSession(false)
 	val := strings.TrimPrefix(strings.Split(good, ";")[0], CookieName+"=")
 	if s.VerifySession(val + "x") {
 		t.Errorf("tampered mac must be rejected")
@@ -76,7 +79,7 @@ func TestVerifySessionRejects(t *testing.T) {
 func TestClearSessionEmitsMaxAgeZero(t *testing.T) {
 	// [R56-2b-fix] 修前 MaxAge=0 被 net/http 语义吞掉(不输出 Max-Age 属性)
 	s := newTestService()
-	h := s.ClearSession()
+	h := s.ClearSession(false)
 	if !strings.Contains(h, "Max-Age=0") {
 		t.Errorf("clear cookie must carry Max-Age=0, got %q", h)
 	}
@@ -84,6 +87,63 @@ func TestClearSessionEmitsMaxAgeZero(t *testing.T) {
 		t.Errorf("clear cookie must carry epoch Expires, got %q", h)
 	}
 }
+
+// [R62-f] Cookie 属性全谱钉: HttpOnly/SameSite/Path/Max-Age 恒定, Secure 跟随入参。
+func TestCookieAttributes(t *testing.T) {
+	s := newTestService()
+	plain, err := s.IssueSession(false)
+	if err != nil {
+		t.Fatalf("IssueSession: %v", err)
+	}
+	if !strings.Contains(plain, "HttpOnly") {
+		t.Errorf("session cookie must be HttpOnly, got %q", plain)
+	}
+	if !strings.Contains(plain, "SameSite=Lax") {
+		t.Errorf("session cookie must be SameSite=Lax, got %q", plain)
+	}
+	if !strings.Contains(plain, "Path=/") {
+		t.Errorf("session cookie must be Path=/, got %q", plain)
+	}
+	if !strings.Contains(plain, "Max-Age=43200") {
+		t.Errorf("session cookie must carry 12h Max-Age, got %q", plain)
+	}
+	if strings.Contains(plain, "Secure") {
+		t.Errorf("secure=false must NOT emit Secure attr, got %q", plain)
+	}
+	sec, err := s.IssueSession(true)
+	if err != nil {
+		t.Fatalf("IssueSession(secure): %v", err)
+	}
+	if !strings.Contains(sec, "Secure") {
+		t.Errorf("secure=true must emit Secure attr, got %q", sec)
+	}
+	if !strings.Contains(s.ClearSession(true), "Secure") {
+		t.Errorf("clear(secure=true) must emit Secure attr")
+	}
+}
+
+// [R62-f] SecureFromRequest: TLS 直连/XFP=https 判 true, 其余 false。
+func TestSecureFromRequest(t *testing.T) {
+	r := httptest.NewRequest("POST", "/api/auth/login", nil)
+	if authSecure(r) {
+		t.Errorf("plain http request must not be secure")
+	}
+	r.Header.Set("X-Forwarded-Proto", "https")
+	if !authSecure(r) {
+		t.Errorf("XFP=https must be secure")
+	}
+	r.Header.Set("X-Forwarded-Proto", "http")
+	if authSecure(r) {
+		t.Errorf("XFP=http must not be secure")
+	}
+	r2 := httptest.NewRequest("POST", "/api/auth/login", nil)
+	r2.TLS = &tls.ConnectionState{} // TLS 直连
+	if !authSecure(r2) {
+		t.Errorf("r.TLS != nil must be secure")
+	}
+}
+
+func authSecure(r *http.Request) bool { return SecureFromRequest(r) }
 
 func TestLoginRateLimitWindow(t *testing.T) {
 	s := newTestService()

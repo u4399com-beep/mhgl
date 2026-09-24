@@ -36,7 +36,7 @@ func main() {
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
 	log.Printf("[mhgl] boot: port=%s db=%s prod=%v", cfg.Port, cfg.DBPath, cfg.IsProd)
 
-	// 内存软顶(对齐 crawler-go GOMEMLIMIT=600MB 口径)
+	// 内存软顶(GOMEMLIMIT 同源口径 600MB)
 	debug.SetMemoryLimit(int64(cfg.MemLimitMB) << 20)
 
 	// ---- 数据层 ----
@@ -85,7 +85,7 @@ func main() {
 		_, _ = w.Write([]byte(`{"ok":true,"app":"mhgl","engine":"go","rssMB":` +
 			itoa64(int64(ms.Sys>>20)) + `,"uptimeMs":` + itoa64(time.Since(bootAt).Milliseconds()) + `}`))
 	})
-	api.Register(mux, api.Deps{DB: db, Auth: authSvc, Tasks: tasks, IsProd: cfg.IsProd})
+	api.Register(mux, api.Deps{DB: db, Auth: authSvc, Tasks: tasks, IsProd: cfg.IsProd, CookieSecure: cfg.CookieSecure})
 	web.Register(mux, web.Deps{DB: db, Auth: authSvc})
 
 	// 静态资源

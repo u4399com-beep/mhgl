@@ -342,6 +342,9 @@ type BookPayload struct {
 	CoverURL      string `json:"coverUrl,omitempty"`
 	Status        string `json:"status,omitempty"`
 	LatestChapter string `json:"latestChapter,omitempty"`
+	// [R62-f] 已归一字数(parseWordCount, 0=规则未提取/解析失败); bridge 侧作
+	// Book.wordCount 初始值(新建/全覆盖置入, 增量仅填空), 聚合完成后由聚合值覆写
+	WordCount int64 `json:"wordCount,omitempty"`
 }
 
 // Book book 回调: 响应 {ok, bookId, skipContent, lastChapterUrl} 必须消费

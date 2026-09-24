@@ -73,6 +73,6 @@ const server = http.createServer((req, res) => {
   res.writeHead(404); res.end('404')
 })
 
-server.listen(3030, () => console.log('mock novel site on :3030'))
+server.listen(Number(process.env.PORT || 3030), () => console.log('mock novel site on :3030'))
 
 export {}

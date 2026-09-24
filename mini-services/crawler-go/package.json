@@ -1,9 +1,0 @@
-{
-  "name": "crawler-go",
-  "version": "1.0.0",
-  "private": true,
-  "description": "Go 采集引擎 mini-service(契约: agent-ctx/go-engine/CONTRACT.md) — bun run dev 启动",
-  "scripts": {
-    "dev": "bash run.sh"
-  }
-}

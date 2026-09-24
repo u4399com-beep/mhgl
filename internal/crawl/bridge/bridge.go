@@ -414,6 +414,12 @@ func (b *Bridge) Book(_ context.Context, p callback.BookPayload) (callback.BookD
 		b.taskLog("info", fmt.Sprintf("智能完结初判: %s(%s)", det.Status, det.Reason))
 	}
 
+	// [R62-f] 声明字数初始值(规则 book.fields.wordCount 提取, 引擎已归一; ≤0 = 未提取)
+	bookWC := p.WordCount
+	if bookWC < 0 {
+		bookWC = 0
+	}
+
 	// 幂等定位对齐 runner [R28-4-L9]: sourceUrl 或 同名同作者 跨源合并(存量设计语义保留)
 	existing, err := b.db.CrawlFindBookForCallback(bookURL, bookName, author)
 	if err != nil {
@@ -424,11 +430,13 @@ func (b *Bridge) Book(_ context.Context, p callback.BookPayload) (callback.BookD
 	if existing != nil {
 		if task.RecrawlMode == "full" {
 			// 完全覆盖对齐 runner: 删旧章节, 重置封面/字数/末章
+			// [R62-f] 字数重置为声明初始值(规则提取到才 >0, 否则同旧口径归 0);
+			// 正文聚合完成后由聚合值覆写(bridge.Contents)
 			if _, err := b.db.Exec(`DELETE FROM "Chapter" WHERE bookId=?`, existing.ID); err != nil {
 				return callback.BookDecision{}, err
 			}
 			cov := coverURL
-			wc := int64(0)
+			wc := bookWC
 			upd := &store.CrawlBookUpdate{
 				Name:          bookName,
 				Author:        author,
@@ -487,6 +495,11 @@ func (b *Bridge) Book(_ context.Context, p callback.BookPayload) (callback.BookD
 			if detectedStatus == "unknown" {
 				upd.Status = ""
 			}
+			// [R62-f] 字数语义: book 字段=初始值 —— 增量路径仅在库内字数为 0 时填充
+			// (历史书从未获得聚合/声明值的补位), 不覆写既有聚合值(聚合值更准)
+			if bookWC > 0 && existing.WordCount <= 0 {
+				upd.WordCount = &bookWC
+			}
 			if err := b.db.CrawlUpdateBookFromCallback(existing.ID, upd); err != nil {
 				return callback.BookDecision{}, err
 			}
@@ -498,6 +511,7 @@ func (b *Bridge) Book(_ context.Context, p callback.BookPayload) (callback.BookD
 		b.taskLog("info", fmt.Sprintf("更新书籍: 《%s》(%s)", bookName, bookURL))
 	} else {
 		// 伪静态书号分配(与 runner 同源 nextBookNum + P2002 重试)
+		// [R62-f] 新书带声明字数初始值(未提取时为 0, 聚合链兜底)
 		id, err := b.createBookWithNum(&store.Book{
 			Name:         bookName,
 			Author:       author,
@@ -505,6 +519,7 @@ func (b *Bridge) Book(_ context.Context, p callback.BookPayload) (callback.BookD
 			Intro:        intro,
 			Status:       detectedStatus,
 			Cover:        coverURL,
+			WordCount:    bookWC,
 			SourceURL:    bookURL,
 			SourceRuleID: nullStr(task.RuleID),
 			StorageMode:  task.StorageMode,

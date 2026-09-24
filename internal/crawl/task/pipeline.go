@@ -265,6 +265,7 @@ func (t *Task) processBook(bookURL string) bool {
 		CoverURL:      parsed.Cover,
 		Status:        parsed.Status,
 		LatestChapter: parsed.LatestChapter,
+		WordCount:     parsed.WordCount, // [R62-f] 引擎接线: 声明字数作初始值
 	})
 	if err != nil {
 		// 契约 §0: 重试耗尽仍败 → 任务转 paused; 书不入库, 恢复后重试本书

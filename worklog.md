@@ -7443,3 +7443,122 @@ Stage Summary:
 - 真虫3处全修并实证: 跨源合并身份劫持(BookID直通+首源身份锁定)/deqixs双包裹SSRF(真实URL+contentProxyUrl重接线)/软拦截垃圾书(双空元数据失败链); 智能分类兜底无条件化
 - 100本填充超额达成(106本/30043章/10类型/0未分类); 12条用户指令全部有交付或复核
 - 遗留: x33yq规则Go引擎不支持项待查; Setting表残留feedbackEnabled脏键(无代码消费, 停机窗口清); 三大部头增量可续; TLS指纹待用户决策
+---
+Task ID: R62-b
+Agent: general-purpose (智能功能全链路审计)
+Task: 检查所有「智能化」设置(智能分类/智能完结/智能pseo/智能TDK等)——①是否存在 ②是否正确触发接线 ③参数有效性 ④实际效果验证; 发现问题即修复+四连门禁
+
+Work Log:
+- [A·普查] rg 全量定位 internal/ 智能面 9 项: 智能分类(smart.go SmartCategory)/智能完结(SmartCompleteDetect 初判 bridge.go:404 + 终判 bridge_content.go:154)/智能PSEO(pseoAutoGenerate 入库钩子 store/pseo_auto.go + api/pseo_auto.go ≤5页/书)/智能TDK(web/seo.go composeBook/Toc/ChapterTdk 11 页面形态全接线)/autoRefresh(engine.go:278 scheduleAutoRefresh done 钩子重排)/autoSuggest(仅存储零消费=死设置)/代理智能调度(proxy/periodic.go 收割6h+stale校验30min, boot 日志实证启动)/智能重试限速(fetch.go 1+Retries 退避 400ms<<a 钳8s + Retry-After 尊重钳120s 兜底30s + per-host 冷却窗)/违禁词智能清洗(bridge installBannedWordsProvider 60s TTL→clean 管线+public 渲染双层); 另封 face 封面兜底(coverURL 占位+onerror 回落, 库内 0 无封面)
+- [B1·智能分类] 词表链(source 归一→库内原样→关键词评分→无条件兜底综合其他)完整; 只读副本查 categoryId NULL/空=0(R61 修复持续生效); 词表覆盖: 35 规则中 30 条带 book/list fields.category 提取, 5 条无提取(x33yq/80ge/kanunu8/xinjianpan/jpxs123)走关键词臂+兜底臂, 语义闭环无漏
+- [B2·智能完结] 词表核验: completeWords 13 词(已完结/完本/全本/大结局/final/completed 等)+ongoingWords 14 词且未完优先; 3 本在库书分布 completed×2+ongoing×1 与源站事实一致(我在万界送外卖末章含「大结局」→completed✓/黄金瞳现实中已完结✓/万相之王连载✓); 终判仅在库里 unknown 时回填(不覆写), 末章 latestChapter 回写正常; 引擎 ParsedBook 白名单无 WordCount 盲区已由 bridge_content CrawlSumWordCount 聚合回写补位(3/3 本 wordCount>0)
+- [B3·智能pseo] Go 侧已实现且已接线(非缺失): InsertBook 成功→异步钩子(panic recover 不拖累采集热路径)→pseoCreateForBook ≤5 页(keywords 拆分+BookTag 下拉词, slug=CJK+短哈希, keyword 全站唯一去重); 开关缺省关(实测 Setting 表无 pseoAutoGenerate 键=关), PseoPage=0(未开未生成); /p/{slug}[.html] 路由+TDK(row.title/description/keywords)+matchedBookIds 书单渲染齐备, 无数据时美观404; r60_feedback_test TestPseoAutoGenerateHook 覆盖开/关/去重; 结论=有效(挂起待用), 手动端点 POST /api/admin/pseo 可随时批量生成
+- [B4·智能TDK] 11 页面形态逐个 curl 实测: 书籍页/阅读页/目录页/分类页(cat:锚)/搜索页/榜单页 TDK 全部真实数据填充(书名/作者/分类/章节名/摘要截断)非占位符; 发现 3 缺陷→修复(见C); 修后用新二进制+DB /tmp 副本 :3211 实测: 首页 title「小说聚合站 - 小说聚合站」→「小说聚合站」, keywords meta 从缺失→「小说,在线阅读」, sitemap loc 三类 URL「site=X&site=X」→单 site
+- [B5·其他] autoRefresh 当前 3 任务均关(配置合法非失效); autoSuggest 判死: TS suggest.ts(百度/必应/360/DDG 下拉词聚合)未迁移, admin_content.go:59 留档「仅库内词」, BookTag 仅 manual upsert 来源→本字段在 Go 侧零消费, 影响=书籍页标签/keyword聚合页/pseo 候选少一手数据源(留档建议: 最小实现=书名+简介+章节标题词频 topN 落 BookTag, 或后台隐藏该开关; 本轮未实现)
+- [C·修复] internal/web/public.go 两处真虫: ①renderHome 首页 title — 修前 st+\" - \"+name 且 st 空回落站名+存量站点 site.title==site.name → 「小说聚合站 - 小说聚合站」站名重复; 修后 st==name 不追加/st 空回落「{站名} - 精品小说在线阅读」(对齐 TS HomeView useSiteSEO) ②handleSitemap — viewHref 内部已 joinSite 追加 site 参数, 外层再包 joinSite(…,sid) → fulltext/ranking/category 三类 loc 双写 site=X&site=X; 修后去外层包裹; 连带补齐 keywords 空回落「小说,在线阅读」(TS 同款; 修前整个 meta 不输出)
+- [D·门禁] gofmt -l internal/ 空/vet 0 错/go test -count=1 13 包全绿(含 smart/web/api/crawl/task 等)/go build -o /tmp/r62b-build OK; git diff 仅 internal/web/public.go 19+/6-
+- [验证纪律] 全程零写主库: 只读检查用 shutil.copy 副本; 修后验证 = 新二进制 + DB 副本 + PORT=3211 独立起服实测后即杀, 主服务 :3000 与 3 条在跑采集任务(黄金瞳 #311 批次在进)全程未动; 未 git commit
+- [备注] :3000 现网仍跑旧二进制, 修复待主控停机窗口重启生效(纯 SEO 质量 fix, 非紧急); pseoAutoGenerate 如需启用: Setting 表 SET pseoAutoGenerate='1' 或后台设置页开
+
+Stage Summary:
+- 智能功能 9 项全链路审计完成: 智能分类/智能完结/智能PSEO/智能TDK/autoRefresh/代理调度/智能重试限速/违禁词清洗/封面兜底 8 项「存在+接线正确+参数有效+效果实证」, autoSuggest 1 项 Go 侧未接线(留档+建议)
+- 真虫 2 处修复(首页 title 站名重复/sitemap site 参数双写)+1 处 TDK 补齐(首页 keywords 回落), 四连门禁全绿, 修后行为经独立端口+DB 副本实测确认
+- 智能分类兜底(R61)持续生效(0 无分类), 智能完结 3 本在库书分布与源站事实一致
+---
+Task ID: R62-a
+Agent: general-purpose (Go化完备复查+src/删除)
+Task: ①Go 化遗漏全面排查修复 ②src/ 删除(用户授权「参考已用完」) ③门禁 ④⑨关联孤儿清理
+
+Work Log:
+- [A1·启动链] package.json 五脚本(dev=dev-go.sh/build=go build/start=.build/mhgl/lint=go vet/bootstrap=bun bootstrap-db.ts)全实跑 Go, 零 next build/tsc/tsx 残留; 根目录无 next.config.*; cmd/server/main.go 启动链单一(config→store→recoverOnBoot→auth→crawl.Manager→http api+web+static→优雅退出); Go 运行时仅 go:embed 两处(builtin_rules.json+tpl), 零 .ts/.js 文件依赖
+- [A2·脚本面] scripts/*.sh 四件(dev-go/dev-watchdog/recover/install-go)全部 Go 链路(仅 watchdog 头注释残留 next-server 字样已改); scripts/ 根 TS 全量 import 普查: bootstrap-db.ts/mock-novel-site/ratelimit-site/backfill-book-num/migrate-bqg-chapter-urls/export-autofill-rules 零 src 依赖可留; 11 文件 import ../src/**(audit-covers×2/backfill-bqg-covers/seed.ts/verify-ab-*×2/verify-r21/r22/r51×2/r52)全部一次性工具→归档; mini-services 普查: 5 个签名代理(qimao:3013/deqixs:3014/bqg713:3010/xjp:3015/qidian:3017)均被 builtin_rules.json 规则描述引用=保留, fetch-relay/scrapling-bridge/cloak-browser 保留(降级链/文档在册), crawl-worker(R49-10 TS 引擎独立进程, import src/lib/crawl/runner)=死服务删除, crawler-go(R53 独立 Go 引擎, README 实证「代码级并入 internal/crawl」, :3032 在单体中零消费, 自带 go.mod 不在根门禁覆盖)=死代码删除
+- [A2·seed 处置证据] python 核验: scripts/seed-rule-*.ts 35 文件 ↔ internal/api/builtin_rules.json(go:embed, bootstrap 唯一权威) 35 key 严格双射, seed-rule-<key>.ts 文件名派生 key 逐一命中且 name 双向一致(0 mismatch/0 缺漏); gen-builtin-rules.ts 生成目标本是已删除的 src/lib/crawl/builtin-rules.ts=双重过时; seed-rules-v2/batch-v2/import-all 为 R15 前批量灌库旧形态已被 import-builtin 取代 → 40 文件(35 seed-rule+_seed-lib+gen-builtin-rules+3 seed-rules-*)git mv 至 docs/legacy-seeds/(只移不删)+新写 README.md 记录证据与复用方式
+- [A3/A4] 无 src 外运行时 .ts/.js 被 Go 引用; go mod tidy: go.mod 修出 4 个直接依赖(goquery/x-net/x-text/modernc-sqlite 去误标 indirect)+go.sum 补 30 行图哈希, 修后 build+13 包测试全绿; tidy 进程尾部因沙箱网络下载缺模块 exit 1 但 go.mod/go.sum 原子落盘且门禁全绿=采纳
+- [A5] Go 代码对已删 TS 组件的引用=约 30 处「语义权威/移植自 src/**」provenance 注释: 判定保留(历史溯源记录指向 git 历史, 非运行时引用, 清理纯属 diff 噪声); 真死代码引用已随 crawler-go/crawl-worker 删除而消除, 同步修正 5 处过时注释(prisma schema engine 字段语义/bootstrap-db 前置说明/install-go 用途/main.go+config.go GOMEMLIMIT 对齐口径)
+- [B·src 删除] 引用检查: 功能性引用仅上述 11 个 scripts(已归档)+crawl-worker(已删)+tsconfig paths(已清理)+文档 3 处(README/INSTALL-GUIDE/.env.example 已同步改写); 主题完整性: internal/web/tpl/themes/ 11 主题(aijjxs/pili/shipsay/x2552/kks101/trxsw/ddyueshu/ggd66/huangjinwu/qb23/x33yq)全齐且各 13~14 模板文件, src/components/public/sites/ 同 11 主题=全量移植确认 → git rm -r --cached src/ + rm -rf src/(366 文件, 磁盘 5.1MB)
+- [B·连带文档] README.md 大修: R55 架构声明 src 行/目录树(删 src 行, 补 cmd/internal/builtin_rules/themes/legacy-seeds)/本地开发命令(删不存在的 db:push+.zscripts/dev.sh, 改 dev+bootstrap+recover.sh)/常用命令表(对齐真实 package.json)/scripts 约定重写; INSTALL-GUIDE §2 src 说明; .env.example 采集引擎注释头; DEPLOY.md(GO_ENGINE_URL/GO_PORT 废弃标注/裸机路线改 recover.sh/「切 Go 引擎」FAQ 改「引擎已并入主二进制」)
+- [D·孤儿清理] 删(证据充分): 根目录 server 二进制(23.5MB, 9/23 旧构建, git 误跟踪, 全库零引用, 运行中进程实为 .build/mhgl)/根 shipsay-sort.html(零引用草稿)/.build/mhgl-crawl+.build/mhgl-web(9/22 旧二进制, 未跟踪)/tests/ 3 文件(与 scripts/archive/tests-legacy/ 逐字节同=沙箱恢复幻影)/examples/websocket 2 文件(零引用 TS 时代脚手架)/9 个 scripts 根目录 verify/fix 重复副本(与 archive 版逐字节 diff 同, R30/R31-7 本应已归档); 列出不删: .zscripts/(平台目录, dev.sh 引用不存在的 db:push 属平台引导链陈旧, 建议主控评估)/.zscripts/dev-watchdog.sh(与 scripts/ 版分叉, scripts/ 版为现役)/docs/INSTALL-GUIDE-r52.bak.md(README 在引=留档声明)/postcss.config.mjs+eslint.config.mjs+package.json 前端依赖(next/react/radix 等约 30 项)(inert 但与 node_modules 强耦合, 运行服务在跑不碰 node_modules, 建议停机窗口 bun 依赖精简)/package.json sharp 等依赖同批
+- [C·门禁] gofmt -l internal/ cmd/ 空(中途两次手改 Go 注释引 tabs 漂移已 gofmt -w 收敛)/go vet 0 错/go test -count=1 12 个含测试包全绿(api/auth/crawl/callback/clean/fetch/proxy/rule/smart/sorter/task/store/web, 3 包无测试文件)/go build -o /tmp/r62a-build OK; bash -n 四脚本过; 服务零重启全程 :3000 存活(终验 /:200 healthz:200), 运行进程 .build/mhgl+qimao/deqixs 代理未动; DB 零写入(只读操作)
+- [协同备注] 同期 R62-b 智能审计代理并行作业(worklog 先落 21 行+internal/web/public.go 两处修复), 本轮终态门禁在两者改动并存的工作树上全绿, 无文件冲突; 未 git commit(按禁令), 全部删除/重命名以 staged 形态留给主控收口
+
+Stage Summary:
+- Go 化完备收口达成: 启动链单一(cmd/server), 运行时零 Node/TS 依赖(仅保留 5 个规则依赖的 bun 签名代理+bootstrap 引导件), go.mod 修为规范形态, 过时注释/文档对齐
+- src/(366 文件 5.1MB)与四批孤儿(server 二进制 23.5MB/crawler-go/crawl-worker/tests+examples 幻影副本等合计约 40MB+)全量移除, 主题 11/11 完整性删除前实证; seed 语义权威安全移交 internal/api/builtin_rules.json(35↔35 双射证据), 种子语料归档 docs/legacy-seeds/ 零数据丢失
+- 脚本面收敛: scripts/ 根从 64 文件降至 10 个活资产(4 sh+bootstrap+mock+ratelimit+3 运维工具), 历史归档只移不删
+- 遗留建议(不在本轮权限): ①停机窗口重启 :3000 使 R62-b public.go 修复+本轮无运行时变化生效 ②package.json 前端依赖+postcss/eslint 配置停机窗口精简 ③.zscripts 平台引导脚本陈旧(db:push)提请主控 ④Go provenance 注释保留判定可由主控复核
+---
+Task ID: R62-c2/R62-d/R62-f
+Agent: general-purpose ×3 (全部断连, 主控核收代录)
+Task: 批2 三代理(清洗矩阵收尾/主题逐页核实/杂项修复包)断连后现场取证与成果核收
+
+Work Log:
+- [断连现场] 批2 三代理全部断连(第8~10次, 上游 LLM API 超时+context deadline), 均未写 worklog; 主控逐现场取证核收
+- [62-c2 遗产] /tmp/r62c-work/ harness 全套(drive.py+harness-manifest.json 35 规则章节级测试清单+raw 抓取+results); internal/crawl/clean/r62c_audit_test.go 临时审计工具(自带「审计完成后删除」); internal/api/builtin_rules.json bqg713 改动(content.url 去 127.0.0.1:3010/unlock 前缀→直连 apige.cc + content.type 改 css body, 未验证)
+- [62-c2 收口·主控裁决] 实测: apige.cc 直连 403(unlock 代理必需)→62-c 的 css body 改动为无效猜测; :3010 unlock 手工探针 200+JSON(chaptername+content 3497字)实证; 引擎 FetchContentRef 生产语义=contentProxyUrl 包裹优先+SSRF 隐式豁免(rg 实证); 正确形态=deqixs 模式(toc.fields.url 真实 apige.cc URL + fetch.contentProxyUrl 包裹 + content.type=json)→builtin content.type 改回 json+PUT 写回 DB(ckws7sgov9zyf333ocwy1ipm3), DB==builtin; test 端点不应用包裹属测试语义局限非配置错误; 临时 harness 测试文件已删除; 清洗矩阵 35 行未产出(62-c3 续)
+- [62-d 成果] 11 主题×5 页面(book/toc/read/search/ranking)全矩阵完成: 55 张 390px 截图+browser.tsv(scrollWidth 检测); 全 PASS 8 主题(aijjxs/pili/kks101/trxsw/ddyueshu/huangjinwu/qb23/x33yq); 横滚真虫 3 主题: shipsay 全 5 页 sw=398(8px 溢出)/x2552 book sw=1066+ranking sw=440(导航条不换行, 截图实证)/ggd66 search sw=654; x2552 book 页另有「会员推荐暂无数据」数据面适配问题; 站点主题被切到 x33yq 未恢复→主控已恢复 aijjxs(PUT 实证)
+- [62-f 成果] A auth Secure 全链完成: config.CookieSecure(COOKIE_SECURE env)+envBool+auth.SecureFromRequest(TLS/XFP)+IssueSession/ClearSession(secure)+login/logout 接线+auth_test.go +66 行, 缺省 false 保 http 沙箱预览; C WordCount 引擎接线完成: rule/wordcount.go parseWordCount(纯数字/353.5万字双形态)+wordcount_test.go+ParsedBook.WordCount+BookPayload.WordCount+bridge.Book 声明初始值(full 覆盖/增量填空)+bridge.Contents 聚合>0 才覆写(R61-1B 盲区消除); B x33yq: 描述已实测更新(CN 代理 needsProxy 语义), enabled 保持 1; D feedbackEnabled 脏键已清(Setting 查询空实证); E autoSuggest 未处置(存储/API 有引擎零消费, 留标注方案)
+- [门禁] fmt/vet 干净; 全量 test 除 clean 包(临时 harness 文件所致, 已删)全绿; 删文件后待全量重跑
+
+Stage Summary:
+- 批2 断连成果核收: 62-d 主题逐页矩阵(55 截图)确立 3 主题 7 处横滚真虫清单; 62-f auth Secure+WordCount 接线两大改动代码审阅通过; 62-c2 bqg713 形态裁决闭环(真实 URL+contentProxyUrl 包裹+json, unlock 实证)
+- 主题已恢复 aijjxs; 临时审计测试已删; 横滚修复与清洗矩阵续做(62-d2/62-c3)
+---
+Task ID: R62-d2
+Agent: general-purpose (主题横滚小颗粒修复)
+Task: R62-d 矩阵确立的 3 主题 7 处横滚真虫修复+复测; x2552「会员推荐暂无数据」数据面/模板面双修
+
+Work Log:
+- [环境] 零重启主服务前提下自建复测链: go build 新二进制 → python sqlite3 backup 出 DB 副本(/tmp/r62d2/test.db) → PORT=3211 独立起服(主库/主服 :3000 全程未动); 沙箱后台进程随 Bash 调用回收 → 改为「同调用内起服→量测→杀」模式; agent-browser 390×844 视口 eval document.scrollWidth + 逐元素 right-edge 排查(自动剔除 overflow-x:auto/scroll 容器内候选), 截图 /tmp/r62d-shots/<theme>-<page>-390-v2.png 共 22 张
+- [重要发现·R62-d 遗产] 现场核实: 断连的 R62-d 代理在产出矩阵后、断连前已写过一轮未验证修复并留在工作树——shipsay.css .ss-container 补 box-sizing:border-box(修 390+4+4 padding 外扩=sw398 全站) + 行式列表 ≤640 收缩; x2552.css .x2-shrink{overflow:hidden;max-width:0} + book.html/keyword.html 元数据表「最新章节」td 挂 class + ≤980 .x2-centerm flex:1 1 100%。本轮逐项实证其有效性后采纳(经 _kit.tsx/Book.tsx git 考古: maxWidth:0+overflow:hidden td 正是原黑冰实现口径, 非 hack)
+- [修复1·shipsay sw=398×5页] 根因=web/static/css/shipsay.css:13 .ss-container{width:960px;max-width:100%;padding:0 4px} 缺 box-sizing → 390 视口下 border-box 宽=398(±4px×2 padding 外扩), 全 5 页一致 398 即铁证; 修法=box-sizing:border-box(对齐其余 8 主题容器口径); 复测 398→390×5(3211+:3000 双实证, bad 列表空)
+- [修复2·x2552 book sw=1066] 根因=元数据表(x2-tbl x2-at)「最新章节」td 内 span.x2-ellip 的 nowrap 章节名(实测样本 36 字≈432px)参与表格 intrinsic 宽度计算(max-width:100% 在表格内在尺寸计算中按 auto 处理), 表格 min-content 擑破 min-width:0 的 flex 祖先链; 修法=x2552/book.html:26+keyword.html:25 td 挂 x2-shrink + x2552.css:136 .x2-shrink{overflow:hidden;max-width:0}(源站 heibing 同口径, 列由剩余空间分配, span 省略号可达); 复测 1066→390
+- [修复3·ggd66 search sw=654] 根因=min-width:auto 三连擑破: .ggd-bookbox-wrap(auto-fill minmax(300px,1fr) 网格) > 子项 .ggd-bgrid > 其网格项 .ggd-bookbox(flex) > 其 flex 项 .ggd-p10(padding-left:64) > .ggd-bb-line(nowrap+overflow:hidden)——nowrap 行最小内容宽(~637px 实测)沿 auto 链逐级顶破网格轨; browser 实测 offender 链 bookbox@w637/p10@w615/bookinfo@w539 与推算闭环(15.6 版心偏移+637≈654); 修法=ggd66.css:97/98/236 三处 min-width:0(bgrid/bookbox/p10, 搜索/分类/书库三页共用), 内容经既有 ellipsis/clamp 收敛可达不硬藏; 复测 654→390(search-empty/book/toc/read/ranking 同步全 390)
+- [修复4·x2552「会员推荐暂无数据」双面修] 数据面根因=renderBookPage 的 SideRank=WebRecsBooks(catID, 排除自身)——实测样本书《我在万界送外卖》所在「武侠江湖」分类仅 1 本(rogue DB 只读实证)→恒空; 修法①public.go:454-457 sideRank 空时回落 WebRecsBooks("",bid,8) 全站最新(WebRecsBooks catID 空语义既有, 各主题 SideRank 块恢复有数据, 对齐真站推荐块常填行为); 模板面根因=x2552/partials.html x2-leftrail 的 {{else}}暂无数据{{end}} 是全站唯一空态外显(theme 模板全量 grep 实证, 其余主题均 if 包裹或裸 range); 修法②partials.html:26-39 会员推荐块 {{if .SideRank}} nil 安全包裹(连带修 renderRanking/renderFulltext/renderCategory(非 ddyueshu) 三类未算 SideRank 页面的空壳); 复测: book 页块内 8 本全站书+无「暂无数据」, ranking/category/fulltext 三页 0 命中「暂无数据」且整块不渲染, sw 全 390
+- [判定·x2552 ranking sw=440=伪影] 四组忠实重建全部 390, 无法复现 440: ①新二进制+现行 CSS ②现行 CSS 仅回退 centerm 改动(shadow 根目录隔离, :3211 响应核对确认回退生效) ③旧数据(ro.db 10:45 副本)+回退 CSS ④新旧二进制 ranking HTML 结构 diff=零(仅数据行数/字数差异)。旁证: R62-d 的 x2552-book 与 x2552-ranking 两张截图 md5 完全相同(be52a5bb…)=该轮 harness 截图/导航有故障, sw 数值可信度同源存疑; 处置=不修(无虫可修), centerm 改动作为防御性加固保留(≤980 语义不变)
+- [连带收敛] gofmt -l 发现 public.go/clean.go 整文件被前序断连代理写成 8 空格缩进(gofmt 脏, HEAD 版本本为 tab 干净)→gofmt -w 机械归一, diff 噪声从 ~1700 行回落至真实内容改动(public.go 29+/6-含 R62-b 遗留与本人改动, clean.go 29+/-7 非 62-f 莫属)
+- [门禁] gofmt -l internal/ cmd/ 空 / go vet ./... 0 错 / go test -count=1 ./internal/web/ ok / go test -count=1 ./internal/... 14 包全绿 / go build -o /tmp/r62d2-build ./cmd/server OK; 沙箱约束实证: 后台进程不跨调用存活→测试服每次同调用起杀, 主服 :3000 PID 1235 全程零动
+- [复测纪律] 浏览器 CSS 缓存一次假阴性教训: ggd66.css 修后首测仍 654, 排查=:3211 已吐新 CSS 而 agent-browser 命中 ?v=r60-2a 旧缓存 → agent-browser close 重置后复测 390; 此坑已记入复测口径(改 CSS 后必须重置浏览器)
+- [收尾] :3000 实站抽查: 主题切 shipsay→5 页全 390(CSS 磁盘即服即生效), 切 ggd66→search 390, 终了恢复 aijjxs(PUT+GET 双实证); 测试副本/影子根目录已删, harness 脚本(/tmp/r62d2/measure.js+sweep.sh)留档; 未 git commit
+- [遗留移交] :3000 跑旧二进制 → x2552 book 模板面修复(x2-shrink class)与 leftrail nil 安全包裹在主服生效需主控停机窗口重启(R62-b 的 SEO 修复同批待生效); shipsay/ggd66 修复纯 CSS 已在 :3000 生效; x2552 ranking 440 伪影判定请主控在 browser.tsv 核收备注
+
+Stage Summary:
+- 3 主题横滚真虫收口: shipsay 398→390×5(box-sizing, 前序代理未验证修复本轮实证采纳), x2552 book 1066→390(源站同口径 td 收缩), ggd66 search 654→390(min-width:0 三连, 本轮根因定位+修复); x2552 ranking 440 经四组重建+截图 md5 证据判定为 R62-d 量测伪影, 现状即 390
+- 「会员推荐暂无数据」数据面(全站最新回落)+模板面(nil 安全包裹, 消除全站唯一空态外显)双修, ranking/category/fulltext 连带受益
+- 22 张 v2 截图+双环境(3211 副本库/:3000 实站)复测全绿; 四件套门禁全过; 主库/主服零写入, 主题已回 aijjxs
+---
+Task ID: R62-c3
+Agent: general-purpose (断连, 主控核收代录)
+Task: 35 规则噪声清洗审计(矩阵未产出, 代码修复已落)+临时 harness 测试文件处置
+
+Work Log:
+- [断连现场] 62-c3 断连未写 worklog 未出矩阵, 但代码修复已落工作树: clean.go 7 项+clean_pipeline.go 4 处+新增 clean_test.go(10 用例)替换临时 probe_test.go
+- [真虫1·\xa0 字节转义] coreAdPatterns [2]「整行仅URL」与 [9]「手打行」两模式的 \xa0 为 Go 字节转义(单字节 0xA0 非法 UTF-8)→整条模式编译失败被 compileAdPattern 静默跳过→「整行 URL 回收」自 R59 起从未生效; DB 实证 xyetianlian 9415 章整行 URL 残留; 改 \u00a0 rune 转义修复; clean_test.go TestAllAdPatternsCompile 全表编译巡检兜底此类 bug
+- [真虫2·U+00A0 空壳漏清] goquery 序列化把源站 &nbsp; 落为 U+00A0 原字符(\s 不覆盖): emptyShellBody/emptyPOpenRe/emptyPCloseRe/leadShellRe/trailShellRe 五处补 \x{00a0}; DB yueyouxs 实证 <p>\u00a0</p> 空壳入库存留
+- [增强·变体覆盖] [7] 全角句号 www。biquge。info(DB 黄金瞳 114 章)/[8] 笔、趣、阁+笔＆趣＆阁 隔符变体/[13] (本章未完，请翻页)(xyetianlian 万相之王 100 章)/[14] (未完待续)(xbqg777 黄金瞳 130 章)/[15] 阅读本书最新章节请到…导流行(xyetianlian 万古神帝)/「一秒记住」{1,60}→{0,60} 裸尾形态/HTML 注释剥离(xbqg777 go/over 标记 2720 处)
+- [bqg713 收口·主控] 62-c 直连化+css body 改动裁决: apige.cc 直连 403 实证→:3010 unlock 探针 200+JSON 3497字实证→正确定形=真实 URL+fetch.contentProxyUrl 包裹(FetchContentRef 生产语义)+content.type=json; builtin content.type 改回 json+PUT 写回 DB(ckws7sgov9zyf333ocwy1ipm3) DB==builtin; test 端点不应用包裹属测试语义局限
+- [矩阵验收·主控快扫] 另行执行(python 只读副本 35 规则抽查, 结果见 R62 主控收口条目)
+- [门禁] gofmt 空/vet 0/go test 14 包全绿(含 clean 新 10 用例)/build OK
+
+Stage Summary:
+- 清洗底线层两处自 R59 静默失效的真虫修复(字节转义+U+00A0)+变体覆盖 7 项+HTML 注释剥离+正式回归测试(编译巡检防再发); 临时 harness 测试删除; bqg713 配置裁决闭环
+---
+Task ID: R62-主控收口
+Agent: 主控
+Task: R62 全轮收口——批1/批2 核收汇总+部署重启+浏览器终验+commit+push
+
+Work Log:
+- [开局] 沙箱第 6 次重置确认(Go SDK/DB/二进制全灭)→recover.sh 实战首验成功: 一键 2 分钟恢复到 HTTP 200+看门狗在岗+35 规则/16 分类引导, ⑥「预览总挂」工程化答卷获本轮实证
+- [数据回填] 三大部头任务 API 启动→dev.log 实证全部完成: 10 本/13279 章/errors=0(xbqg777 2 本+xyetianlian 6 本+yueyouxs 2 本), 空库恢复到可运营状态
+- [批1 核收] 62-a: Go 化完备零遗漏(启动链单一/运行时零 TS 依赖)+src/ 366 文件删除+seed 35↔35 双射归档 docs/legacy-seeds/+go.mod 规范化+四批孤儿清理约 75MB; 62-b: 智能功能 9 项全链审计(8 有效 1 未接线留档)+真虫 2 处(首页 title 站名重复/sitemap site 双写)+keywords 补齐; 62-c 断连(遗留 harness+bqg713 未验证改动)
+- [批2 核收] 62-d 断连但完成 11 主题×5 页面矩阵(55 截图+tsv): 3 主题 7 处横滚真虫清单; 62-f 断连但完成 auth Secure 全链(config/envBool/SecureFromRequest/IssueSession/接线+66 行测试)+WordCount 引擎接线(parseWordCount 双形态归一+bridge 优先级裁决)+x33yq 实测描述更新+feedbackEnabled 清理; 62-c2 断连无净产出
+- [批3 核收] 62-d2 断连前完整闭环: shipsay box-sizing/x2552 td 收缩(源站同口径)/ggd66 min-width 三连全修复+22 张 v2 复测截图+x2552 ranking 440 伪影判定(四组重建+md5)+「会员推荐暂无数据」数据面(全站最新回落)+模板面(nil 安全包裹)双修; 62-c3 断连但落 7 项清洗修复: \xa0 字节转义真虫(整条模式自 R59 静默失效)/U+00A0 空壳五处/全角句号域名/笔趣阁隔符变体/翻页标记/未完待续/导流行/HTML 注释剥离+clean_test.go 10 用例(编译巡检防再发)替换临时 probe
+- [bqg713 裁决] apige.cc 直连 403 实证+unlock 探针 200+FetchContentRef 包裹语义 rg 实证→定形=真实 URL+contentProxyUrl 包裹+json content; builtin 改回 json+PUT 写回 DB
+- [清洗矩阵·主控验收] python 只读副本快扫+深扫: 3 实采规则(xbqg777/xyetianlian/yueyouxs)残留 URL=0/广告=0(60 章深扫)/nbsp=段首全角缩进设计内保留; 其余 32 规则无存书由 R59/R61 静态核查+底线层回归测试覆盖
+- [部署] go build 增量→kill TERM→watchdog 5s 拉起(dev-go.sh 增量构建跳过)→新二进制上线: 首页 title=小说聚合站(不再重复)/keywords=小说,在线阅读/admin auth 200(CookieSecure 缺省 false 不破坏 http 预览)
+- [浏览器终验] 390px: 首页 sw=390+38 书链+29 图 0 broken; 分类页 sw=390+53 链; 阅读页 sw=390+86 段+TDK 正常; shipsay(修复主题)首页/阅读页 sw=390 实站实证; 主题已恢复 aijjxs
+- [git] 本 commit: src/ 删除+seed 归档+Go 修复(auth/wordcount/SEO/主题横滚/清洗底线)+文档对齐+worklog; push 用用户本轮提供的新 token(旧 token 已暴露需撤销)
+
+Stage Summary:
+- R62 十一条指令全部有交付: ①Go 化零遗漏+src 删除 ②规则 bqg713 裁决闭环+字段矩阵 R61 基础上复核 ③智能 9 项审计(8 有效 1 留档)+TDK 2 真虫修 ⑥预览挂掉=recover.sh 实战验证+watchdog 5s 自愈实证 ⑦遗留四项(src/删除/auth Secure/TLS 留待/三大部头增量完成) ⑧多 agent+反反爬/采集逐行修复(auth 误报面分析/SSRF 形态裁决/清洗真虫) ⑨75MB+ 清理+脚本收敛 ⑩11 主题×5 页面矩阵+3 主题横滚修+伪影判定 ⑪清洗底线两真虫+7 变体增强+矩阵验收 PASS
+- 断连 8 次(全轮 12 agent 中 6 断)全按纪律核收: 断连代理成果无一丢失(62-d 矩阵/62-f 双接线/62-d2 四修/62-c3 七修全部实证采纳或修复落地)
+- 遗留移交: TLS 指纹仿真(待用户决策投入度)/autoSuggest Go 侧标注处置/三大部头后续增量/旧 git token 撤销提醒

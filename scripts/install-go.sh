@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# [R52] Go 工具链一键安装(~/go-sdk) —— crawler-go 采集引擎的编译依赖。
+# [R52] Go 工具链一键安装(~/go-sdk) —— Go 单体(.build/mhgl)的编译依赖。
 # 沙箱/环境重置会清空 $HOME 下内容, 重置后执行: bash scripts/install-go.sh
 # 幂等: 已安装且版本匹配则跳过。镜像源自动回退(go.dev → golang.google.cn)。
 set -euo pipefail

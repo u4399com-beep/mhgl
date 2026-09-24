@@ -23,18 +23,20 @@
 </div>
 {{end}}
 
-{{define "x2-leftrail"}}{{/* 左栏 会员推荐 + 12 榜(真站 /top/* 入口 → 站内排行榜视图, 榜名固定文案; 以根数据调用) */}}
+{{define "x2-leftrail"}}{{/* 左栏 会员推荐 + 12 榜(真站 /top/* 入口 → 站内排行榜视图, 榜名固定文案; 以根数据调用)
+   [R62-d2] 会员推荐块 nil 安全包裹(对齐其他主题 SideRank 处理口径): renderRanking 等页未算 SideRank、
+   或书籍页同分类仅本作时列表为空 → 整块不渲染, 杜绝「暂无数据」空壳 */}}
+{{if .SideRank}}
 <div class="x2-block">
   <div class="x2-blocktitle"><i class="x2-bt-ico"></i>会员推荐</div>
   <ul class="x2-ultop">
     {{range .SideRank}}
     <li><a class="x2-a" href="{{bookHref (str .id) (num .num) $.SiteID}}" title="{{.name}}">{{.name}}</a><p>{{shortWords .wordCount}}</p></li>
-    {{else}}
-    <li class="x2-ultop-empty">暂无数据</li>
     {{end}}
   </ul>
   <div class="x2-more"><a class="x2-a" href="{{$.RankingHref}}">更多...</a></div>
 </div>
+{{end}}
 <div class="x2-block">
   <div class="x2-blocktitle"><i class="x2-bt-ico"></i>排 行 榜</div>
   <ul class="x2-ulcenter">

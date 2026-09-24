@@ -136,12 +136,9 @@ model Task {
   recrawlMode String @default("incremental")
   // db | txt
   storageMode String @default("db")
-  // [R50-1] 采集引擎: 'ts'(经典 TS 引擎, 与 dev server 同堆运行) | 'go'(独立 Go 进程
-  //  mini-services/crawler-go, GOMEMLIMIT 硬顶 600MB 内存隔离, 见 agent-ctx/go-engine/CONTRACT.md)。
-  //  缺省 'ts' 的理由: 存量任务行与未显式选择引擎的全部既有路径(控制路由/runner/恢复机制)
-  //  必须逐字节保持原行为(零回归), engine 未设置/为 'ts' 时控制路由不进入任何 Go 分支;
-  //  仅 task.engine==='go' 时 start 先走 go-engine 客户端 capability 校验, 不可达/能力不符
-  //  自动回退 TS 引擎(TaskLog warn 留痕)
+  // [R50-1→R62-a] 采集引擎: 存量行残留 'ts'(TS 时代引擎, 已随 src/ 删除退役) |
+  //  'go'(现役唯一引擎, 并入主二进制 internal/crawl, GOMEMLIMIT 硬顶 600MB 内存隔离)。
+  //  Go 单体起全部任务按 'go' 语义执行; 'ts' 仅兼容历史行不再分支。
   engine String @default("ts")
   // 反反爬覆盖配置(可选, 空则用规则默认)
   fetchConfig String @default("{}")

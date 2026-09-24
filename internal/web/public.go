@@ -199,17 +199,28 @@ func (d Deps) renderHome(w http.ResponseWriter, r *http.Request, sp map[string][
 
 	st, sd, sk := siteTdkOf(site)
 	name := siteTitle(site)
-	if st == "" {
-		st = name
+	// [R62-b] 首页 title: 修前 = st+" - "+name —— site.title 未配置时回落站名再拼接
+	// → 「站名 - 站名」重复; 且实测存量站点 site.title == site.name 同样触发重复。
+	// 修后: 未配置 → 「{站名} - 精品小说在线阅读」(对齐 TS HomeView useSiteSEO 回落);
+	// 已配置 → 「{site.title} - {站名}」, 与站名相同则不重复追加。
+	homeTitle := st
+	if homeTitle == "" {
+		homeTitle = name + " - 精品小说在线阅读"
+	} else if homeTitle != name {
+		homeTitle = homeTitle + " - " + name
 	}
 	if sd == "" {
 		sd = name + "每日更新热门小说，覆盖玄幻奇幻、都市生活、现代言情等主流分类；支持全站 TXT 免费下载与在线阅读。"
+	}
+	// [R62-b] keywords 空回落(对齐 TS useSiteSEO「小说,在线阅读」; 修前空值整个 meta 不输出)。
+	if sk == "" {
+		sk = "小说,在线阅读"
 	}
 	canonical := "/"
 	if page > 1 {
 		canonical = viewHref("home", sid, map[string]string{"page": strconv.Itoa(page)})
 	}
-	head := d.head(r, site, st+" - "+name, plainText(sd), sk, canonical)
+	head := d.head(r, site, homeTitle, plainText(sd), sk, canonical)
 
 	data := d.baseData(r, site, head)
 	data["Books"] = books
@@ -440,6 +451,10 @@ func (d Deps) renderBookPage(w http.ResponseWriter, r *http.Request, sp map[stri
 	latest, _ := d.DB.WebLatestChapters(bid, 12)
 	recs, _ := d.DB.WebRecsBooks(ToStrSafe(book["categoryId"]), bid, 4)
 	sideRank, _ := d.DB.WebRecsBooks(ToStrSafe(book["categoryId"]), bid, 8)
+	// [R62-d2] 同分类仅本作(或无分类)时「会员推荐/猜您喜欢」空壳 → 回落全站最新(catID 空语义), 各主题 SideRank 块保持有数据
+	if len(sideRank) == 0 {
+		sideRank, _ = d.DB.WebRecsBooks("", bid, 8)
+	}
 	tags, _ := d.DB.WebBookTags(bid, 16)
 	// [R59-2a] 真站书籍页「作者其它作品」侧卡(同作者他书, 排除本作, 取 6 本; 泛型 QueryMaps 不动 store 面)。
 	var authorOthers []map[string]any
@@ -1061,10 +1076,12 @@ func (d Deps) handleSitemap(w http.ResponseWriter, r *http.Request) {
 		b.WriteString("</url>\n")
 	}
 	add("/", "")
-	add(joinSite(viewHref("fulltext", sid, nil), sid), "")
-	add(joinSite(viewHref("ranking", sid, nil), sid), "")
+	// [R62-b] viewHref 内部已 joinSite 追加 site 参数, 外层再包一层 joinSite(…, sid)
+	// 造成「site=X&site=X」重复参数(修前 sitemap 实测 3 类 URL 全部双写)。去外层包裹。
+	add(viewHref("fulltext", sid, nil), "")
+	add(viewHref("ranking", sid, nil), "")
 	for _, c := range cats {
-		add(joinSite(viewHref("category", sid, map[string]string{"cat": ToStrSafe(c["id"])}), sid), "")
+		add(viewHref("category", sid, map[string]string{"cat": ToStrSafe(c["id"])}), "")
 	}
 	for _, bk := range books {
 		num := num64(bk["num"])

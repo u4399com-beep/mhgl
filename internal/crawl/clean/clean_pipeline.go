@@ -154,6 +154,9 @@ func CleanChapterTitle(raw, bookName string) string {
 // navLinkTextRe 分页/导航链接判定(1.5 段)
 var navLinkTextRe = regexp.MustCompile(`^(下一页|上一页|下页|上页|目录|首?页|尾?页|返回目录|继续阅读|点击阅读|分页阅读?|加入书签|推荐本书?|报错).{0,4}$`)
 
+// htmlCommentRe HTML 注释剥离(R62-c3, 见 cleanContentHTMLMode 2.7)
+var htmlCommentRe = regexp.MustCompile(`<!--[\s\S]*?-->`)
+
 // paraStructureRe [R13-1] 块级段落结构判定(置于 normalize 包裹之前)
 var paraStructureRe = regexp.MustCompile(`(?i)<(?:p|br|div|h[1-6]|li)\b`)
 
@@ -168,7 +171,9 @@ var brBrPairRe = regexp.MustCompile(`(?i)<\s*br\b[^>]*>\s*<\s*br\b[^>]*>`)
 var emptyBlockShellTags = []string{"p", "div", "h1", "h2", "h3", "h4", "h5", "h6", "li", "ul", "ol", "blockquote", "center"}
 var emptyInlineShellTags = []string{"b", "strong", "em", "i", "u", "span", "font", "small", "big", "sub", "sup", "s", "del", "ins", "mark", "a"}
 
-const emptyShellBody = `(?:\s|&nbsp;|<br\b[^>]*>)*`
+// R62-c3 增 \x{00a0}: goquery 序列化把源站 &nbsp; 落为 U+00A0 原字符, \s 不覆盖,
+// "<p>\u00a0</p>" 空壳因此漏清(DB yueyouxs 实证)
+const emptyShellBody = `(?:\s|\x{00a0}|&nbsp;|<br\b[^>]*>)*`
 
 func compileEmptyShellRes(tags []string) []*regexp.Regexp {
 	out := make([]*regexp.Regexp, 0, len(tags))
@@ -181,12 +186,12 @@ func compileEmptyShellRes(tags []string) []*regexp.Regexp {
 var (
 	emptyBlockShellRes  = compileEmptyShellRes(emptyBlockShellTags)
 	emptyInlineShellRes = compileEmptyShellRes(emptyInlineShellTags)
-	emptyPOpenRe        = regexp.MustCompile(`(?i)<p>(?:\s|&nbsp;|<br\b[^>]*>)+`)
-	emptyPCloseRe       = regexp.MustCompile(`(?i)(?:\s|&nbsp;|<br\b[^>]*>)+</p>`)
+	emptyPOpenRe        = regexp.MustCompile(`(?i)<p>(?:\s|\x{00a0}|&nbsp;|<br\b[^>]*>)+`)
+	emptyPCloseRe       = regexp.MustCompile(`(?i)(?:\s|\x{00a0}|&nbsp;|<br\b[^>]*>)+</p>`)
 	// brSpacerBetweenPRe RE2 无先行断言 → 捕获组改写: </p>垫片<p…> → </p><p…>(原 <p 形态保留)
 	brSpacerBetweenPRe = regexp.MustCompile(`(?i)</p>\s*(?:<br\b[^>]*>\s*)+(<p[\s>])`)
-	leadShellRe        = regexp.MustCompile(`(?i)^(?:\s|&nbsp;|<br\b[^>]*>)+`)
-	trailShellRe       = regexp.MustCompile(`(?i)(?:\s|&nbsp;|<br\b[^>]*>)+$`)
+	leadShellRe        = regexp.MustCompile(`(?i)^(?:\s|\x{00a0}|&nbsp;|<br\b[^>]*>)+`)
+	trailShellRe       = regexp.MustCompile(`(?i)(?:\s|\x{00a0}|&nbsp;|<br\b[^>]*>)+$`)
 	// blockGapCollapseRe [R22-b-9] 段间原始空白坍缩: </tag>\s+< → </tag><(原标签保留)
 	blockGapCollapseRe = regexp.MustCompile(`(?i)</(p|h[1-6]|li|blockquote)>(\s+)(<)`)
 )
@@ -307,6 +312,9 @@ func cleanContentHTMLMode(htmlIn string, cfg Config) string {
 	})
 
 	out, _ := root.Html()
+	// 2.7 HTML 注释剥离(R62-c3): goquery 序列化保留 <!-- --> 节点, DB 实证 xbqg777
+	// go/over 站点标记 2720 处入库存留; 纯文本模式经 stripHtmlTags 已剥, 本步只服务 HTML 模式
+	out = htmlCommentRe.ReplaceAllString(out, "")
 	// 3. 广告正则清洗(底线模式无条件叠加: 规则自定义 adPatterns 为按站清单,
 	// 通用高置信残留请记住本书首发域名/整行 URL 等不可缺席 —— R59-2c DB 抽样实证)
 	out = removeAdLines(out, withFloorPatterns(cfg.AdPatterns))

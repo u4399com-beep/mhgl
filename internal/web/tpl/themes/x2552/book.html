@@ -23,7 +23,7 @@
                   <tr>
                     <th>全文长度</th><td>{{shortWords .Book.wordCount}}字</td>
                     <th>最后更新</th><td>{{dateYY .Book.updatedAt}}</td>
-                    <th>最新章节</th><td><span class="x2-ellip" title="{{.Book.latestChapter}}">{{or .Book.latestChapter "--"}}</span></td>
+                    <th>最新章节</th><td class="x2-shrink"><span class="x2-ellip" title="{{.Book.latestChapter}}">{{or .Book.latestChapter "--"}}</span></td>
                   </tr>
                   </tbody>
                 </table>

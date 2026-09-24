@@ -15,6 +15,8 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+
+	"mhgl/internal/auth"
 )
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -63,7 +65,10 @@ func (d Deps) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d.Auth.ClearAttempts(ip)
-	cookie, err := d.Auth.IssueSession()
+	// [R62-f] Secure 跟随部署形态: 显式 COOKIE_SECURE=1 或请求经 https(TLS 直连/
+	// 反代 X-Forwarded-Proto)时附加 Secure 属性; 缺省 false 保 http 沙箱预览可用
+	secure := d.CookieSecure || auth.SecureFromRequest(r)
+	cookie, err := d.Auth.IssueSession(secure)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"ok": false, "error": "会话签发失败"})
 		return
@@ -73,7 +78,8 @@ func (d Deps) handleLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d Deps) handleLogout(w http.ResponseWriter, r *http.Request) {
-	w.Header().Add("Set-Cookie", d.Auth.ClearSession())
+	// 注销报文 Secure 属性与签发时保持同一判定口径(属性对齐防残留)
+	w.Header().Add("Set-Cookie", d.Auth.ClearSession(d.CookieSecure || auth.SecureFromRequest(r)))
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 

@@ -18,8 +18,9 @@ type Config struct {
 	AdminPassword string // 缺省 audit-fix-2025(dev); 生产必须显式设置
 	SessionSecret string // HMAC 密钥; dev 缺省固定值对齐 auth.ts
 	CoverDir      string // 封面落盘目录(web/covers)
-	MemLimitMB    int    // GOMEMLIMIT 软顶(缺省 600, 对齐 crawler-go)
+	MemLimitMB    int    // GOMEMLIMIT 软顶(缺省 600)
 	IsProd        bool   // GO_ENV=production
+	CookieSecure  bool   // 会话 Cookie 附加 Secure 属性(https 部署; 缺省 false 保 http 沙箱预览可用, 请求经 https 时自动叠加)
 	DataDir       string // 项目根(供相对路径解析)
 }
 
@@ -28,6 +29,15 @@ func envOr(key, def string) string {
 		return v
 	}
 	return def
+}
+
+// envBool 布尔环境变量(1/true/yes/on 不分大小写; 其余/未设 = false)。
+func envBool(key string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(key))) {
+	case "1", "true", "yes", "on":
+		return true
+	}
+	return false
 }
 
 // Load 构建配置。cwd 即项目根(由启动脚本保证)。
@@ -45,6 +55,7 @@ func Load() *Config {
 		CoverDir:      envOr("COVER_DIR", "web/covers"),
 		MemLimitMB:    memMB,
 		IsProd:        isProd,
+		CookieSecure:  envBool("COOKIE_SECURE"),
 		DataDir:       ".",
 	}
 	// dev 缺省对齐原 auth.ts 编译期常量; 生产缺失 fail-closed(空密码 → 登录恒 401)

@@ -343,8 +343,11 @@ func (b *Bridge) Contents(_ context.Context, p callback.ContentsPayload) error {
 		if err := b.mergeStatsDelta(map[string]int64{"chaptersUpdated": int64(saved)}); err != nil {
 			return err
 		}
-		// 书籍字数聚合(finishBookOk 同款统计语义; latestChapter 由 chapters 回调维护)
-		if agg, err := b.db.CrawlSumWordCount(book.ID); err == nil {
+		// 书籍字数聚合(finishBookOk 同款统计语义; latestChapter 由 chapters 回调维护)。
+		// [R62-f] 优先级裁决: 聚合值 >0 才覆写(聚合值 = 实采正文和, 更准);
+		// 聚合值为 0(目录采集中断/正文全空)时保留 book.fields.wordCount 声明初始值,
+		// 不把有效声明字数冲成 0
+		if agg, err := b.db.CrawlSumWordCount(book.ID); err == nil && agg > 0 {
 			_ = b.db.CrawlUpdateBookWordCount(book.ID, agg)
 		}
 	}

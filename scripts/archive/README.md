@@ -110,3 +110,26 @@ probe-bb-b-{clean-diag,dump,waf} / probe-bb-g-dafeng / probe-bun-manual-redirect
 probe-ss-c-confirm-visual 之外的 ss 轮散件（ss-a-observe / ss-a-prod-task-peek / ss-final-probe / ss-home-dom / ssb2-xjp-live / xjp-* 取证件 / dump-rules / peek-churls 等）随当轮收尾归档，详见 worklog。
 
 注：各轮探针证据与结论在 `worklog.md` 对应条目中留档。
+
+## R62-a 轮归档（2026-09, 「Go 化完备收口 + src/ 删除」批次）
+
+背景：TS 时代参考源码 `src/` 已按用户授权全量删除（语义早已移植进 `internal/`）。本批归档的
+脚本均以 `../src/lib/**` 相对路径 import（src/ 删除后本就不可复跑），且均为结论已沉淀的
+一次性工具，按「只移不删」惯例移入本目录：
+
+| 组 | 文件 | 归档依据 |
+| --- | --- | --- |
+| 封面审计 | audit-covers.ts / audit-covers-reprobe.ts / backfill-bqg-covers.ts | R46/R49 轮封面审计/回填一次性工具（src fetcher/parser/storage 依赖），结论沉淀进 worklog 与 web/covers |
+| TS 时代演示种子 | seed.ts | 旧演示数据种子（src/lib/db + sharp 依赖），职能已被 scripts/bootstrap-db.ts（纯 API，零 src 依赖）取代 |
+| 规则复测 harness | verify-r51-4-chapter-reorder.ts / verify-r51-const-template.ts / verify-r52-rules.ts | R51/R52 轮一次性规则复测（src parser/chapter-reorder/db 依赖），结论沉淀进 Go 引擎 internal/crawl 与 worklog |
+
+同批另见：
+
+- **规则种子迁出**：`scripts/seed-rule-*.ts`（35 站）+ `_seed-lib.ts` + `gen-builtin-rules.ts` +
+  `seed-rules-{v2,batch-v2,import-all}.ts` 迁至 `docs/legacy-seeds/`（运行时唯一权威已是
+  `internal/api/builtin_rules.json` go:embed，35↔35 一一对应已核验，见其 README）。
+- **重复副本清理**：verify-ab-b-ratelimit / verify-ab-c-apply / verify-r21-rules / verify-r22-rules /
+  verify-ss-a-docker / verify-kk-b-docker / verify-ll-a-docker / verify-zz-a-calibrate /
+  fix-dd-b-stale-task 九个根目录副本与本目录版本**逐字节相同**（沙箱快照恢复所致），仅删根目录副本。
+- **死服务删除**：`mini-services/crawl-worker/`（R49-10 TS 采集引擎独立进程，依赖 src/lib/crawl/runner，
+  已被 Go 单体内置引擎取代，仅自引用零外部引用）。
