@@ -145,7 +145,17 @@ const (
 	gatePollPeriod = 20 * time.Millisecond
 	gateAdaptTrip  = 3               // 连续失败 ≥3 → minGap ×1.5 自适应
 	gateGapCap     = 3 * time.Second // 自适应 gap 上限(对齐 TS HOST_RHYTHM_ENFORCE_CAP)
+	admitJitterDen = 4               // [R64-a] 准入抖动分母(附加 +0~1/4 等待量)
 )
+
+// admitJitter 准入节奏抖动: d 的 +0~d/4 随机附加量(crypto/rand 独立源; d<=0 恒 0)。
+// 并发等待者各抖各的, 同时打散「同锚点睡眠同醒」的请求簇
+func admitJitter(d time.Duration) time.Duration {
+	if d <= 0 {
+		return 0
+	}
+	return time.Duration(randomIndex() % uint64(d/admitJitterDen+1))
+}
 
 // acquire 过闸: 限流冷却期内单 timer 阻塞等待(勿 20ms 轮询空转); minGap 未到点
 // 同样 timer 等待; 槽位满时保持既有短轮询(升档/释放的亚秒级事件)
@@ -165,6 +175,11 @@ func (g *hostGate) acquire(ctx context.Context) error {
 			if g.minGap > 0 && !g.lastAdmit.IsZero() {
 				if el := now.Sub(g.lastAdmit); el < g.minGap {
 					d := g.minGap - el
+					// [R64-a](节奏抖动) 准入等待附加 +0~25% 抖动: 恒定间隔
+					// 节拍本身是机器指纹(服务端测相邻请求间隔方差≈0 即可判
+					// 机器人); 只增不减 —— 永远不低于配置节奏, 限流冷却窗
+					// (上方分支)保持精确不抖
+					d += admitJitter(d)
 					g.mu.Unlock()
 					if err := util.SleepCtx(ctx, d); err != nil {
 						return err
@@ -618,6 +633,11 @@ func (c *Client) pickUA(host string) string {
 	case "desktop":
 		pool = desktopUAPool
 	}
+	// [R64-a] 子集池空防御: 池演化若移除全部移动(或桌面)条目, len(pool)==0 时
+	// 取模除零 panic; 回落全量池(有 pinned 域名永远拿得到 UA)
+	if len(pool) == 0 {
+		pool = uaPool
+	}
 	// [R63-b 协同修复] randomIndex 全量 64 位后先模后转 int: 修前 int(randomIndex())%len
 	// 在 uint64 高位为 1 时 int 溢出为负 → 池内负索引 panic
 	ua := pool[int(randomIndex()%uint64(len(pool)))]
@@ -1037,6 +1057,12 @@ func (c *Client) rawFetch(ctx context.Context, rawURL, refererURL string, direct
 				}
 				return res, nil
 			}
+			// [R64-a](误责防御) ctx 取消(任务停止/暂停/总闸取消)发生在 doOnce 期间时,
+			// 传输失败不是目标站故障证据: 直接终止重试链, 不喂 host 连败/降额 ——
+			// 修前每次停止都会把在飞请求的取消误记到无辜目标站头上
+			if ctx.Err() != nil {
+				return rawResult{}, err
+			}
 			// [R53-2a](代理误责) 代理通道层失败不喂目标 host 连败/降额链 —— 故障归属代理
 			// 自身(已在 doOnce 内 markProxyFailed), 目标站健康状态未被本次请求证明; TS 侧
 			// 代理循环同样只记代理账, hostgate 只见最终直连/成功结果。重试/镜像语义不变
@@ -1053,7 +1079,8 @@ func (c *Client) rawFetch(ctx context.Context, rawURL, refererURL string, direct
 					return rawResult{}, err
 				}
 				// [R53-2a](400 壳不喂降额链) 其余非 403/429 的 4xx: 同候选退避重试已按下方
-				// 既有路径进行, 但不换镜像 —— 对齐 TS isMirrorSwitchableError(仅 403/5xx)
+				// 既有路径进行, 但不换镜像 —— Go 口径 403/429/5xx/网络层失败可切换镜像
+				// (429 换镜像目标为异 host, 不受本 host 限流冷却约束)
 				if httpErr.code >= 400 && httpErr.code < 500 && httpErr.code != 403 && httpErr.code != 429 {
 					failNoMirror = true
 				}
@@ -1216,7 +1243,10 @@ func (c *Client) doOnce(ctx context.Context, rawURL, refererURL string, extraHea
 	for k, v := range c.cfg.Headers {
 		req.Header.Set(k, v)
 	}
-	if effReferer != "" {
+	// 显式 Referer 注入([R64-a] cfg.headers 已显式配置 Referer 时不覆盖 —— 头组注释
+	// 「cfg.headers 可覆盖单项」的契约口径; 修前此处无条件 Set 使规则自定义 Referer
+	// 恒被同源缺省 Referer 覆盖失效)
+	if effReferer != "" && !headersHaveKey(c.cfg.Headers, "Referer") {
 		req.Header.Set("Referer", effReferer)
 	}
 	// token header 注入
@@ -1239,6 +1269,12 @@ func (c *Client) doOnce(ctx context.Context, rawURL, refererURL string, extraHea
 	}
 	resp, err := client.Do(req)
 	if err != nil {
+		// [R64-a](误责防御) 任务停止/总闸 ctx 取消期间的传输失败不是代理故障证据:
+		// 取消即中止(不记代理冷却/不回写 alive=0) —— 修前每次停止都把在飞代理请求
+		// 的取消当代理失败记冷却+喂回写泵(连败 3 次即误杀 DB 池健康条目)
+		if ctx.Err() != nil {
+			return rawResult{}, err
+		}
 		if pu != nil {
 			c.markProxyFailed(pu) // 代理失败指数冷却
 			// [R53-2a](代理误责) 打标代理通道失败: rawFetch 据此豁免目标 host
@@ -1535,6 +1571,16 @@ func injectToken(reqURL, token string, cfg *rule.FetchConfig) (string, map[strin
 		sep = "&"
 	}
 	return reqURL + sep + "token=" + rule.EncodeURIComponent(token), nil
+}
+
+// headersHaveKey 头组键存在性判定(大小写不敏感; nil/空表恒 false)
+func headersHaveKey(h map[string]string, key string) bool {
+	for k := range h {
+		if strings.EqualFold(k, key) {
+			return true
+		}
+	}
+	return false
 }
 
 // matchesTemplateOrigin 目标 URL host:port 与模板一致(自指防护, R30-3-1 同口径)

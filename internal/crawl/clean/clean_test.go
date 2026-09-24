@@ -228,6 +228,79 @@ func TestLeadPrefixAddrFamily(t *testing.T) {
 	}
 }
 
+// TestR64bLonelyMaskAndBrFamily R64-b 孤立掩码 token 回收 + 连续 br 串联 URL +
+// 裸文本节点孤儿 URL + U+3000 空壳段(R64-b 探针实证四缺口固化)
+func TestR64bLonelyMaskAndBrFamily(t *testing.T) {
+	// 连续 br 串联第二条 URL(原 [2] 尾组吞 "<br" 留孤儿 '>' 致漏网)
+	out := htmlClean(t, "<p>前段。</p><br>http://www.a.com/1/<br>http://www.b.com/2/<br><p>后段。</p>")
+	if strings.Contains(out, "a.com") || strings.Contains(out, "b.com") {
+		t.Fatalf("连续 br URL 漏网: %q", out)
+	}
+	if !strings.Contains(out, "前段。") || !strings.Contains(out, "后段。") {
+		t.Fatalf("正文误伤: %q", out)
+	}
+	// </p> 相邻裸 URL(RE2 无前瞻的孤立形态, 代码级回收兜底)
+	out = htmlClean(t, "<p>前段。</p>http://www.c.com/3/<br>后段。")
+	if strings.Contains(out, "c.com") {
+		t.Fatalf("孤儿 URL 漏网: %q", out)
+	}
+	if !strings.Contains(out, "前段。") || !strings.Contains(out, "后段。") {
+		t.Fatalf("正文误伤: %q", out)
+	}
+	// U+3000 空壳段落(emptyShellBody 族补 \x{3000}; DB 94 章残留实证)
+	out = htmlClean(t, "<p>\u3000\u3000正文一！</p><p>\u3000</p><p>\u3000\u3000</p><p>正文二。</p>")
+	if strings.Contains(out, "<p>\u3000") || strings.Count(out, "<p>") != 2 {
+		t.Fatalf("U+3000 空壳段未回收: %q", out)
+	}
+	if !strings.Contains(out, "正文一！") || !strings.Contains(out, "正文二。") {
+		t.Fatalf("正文误伤: %q", out)
+	}
+	// 防误伤: 行内 URL(前紧贴可见文字)必须保留
+	keep := htmlClean(t, "<p>详见 https://a.com/x?i=1&amp;j=2 说明。</p>")
+	if !strings.Contains(keep, "https://a.com/x?i=1&amp;j=2") || !strings.Contains(keep, "详见") {
+		t.Fatalf("行内正文 URL 误删: %q", keep)
+	}
+}
+
+// TestR64bPrefixVariantsUppercase R64-b 引导前缀变体扩展 + 大小写域名 +
+// plain 模式 U+3000 行首 URL(探针实证固化)
+func TestR64bPrefixVariantsUppercase(t *testing.T) {
+	cases := []struct{ name, in string }{
+		{"请记住双层前缀", "<p>请记住本书首发地址：http://www.foo.com/123/</p>"},
+		{"请记住本站", "<p>请记住本站最新地址：http://www.foo.com/123/</p>"},
+		{"手机版地址", "<p>手机版地址：http://m.foo.com/1/</p>"},
+		{"移动版地址", "<p>移动版地址：http://m.foo.com/1/</p>"},
+		{"手机阅读网址裸域名", "<p>手机阅读网址：m.foo.com</p>"},
+		{"请记住最新网址", "<p>请记住最新网址：www.foo.com</p>"},
+		{"请访问最新地址带路径", "<p>请访问最新地址：www.foo.com/book/1/</p>"},
+		{"u3000行首前缀", "<p>\u3000\u3000无弹窗推荐地址：http://www.e.com/5/</p>"},
+		{"大写域名行中", "<p>欢迎访问 WWW.BIQUGE.INFO 阅读本章。</p>"},
+		{"大写域名整行", "<p>WWW.BIQUGE.INFO</p>"},
+	}
+	for _, c := range cases {
+		out := htmlClean(t, c.in)
+		if strings.Contains(out, "http") || strings.Contains(out, "www.") || strings.Contains(out, "WWW.") ||
+			strings.Contains(out, "地址：") || strings.Contains(out, "网址：") || strings.Contains(out, "BIQUGE") {
+			t.Fatalf("%s 未回收: %q", c.name, out)
+		}
+	}
+	// 大写域名行中形态: 域名删, 正文保留
+	out := htmlClean(t, "<p>欢迎访问 WWW.BIQUGE.INFO 阅读本章。</p>")
+	if !strings.Contains(out, "欢迎访问") || !strings.Contains(out, "阅读本章。") {
+		t.Fatalf("大写域名行中正文误伤: %q", out)
+	}
+	// plain 模式: U+3000 缩进整行 URL(lineWs 全角空格族)
+	cfg := defaultConfig()
+	cfg.PlainText = true
+	out = CleanContentHTML("正文。\n\u3000\u3000http://www.d.com/4/\n结尾。", cfg)
+	if strings.Contains(out, "d.com") {
+		t.Fatalf("plain U+3000 行首 URL 漏网: %q", out)
+	}
+	if !strings.Contains(out, "正文。") || !strings.Contains(out, "结尾。") {
+		t.Fatalf("plain 正文误伤: %q", out)
+	}
+}
+
 // TestLeadPrefixAddrNoFalsePositive [0]/[16] 防误伤: 无 URL/域名同现的普通正文
 func TestLeadPrefixAddrNoFalsePositive(t *testing.T) {
 	cases := []string{

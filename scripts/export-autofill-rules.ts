@@ -6,8 +6,9 @@
 //       规则+任务模板清单([{key, name, rule:{name,description,config,enabled}, task}])
 //
 // payload 来源(与 seed 脚本逐字段一致, 唯一事实源原则):
-//   fanqie / qimao / deqixs : 直接 import 对应 seed-rule-*.ts 的导出 ruleConfig
-//     (三脚本均为 import.meta.main 守卫, import 无副作用; 描述串在 main() 内未导出, 拷贝字面量);
+//   fanqie / qimao / deqixs / xjp : 直接 import 对应 seed-rule-*.ts 的导出 ruleConfig
+//     (seed 脚本均为 import.meta.main 守卫, import 无副作用; 描述串在 main() 内未导出, 拷贝字面量);
+//     [R64-d] R62-a 将 seed 脚本迁入 docs/legacy-seeds/, import 路径同步修正(原 ./ 已悬空)
 //   bqg713 / 80ge / jhssd / ttkan / pili : 源脚本(seed-rule-bqg713.ts / seed-rule-80ge.ts /
 //     archive/probe-qq-b2-jhssd-rule.ts / archive/probe-qq-b2-ttkan-rule.ts /
 //     archive/probe-mm-pili-rule.ts)顶层即执行网络调用, import 有副作用 →
@@ -27,10 +28,10 @@ import { fileURLToPath } from 'node:url'
 export {} // module 守卫(bun 顶层代码 + tsc 惯例)
 
 // ---- 可干净 import 的三份 seed 配置(单一事实源) ----
-import { ruleConfig as fanqieConfig, RULE_NAME as FANQIE_NAME } from './seed-rule-fanqie'
-import { ruleConfig as qimaoConfig, RULE_NAME as QIMAO_NAME } from './seed-rule-qimao'
-import { ruleConfig as deqixsConfig, RULE_NAME as DEQIXS_NAME } from './seed-rule-deqixs'
-import { ruleConfig as xjpConfig, RULE_NAME as XJP_NAME } from './seed-rule-xjp'
+import { ruleConfig as fanqieConfig, RULE_NAME as FANQIE_NAME } from '../docs/legacy-seeds/seed-rule-fanqie'
+import { ruleConfig as qimaoConfig, RULE_NAME as QIMAO_NAME } from '../docs/legacy-seeds/seed-rule-qimao'
+import { ruleConfig as deqixsConfig, RULE_NAME as DEQIXS_NAME } from '../docs/legacy-seeds/seed-rule-deqixs'
+import { ruleConfig as xjpConfig, RULE_NAME as XJP_NAME } from '../docs/legacy-seeds/seed-rule-xjp'
 
 // ---- 公共任务参数(与既有实测/生产任务口径一致) ----
 const THREAD = { threadMin: 2, threadMax: 2, intervalMin: 300, intervalMax: 600 } as const

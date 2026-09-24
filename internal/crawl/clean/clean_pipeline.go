@@ -173,7 +173,9 @@ var emptyInlineShellTags = []string{"b", "strong", "em", "i", "u", "span", "font
 
 // R62-c3 增 \x{00a0}: goquery 序列化把源站 &nbsp; 落为 U+00A0 原字符, \s 不覆盖,
 // "<p>\u00a0</p>" 空壳因此漏清(DB yueyouxs 实证)
-const emptyShellBody = `(?:\s|\x{00a0}|&nbsp;|<br\b[^>]*>)*`
+// R64-b 增 \x{3000}: 中文正文全角空格缩进空壳段 "<p>\u3000\u3000</p>" 同款漏清
+// (探针实证 + DB 94 章残留), 与 lineWs 全角空格族同步。
+const emptyShellBody = `(?:\s|\x{00a0}|\x{3000}|&nbsp;|<br\b[^>]*>)*`
 
 func compileEmptyShellRes(tags []string) []*regexp.Regexp {
 	out := make([]*regexp.Regexp, 0, len(tags))
@@ -186,12 +188,12 @@ func compileEmptyShellRes(tags []string) []*regexp.Regexp {
 var (
 	emptyBlockShellRes  = compileEmptyShellRes(emptyBlockShellTags)
 	emptyInlineShellRes = compileEmptyShellRes(emptyInlineShellTags)
-	emptyPOpenRe        = regexp.MustCompile(`(?i)<p>(?:\s|\x{00a0}|&nbsp;|<br\b[^>]*>)+`)
-	emptyPCloseRe       = regexp.MustCompile(`(?i)(?:\s|\x{00a0}|&nbsp;|<br\b[^>]*>)+</p>`)
+	emptyPOpenRe        = regexp.MustCompile(`(?i)<p>(?:\s|\x{00a0}|\x{3000}|&nbsp;|<br\b[^>]*>)+`)
+	emptyPCloseRe       = regexp.MustCompile(`(?i)(?:\s|\x{00a0}|\x{3000}|&nbsp;|<br\b[^>]*>)+</p>`)
 	// brSpacerBetweenPRe RE2 无先行断言 → 捕获组改写: </p>垫片<p…> → </p><p…>(原 <p 形态保留)
 	brSpacerBetweenPRe = regexp.MustCompile(`(?i)</p>\s*(?:<br\b[^>]*>\s*)+(<p[\s>])`)
-	leadShellRe        = regexp.MustCompile(`(?i)^(?:\s|\x{00a0}|&nbsp;|<br\b[^>]*>)+`)
-	trailShellRe       = regexp.MustCompile(`(?i)(?:\s|\x{00a0}|&nbsp;|<br\b[^>]*>)+$`)
+	leadShellRe        = regexp.MustCompile(`(?i)^(?:\s|\x{00a0}|\x{3000}|&nbsp;|<br\b[^>]*>)+`)
+	trailShellRe       = regexp.MustCompile(`(?i)(?:\s|\x{00a0}|\x{3000}|&nbsp;|<br\b[^>]*>)+$`)
 	// blockGapCollapseRe [R22-b-9] 段间原始空白坍缩: </tag>\s+< → </tag><(原标签保留)
 	blockGapCollapseRe = regexp.MustCompile(`(?i)</(p|h[1-6]|li|blockquote)>(\s+)(<)`)
 )

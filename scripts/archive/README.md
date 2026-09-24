@@ -1,10 +1,10 @@
 # scripts/archive — 历史验证脚本归档
 
-本目录存放**历史轮次的验证/侦察/修复脚本**：结论已沉淀进 worklog、规则库或 `src/` 实现，仅保留**考古与参考价值**，不再作为活跃资产维护，**不参与主 tsc / lint 质量门**（见 `tsconfig.json` exclude 与 `eslint.config.mjs` ignores）。归档策略（zz-e 轮起）**只移不删，零数据丢失**——任何脚本需要时可 `git mv` 回 `scripts/` 原位复跑。
+本目录存放**历史轮次的验证/侦察/修复脚本**：结论已沉淀进 worklog、规则库或 `internal/` 实现，仅保留**考古与参考价值**，不再作为活跃资产维护，**不参与主质量门**（Go 化后质量门 = `gofmt -l internal/ && go vet ./... && go test ./internal/...`；R64-d 起 `tsconfig.json`/`eslint.config.mjs` 已随 TS 前端退役删除，本目录 TS 不受影响）。归档策略（zz-e 轮起）**只移不删，零数据丢失**——任何脚本需要时可 `git mv` 回 `scripts/` 原位复跑。
 
 ## 归档规则（zz-e 轮定版）
 
-- `scripts/` 根目录只保留「活资产」：种子脚本（`seed.ts` / `seed-rules-v2.ts` / `seed-rule-*.ts` / `seed-rules-batch-v2.ts` / `_seed-lib.ts`）、站点 mock（`mock-novel-site.ts`）、运维工具（`export-autofill-rules.ts` / `backfill-book-num.ts` / `gen-builtin-rules.ts`）、限流测试服务（`ratelimit-site.ts`）。注：zz-e 轮定性保留的三套 Docker 断言与 `fix-dd-b-stale-task.ts` 已在 R30 轮一并归档（见下节），质量门由 lint+tsc+E2E 串行取代。
+- `scripts/` 根目录只保留「活资产」：种子脚本（`seed.ts` / `seed-rules-v2.ts` / `seed-rule-*.ts` / `seed-rules-batch-v2.ts` / `_seed-lib.ts`，R62-a 起迁 `docs/legacy-seeds/`）、站点 mock（`mock-novel-site.ts`）、运维工具（`export-autofill-rules.ts` / `gen-builtin-rules.ts`；`backfill-book-num.ts` 为 Prisma 时代一次性回填，R64-d 删）、限流测试服务（`ratelimit-site.ts`）。注：zz-e 轮定性保留的三套 Docker 断言与 `fix-dd-b-stale-task.ts` 已在 R30 轮一并归档（见下节），质量门由 lint+tsc+E2E 串行取代。
 - **其余一律归档**：历史轮次 `verify-*`（结论已沉淀进断言矩阵或 worklog）、历史 `e2e-*`、一次性修复/工具脚本、历史轮次的 HTML/JSON 侦察取证样本。
 - 近三轮（zz/yy/xx）若新增 `e2e-*` 端到端回归脚本，应留在 `scripts/` 根目录。
 - 历史规则（ll-b/rr-b 轮）曾将 `verify-*`/`e2e-*` 定性为「永远留在原地」；zz-e 轮收紧为「根目录仅留断言资产+种子+运维工具」，其余下移本目录——两者不冲突：归档非删除，断言资产仍以三套 docker verify 为准。

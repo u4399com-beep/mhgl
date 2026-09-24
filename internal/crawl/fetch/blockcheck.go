@@ -169,10 +169,22 @@ func looksBlocked(h string, status int, serverHeader string) bool {
 	if utf8.RuneCountInString(h) >= 1200 && hasNormalTitle(h) {
 		return false
 	}
-	// 弱标记: 无正常标题豁免时仅扫前 4000 字符(TS lower.slice(0, 4000) 同口径)
+	// 弱标记: 无正常标题豁免时仅扫前 4000 字符(TS lower.slice(0, 4000) 同口径)。
+	// [R64-a] 修前 string([]rune(head)[:4000]) 全量码点转换 —— 10MB 响应体每次到达
+	// 本分支即 ~40MB 临时分配(无正常标题的站点每个内容页都付一次); 改为按 rune
+	// 边界的字节切片, 语义不变(仍取前 4000 码点, 不会斩断多字节字符)且零大额分配
 	head := lower
 	if utf8.RuneCountInString(head) > 4000 {
-		head = string([]rune(head)[:4000])
+		cut := len(head)
+		n := 0
+		for idx := range head {
+			if n == 4000 {
+				cut = idx
+				break
+			}
+			n++
+		}
+		head = head[:cut]
 	}
 	for _, k := range weakBlockMarkers {
 		if strings.Contains(head, k) {

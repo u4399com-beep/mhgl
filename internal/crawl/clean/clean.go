@@ -18,6 +18,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -81,22 +82,30 @@ func defaultAdPatterns() []string {
 	return out
 }
 
-// lineWs 行空白类(nbsp 容错): Go \s 不含 U+00A0, 源站 &nbsp; 经 goquery 解码落为
-// U+00A0 原字符, `^\s*` 类行锚在行首 nbsp 处卡死 —— R63-d 实证 xyetianlian 924 章
-// 整行 URL 残留根因(raw 形态 "&nbsp;&nbsp;&nbsp;&nbsp;http://...<br />", 行锚模式
-// 因行首 U+00A0 全部失效)。行锚统一用本类, 不再裸用 \s。
+// lineWs 行空白类(nbsp/全角空格容错): Go \s 不含 U+00A0/U+3000, 源站 &nbsp; 经
+// goquery 解码落为 U+00A0 原字符, 中文正文缩进为 U+3000, `^\s*` 类行锚在行首
+// nbsp/全角空格处卡死 —— R63-d 实证 xyetianlian 924 章整行 URL 残留根因(raw 形态
+// "&nbsp;&nbsp;&nbsp;&nbsp;http://...<br />", 行锚模式因行首 U+00A0 全部失效)。
+// R64-b 补全角空格族(对齐 unicodeSpaceRe 语义): plain 模式 "\u3000\u3000http://..."
+// 缩进整行 URL 漏网实证。行锚统一用本类, 不再裸用 \s。
 // 注: 解释型字符串(\u00a0 落为原字符) —— raw string 里 \u 不转义会成 RE2 非法转义,
 // R62-c3 同款事故形态, TestAllAdPatternsCompile 巡检兜底。
-const lineWs = "(?:\\s|\u00a0)*"
+const lineWs = "(?:\\s|[\u00a0\u1680\u2000-\u200a\u202f\u205f\u3000])*"
 
-// domainBody 域名主体([1] 与 R63-d 引导前缀模式共用, 改动须同步两处语义)
-const domainBody = `(?:[a-z0-9-]{1,20}\.){0,2}[a-z0-9-]+\.(?:com\.cn|net\.cn|org\.cn|com|net|cc|org|info|top|xyz|vip|site|cn|la|mobi|tv)`
+// domainBody 域名主体([1] 与 R63-d 引导前缀模式共用, 改动须同步两处语义)。
+// R64-b 增大写: DB 残留实证大写水印形态("WWW.BIQUGE.INFO" 整行)漏网 —— 修子域/
+// 主体 A-Z 后仍漏, 二次根因为 TLD 交替表纯小写("INFO"≠"info"), 故整体 (?i)。
+// (?i) 作用域内([0] 尾标点/[1] 路径段)均无字母语义面, 无连带影响。
+// TLD 白名单约束不变, 误伤面无类别性新增。
+const domainBody = `(?i)(?:[a-z0-9-]{1,20}\.){0,2}[a-z0-9-]+\.(?:com\.cn|net\.cn|org\.cn|com|net|cc|org|info|top|xyz|vip|site|cn|la|mobi|tv)`
 
 // leadPrefixAddr 引导地址前缀词组(R63-d: "无弹窗推荐地址：http://..." 族)。词组可
 // 自由组合覆盖 "本书最新地址/最新章节地址/无弹窗地址/手机阅读地址" 等复合形态,
-// 至少一个限定词(裸 "地址" 不收, 防正文误伤)。本词组只在与域名/掩码占位符同现时
-// 消费, 单独出现交由 [16] 整行 mop-up。
-const leadPrefixAddr = `(?:最新|全文|手机|访问|推荐|阅读|原文|本书|小说|章节|无弹窗|首发|本站)+地址`
+// 至少一个限定词(裸 "地址/网址" 不收, 防正文误伤)。本词组只在与域名/掩码占位符
+// 同现时消费, 单独出现交由 [16] 整行 mop-up。
+// R64-b: 增「移动/电脑」词组 + 可选「版」("手机版地址/移动版地址") + 「网/地」址双尾
+// ("手机阅读网址"族; 原「网址」尾仅 [4] 特例覆盖, [0] 锚不到致 URL 整段残留)。
+const leadPrefixAddr = `(?:最新|全文|手机|移动|电脑|访问|推荐|阅读|原文|本书|小说|章节|无弹窗|首发|本站)+(?:版)?[地网]址`
 
 // coreAdPatterns 反广告底线模式(硬底线, 语义同类先例: script/style 标签无视配置
 // 硬移除)。规则自定义 clean.adPatterns 为按站定制清单(R59-2c DB 实证: 35 规则中
@@ -110,7 +119,11 @@ var coreAdPatterns = []string{
 	// [0] R63-d 引导地址前缀+URL/域名 整段回收("无弹窗推荐地址：http://..."族;
 	// 掩码占位符期生效 —— 前缀后必须紧跟可见域名或掩码占位符, 防"访问地址：朝阳区"
 	// 类正文误伤; 置于 [1] 之前使裸域名随前缀整体回收, 避免域名先删致前缀残留)
-	leadPrefixAddr + `[：:]?` + lineWs + `(?:` + domainBody + `[^\s<>]*|` + maskOpen + `\d+` + maskClose + `)[，,。．.!！；;]?`,
+	// R64-b: 前缀加 {0,8} 可选中文外层引导语消费("请记住本书首发地址/欢迎访问最新地址"
+	// 等双层前缀; URL 锚不变, 多吞前缀仍在「引导行+URL 整段回收」语义内, 无正文误伤面)。
+	// 中文类用 RE2 的 \x{...} 形式 —— raw string 里 \uXXXX 不转义且 RE2 不支持 \u,
+	// 整条编译失败被静默跳过(R62-c3/R63-d 同款事故第三次, TestAllAdPatternsCompile 兜底抓获)
+	`[\x{4e00}-\x{9fa5}]{0,8}?` + leadPrefixAddr + `[：:]?` + lineWs + `(?:` + domainBody + `[^\s<>]*|` + maskOpen + `\d+` + maskClose + `)[，,。．.!！；;]?`,
 	// [1] 域名(含子域标签与 TLD 扩展: 修 "m.xxxx.com" 仅删 "xxxx.com" 残留 "m.";
 	// R63-d 路径段 [^\s<>]* 化 —— \S* 会吞 "</p>" 留孤儿开标签)
 	domainBody + `(?:/[^\s<>]*)?`,
@@ -123,7 +136,9 @@ var coreAdPatterns = []string{
 	// (div 直排上下文无 <p> 包裹, Bug-15 包裹发生在 removeAdLines 之后不可见)。
 	"(?m)^" + lineWs + "\uE000\\d+\uE001[。．.!！]?" + lineWs + "$" +
 		"|<p[^>]*>" + lineWs + "(?:<a\\b[^>]*>)?" + lineWs + "\uE000\\d+\uE001" + lineWs + "(?:</a>)?" + lineWs + "</p>" +
-		"|<br\\b[^>]*>" + lineWs + "\uE000\\d+\uE001" + lineWs + "(?:<br\\b[^>]*)?",
+		// R64-b 修: 尾可选组漏闭合 '>' —— 原式吞下一 br 的 "<br" 三字符留孤儿 '>',
+		// 致连续 br 串联的第二条 URL 失去前缀边界而漏网(探针实证)
+		"|<br\\b[^>]*>" + lineWs + "\uE000\\d+\uE001" + lineWs + "(?:<br\\b[^>]*>)?",
 	// [3] 首发域名水印前缀(DB 残留 800+ 行/千章, 居首)
 	`请记住本书首发域名[：:]?`,
 	`请记住本站[：:]?`,
@@ -535,6 +550,7 @@ func removeAdLines(text string, patterns []string) string {
 		}
 		out = re.ReplaceAllString(out, "")
 	}
+	out = removeLonelyMaskTokens(out)
 	out = maskRestoreRe.ReplaceAllStringFunc(out, func(m string) string {
 		sub := maskRestoreRe.FindStringSubmatch(m)
 		v := parseIntDec(sub[1])
@@ -549,6 +565,57 @@ func removeAdLines(text string, patterns []string) string {
 	})
 	out = maskScrubRe.ReplaceAllString(out, "")
 	return out
+}
+
+// removeLonelyMaskTokens 孤立掩码 token 回收(R64-b): [2] 等「整行仅 URL」模式依赖
+// 行/标签边界锚, RE2 无前瞻/后瞻, 无法表达「前为标签闭合或文本起点 且 后为标签开启
+// 或文本终点」的孤立形态 —— 实证漏网: "</p>URL<br>"(裸文本节点孤儿 URL)与连续 br
+// 串联的首条清后残余。掩码期用代码判定: token 前向跳过空白(unicode 空白含 U+3000/
+// U+00A0)后首字符为 '>' 或文本起点, 且后向跳过空白后首字符为 '<' 或文本终点 →
+// 该 URL 是孤立行, 连同两侧空白整体回收。正文内 URL(前或后紧贴可见文字)不受影响。
+// 迭代至不动点(删除后邻居边界变化可能使前一个 token 转为孤立)。纯字符扫描无正则
+// 陷阱, 章节体量下开销可忽略。
+func removeLonelyMaskTokens(s string) string {
+	for {
+		loc := maskRestoreRe.FindStringIndex(s)
+		for loc != nil && !lonelyMaskAt(s, loc) {
+			next := maskRestoreRe.FindStringIndex(s[loc[1]:])
+			if next == nil {
+				loc = nil
+				break
+			}
+			loc = []int{loc[1] + next[0], loc[1] + next[1]}
+		}
+		if loc == nil {
+			return s
+		}
+		s = s[:loc[0]] + s[loc[1]:]
+	}
+}
+
+// lonelyMaskAt 判定 loc 处掩码 token 是否孤立: 前向首个非空白 rune 为 '>'(或到文本
+// 起点) 且 后向首个非空白 rune 为 '<'(或到文本终点)。
+func lonelyMaskAt(s string, loc []int) bool {
+	fwd := false
+	for i := loc[0]; i > 0; {
+		r, sz := utf8.DecodeLastRuneInString(s[:i])
+		i -= sz
+		if !unicode.IsSpace(r) {
+			fwd = r == '>'
+			break
+		}
+	}
+	if !fwd {
+		return false
+	}
+	for i := loc[1]; i < len(s); {
+		r, sz := utf8.DecodeRuneInString(s[i:])
+		if !unicode.IsSpace(r) {
+			return r == '<'
+		}
+		i += sz
+	}
+	return true // 后向到文本终点
 }
 
 func itoa(n int) string {

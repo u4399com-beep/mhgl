@@ -5,7 +5,6 @@
 > 数据库沿用 SQLite 原文件（零迁移）。TS 时代源码 `src/` 已于 R62-a 全量移除（语义已全部移植进 `internal/`，历史可考 git）。
 >
 > 📖 **安装部署教程（R55 Go 单体版）**：**[docs/INSTALL-GUIDE.md](./docs/INSTALL-GUIDE.md)**（上一版 Next.js 教程留档 docs/INSTALL-GUIDE-r52.bak.md）
-> 📋 **功能对齐矩阵**：**[agent-ctx/go-migration/PARITY.md](./agent-ctx/go-migration/PARITY.md)**
 
 ## 架构（R55）
 
@@ -122,7 +121,7 @@ Go 质量门全量：`gofmt -l internal/ && go vet ./... && go test -count=1 ./i
 - `bootstrap-db.ts`：空库一键引导（恢复链关键件：登录→import-builtin 导入 35 条内置规则→分类固化→默认站点→三大部头任务，幂等）。
 - `install-go.sh` / `dev-go.sh` / `dev-watchdog.sh` / `recover.sh`：Go 工具链安装、单体启动、OOM 守护、环境重置一键恢复。
 - `mock-novel-site.ts` / `ratelimit-site.ts`：本地模拟源站（规则测试与极限校准的探测目标）。
-- `backfill-book-num.ts` / `migrate-bqg-chapter-urls.ts` / `export-autofill-rules.ts`：一次性运维工具（Prisma/JSON）。
+- `export-autofill-rules.ts`：一次性运维工具（导出 `docker/autofill-rules.json`；seed 源已迁 `docs/legacy-seeds/`，R64-d 修正 import 路径）。R64-d 清理：Prisma 时代一次性脚本 `backfill-book-num.ts` / `migrate-bqg-chapter-urls.ts` 已删（git 历史可考）。
 - `docs/legacy-seeds/`：TS 时代规则种子归档（35 站语义已全量固化进 `internal/api/builtin_rules.json`，R62-a 迁入，见其 README）。
 - `archive/`：历史轮次验证脚本归档（只移不删，不参与质量门），见 `archive/README.md`。
 

@@ -251,6 +251,21 @@ func appendSiteQ(loc, siteQ string) string {
 	return loc + "?" + siteQ
 }
 
+// hostHeaderRe Host 头白名单形态(域名/IPv4/IPv6 括号 + 可选端口; 与 web.validHost 同口径)。
+// [R64-c] 修前 publicSitemap 直用 r.Host 拼 base —— Go net/http 已拦非法形态,
+// 但超长 token 形态(千字符域名)会放行进 loc/缓存键(无界键+无界 loc); 对齐 web 层
+// "Host 不可信" 威胁模型收口: 非法/超 253 → 回落 localhost:3000。
+var hostHeaderRe = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9.\-]*[A-Za-z0-9])?(:[0-9]{1,5})?$|^\[[0-9A-Fa-f:.]+\](:[0-9]{1,5})?$`)
+
+// validHostHeader Host 头合法性(长度钳 253 + 形态白名单; 请求 Host 由 net/http 保底,
+// 此处防超长/边缘形态进 sitemap base)。
+func validHostHeader(h string) bool {
+	if h == "" || len(h) > 253 || strings.ContainsAny(h, "<>\"' \\%^|") {
+		return false
+	}
+	return hostHeaderRe.MatchString(h)
+}
+
 // (d Deps) publicSitemap GET /api/public/sitemap
 func (d Deps) publicSitemap(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
@@ -264,7 +279,11 @@ func (d Deps) publicSitemap(w http.ResponseWriter, r *http.Request) {
 	if r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
 		scheme = "https"
 	}
-	base := scheme + "://" + orDefault(r.Host, "localhost:3000")
+	reqHost := strings.TrimSpace(r.Host)
+	if !validHostHeader(reqHost) {
+		reqHost = "localhost:3000" // [R64-c] Host 头不可信: 非法/超长回落本地形态
+	}
+	base := scheme + "://" + reqHost
 	if siteID != "" {
 		// R3-37: 停用站点/localhost 不放行自定义 base
 		if site, ok, _ := d.DB.QueryMap(`SELECT domain,status FROM "Site" WHERE id=?`, siteID); ok &&
@@ -476,9 +495,11 @@ func (d Deps) chapterLoc(base string, num, idx int64, chapterID, preset string) 
 func sitemapURLEntry(loc string, lastmodMS int64, freq, priority string) string {
 	lm := ""
 	if lastmodMS > 0 {
-		lm = time.UnixMilli(lastmodMS).UTC().Format("2006-01-02T15:04:05Z")
+		lm = "<lastmod>" + time.UnixMilli(lastmodMS).UTC().Format("2006-01-02T15:04:05Z") + "</lastmod>"
 	}
-	return fmt.Sprintf("  <url><loc>%s</loc><lastmod>%s</lastmod><changefreq>%s</changefreq><priority>%s</priority></url>",
+	// [R64-c] 修前 lastmodMS<=0 输出空 <lastmod></lastmod> 元素(sitemap 协议要求
+	// W3C datetime 非空; web 层同点位早已空值省略) —— 对齐省略口径。
+	return fmt.Sprintf("  <url><loc>%s</loc>%s<changefreq>%s</changefreq><priority>%s</priority></url>",
 		xmlEscape(loc), lm, freq, priority)
 }
 

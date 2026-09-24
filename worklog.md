@@ -7611,3 +7611,69 @@ Stage Summary:
 - reclean 端点交付: 清洗模式升级后的存量洗净能力(本轮洗净 4318 章残留)
 - 新增回归测试 5 组(正例+防误伤反例+消毒单测), TestAllAdPatternsCompile 再次证明兜底价值
 - 遗留留档: 「何以笙箫默小说」站点特定推广词(触发词仅现存于列表页推广位, 正文 0 命中, 未加模式); DB 规则 config 保持原形(摄入消毒保证行为与 json 一致, 字面差异留档); 封面文件名双点形态(URL basename 解析尾部 '..', 功能无损)
+
+---
+Task ID: R64-c
+Agent: general-purpose
+Task: API/Web 逐行抓 bug+autoSuggest 处置
+
+Work Log:
+- 门禁基线全绿(gofmt/vet/test/build); 逐行审 internal/api/ 全 15 文件 + internal/web/ 全 8 文件 + auth/config + store/models(id.go cuid 时间序确认 TaskLog id>? 游标分页正确) + web_extra(SQL 参数化+likeSafe 双口径确认无注入面)
+- API 面结论: 全部查询走占位符/白名单(orderBy/whereSQL 拼接源均为代码内常量), 信封/状态码/半写路径(readBodyMap nil 契约)齐整, 鉴权全 /api/admin/** 挂 requireAdmin(auth HMAC+限流+XFF 收口 R56 遗产完好), 并发共享面(sitemapCache/bannedCache/dlInFlight/tagReCache)全部锁保护
+- 实锤 bug 1(Medium, web SSR): 搜索 q/关键词 tag/分类锚名 无长度钳直出 TDK title/description 并进 LIKE —— curl 实证 3000 字符 q → <title> 3055 字节(SEO 垃圾面), keyword 2534/category 4048 同病; api 面 /api/public/search 同参早已 likeSafe(100), SSR 漏收口。修: public.go 新增 clampInput(=trim+clampCodePoints) + renderSearch(100)/renderKeyword(100)/renderCategory catName(50, 同 Category.name 上限) 三处接线
+- 实锤 bug 2(Low-Medium, api): /api/public/sitemap r.Host 直拼 base+缓存键, 无 web 层 validHost 同款收口(千字符 token 形态 Host 放行 → 无界 loc+无界缓存键; xmlEscape 已挡注入故仅降级面)。修: public_files.go 新增 hostHeaderRe+validHostHeader(与 web.validHost 同口径: 253 上限+形态白名单), 非法回落 localhost:3000
+- 实锤 bug 3(Low, api): sitemapURLEntry lastmodMS<=0 输出空 <lastmod></lastmod>(sitemap 协议要求 W3C datetime 非空; :3000 实证首页 loc 即空 lastmod; web 层 handleSitemap 同点位早已空值省略)。修: 空值整元素省略, 对齐 web 层口径
+- 新增纯函数回归 3 组: api/r64c_api_fix_test.go(TestValidHostHeader 12 形态正反例+TestSitemapURLEntry 空省略/W3C 形态/转义), web/r64c_web_fix_test.go(TestClampInput trim/ASCII/CJK 码点/UTF-8 完整性/max=0 契约)
+- :3100 只读副本实证(py shutil.copy db → /tmp, PORT=3100 起 /tmp/r64c-build, 全程零触 :3000 进程与真实 db): 修复后 title 155/134/102 字节; 300 字符 Host → base 回落 localhost:3000; 空 <lastmod> 计 0
+- 11 主题全页面活体扫描(:3100 副本, PUT 切主题→12 URL/主题→切回 aijjxs——均在副本 db 上, 真站 theme=aijjxs 未动): 11×12=132 页全 200 且零 "template missing"/零 "<no value>", /no-such-page 404 美观页正常; 叠加既有 web_test 渲染冒烟/XSS 探针/CSS 覆盖三组全绿 → 11 主题 nil 安全铁律(eq 全带 (str .) 包裹)与 XSS 面(输出全走 bookHref/chapterHref/coverURL/safeHref/qesc/自动转义)复核通过
+- autoSuggest 遗留处置(裁定=留档不接线, 证据链): ①rg 全仓 12 处: admin_tasks normalizeTaskData 透传落库+注释[R63-c]/store.Task.AutoSuggest 注释/admin_books INSERT 列/autofill docker 脚本/prisma schema/测试 schema; ②生产者不在领地: 唯一自然消费点=采集完成回填词库, 在 internal/crawl(本轮禁地), R62 审计建议的「书名+简介+章节标题词频 topN 落 BookTag」实现位同样在引擎/桥层; ③TS suggest.ts(百度/必应/360/DDG 下拉词聚合)已随 TS 运行时主动退役, 重实现=新增外部抓取依赖+频控滥用面, 非「低风险接线」; ④前端核实: 11 主题搜索框全部 form GET 提交(无 datalist/下拉联想 UI), admin.js 任务表单无 autoSuggest 开关(仅 smartCategory/smartComplete/autoRefresh 三枚) → 死开关零 UI 暴露零误导; ⑤影响=书籍页标签/keyword 聚合页/PSEO 候选词少一手数据来源, 纯数据丰富度, 无正确性/安全影响。结论: 维持透传预留+注释留档, 接线价值不足以支撑越领地/新功能开发风险, 处置闭环不再悬置
+- 门禁收口: gofmt(我方 4 文件)零/vet ./... 零/go test -count=1 ./internal/... 全绿(16 包)/go build -o /tmp/r64c-build ./cmd/server OK(:3100 验证后已删); :3000 健康检查正常(theme=aijjxs 未动, 未重启未 kill)
+
+Stage Summary:
+- 改动 4 文件: internal/web/public.go(clampInput+三处 SSR 查询串收口)/internal/api/public_files.go(validHostHeader+Host 收口+lastmod 空值省略)/internal/web/r64c_web_fix_test.go(新)/internal/api/r64c_api_fix_test.go(新)
+- 真 bug 修复 3(SSR TDK 无界用户串 Medium / sitemap Host 收口 Low-Medium / sitemap 空 lastmod Low), 全部 :3100 只读副本活体实证修复前后差异
+- autoSuggest: 留档闭环(不接线, 5 条证据链如上); 11 主题 nil 安全+XSS 双面复核通过(静态测试组+副本活体扫描 132 页)
+- 遗留留档: api/pseudostatic.go pseudoCuidTokenRe 带 (?i) 而 web/pseudo.go cuidTokenRe 大小写敏感(大写 cuid 伪静态 404, web 更严无安全面, PARITY 级差异不动); publicBooks ?ids= 分支仍逐 id 单查(≤50 上限封顶, 设计档); adminTaskControl start 失败路径把管理器错误原文 400 透出(风格一致, 不动); 并行 agent 领地 internal/crawl 本轮零触碰
+---
+Task ID: R64-d
+Agent: general-purpose
+Task: 清理整合优化精简
+
+Work Log:
+- 全仓孤儿扫描: AST 扫描器(/tmp/r64d/orphanscan.go)解析 internal/+cmd 全部导出+非导出顶层符号, 交叉验证零引用 → 领地内零孤儿(R62/R63 清得很净); 领地外仅 internal/auth/auth.go defaultSecret 常量零引用(报告不动手); internal/store/id.go init 为编译器隐式调用误报排除
+- scripts/ 盘点: 现役 8 件(bootstrap-db/dev-go/dev-watchdog[进程实证 3377 在跑]/recover/install-go/export-autofill-rules/mock-novel-site/ratelimit-site)全保留; 修 export-autofill-rules.ts 悬空 import(R62-a 迁 seed 入 docs/legacy-seeds/ 后 ./ 路径断链, 改 ../docs/legacy-seeds/, bun build 实证解析通过); 删 Prisma 时代一次性脚本 backfill-book-num.ts/migrate-bqg-chapter-urls.ts(任务已完成+builtin_rules.json/规则 JSON 零引用)
+- node_modules 精简(914M→155M): package.json 重写仅留 prisma(recover.sh `bunx prisma db push --skip-generate` 恢复链依赖), 删 next/@next/react 全家/radix/tailwind/sharp/playwright/lucide 等约 40 项死依赖(逐项 rg 全仓+mini-services 独立 package.json 甄别, 剩余 TS 入口 12 个 bun build 全通过); rm -rf node_modules 重装(bun install 不清 extraneous); 删 tsconfig.json/eslint.config.mjs/postcss.config.mjs(TS 前端退役后悬空配置, lint 门=go vet 不受影响); 删前实证三进程(1204/1207/3377)零 node_modules fd 占用, 运行服务(Go 二进制)不受影响
+- 根目录杂项: 删 .tmp-r62d/(R62-d 一次性探针 9 文件, 全仓零引用)/public/(Next.js public 目录, Go 服务仅挂 web/static, 内容零引用)/agent-ctx 过期产物(r49-snap 源站快照 2M+r49 png/log+archive/ r51 已判孤儿代码+r52 OOM 日志 bak, agent-ctx 3.1M→292K); 修 README 悬空引用(agent-ctx/go-migration/PARITY.md 早不存在)+scripts 清单更新; scripts/archive/README.md 陈旧指针更新(tsconfig/eslint/src); docs/INSTALL-GUIDE-r52.bak.md 保留(README 在引, R62 留档声明延续); docs/images+legacy-seeds 保留(INSTALL-GUIDE 引用图+builtin_rules.json "source" 字段引用 seed 文件名); scripts/archive/ 保留(README 明文「只移不删」政策, ~2.7M 提请主控评估)
+- 磁盘 top10: .git 325M(git 历史含已删 src/, 未动)/node_modules 155M(已精简)/db 63M(运行时 WAL 增长, 未动)/skills 61M(平台目录, 未动)/.build 25M(现役二进制)/web 13M(运行时封面)/mini-services 3.9M/scripts 3.0M/docs 2.6M/internal 2.3M; 删除项均 git 已跟踪(git status D 可考), 零数据丢失
+- go.mod tidy: 备份 /tmp/r64d/, tidy 后 go.mod 逐字节不变(已极简), go build 验证 OK
+- 门禁: gofmt -l internal/ cmd 空/go vet 零/go build OK/go test -count=1 ./internal/... 14 包全绿(exit 0); 中途两次红均为并行 R64-a/R64-c agent 领地内 WIP 瞬态(fetch 包 urlParse 未定义/web TestClampInput), 隔离复跑 3/3 绿+终验全绿实证与本轮零 Go 改动无关
+
+Stage Summary:
+- 节省体积 ≈763MB: node_modules 914M→155M(-759M), agent-ctx 3.1M→292K(-2.8M), .tmp-r62d/-public/等 -190K; 删除项全在 git 历史(D 状态可考/可恢复)
+- 领地外孤儿报告(供主控): internal/auth/auth.go:41 defaultSecret 常量零引用(TS 时代遗留, Service 密钥经 NewService 参数注入); Dockerfile/docker-compose.yml/install.sh 为 Next.js 时代形态(next build standalone 已无源可构), Docker 部署链断链, 提请主控决策重写或退役; .zscripts/ 遵 R63-c 留档结论未动
+- 整合: export-autofill-rules.ts 恢复可用(R62-a 迁移遗留断链); README/scripts/archive README 三处文档失真同步修正
+- 遗留: scripts/archive/ 2.7M 按「只移不删」政策保留待主控定夺; prisma schema.prisma+CLI 为 recover.sh 建表链保留(@prisma/client 已删, --skip-generate 不依赖); node_modules 155M 峰值为 prisma 引擎链, 如 Docker 链退役可再清
+---
+Task ID: R64-a
+Agent: general-purpose
+Task: 采集+反反爬增强+逐行抓 bug
+
+Work Log:
+- 开局: 读 worklog 尾部(R62/R63/R63-d 上下文: utls 三路 dial/Retry-After 钳制/fingerprint 头组/镜像 sticky/per-host minGap/代理冷却/回写泵), ls internal/crawl/ 确认领地实际文件(fetch/fetch.go 1549 行+blockcheck+fingerprint+utls+engine.go+proxyfeedback.go+proxy/+smart 仅读), 门禁基线全绿(gofmt 零/vet 零/14 包 test 全绿)
+- 逐行精读领地全部文件(~3400 行): fetch.go 全文(闸门/代理池/重试镜像链/token/contentProxy/SSRF 三层/解压)、blockcheck 判定层次、fingerprint 头组、utls 三路隧道、engine 装配+TestRule、proxyfeedback 回写泵、proxy.go 收割+校验器、periodic 双 timer、smart(只读, 属 bridge 消费面)
+- 逐行核查否决的疑似项(留档防复查): ①markProxyFailed 30s<<n 溢出——Go 移位语义 mod 2^64, 负/零/超大全被 d<=0||d>max 钳 10min, 无洞 ②periodic.go Timer.Reset 疑似未排水——go.mod go 1.26, Go 1.23+ Timer 通道改同步无缓冲, Reset 保证无陈旧值, 非 bug ③hostGate 并发等待者同锚同醒疑破 minGap——推演证认各等待者重锚后仍按 minGap 串行放行, 节奏保持 ④Check worker ctx 提前 return 疑泄漏——dispatch 同因 ctx.Done break+close(jobs), 无死锁 ⑤404 喂 host 连败链(range 模式扫空 ID 自伤)——R53-2a 有意决策带邻近测试锚, 低风险原则不改, 留档观察
+- 修复 1(误责防御·中): ctx 取消(任务停止/暂停)发生在请求在飞期 → doOnce 误把取消当代理故障(markProxyFailed 30s~10min 冷却+连败 3 次回写泵误杀 DB 池 alive=0), rawFetch 误喂目标 host 连败链(无辜站降额+gap 放大); 两处 ctx.Err() 卫哨: 取消即中止重试链, 零记账
+- 修复 2(契约·中): doOnce 末尾无条件 Set 同源缺省 Referer 使 cfg.headers 显式配置的 Referer 恒被覆盖失效(违背「cfg.headers 可覆盖单项」文件头契约); 改 headersHaveKey 大小写不敏感判存, 规则 Referer 生效, 未配置路径行为不变
+- 修复 3(热路径内存·中): blockcheck 弱标记前 4000 码点截断用 []rune(head) 全量转换——10MB 响应体每请求 ~40MB 临时分配(无正常标题站点每内容页都付); 改 for range rune 边界字节切片, 语义不变零大额分配
+- 修复 4(panic 防御·低): pickUA mobile/desktop 子集池为空时 len(pool)==0 取模除零 panic(池演化移除全部移动条目即触发), 加回落全量池卫哨
+- 修复 5(白等·低): engine testResolveToc 目录页重试最后一次失败仍白等 800ms 才返回且 ctx 取消后仍会再发一次必败请求; attempt==1||ctx.Err() 即 break
+- 增强 1(反反爬·节奏抖动): hostGate.acquire minGap 等待附加 +0~25% 抖动(admitJitter, crypto/rand 独立源)——恒定间隔节拍本身是机器指纹(相邻请求间隔方差≈0 即可判机器人); 只增不减永不低于配置节奏, 限流冷却窗保持精确
+- 注释正误: rawFetch 镜像切换注释「TS 仅 403/5xx」与代码(403/429/5xx 可切换)自相矛盾, 改述 Go 口径实际语义(429 换镜像目标为异 host 不受本 host 限流约束), 零行为变化
+- 新增测试 internal/crawl/fetch/r64a_test.go 8 组: parseRetryAfter 表驱动(负数/+号/Atoi 溢出/HTTP 日期过期与未来)/retryAfterCooldown 钳制 7 例/admitJitter 界(含负样本+500 采样非零)/headersHaveKey 表驱动/cfg.headers Referer 覆盖三态(大小写键+缺省路径)/ctx 取消双路不误责(慢代理+TEST-NET-3 目标+回写事件计数+连败计数零断言)/pickUA 空子集池回落/looksBlocked 4000 码点边界五态(内/外/斩半/多字节不斩字)
+- 门禁: gofmt 零/vet 零/internal 全 16 包 test 全绿/fetch 包 -race 干净/新测试 -count=3 稳定/go build -o /tmp/r64a-build ./cmd/server OK(未触碰 .build/mhgl 与运行中服务, 未 git commit)
+
+Stage Summary:
+- 改动文件 4: internal/crawl/fetch/fetch.go(ctx 取消双卫哨+Referer 契约+admitJitter 节奏抖动+pickUA 空池防御+注释正误)/internal/crawl/fetch/blockcheck.go(4000 码点截断零分配化)/internal/crawl/engine.go(testResolveToc 重试白等+取消退出)/internal/crawl/fetch/r64a_test.go(新增 8 组回归)
+- 抓真 bug 5 修复(2 中: ctx 取消误责代理+目标站; cfg.headers Referer 契约失效; 2 低: 空池 panic 防御, 试采末轮白等)+1 热路径内存(40MB/请求临时分配)+1 反反爬增强(准入抖动打散机器节拍), 全部小步不破契约
+- 留档不改: 404 喂 host 连败链(range/bookIds 扫空 ID 会自伤降额, R53-2a 有意决策, 建议下轮用「404 不入连败只退避」口径复核 TS 语义权威)/HTTP2 指纹(utls 需 h2 RoundTripper 重写, 非小步)/fetchSource UA Chrome/126 陈旧(GitHub 源抓取面非反爬面)/proxyFeedbackSink drain 无停机句柄(进程级 daemon 语义)
+- 测试: +8 组(fetch 包), 其中 ctx 取消不误责为集成级回归(慢代理+回写事件计数), 全门禁绿+race 绿

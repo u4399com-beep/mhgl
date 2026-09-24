@@ -58,6 +58,15 @@ func firstQ(sp map[string][]string, k string) string {
 	return ""
 }
 
+// clampInput 查询串用户输入收口(trim + 码点钳长)。
+// [R64-c] 修前 renderSearch(q)/renderKeyword(tag)/renderCategory(cat 锚名) 原样进
+// TDK title/description 与 LIKE 模式 —— 超长查询串(实测 3000 字符)直出无界 <title>
+// (SEO 垃圾面)并进 SQL LIKE; api 面 /api/public/search 同参已 likeSafe(100) 收口,
+// SSR 面对齐同口径。钳长后值仍经 html/template 自动转义(XSS 面不变)。
+func clampInput(s string, max int) string {
+	return clampCodePoints(strings.TrimSpace(s), max)
+}
+
 // baseData 每页公共数据(站点/头部 TDK/分类/友链/常用视图链接)。
 func (d Deps) baseData(r *http.Request, site map[string]any, head map[string]any) map[string]any {
 	cats, _ := d.DB.ListCategories()
@@ -725,7 +734,7 @@ func (d Deps) handleReadPretty(w http.ResponseWriter, r *http.Request) {
 func (d Deps) renderSearch(w http.ResponseWriter, r *http.Request, sp map[string][]string, q string) {
 	site := d.resolveSite(r)
 	sid := siteID(site)
-	q = strings.TrimSpace(q)
+	q = clampInput(q, 100) // [R64-c] 超长 q 直出 TDK+LIKE 无界面收口(对齐 api likeSafe 100)
 	var books []map[string]any
 	var total int64
 	if q != "" {
@@ -752,7 +761,7 @@ func (d Deps) renderSearch(w http.ResponseWriter, r *http.Request, sp map[string
 func (d Deps) renderKeyword(w http.ResponseWriter, r *http.Request, sp map[string][]string, tag string) {
 	site := d.resolveSite(r)
 	sid := siteID(site)
-	tag = strings.TrimSpace(tag)
+	tag = clampInput(tag, 100) // [R64-c] 同 renderSearch: 聚合页 TDK 直出无界面收口
 	hits, _ := d.DB.WebKeywordHits(tag, 10)
 	var primary map[string]any
 	var others []map[string]any
@@ -815,9 +824,9 @@ func (d Deps) renderCategory(w http.ResponseWriter, r *http.Request, sp map[stri
 	catName := "全部"
 	if cat != "" {
 		if strings.HasPrefix(cat, "cat:") {
-			catName = strings.TrimPrefix(cat, "cat:")
+			catName = clampInput(strings.TrimPrefix(cat, "cat:"), 50) // [R64-c] 锚名进 TDK, 钳分类名上限(50 同 Category.name)
 		} else if m, ok, _ := d.DB.QueryMap(`SELECT name FROM "Category" WHERE id=?`, cat); ok {
-			catName = ToStrSafe(m["name"])
+			catName = clampInput(ToStrSafe(m["name"]), 50)
 		}
 	}
 	cats, _ := d.DB.ListCategories()

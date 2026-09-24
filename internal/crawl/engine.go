@@ -471,6 +471,11 @@ func testResolveToc(ctx context.Context, fc *fetch.Client, pageFetch rule.PageFe
 					if err == nil {
 						break
 					}
+					// [R64-a] 末轮失败不再退避等待(修前最后一次失败仍白等 800ms
+					// 才返回); ctx 已取消同样立即退出(修前取消后还会再发一次必败请求)
+					if attempt == 1 || ctx.Err() != nil {
+						break
+					}
 					select {
 					case <-ctx.Done():
 					case <-time.After(800 * time.Millisecond):
