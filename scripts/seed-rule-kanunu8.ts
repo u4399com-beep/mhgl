@@ -96,6 +96,9 @@ const rule: RuleSeed = {
           type: 'css', expression: '.intro, td.p10-24:contains("内容简介")', attr: 'html',
           replaceFrom: '^(?:<(?:strong|b)>\\s*)?内容简介[:：]?\\s*(?:</(?:strong|b)>)?\\s*(?:<br\\s*/?>\\s*)?', replaceTo: '',
         },
+        // [R61-1B] 书页无最新章节行: 贪婪前缀+尾锚 </ul> 使首匹配落在最后一个 .mulu-list 末 li
+        // (=真末章, 单卷/多卷通吃; 容忍末尾 <li>&nbsp; 填充行, kanunu8 书页目录内嵌形态)
+        latestChapter: { type: 'regex', expression: '[\\s\\S]*<li><a href="[^"]*">([^<]{1,60})</a></li>\\s*(?:<li>[^<]{0,10}</li>\\s*)?</ul>', attr: '1' },
       },
     },
     toc: {

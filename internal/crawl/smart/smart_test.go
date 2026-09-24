@@ -112,8 +112,9 @@ func TestSmartCategory4Char(t *testing.T) {
 	if got := SmartCategory("怪书", "怪简介", "怪分类", nil); got.Category != FallbackCategory || got.Method != "fallback" {
 		t.Errorf("fallback 臂 = %+v, want {%s fallback}", got, FallbackCategory)
 	}
-	// 无源分类且关键词未命中 → 空(不硬塞)
-	if got := SmartCategory("XYZ", "ABC", "", nil); got.Category != "" || got.Method != "none" {
-		t.Errorf("none 臂 = %+v, want {\"\" none}", got)
+	// [R61-2c] 无源分类且关键词未命中 → 无条件兜底综合其他(书必有类; 修前返回空
+	// 导致规则无 category 字段的书全部无分类入库, R61 实证 11 本需运维手工归位)
+	if got := SmartCategory("XYZ", "ABC", "", nil); got.Category != FallbackCategory || got.Method != "fallback" {
+		t.Errorf("none 臂 = %+v, want {%s fallback}", got, FallbackCategory)
 	}
 }

@@ -58,6 +58,8 @@ const rule: RuleSeed = {
       fields: {
         name: { type: 'css', expression: '#muluzuoceh h1', attr: 'text' },
         author: { type: 'regex', expression: '作者：([^<]+)' },
+        // [R61-1B] 面包屑「手机小说 > 玄幻奇幻 > 书名」次级锚 = 分类
+        category: { type: 'regex', expression: '<a href="/">[^<]*</a>\\s*&gt;\\s*<a[^>]*>([^<]{1,15})</a>', attr: '1' },
         wordCount: { type: 'regex', expression: '字数：([0-9.]+万字)' },
         latestChapter: { type: 'regex', expression: '最新章节：<a[^>]*>([^<]+)</a>' },
         // #shojixsinto 首 p 即简介(尾部推广文本/TXT 下载行在 p 外, 天然隔离)

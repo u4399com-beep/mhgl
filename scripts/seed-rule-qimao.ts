@@ -74,6 +74,8 @@ export const ruleConfig = {
       cover: { type: 'json', expression: 'book.cover' },
       status: { type: 'json', expression: 'book.status' },
       latestChapter: { type: 'json', expression: 'book.latestChapter' },
+      // [R61-1B] 代理 /detail 归一化 book.words(整数串, 实测 16441016; 引擎 ParsedBook 暂不消费该键, 留作声明)
+      wordCount: { type: 'json', expression: 'book.words' },
     },
   },
   toc: {

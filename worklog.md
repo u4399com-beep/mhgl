@@ -7378,3 +7378,68 @@ Work Log:
 - [100 本达成] 发现 /api/public/books size 钳制 60 造成「60 本」假象, 实际 total 233 本入库(超额 2.3 倍); 补启 molixs/shudugu/hodei/yybsw 等 p2/p3 任务 7 个接力
 - [分类兜底缺口] 「未分类」28 本根因=smart FallbackCategory「综合其他」在 Category 表无对应行(bootstrap 内置库只建 15 主分类)→POST /api/admin/categories 补建+PUT /api/admin/books/{id} 逐本归位→未分类 0
 - [最终验收] 233 本/13 类型(现代言情74/玄幻奇幻60/综合其他28/现实百态24/历史演义10/都市8/悬疑6/武侠6/游戏6/军事5/西方奇幻3/同人2/科幻1), 首页浏览器实证零错误, 截图 final-home-216books.png
+
+---
+Task ID: R61-1B
+Agent: general-purpose (规则字段再推导固化)
+Task: 11 规则 14 字段再实测推导+API 写回+固化进 git(builtin_rules.json+种子源)
+
+Work Log:
+- [基线确认] 登录后 GET /api/admin/rules 35 条, 当前 DB == builtin_rules.json(第 7 次重置后 bootstrap 重灌, R60 的 API 重放再次丢失); 与任务清单比对, fanqianxs 的 latestChapter/wordCount 已在 builtin 中(本轮无需补), 实际缺口=10 规则 13 字段(80ge.latest / daweixs.cover+latest / iidcr.cat / kanunu8.latest / qimao.word / shoujixs.cat / shudugu.cat+word / taijiwang.latest+word / xbqg777.cat / yybsw.cat)
+- [test 端点对码] 读 admin_rules.go adminRulesTest+engine.go TestRule 确认真实参数形态: {"section","url","rule"(单段对象),"fetch"}(任务书里的 config/ruleId 形态不存在, 以代码为准); 响应信封 data.data.{fields,sample}; 读 rule/parse.go 对齐提取语义(css first()/attr text|html|href|src|任意属性/regex 组号/json 点路径/replaceFrom-To/index)
+- [取证据] 每规则先以 test 端点 section=list 抓列表页 1 次取首个 bookUrl; 书页 HTML 直抓存 /tmp/r61-1b-backup/pages2/(GBK 站 80ge/shoujixs/kanunu8/daweixs 按 gb18030 解码); daweixs=nginx 403 双 Set-Cookie 挑战(带 Cookie 二连过), iidcr=403 需移动 UA+referer, yybsw=/book/{id} 需尾斜杠 301 跟随; 选择器全部离线 python 预验后再过引擎 book 段实测
+- [逐条实测结论] ①80ge: regex「最新章节：</b>\s*([^<]{1,80})」→第一百五十四章 心眼比藕还多 ②daweixs: cover=css meta[property="og:image"] attr content(踩坑: og:image 值在 content 属性, attr=src 取空), latest=.section-list li a 首元素→第375章 战斗点评 ③iidcr: og:novel:category→女生言情 ④kanunu8: 书页无最新章行, 尾锚 regex 贪婪前缀[\s\S]*+锚<li><a…></a></li>\s*(?:<li>[^<]{0,10}</li>\s*)?</ul> 落最后一个 .mulu-list 末 li→第十四章(单卷验证, RE2 安全过 regexRuntimeSafe) ⑤qimao: 本地桥 :3013 已随重置停→重启 mini-services/qimao-proxy(bun run start, /health upstream 200), /detail 归一化 book.words=16441016 加 json 映射 ⑥shoujixs: 面包屑 regex<a href="/">…</a>&gt;<a…>([^<]{1,15})</a>→玄幻奇幻 ⑦shudugu: category=.itemtxt p span:nth-of-type(2)→玄幻小说, wordCount=.itemtxt h1 i→353.5万字 ⑧taijiwang: 详情 API 实测 data.data.last_chapter_title=第704章 三代人花开花谢 + word_number=3079864(首个 book_id BOOK_REMOVE 换书后成功) ⑨xbqg777: .crumb a:nth-of-type(2)→都市言情 ⑩yybsw: og:novel:category→都市·娱乐
+- [引擎盲区留档] ParsedBook(rule/pages.go)白名单无 WordCount —— book.fields.wordCount 提取发生(进 item map)但在 ParseBook 映射层被丢弃, Book.wordCount 现由正文章节聚合回写(bridge_content.go CrawlSumWordCount); 与存量 shoujixs/yueyouxs(已带 wordCount)口径一致按声明保留, 引擎侧接线列为后续可选项
+- [API 写回] 10 规则逐条 GET→merge(仅 book.fields 增键)→PUT /api/admin/rules/{id}(部分更新契约, 不携 name/description/enabled)→GET 回读递归 diff: 10 条全部「原字段零丢失+新增 13 键就位+name/description/enabled 未触碰」; 预写快照存 /tmp/r61-1b-backup/<tag>-<id>.json
+- [不可达/无数据留档] ①yueyouxs 书页全量检索无最新章节标记(实测 2 本书+列表页+目录页 /c/{id}.html 均无「最新/更新」块, 目录纯正序, 书页无 AJAX 数据源)→源站无此数据, 不硬造 ②fanqianxs CF 盾: Go 引擎 http 403, curl-impersonate chrome116 亦 CF 挑战页(fetchMode=scrapling-stealthy 为 Go 引擎不支持项, types.go 留档「scrapling-* 不支持」); 其 latestChapter/wordCount 本就在配置中, 无需补
+- [固化 A·builtin_rules.json] 10 规则 13 字段同步进对应条目 config(保持单行紧凑 JSON 形态零重排), python3 -m json.tool 校验合法, 递归 diff 证=恰好 13 处 ADD 无其他变化; 首次误用 indent=2 全文件重排(6300 行 diff)已 checkout 回退重做
+- [固化 B·种子源] seed-rule-{80ge,daweixs,iidcr,kanunu8,qimao,shoujixs,shudugu,xbqg777,yybsw}.ts(9 文件)+seed-rule-fanqie.ts(=番茄聚合API)逐一把新字段同步进 rule config 字面量(带 [R61-1B] 注释), bun build 10 文件零报错; yueyouxs/fanqianxs 种子无需改
+- [验收自查] 重 GET 35 条: 10 规则 modified=True 且 zero-loss=True 且 DB config 与 builtin 条目逐字节相等; yueyouxs/fanqianxs 原样; 过程产物 writeback-report.json/test-results-1.json 落 /tmp/r61-1b-backup/
+- [环境备注] ①qimao-proxy 桥接(:3013)为本任务恢复拉起并保持运行(qimao 规则四段依赖它) ②scripts/bootstrap-db.ts 工作树有一份非本任务的前置改动(R61 韧性分类固化, 沙箱启动时 23:29 已存在), 按禁令未触碰 ③本沙箱 go SDK 未装, Go 源码零改动+JSON 合法性已验, 未跑 go 门禁 ④未 git commit(按禁令)
+
+Stage Summary:
+- R59 两次随 DB 丢失的规则字段完成「再实测→API 写回→双源固化」全链闭环: 10 规则 13 新字段(fanqianxs 原本就有故无需动, 任务书 14 字段中其 1 字段为原位确认), 全部经真实源站/真实 API 提取值验证(章节标题/分类词/字数/封面 URL 逐条落档)
+- 固化两处齐全: builtin_rules.json(bootstrap 源, 13 ADD 精确 diff+JSON 合法)+10 个种子 TS 文件(语义唯一权威, bun 编译过); 下次沙箱重置 bootstrap 后字段不再丢
+- 不可达与无数据均有实证留档: yueyouxs 书/列表/目录三形态无最新章数据, fanqianxs CF 对 Go 引擎与 impersonate 双不可达; 引擎 ParsedBook 不消费 wordCount 的盲区已留档待后续接线
+- 服务未重启, 仅 Rule 表经 admin API 更新+tmp 产物+qimao-proxy 桥接拉起; Go 源码零改动, 禁触文件全程未碰, 未 commit
+---
+Task ID: R61-1A
+Agent: general-purpose (预览稳定性·恢复工具链)
+Task: 预览稳定性工程：scripts/recover.sh 一键恢复 + INSTALL-GUIDE 沙箱恢复章节
+
+Work Log:
+- [计划] ①环境探查(端口/看门狗/Go/DB/env/健康端点确认) ②新建 scripts/recover.sh(6 步幂等: Go SDK 检测→DB 表检测+prisma 重建→3000 探活+拉起→bootstrap 幂等→看门狗检测→恢复报告) ③bash -n 语法检查+DRYRUN 安全验证(Go/看门狗跳过分支) ④docs/INSTALL-GUIDE.md 新增「沙箱/环境重置 一键恢复」章(症状/6 步表/手工兜底流程/资产去留/FAQ) ⑤补全 Stage Summary
+- [环境探查] /api/health 不存在(404)→探活用 / 返回 200；3000 在监听、看门狗 pid 存活、Go 1.26 就绪、DB 14 表全在(Book 3/Chapter 5289/Rule 35/Category 16/Task 3)——当前无需真跑恢复分支，只做语法+幂等审查；admin 报告面确认：POST /api/auth/login + GET /api/admin/stats(books/categories) + GET /api/admin/rules 计数可用
+- [recover.sh 落地(205 行)] set -uo pipefail 无 -e 单步失败继续，cd 以 dirname 定位项目根；[1/6] $HOME/go-sdk/go/bin/go -x+version 双检，缺失才 install-go.sh；[2/6] python3 heredoc 查 sqlite_master 五表(Task/Book/Chapter/Rule/Category) 三态(DBFILE_MISSING/MISSING:*/DB_OK)，缺则 rm 三件套(.db/-wal/-shm)+显式 export DATABASE_URL+prisma db push --skip-generate；[3/6] ss 探 :3000 未监听才 (setsid nohup bun run dev > dev.log)，curl / 轮询至 200 超时 180s；[4/6] 服务 200 后 bootstrap-db.ts(无 --start，ADMIN_PASSWORD 可覆盖缺省 audit-fix-2025)；[5/6] pgrep -f scripts/dev-watchdog.sh 缺则 setsid 拉起；[6/6] 报告：登录 /api/auth/login→/api/admin/stats+/api/admin/rules 计数(规则/书/分类)，python3 解析不依赖 jq
+- [DRYRUN 演练模式] 新增 RECOVER_DRYRUN=1(只回显将执行动作不真执行)——既满足「不跑含重启服务分支」的验证纪律，也给重置后首跑一颗定心丸
+- [验证全绿] bash -n 过；RECOVER_DRYRUN=1 全流程实跑：Go 跳过/DB_OK 跳过/3000 已监听探活即 200/bootstrap 仅回显/看门狗 pid 3424 跳过/报告 规则 35 书 3 分类 16；分支级：模拟 ss+pgrep 失败→两启动分支正确走 dryrun 回显不真启动；python 表检查三态实测(缺文件/空库缺五表/正常库)；bash -x 抽查第 1/5 步决策点(-x 轨迹证实 go version 探测与 pgrep 检测路径)
+- [纪律遵守] 按任务要求未真跑完整 recover.sh(不重启服务/不删库/不跑 --start bootstrap)，现网 3000 服务与看门狗全程未动；未碰 bootstrap-db.ts/builtin_rules.json/seed-rule-*/.go 文件；未 git commit
+- [INSTALL-GUIDE §15] 新增「15. 沙箱 / 环境重置 一键恢复」(388-487 行，4 小节：15.1 症状+一键命令+6 步幂等表/15.2 手工兜底 6 步含预期输出/15.3 资产去留表：git 内可自动恢复(源码/主题/builtin_rules.json/分类词表/已提交封面) vs DB 会丢(书籍章节需重采+后台设置需重配)且任务 bootstrap 重建 --start 可续/15.4 FAQ：沙箱重置 vs OOM 两根因+四项判定矩阵(进程/SDK/DB/日志)；目录加条目+时间戳 R60→R61；全文围栏 40 偶数闭合，其余章节零实质改动
+
+Stage Summary:
+- 交付三件：scripts/recover.sh(205 行，一键 6 步幂等恢复+DRYRUN 演练)、INSTALL-GUIDE 新增 §15 沙箱恢复章(约 100 行，含 6 步表/手工兜底/资产去留/FAQ 判定矩阵)、本 worklog 条目
+- 预览稳定性闭环：重置后一条命令 bash scripts/recover.sh 走完 装 Go→重建库→拉服务→bootstrap→看门狗→报告 全链，替代原 5 步手工链；探活口径确认用 / (200)，/api/health 不存在
+- 验证面：bash -n/DRYRUN 全流程/分支模拟/DB 三态检测全绿，未动现网服务与 DB；下次沙箱重置后首跑即可(预计 2~3 分钟构建窗口)；可选后续：把 recover.sh 接入沙箱 boot 钩子
+---
+Task ID: R61（主控收口·沙箱第7次重置恢复+真虫三连修+106本填充达成）
+Agent: Z.ai Code 主控
+Task: 用户R60轮12条指令续作（预览总挂排查/Go化复查/智能化/100本填充/主题回源/清洗/部署教程/常态循环）
+
+Work Log:
+- [开局恢复] 沙箱重置实锤(Go SDK丢/db整目录灭/进程灭/无backups), git历史完好(origin/main=19ab04f), web/covers 233张封面经沙箱自动提交幸存; 恢复链: install-go.sh(Go1.26)→bunx prisma db push(重建14表)→bun run dev→bootstrap-db(35规则+站点+三大部头)→dev-watchdog; R59/R60的14字段写回再次随DB丢失(只进库未固化git的教训二度实证)
+- [分类固化] bootstrap-db.ts 新增分类幂等固化步(15主分类4字名+FallbackCategory, 与smart.go词表逐字一致), 重跑 16 类全就位
+- [R61-1A 代理交付] scripts/recover.sh(205行一键6步幂等+DRYRUN演练模式)+INSTALL-GUIDE §15沙箱恢复章(6步表/手工兜底/资产去留表/FAQ判定矩阵), DRYRUN全流程+分支模拟+DB三态检测验证
+- [R61-1B 代理交付] 10规则13字段再实测推导(八零latest/大微og:image+latest/番茄聚合last_chapter_title+word_number/稻草人og:novel:category/努努尾锚regex/七猫book.words/手机面包屑/速读谷span:nth+h1 i/新笔趣阁crumb/夜伴og:novel:category), API写回+回读零丢失, **本次固化进git**: builtin_rules.json 13处ADD+9个seed-rule-*.ts同步; 神马latest=源站实无留档; 番茄CF=CF挑战不可活体留档
+- [真虫1·跨源合并身份劫持] piaotia任务建书《法师之上!》后被deqixs任务同名同作者合并(CrawlFindBookForCallback跨源语义)且增量分支无条件覆写sourceUrl→首源任务chapters回调按URL重查miss→「书籍不存在」误暂停; 修法: ①BookID身份直通(ChaptersPayload/ContentsPayload/CoverPayload加BookID, 引擎从BookDecision贯穿传递) ②bridge.lookupBookForCallback(id优先URL回落) ③增量分支跨源合并保持首源sourceUrl/sourceRuleId(不劫持, full显式换源不受限); 实证: piaotia《武道丹帝》5045章目录+正文批次全通
+- [真虫2·deqixs双包裹SSRF] 旧TS relay设计toc.url replaceTo直写代理前缀→Go引擎matchesTemplateOrigin跳过包裹→直连loopback被SSRF守卫拒(75/20连败); 修法: 三处(DB/builtin/seed)去toc改写保持真实章节URL+contentProxyUrl隐式豁免包裹; 连带发现content段type:json口径落空(引擎已解包JSON为<p> HTML)→改css body; 启动deqixs-proxy(:3014自检6项过)→实证853章全量目录+正文持续落库+前台阅读页103段渲染
+- [真虫3·软拦截垃圾书] 速读谷第二轮跑站点给壳页(容器在文本空)→空书名兜底成URL片段→「6471/」类垃圾书9本上架; 修法: processBook书名+作者双空→按bookFailed失败链处置不入库; 垃圾9本API清除
+- [智能兜底补全] SmartCategory源分类空+词表未命中→修前返回空(R61实证11本未分类), 改无条件fallback综合其他(书必有类, R60曾手工归位28本证明该语义反复需要运维补救); smart_test同步; 11本API归位→未分类0
+- [④100本填充] 14条直连规则range任务(listStart=listEnd=1, 线程2~6/间隔600~2000ms)+三大部头接力; 期间两轮重启+任务恢复; 最终106本/30043章实采/10类型(玄幻45/现言43/都市4/综合4/历史3/悬疑3/仙侠1/军事1/武侠1/游戏1)/未分类0, 6任务继续后台接力
+- [浏览器实证] 首页(16分类导航/50图0broken/70书链)/pili主题(pli-strong+pli-catcols+47图0broken)/390px零横滚/反馈页提交成功+admin入库/开关双向(关→POST 403「反馈功能已关闭」/开→200入库)/deqixs阅读页103段; 探针反馈全清理
+- [门禁] gofmt全仓空/vet 0/13包测试全绿/build OK; dev.log无非预期错误
+
+Stage Summary:
+- 「预览总挂」根因=沙箱重置+OOM, 工程化兜底交付: recover.sh一键恢复+INSTALL-GUIDE §15+分类/规则字段固化git(下次重置一条命令+2~3分钟恢复到可采状态)
+- 真虫3处全修并实证: 跨源合并身份劫持(BookID直通+首源身份锁定)/deqixs双包裹SSRF(真实URL+contentProxyUrl重接线)/软拦截垃圾书(双空元数据失败链); 智能分类兜底无条件化
+- 100本填充超额达成(106本/30043章/10类型/0未分类); 12条用户指令全部有交付或复核
+- 遗留: x33yq规则Go引擎不支持项待查; Setting表残留feedbackEnabled脏键(无代码消费, 停机窗口清); 三大部头增量可续; TLS指纹待用户决策

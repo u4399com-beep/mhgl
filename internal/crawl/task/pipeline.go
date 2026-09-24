@@ -244,6 +244,17 @@ func (t *Task) processBook(bookURL string) bool {
 
 	// ---- 2. parseBook + book 回调(skipContent 决策必须消费) ----
 	parsed := rule.ParseBook(bookHTML, bookURL, &t.ruleC.Book)
+	// [R61-2c] 软拦截页防御: 书名+作者双双为空 = 解析面一无所获(站点给壳页/变体页,
+	// 非 Blocked 可判定但元数据全空)。修前直接进 book 回调, 桥接层把 URL 片段当书名
+	// 兜底建书 → 「6471/」类垃圾书上架(R61 实证速读谷 9 本)。按失败链处置: 不建书、
+	// 计连败、增量重试可恢复(站点恢复后书页正常即重建)
+	if strings.TrimSpace(parsed.Name) == "" && strings.TrimSpace(parsed.Author) == "" {
+		if t.bookFailed(fmt.Sprintf("书籍页解析无书名无作者(疑似软拦截壳页, 不入库): %s", util.TruncateLog(bookURL, 120)), bookURL) {
+			return false
+		}
+		t.bookFinish(false)
+		return false
+	}
 	dec, err := t.cb.Book(t.ctx, callback.BookPayload{
 		BookURL:       bookURL,
 		Name:          parsed.Name,
@@ -272,7 +283,7 @@ func (t *Task) processBook(bookURL string) bool {
 	// skipContent=true 完结书与空 needUrls 已存书同样下载): 修前 Go 仅在正文阶段完成后
 	// 下载 —— 完结书增量跳过/全量已存/正文熔断弃书三类书永远没有封面(首次入库的完结
 	// 书封面永久缺失)。封面失败不影响书的完成(装饰性资源, warn 降级)语义不变
-	t.downloadCover(bookURL, parsed.Cover)
+	t.downloadCover(bookURL, parsed.Cover, dec.BookID)
 
 	// skipContent=true(完结书且增量模式) → 整本跳过(契约 §2: 本毕, 不进正文阶段)
 	if dec.SkipContent {
@@ -317,7 +328,7 @@ func (t *Task) processBook(bookURL string) bool {
 	t.logf("info", "目录解析完成: 《%s》 %d 章(%d 页)", bookName, len(tocItems), pagesUsed)
 
 	// ---- 5. chapters 回调(全书目录; >5000 章分片 seq/final) → needUrls 决策 ----
-	needURLs, err := t.sendChapters(bookURL, tocItems)
+	needURLs, err := t.sendChapters(bookURL, dec.BookID, tocItems)
 	if err != nil {
 		t.pauseAuto(fmt.Sprintf("chapters 回调失败: %v", err))
 		return true
@@ -345,7 +356,7 @@ func (t *Task) processBook(bookURL string) bool {
 	tocItems = nil // 全书目录释放(仅需 needUrls+title)
 
 	// ---- 7. 正文批次 ----
-	completed := t.crawlContentBatches(bookURL, bookName, tocURL, needURLs, titleMap)
+	completed := t.crawlContentBatches(bookURL, dec.BookID, bookName, tocURL, needURLs, titleMap)
 	titleMap = nil // 正文批次完成即弃(每章正文回调完即弃, 不持有跨批)
 	if !completed {
 		if t.chapterCircuitTripped() {
@@ -383,7 +394,7 @@ func (t *Task) extractRuleField(htmlStr string, fr *rule.FieldRule) string {
 // [R53-2a](审计 R52-c「appendChapterSlice 无去重」) 累积面保序去重: 同片内去重由 Next.js
 // 承担(契约 seq≥2「同片内 URL 去重」), 跨片/回调重叠重复在此兜底 —— 防同章双抓双计
 // (contentDone 虚高 + contents 回调重复项)
-func (t *Task) sendChapters(bookURL string, items []rule.TocItem) ([]string, error) {
+func (t *Task) sendChapters(bookURL, bookID string, items []rule.TocItem) ([]string, error) {
 	var need []string
 	seen := make(map[string]struct{}, len(items))
 	total := len(items)
@@ -400,6 +411,7 @@ func (t *Task) sendChapters(bookURL string, items []rule.TocItem) ([]string, err
 		final := end >= total
 		dec, err := t.cb.Chapters(t.ctx, callback.ChaptersPayload{
 			BookURL: bookURL,
+			BookID:  bookID, // [R61-2c] 身份直通: 跨源合并下 sourceUrl 二次定位可能 miss
 			Items:   chunk,
 			Seq:     seq,
 			Final:   final,
@@ -458,7 +470,7 @@ func (t *Task) accountContentTotal(bookURL string, needCount int) {
 // contents 回调失败 → 任务自动暂停(恢复后整书流水线重跑, Next.js needUrls 增量
 // 语义天然从断点续采, 等价批级断点)。
 // 返回 false = 被暂停/停止/章节熔断中断(调用方区分处置)
-func (t *Task) crawlContentBatches(bookURL, bookName, tocURL string, needURLs []string, titleMap map[string]string) bool {
+func (t *Task) crawlContentBatches(bookURL, bookID, bookName, tocURL string, needURLs []string, titleMap map[string]string) bool {
 	t.setPhase("content", fmt.Sprintf("正文采集: 《%s》 %d 章", bookName, len(needURLs)))
 	t.mu.Lock()
 	// R51-2-b #9 + [R53-2a](审计 R52-c「contentTotal 续跑漂移」): contentTotal 书粒度记账 ——
@@ -521,7 +533,7 @@ func (t *Task) crawlContentBatches(bookURL, bookName, tocURL string, needURLs []
 
 		// ---- contents 回调(批 ≤20 章; 一次回调带全部成功项) ----
 		if len(results) > 0 {
-			if err := t.cb.Contents(t.ctx, callback.ContentsPayload{BookURL: bookURL, Items: results}); err != nil {
+			if err := t.cb.Contents(t.ctx, callback.ContentsPayload{BookURL: bookURL, BookID: bookID, Items: results}); err != nil {
 				// 重试耗尽仍败 → 自动暂停; 本批未入库, 恢复后整书重跑时
 				// Next.js needUrls 会重新包含未持久化章节(增量决策幂等)
 				t.pauseAuto(fmt.Sprintf("contents 回调失败: %v", err))
@@ -577,7 +589,7 @@ func (t *Task) crawlChapter(chapterURL, title, tocReferer string) (callback.Chap
 
 // downloadCover 封面下载: ≤10MB → base64 → cover 回调(契约 §2)。
 // 封面失败不影响书的完成(装饰性资源, warn 降级)
-func (t *Task) downloadCover(bookURL, coverURL string) {
+func (t *Task) downloadCover(bookURL, coverURL, bookID string) {
 	if strings.TrimSpace(coverURL) == "" {
 		return
 	}
@@ -598,6 +610,7 @@ func (t *Task) downloadCover(bookURL, coverURL string) {
 	}
 	if err := t.cb.Cover(t.ctx, callback.CoverPayload{
 		BookURL:     bookURL,
+		BookID:      bookID, // [R61-2c] 身份直通: 跨源合并下 sourceUrl 二次定位可能 miss
 		B64:         base64.StdEncoding.EncodeToString(data),
 		ContentType: contentType,
 	}); err != nil {

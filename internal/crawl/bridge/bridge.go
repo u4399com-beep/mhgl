@@ -31,6 +31,7 @@ import (
 	"mhgl/internal/crawl/callback"
 	"mhgl/internal/crawl/clean"
 	"mhgl/internal/crawl/smart"
+	"mhgl/internal/crawl/util"
 	"mhgl/internal/store"
 )
 
@@ -319,6 +320,25 @@ func (b *Bridge) mergeStatsDelta(patch map[string]int64) error {
 // kind: book (建书/更新书, 对齐 runner crawlOneBookMeta 建书段)
 // ============================================================
 
+// lookupBookForCallback [R61-2c] 回调书身份定位: BookID 直通优先, 空则回落 sourceUrl。
+// 背景: 「同名同作者跨源合并」语义下(R28-4-L9), A 源建书后 B 源同名书会合并到同一行,
+// A 源任务后续 chapters/contents/cover 若仍按自己的 sourceUrl 重查, 在源地址被改写或
+// 并发窗口下会 miss → 「书籍不存在」误暂停。book 回调已把行 id 经 BookDecision 返还引擎,
+// 这里优先消费(信任链: id 由同一进程内的 book 回调产出, 非外部输入); 查不到再按 URL。
+func (b *Bridge) lookupBookForCallback(bookID, bookURL string) *store.Book {
+	if id := asStr(bookID, 40); id != "" {
+		if book, err := b.db.GetBook(id); err == nil && book != nil {
+			return book
+		}
+		// id 查不到(极端: 书被后台删除)回落 URL 定位
+	}
+	book, err := b.db.FindBookBySourceURL(bookURL)
+	if err != nil {
+		return nil
+	}
+	return book
+}
+
 // Book kind=book: 建书/更新书 + skipContent 增量决策(R53-4 口径)。
 func (b *Bridge) Book(_ context.Context, p callback.BookPayload) (callback.BookDecision, error) {
 	bookURL := asStr(p.BookURL, 2000)
@@ -432,13 +452,26 @@ func (b *Bridge) Book(_ context.Context, p callback.BookPayload) (callback.BookD
 		} else {
 			// 增量更新对齐 runner [R22-c-1]/zz-d: 分类不回写(既有分类保留), 检测无结论不覆写
 			// status; [R50-1] coverUrl 暂存: 封面回调落地本地文件前先以外链占位(缺失不覆盖)
+			// [R61-2c] 跨源合并身份稳定: 同名同作者命中但 sourceUrl 不同(跨源同名书,
+			// 如同一部热门书在多站同时采集)时, 保持首建源的 sourceUrl/sourceRuleId ——
+			// 修前无条件覆写成新源 URL = 身份劫持: 首源任务后续 chapters/contents
+			// 按 URL 重查 miss → 误暂停; 且每多一个源合并一次身份就漂移一次。
+			// 完全覆盖(full)分支不在此限: 语义就是「以本源为准重建」, 显式换源。
+			srcURL, srcRuleID := bookURL, nullStr(task.RuleID)
+			if existing.SourceURL != "" && existing.SourceURL != bookURL {
+				srcURL = existing.SourceURL
+				if existing.SourceRuleID.Valid {
+					srcRuleID = existing.SourceRuleID
+				}
+				b.taskLog("info", fmt.Sprintf("跨源同名合并: 《%s》保持首源身份 %s (本次来源 %s)", bookName, util.Truncate(existing.SourceURL, 80), util.Truncate(bookURL, 80)))
+			}
 			upd := &store.CrawlBookUpdate{
 				Name:         bookName,
 				Author:       author,
 				Intro:        intro,
 				Status:       detectedStatus,
-				SourceURL:    bookURL,
-				SourceRuleID: nullStr(task.RuleID),
+				SourceURL:    srcURL,
+				SourceRuleID: srcRuleID,
 				StorageMode:  task.StorageMode,
 				CollectedAt:  &nowMS,
 			}

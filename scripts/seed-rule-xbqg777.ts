@@ -56,6 +56,8 @@ const rule: RuleSeed = {
         name: { type: 'css', expression: '.detail .title', attr: 'text' },
         author: { type: 'css', expression: '.zuthor', attr: 'text', replaceFrom: '^作者：', replaceTo: '' },
         status: { type: 'css', expression: '.state', attr: 'text', replaceFrom: '^状态：', replaceTo: '' },
+        // [R61-1B] 面包屑 .crumb 次级锚 = 分类(实测「都市言情」)
+        category: { type: 'css', expression: '.crumb a:nth-of-type(2)', attr: 'text' },
         latestChapter: { type: 'css', expression: '.upcont a', attr: 'text' },
         // .des .text 尾部 p.default 推广段(「最新章节由网友提供…在线阅读。」)一并被 text 提取, 削尾
         intro: {

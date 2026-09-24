@@ -77,9 +77,10 @@ export const ruleConfig = {
     itemSelector: { type: 'css', expression: 'dl.chapterlist dd:not(.visible-xs)' },
     fields: {
       title: { type: 'css', expression: 'a' },
-      // '^' 前置代理前缀: 绝对链(https://www.deqixs.cc/books/a/c.html)与相对链(/books/..)通吃;
-      // 代理侧 parseChapterUrl 只接受 deqixs /books/{aid}/{cid}.html 形态(防开放代理滥用)
-      url: { type: 'css', expression: 'a', attr: 'href', replaceFrom: '^', replaceTo: 'http://127.0.0.1:3014/content?u=' },
+      // [R61-2c] 保持真实章节 URL(绝对/相对通吃, 引擎按列表页基准 absolutize);
+      // 代理侧 parseChapterUrl 只接受 deqixs /books/{aid}/{cid}.html 形态(防开放代理滥用),
+      // 由 fetch.contentProxyUrl 在抓取时包裹, 见下方 fetch 段注释
+      url: { type: 'css', expression: 'a', attr: 'href' },
     },
     // 书页单页全量目录, 无翻页
     pagination: { enabled: false, maxPages: 1 },
@@ -87,8 +88,10 @@ export const ruleConfig = {
   content: {
     enabled: true,
     fields: {
-      // 代理已完成 三参数签发+GBK 解码+HTML→纯文本(\n 分段) → 纯文本 JSON(番茄/七猫代理同范式)
-      content: { type: 'json', expression: 'content' },
+      // [R61-2c] Go 引擎 FetchContentRef 已把代理 JSON {ok,content} 解包为 <p> 分段 HTML,
+      // content 段承接解包产物(css body 全量) —— 修前 type:json expression:content 是
+      // TS relay 时代「引擎直连代理拿原始 JSON」口径, 在 Go 单体下解析落空(正文恒空)
+      content: { type: 'css', expression: 'body' },
     },
     pagination: { enabled: false, maxPages: 1 },
   },
@@ -105,10 +108,13 @@ export const ruleConfig = {
     waitMs: 200,
     // content 段每章=代理串行 2 次上游请求(chapter.js.php+ajax2), 同站(=代理)在飞钳 2 保守起步
     hostGateLimit: 2,
-    // [R12-c-1] 修复(High): toc 章节 URL 直指本代理(127.0.0.1:3014)但原配置缺 contentProxyUrl
-    // → 引擎 SSRF 守卫 loopbackBypassAllowed 判 false → 章节抓取全拒(与 xjp 同 bug, 实证复现)。
-    // 补配置后 loopback 豁免生效; 引擎钩子探测(url=双包裹形态)被代理拒绝 → 降级直连原 URL
-    // → 代理按真实参数返回 {ok,len,content} JSON → content 字段(json)取文本(degrade-native)
+    // [R12-c-1] 补 contentProxyUrl; [R61-2c] 重设计: toc 章节 URL 保持真实形态
+    // (https://www.deqixs.cc/books/{aid}/{cid}.html), 正文由 fetch.contentProxyUrl 在
+    // 抓取时包裹 —— Go 引擎 FetchContentRef 对 contentProxyUrl 有隐式 loopback 豁免
+    // (ssrfCheck(proxyURL,true)+hcLocal 拨号通道)。
+    // 修前 toc.url 以 replaceTo '^'→代理前缀 直接改写成 loopback URL, Go 引擎
+    // matchesTemplateOrigin 判「已是代理形态」跳过包裹 → 降级直连 loopback →
+    // SSRF 守卫拒(R61 实证: 75/20 连败任务 error)。旧双包裹设计是 TS relay 时代产物。
     contentProxyUrl: 'http://127.0.0.1:3014/content?u={url}',
   },
   clean: {

@@ -43,10 +43,9 @@ func (b *Bridge) Chapters(_ context.Context, p callback.ChaptersPayload) (callba
 	}
 	task := ctx.task
 
-	book, err := b.db.FindBookBySourceURL(bookURL)
-	if err != nil {
-		return callback.ChaptersDecision{}, err
-	}
+	// [R61-2c] 身份定位: BookID 直通优先(引擎回传 book 回调产出的书 id), 空则回落
+	// sourceUrl —— 修「同名同作者跨源合并」下 A 源建书后按 URL 重查 miss 的误暂停链
+	book := b.lookupBookForCallback(p.BookID, bookURL)
 	if book == nil {
 		b.taskLog("error", fmt.Sprintf("chapters 回调: 书籍不存在(sourceUrl=%s), 忽略本批目录", asStr(bookURL, 120)))
 		return callback.ChaptersDecision{}, fmt.Errorf("书籍不存在(先发 book 回调建书)")
@@ -291,10 +290,7 @@ func (b *Bridge) Contents(_ context.Context, p callback.ContentsPayload) error {
 		return err
 	}
 
-	book, err := b.db.FindBookBySourceURL(bookURL)
-	if err != nil {
-		return err
-	}
+	book := b.lookupBookForCallback(p.BookID, bookURL)
 	if book == nil {
 		b.taskLog("error", fmt.Sprintf("contents 回调: 书籍不存在(sourceUrl=%s), 忽略本批正文", asStr(bookURL, 120)))
 		return fmt.Errorf("书籍不存在(先发 book 回调建书)")
@@ -415,10 +411,7 @@ func (b *Bridge) Cover(_ context.Context, p callback.CoverPayload) error {
 		b.taskLog("warn", "封面转存失败, 保留原外链封面: "+asStr(err.Error(), 160))
 		return nil // ok:true(存盘失败不阻断书的完成, 与 TS saveCoverWebp 失败同语义)
 	}
-	book, err := b.db.FindBookBySourceURL(bookURL)
-	if err != nil {
-		return err
-	}
+	book := b.lookupBookForCallback(p.BookID, bookURL)
 	if book != nil {
 		if err := b.db.CrawlUpdateBookCover(book.ID, coverPath); err != nil {
 			return err

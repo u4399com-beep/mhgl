@@ -366,10 +366,15 @@ type TocItemPayload struct {
 
 // ChaptersPayload chapters 回调载荷(全书目录; >5000 章分多次带 seq/final)
 type ChaptersPayload struct {
-	BookURL string           `json:"bookUrl"`
-	Items   []TocItemPayload `json:"items"`
-	Seq     int              `json:"seq,omitempty"`
-	Final   bool             `json:"final"`
+	BookURL string `json:"bookUrl"`
+	// [R61-2c] 身份直通: book 回调返回的 BookDecision.BookID 原样回传, 回调侧优先按
+	// id 定位书 —— 修「同名同作者跨源合并」下 sourceUrl 二次定位失败链: A 源建书后
+	// B 源同名合并会改写(或保有)源地址, A 源后续 chapters/contents/cover 按 URL 重查
+	// 可能 miss → 「书籍不存在」误暂停。BookID 为空时回落 sourceUrl 口径(兼容旧调用)
+	BookID string           `json:"bookId,omitempty"`
+	Items  []TocItemPayload `json:"items"`
+	Seq    int              `json:"seq,omitempty"`
+	Final  bool             `json:"final"`
 }
 
 // Chapters chapters 回调: 响应 {ok, needUrls} 必须消费(增量去重决策)
@@ -387,8 +392,10 @@ func (c *Client) Chapters(ctx context.Context, p ChaptersPayload) (ChaptersDecis
 
 // ContentsPayload contents 回调载荷(批 ≤20 章)
 type ContentsPayload struct {
-	BookURL string        `json:"bookUrl"`
-	Items   []ChapterItem `json:"items"`
+	BookURL string `json:"bookUrl"`
+	// [R61-2c] 身份直通(同 ChaptersPayload.BookID): 优先 id 定位, 空回落 sourceUrl
+	BookID string        `json:"bookId,omitempty"`
+	Items  []ChapterItem `json:"items"`
 }
 
 // Contents contents 回调(Next.js 按 url 幂等 upsert)
@@ -398,7 +405,9 @@ func (c *Client) Contents(ctx context.Context, p ContentsPayload) error {
 
 // CoverPayload cover 回调载荷(b64 解码后 ≤10MB, 由调用方保证)
 type CoverPayload struct {
-	BookURL     string `json:"bookUrl"`
+	BookURL string `json:"bookUrl"`
+	// [R61-2c] 身份直通(同 ChaptersPayload.BookID): 优先 id 定位, 空回落 sourceUrl
+	BookID      string `json:"bookId,omitempty"`
 	B64         string `json:"b64"`
 	ContentType string `json:"contentType"`
 }

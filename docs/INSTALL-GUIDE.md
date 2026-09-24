@@ -1,6 +1,6 @@
 # mhgl 小说聚合站 · 安装部署图文教程（Go 单体版）
 
-> 适用版本：R55 起（全栈 Golang 单体）· 更新：R60
+> 适用版本：R55 起（全栈 Golang 单体）· 更新：R61
 > 架构一句话：**一个 Go 二进制**（`.build/mhgl`）承载 Web 前台/管理后台/REST API/采集引擎/调度器，监听 `:3000`，数据落 SQLite 单文件。Node.js / Next.js 已退役，不再需要。
 >
 > 全程约 15~30 分钟（取决于网络）。每一步都给出了「预期结果」，与预期不符请直接跳到 §12 常见问题。
@@ -23,6 +23,7 @@
 12. [常见问题 FAQ](#12-常见问题-faq)
 13. [备份 / 恢复 / 升级](#13-备份--恢复--升级)
 14. [主题切换与反馈开关](#14-主题切换与反馈开关)
+15. [沙箱 / 环境重置 一键恢复](#15-沙箱--环境重置-一键恢复)
 
 ---
 
@@ -381,6 +382,107 @@ kill -TERM $(pgrep -f '.build/mhgl') && bun run dev   # 优雅停 → 启动
 自定义主题：复制任一 `internal/web/tpl/themes/{id}/` 目录改名，改模板与 `web/static/css/{id}.css`，`themeId` 填新目录名即可（注意 normalizeTheme 白名单与 sw.js 预缓存清单）。
 
 **反馈开关**：后台 → 系统设置 → feedback → `enabled` 开/关（`PUT /api/admin/settings`，body `{"feedback":{"enabled":false}}`）。关闭后前台 `/feedback` 显示未开放态，POST 直接 403。
+
+---
+
+## 15. 沙箱 / 环境重置 一键恢复
+
+> 适用场景：运行环境的沙箱/容器被重置（杀掉所有进程、清空 `$HOME` 下的 Go SDK、
+> 删除 `db/custom.db`）之后，出现 **预览打不开 / 服务连不上 / 书籍数据消失**。
+> 本项目已把整条恢复链（原 5 个手工步骤）收敛为一键脚本 `scripts/recover.sh`（R61-1A）。
+
+### 15.1 症状与一键恢复
+
+典型症状：
+
+- `http://IP:3000/` 打不开（连接拒绝），或预览页一直转圈；
+- 服务能开但书架清零、分类下 0 本书；
+- 后台规则列表为空 / 采集任务全部消失。
+
+一键恢复（幂等，可反复执行，单步失败不阻断后续步骤）：
+
+```bash
+cd /path/to/mhgl
+bash scripts/recover.sh
+# 可选: ADMIN_PASSWORD=你的密码 bash scripts/recover.sh   （缺省同登录页提示）
+# 演练: RECOVER_DRYRUN=1 bash scripts/recover.sh          （只回显将执行的动作，不真执行）
+```
+
+`recover.sh` 的 6 步：
+
+| 步骤 | 做什么 | 幂等行为 |
+|---|---|---|
+| [1/6] | 检测 Go SDK（`~/go-sdk/go/bin/go version`） | 已装则跳过；缺失才跑 `scripts/install-go.sh` |
+| [2/6] | 检测 DB 表（Task/Book/Chapter/Rule/Category） | 表全在则跳过；缺库/缺表才 `rm` 旧库文件 → `bunx prisma db push --skip-generate` 重建空表 |
+| [3/6] | 检测 3000 端口 | 已监听则跳过；未监听才后台拉起 `bun run dev`（日志 `dev.log`），轮询 `/` 直到 200（超时 180s，首次构建 2~3 分钟属正常） |
+| [4/6] | 引导运行态数据 | 服务存活后跑 `bun run scripts/bootstrap-db.ts`（幂等导入 35 规则 + 16 分类 + 默认站点 + 3 大部头任务，**不带 --start 不会自动开采集**） |
+| [5/6] | 检测看门狗 | 已运行则跳过；未运行才后台拉起 `scripts/dev-watchdog.sh`（此后端口死亡 15s 内自动拉起服务） |
+| [6/6] | 恢复报告 | 打印服务 HTTP 码 + 规则数/书籍数/分类数（经管理后台 API 登录读取） |
+
+### 15.2 手工逐步恢复（recover.sh 不可用时的兜底）
+
+按顺序执行，每步都给出「预期结果」：
+
+```bash
+# ① Go 工具链（SDK 被清时）
+bash scripts/install-go.sh
+#   预期: go version go1.26.0 linux/amd64（已装则直接提示「已就绪」并跳过）
+
+# ② 数据库表（库文件丢失/缺表时；表全在可跳过本步）
+rm -f db/custom.db db/custom.db-wal db/custom.db-shm
+DATABASE_URL=file:$(pwd)/db/custom.db bunx prisma db push --skip-generate
+#   预期: "Your database is now in sync with your schema."
+
+# ③ 启动服务（后台常驻）
+( setsid nohup bun run dev > dev.log 2>&1 < /dev/null & )
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3000/
+#   预期: 200 —— 首次构建+拉模块需 2~3 分钟，属正常
+
+# ④ 引导运行态数据（幂等）
+bun run scripts/bootstrap-db.ts
+#   预期: 逐条打印规则导入/分类固化/站点/任务创建（不自动启动任务）
+
+# ⑤ 看门狗（防进程死亡）
+( setsid nohup bash scripts/dev-watchdog.sh > /tmp/watchdog.log 2>&1 < /dev/null & )
+pgrep -f dev-watchdog.sh
+#   预期: 打印一个 pid
+
+# ⑥ 复核（或直接看恢复报告）
+bash scripts/recover.sh
+#   预期: HTTP 200 + 规则 35 条 / 分类 16 个（书籍数取决于采集量）
+```
+
+### 15.3 哪些资产能自动恢复，哪些会丢
+
+| 资产 | 位置 | 沙箱重置后 |
+|---|---|---|
+| 源码 / 主题模板 / CSS | git 仓库 | ✅ 重新 clone（或 git checkout）即回来 |
+| 采集规则库（35 条） | `internal/api/builtin_rules.json`（git 内） | ✅ bootstrap 幂等导入 |
+| 16 个分类（4 字名） | 词表固化在 `scripts/bootstrap-db.ts` | ✅ bootstrap 幂等固化 |
+| 默认站点 / 3 大部头任务 | 固化在 `scripts/bootstrap-db.ts` | ✅ bootstrap 重建（不自动启动，加 `--start` 或后台手动开） |
+| 已提交的封面图 | `web/covers/`（git 内） | ✅ 随仓库回来 |
+| 书籍 / 章节正文 | `db/custom.db` | ❌ 丢 —— 需重新采集（任务由 bootstrap 重建，`--start` 或后台手动启动） |
+| 后台设置（主题/TDK/反馈开关等） | `db/custom.db` Setting 表 | ❌ 丢 —— 后台手动重配（或事先用 §13 数据备份导出，事后导入） |
+
+### 15.4 FAQ：预览为什么会挂？
+
+**Q：为什么「预览总是挂掉」？**
+
+两类根因：
+
+1. **沙箱环境重置**（本开发环境主因）：重置会杀掉所有进程 + 清空 `$HOME`（Go SDK 一起没）+ 删除 DB 文件 → 3000 端口无人监听，预览自然打不开，且数据清零。
+2. **OOM**：宿主内存天花板 ~2.6-3GB，采集任务内存峰值 + 编译尖峰可能触发 `global_oom` 杀掉服务进程（**数据不丢**，只是进程没了，看门狗/重启即可）。
+
+**Q：怎么判断是哪一种？**
+
+| 检查 | 命令 | 指向 |
+|---|---|---|
+| 进程在不在 | `pgrep -f '.build/mhgl'`、`ss -ltn \| grep ':3000 '` | 无输出 = 进程死了（重置或 OOM） |
+| Go SDK 在不在 | `~/go-sdk/go/bin/go version` | 报错 = SDK 被清 → 沙箱重置 |
+| DB 在不在 | `ls -la db/custom.db`；sqlite 查 Task 表 | 文件没了/缺表 = 重置清库 |
+| 死因日志 | `tail -50 dev.log`；`dmesg \| grep -i oom` | `killed process`/`oom-kill` 字样 = OOM |
+
+判定后处置：**OOM**（数据还在）→ 看门狗会自动拉起，或直接 `bun run dev`；**沙箱重置**（数据没了）→ `bash scripts/recover.sh` 一键走完 6 步。
 
 ---
 

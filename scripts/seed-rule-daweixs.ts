@@ -68,6 +68,9 @@ const rule: RuleSeed = {
         intro: { type: 'css', expression: '.info .desc', attr: 'html', replaceFrom: '\\s*【(?:添加微信公众号|我们的YY频道|QQ群|QQ交流群|公众账号)[^】]*】|&nbsp;', replaceTo: '' },
         category: { type: 'regex', expression: '类别[:：]\\s*([^\\s<]{1,12})', attr: '1', flags: 'gs' },
         status: { type: 'regex', expression: '状态[:：]\\s*([^\\s<]{1,10})', attr: '1', flags: 'gs' },
+        // [R61-1B] og:image meta 封面(attr=content 非 src) / 首个 section-list(「最新章节」倒序块)首 li = 最新章
+        cover: { type: 'css', expression: 'meta[property="og:image"]', attr: 'content' },
+        latestChapter: { type: 'css', expression: '.section-list li a', attr: 'text' },
       },
     },
     toc: {

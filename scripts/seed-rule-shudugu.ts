@@ -91,6 +91,9 @@ const rule: RuleSeed = {
         author: { type: 'css', expression: 'a[href*="/zuozhe/"]', attr: 'text', replaceFrom: '^作者[:：]\\s*', replaceTo: '' },
         // "连载中/已完结" 原文提取(.item 内首个 p span), 交 smartCompleteDetect 归一化
         status: { type: 'css', expression: '.itemtxt p span', attr: 'text' },
+        // [R61-1B] h1 内 i 标签=字数(实测「353.5万字」) / 同 p 第二个 span=分类(实测「玄幻小说」)
+        wordCount: { type: 'css', expression: '.itemtxt h1 i', attr: 'text' },
+        category: { type: 'css', expression: '.itemtxt p span:nth-of-type(2)', attr: 'text' },
         // 最新三章列表倒序, 首个 li = 最新章
         latestChapter: { type: 'css', expression: '.itemtxt ul li a', attr: 'text' },
         // 书籍页有两块 div.des.bb(第一块=简介 p 段落, 页尾第二块=推广文), first() 语义天然取简介

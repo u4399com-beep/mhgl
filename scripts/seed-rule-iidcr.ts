@@ -100,6 +100,8 @@ const rule: RuleSeed = {
         // 简介在 div.book-detail(点击展开区块, 源码内即全文非 AJAX)
         intro: { type: 'css', expression: 'div.book-detail', attr: 'text' },
         cover: { type: 'css', expression: 'div.media-left img', attr: 'src' },
+        // [R61-1B] og:novel:category meta(实测「女生言情」)
+        category: { type: 'css', expression: 'meta[property="og:novel:category"]', attr: 'content' },
       },
     },
     toc: {

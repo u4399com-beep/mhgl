@@ -7,7 +7,8 @@
 //
 //   - smartCategory 的 LLM 兜底臂不移植(z-ai-web-dev-sdk 为 Node 运行时资产,
 //     Go 单体无等价物): 词表命中链(source→keyword)与兜底语义完整保留,
-//     词表全未命中且源分类存在 → fallback(兜底分类), 与 TS 终兜底一致。
+//     词表全未命中 → fallback(兜底分类, [R61-2c] 起无条件, 源分类为空也兜底),
+//     修前空源分类返回空导致无分类书(见 SmartCategory 兜底臂注释)。
 //
 //   - consolidateCategories(存量碎片收敛)不移植: 消费方是后台 API(3-b 职责),
 //     非采集回调面。
@@ -312,10 +313,11 @@ func SmartCategory(bookName, intro, sourceCategory string, existingCategories []
 	if kw := matchCategoryByText(bookName+"\n"+intro, existingCategories); kw != "" {
 		return CategoryResult{Category: kw, Method: "keyword"}
 	}
-	if sc != "" {
-		return CategoryResult{Category: FallbackCategory, Method: "fallback"}
-	}
-	return CategoryResult{Category: "", Method: "none"}
+	// [R61-2c] 兜底臂无条件化: 修前仅源分类存在才兜底(sc=="" → {"" none}), 导致「规则无
+	// category 字段/提取落空 + 书名简介关键词未命中」的书无分类入库(R61 实证 11 本),
+	// 前台分类导航缺失需运维反复手工归位(R60 曾手工归位 28 本)。聚合站产品语义 =
+	// 书必有类: 未知来源统一落 FallbackCategory(与源分类存在但未命中同口径)
+	return CategoryResult{Category: FallbackCategory, Method: "fallback"}
 }
 
 // ---------------- 智能完结判断 ----------------

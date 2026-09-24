@@ -82,6 +82,8 @@ const rule: RuleSeed = {
         latestChapter: { type: 'regex', expression: '最近更新：\\s*<a[^>]*>([^<]{1,80})</a>', attr: '1', flags: 'gs' },
         intro: { type: 'css', expression: 'div.book-detail', attr: 'text' },
         cover: { type: 'css', expression: 'img.book-img-middel', attr: 'src' },
+        // [R61-1B] og:novel:category meta(实测「都市·娱乐」)
+        category: { type: 'css', expression: 'meta[property="og:novel:category"]', attr: 'content' },
       },
     },
     toc: {

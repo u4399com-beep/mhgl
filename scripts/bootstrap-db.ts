@@ -8,9 +8,10 @@
 // 步骤:
 //   1. 登录取 heis_admin cookie(ADMIN_PASSWORD 可覆盖, 缺省同登录页)
 //   2. POST /api/admin/rules/import-builtin 全量幂等导入内置规则库
-//   3. Site 表为空时创建默认站点(localhost:3000 / aijjxs 主题)
-//   4. 按 name 幂等创建三大部头任务(全部 engine=go, R53 档案参数)
-//   5. --start 时逐个 control start
+//   3. 分类幂等固化(15 主分类 4 字名 + FallbackCategory, R61 韧性新增)
+//   4. Site 表为空时创建默认站点(localhost:3000 / aijjxs 主题)
+//   5. 按 name 幂等创建三大部头任务(全部 engine=go, R53 档案参数)
+//   6. --start 时逐个 control start
 // ============================================================
 // [模块化] 显式 export 空类型: 本文件顶层声明(BASE/PASSWORD/login 等)不泄漏进 TS 全局
 // 脚本聚合作用域(修前与 seed-rule-*.ts 的同名顶层声明冲突, tsc 2451/2393)
@@ -113,7 +114,33 @@ async function main() {
   const impErr = imp.body?.data?.results?.filter((r: any) => r.error) ?? []
   console.log(`[bootstrap] rules imported ok=${impOk} err=${impErr.length}${impErr.length ? ' -> ' + impErr.map((r: any) => `${r.key}:${r.error}`).join('; ').slice(0, 300) : ''}`)
 
-  // 2. 默认站点(仅 Site 表为空时)
+  // 2. 分类固化(R61 韧性: 历史轮分类只存 DB, 沙箱重置即丢 → 引导期幂等重建)
+  //    名单与 internal/crawl/smart/smart.go categoryKeywords+FallbackCategory 逐字一致(15 主分类 4 字 + 兜底),
+  //    smart_test 断言两侧一致 —— 改任一侧必须同步另一侧。
+  const BOOTSTRAP_CATEGORIES = [
+    '玄幻奇幻', '西方奇幻', '武侠江湖', '仙侠修真', '都市生活',
+    '现代言情', '历史演义', '军事战争', '游戏竞技', '科幻未来',
+    '悬疑灵异', '体育竞技', '耽美纯爱', '同人衍生', '现实百态',
+    '综合其他',
+  ]
+  const catsRes = await api('/api/admin/categories', { headers: auth })
+  const catList: any[] = catsRes.body?.data ?? []
+  const catNames = new Set(catList.map((c: any) => c.name))
+  let catCreated = 0
+  for (let i = 0; i < BOOTSTRAP_CATEGORIES.length; i++) {
+    const name = BOOTSTRAP_CATEGORIES[i]
+    if (catNames.has(name)) continue
+    const c = await api('/api/admin/categories', {
+      method: 'POST',
+      headers: auth,
+      body: JSON.stringify({ name, sortOrder: i }),
+    })
+    if (c.status === 200) catCreated++
+    else console.log(`[bootstrap] !! category ${name} failed: ${c.status} ${JSON.stringify(c.body).slice(0, 120)}`)
+  }
+  console.log(`[bootstrap] categories ensured: total=${BOOTSTRAP_CATEGORIES.length} created=${catCreated} existed=${catList.length}`)
+
+  // 3. 默认站点(仅 Site 表为空时)
   const sites = await api('/api/admin/sites', { headers: auth })
   const siteList: any[] = sites.body?.data ?? []
   if (siteList.length === 0) {

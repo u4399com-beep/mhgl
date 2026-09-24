@@ -38,6 +38,8 @@ const config = {
         type: "css", expression: "#mainSoftIntro p", attr: "text",
         replaceFrom: "^.*?分享推荐给你的朋友！\\s*|更多.*$", replaceTo: "",
       },
+      // [R61-1B] 书页信息行「<li><b>最新章节：</b>第N章 xxx</li>」直取
+      latestChapter: { type: "regex", expression: "最新章节：</b>\\s*([^<]{1,80})", attr: "1" },
     },
   },
   toc: {

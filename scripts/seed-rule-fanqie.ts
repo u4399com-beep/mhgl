@@ -69,6 +69,9 @@ export const ruleConfig = {
       cover: { type: 'json', expression: 'data.data.thumb_url' },
       // creation_status '0'=连载中(legado 口径); 完结值未知→保持原值交 smartCompleteDetect 词表兜底
       status: { type: 'json', expression: 'data.data.creation_status', replaceFrom: '^0$', replaceTo: '连载中' },
+      // [R61-1B] 详情 API 实测: data.data.last_chapter_title / word_number(整数串, 实测 3079864)
+      latestChapter: { type: 'json', expression: 'data.data.last_chapter_title' },
+      wordCount: { type: 'json', expression: 'data.data.word_number' },
     },
   },
   toc: {
