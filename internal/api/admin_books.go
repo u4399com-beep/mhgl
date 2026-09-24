@@ -5,6 +5,7 @@
 //	GET/PUT/DELETE /api/admin/books/{id}
 //	GET  /api/admin/books/{id}/toc     分页章节列表(skip 上限 10000)
 //	POST /api/admin/books/{id}/recrawl 以书建单本增量/全量任务并启动
+//	POST /api/admin/books/{id}/reclean  存量正文/简介按规则 clean 配置再清洗(R63-d)
 //	GET/POST/DELETE /api/admin/books/{id}/keywords  标签(manualTags 写入/suggest 词列表/删 tag)
 //	POST /api/admin/books/batch        delete|category|status|recrawl
 //
@@ -16,6 +17,7 @@ import (
 	"os"
 	"strings"
 
+	"mhgl/internal/crawl/clean"
 	"mhgl/internal/store"
 )
 
@@ -640,4 +642,59 @@ VALUES (?,?,?,?,?,?,?,'{}',2,4,300,1200,0,1,0,0,30,'pending','{}','{}',?,?)`,
 		}
 		apiOK(w, map[string]any{"affected": affected, "skipped": skipped})
 	}
+}
+
+// (d Deps) adminBookReclean POST /api/admin/books/{id}/reclean
+// R63-d: 存量再清洗 —— 以书源规则的 clean 配置(经 sanitizeAdPattern 消毒)重跑清洗
+// 管线, 用于清洗模式升级后把已入库正文/简介一并洗净(幂等: 只写有变化的行)。
+// 场景实证: [2] 行锚 nbsp 卡死修复前 xyetianlian 924 章整行 URL 残留, reclean 一次洗净。
+func (d Deps) adminBookReclean(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	book, ok, err := d.DB.QueryMap(`SELECT id,name,intro,sourceRuleId FROM "Book" WHERE id=?`, id)
+	if err != nil || !ok {
+		apiErr(w, http.StatusNotFound, "书籍不存在")
+		return
+	}
+	cfg := clean.FromRuleRaw(nil) // 无规则 → 缺省清洗配置(含底线)
+	if ruleID := nullString(book["sourceRuleId"]); ruleID != nil {
+		if row, ok2, _ := d.DB.QueryMap(`SELECT config FROM "Rule" WHERE id=?`, strOf(ruleID, 64)); ok2 {
+			if cs, ok3 := row["config"].(string); ok3 {
+				cfg = clean.FromRuleRaw([]byte(cs))
+			}
+		}
+	}
+	rows, err := d.DB.QueryMaps(`SELECT id,url,content FROM "Chapter" WHERE bookId=? AND content IS NOT NULL`, id)
+	if err != nil {
+		apiErr(w, http.StatusInternalServerError, "读取章节失败")
+		return
+	}
+	updated := 0
+	for _, row := range rows {
+		content, _ := row["content"].(string)
+		if content == "" {
+			continue
+		}
+		cleaned := clean.CleanContentHTML(content, cfg)
+		if cleaned == content {
+			continue
+		}
+		if err := d.DB.UpdateChapterContent(strOf(row["id"], 64), strOf(row["url"], 2000), cleaned, clean.PlainLen(cleaned)); err == nil {
+			updated++
+		}
+	}
+	introUpdated := false
+	if intro, _ := book["intro"].(string); intro != "" {
+		if ni := clean.CleanIntro(intro, 2000); ni != intro && ni != "" {
+			if _, err := d.DB.Exec(`UPDATE "Book" SET intro=?, updatedAt=? WHERE id=?`, ni, store.NowMS(), id); err == nil {
+				introUpdated = true
+			}
+		}
+	}
+	if agg, err := d.DB.CrawlSumWordCount(id); err == nil && agg > 0 {
+		_ = d.DB.CrawlUpdateBookWordCount(id, agg)
+	}
+	apiOK(w, map[string]any{
+		"bookId": id, "bookName": strOf(book["name"], 120),
+		"chaptersTotal": len(rows), "chaptersUpdated": updated, "introUpdated": introUpdated,
+	})
 }

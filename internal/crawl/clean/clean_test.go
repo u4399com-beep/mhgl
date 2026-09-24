@@ -153,3 +153,137 @@ func TestEmptyShellNBSP(t *testing.T) {
 		t.Fatalf("段落结构异常: %q", out)
 	}
 }
+
+// ============================================================
+// R63-d 引导地址前缀族 + 行锚 nbsp 卡死修复
+// ============================================================
+
+// TestFloorNbspLeadContexts [2]/[9] 行锚 nbsp 卡死修复回归: Go \s 不含 U+00A0,
+// raw 形态(div 直排 + &nbsp; 前缀 + <br/> 分隔)曾致整行 URL 漏网 924 章。
+func TestFloorNbspLeadContexts(t *testing.T) {
+	// xyetianlian 22356902 章源站 raw 尾部逐字形态
+	in := "<p>正文段落。</p><br /><br />&nbsp;&nbsp;&nbsp;&nbsp;http://www.xyetianlian.com/yt59552/22356902.html<br /><br />&nbsp;&nbsp;&nbsp;&nbsp;请记住本书首发域名：www.xyetianlian.com"
+	out := htmlClean(t, in)
+	if strings.Contains(out, "http://www.xyetianlian.com") || strings.Contains(out, "请记住本书首发域名") {
+		t.Fatalf("nbsp 行首 URL/引导语未回收: %q", out)
+	}
+	if !strings.Contains(out, "正文段落。") {
+		t.Fatalf("正文误伤: %q", out)
+	}
+	// 纯文本模式同形态(nbsp 前缀行)
+	cfg := defaultConfig()
+	cfg.PlainText = true
+	out2 := CleanContentHTML("正文。\n\u00a0\u00a0http://www.x.com/a/1.html\n结尾。", cfg)
+	if strings.Contains(out2, "x.com") {
+		t.Fatalf("纯文本 nbsp 行首 URL 未回收: %q", out2)
+	}
+	// [9] 星号手打行 nbsp 前缀
+	out3 := htmlClean(t, "<p>\u00a0\u00a0\u00a0\u00a0★★★手打★шшш..★\u00a0\u00a0</p><p>正文。</p>")
+	if strings.Contains(out3, "手打") || strings.Contains(out3, "шшш") {
+		t.Fatalf("nbsp 星号手打行未回收: %q", out3)
+	}
+	if !strings.Contains(out3, "正文。") {
+		t.Fatalf("正文误伤: %q", out3)
+	}
+}
+
+// TestLeadPrefixAddrFamily [0]/[16] 引导地址前缀族回收("无弹窗推荐地址：http://..."
+// 用户报告形态 + 复合变体 + 简介面)
+func TestLeadPrefixAddrFamily(t *testing.T) {
+	cases := []struct{ name, in string }{
+		{"p包裹独立段", "<p>无弹窗推荐地址：http://www.xyetianlian.com/yt57528/</p>"},
+		{"独立行", "无弹窗推荐地址：http://www.xyetianlian.com/yt57528/"},
+		{"裸域名", "<p>无弹窗推荐地址：www.xyetianlian.com/yt57528/</p>"},
+		{"变体-本书最新", "<p>本书最新地址：http://www.xbqg777.com/book/12/</p>"},
+		{"变体-原文地址", "<p>原文地址：https://www.qimao.com/shuku/123/index.html</p>"},
+		{"变体-最新章节", "<p>最新章节地址：http://www.xyetianlian.com/yt57528/21678226.html</p>"},
+		{"nbsp行首", "<p>\u00a0\u00a0无弹窗推荐地址：http://www.xyetianlian.com/yt57528/</p>"},
+	}
+	for _, c := range cases {
+		out := htmlClean(t, c.in)
+		if strings.Contains(out, "http") || strings.Contains(out, "地址") || strings.Contains(out, ".com") {
+			t.Fatalf("%s 未回收: %q", c.name, out)
+		}
+	}
+	// [16] mop-up: 全角混淆域名被 [7] 删后仅剩前缀的行
+	out := htmlClean(t, "<p>无弹窗推荐地址：ｗｗｗ.ｘｘ.ｃｏｍ</p>")
+	if strings.Contains(out, "地址") || strings.Contains(out, "ｗｗｗ") {
+		t.Fatalf("全角域名+前缀未回收: %q", out)
+	}
+	// 行内正文保留(广告段删除)
+	inline := htmlClean(t, "<p>他抬起头。无弹窗推荐地址：http://www.xyetianlian.com/yt57528/<br>他看到远处。</p>")
+	if strings.Contains(inline, "无弹窗") || strings.Contains(inline, "http") {
+		t.Fatalf("行内广告段未回收: %q", inline)
+	}
+	if !strings.Contains(inline, "他抬起头。") || !strings.Contains(inline, "他看到远处。") {
+		t.Fatalf("行内正文误伤: %q", inline)
+	}
+	// 简介面(CleanIntro 走缺省 patterns 含底线)
+	intro := CleanIntro("这是一个简介。\n无弹窗推荐地址：http://www.xyetianlian.com/yt57528/\n第二行简介。", 0)
+	if strings.Contains(intro, "无弹窗") || strings.Contains(intro, "http") {
+		t.Fatalf("简介广告行未回收: %q", intro)
+	}
+	if !strings.Contains(intro, "这是一个简介。") || !strings.Contains(intro, "第二行简介。") {
+		t.Fatalf("简介正文误伤: %q", intro)
+	}
+}
+
+// TestLeadPrefixAddrNoFalsePositive [0]/[16] 防误伤: 无 URL/域名同现的普通正文
+func TestLeadPrefixAddrNoFalsePositive(t *testing.T) {
+	cases := []string{
+		"<p>他说：“这个访问地址：北京市朝阳区某某街道，你记一下。”</p>",
+		"<p>他们很快更新了最新地址。</p>",
+		"<p>书名《推荐地址不明的旅人》火了。</p>",
+		"<p>&nbsp;&nbsp;&nbsp;&nbsp;正文内容正常缩进显示。</p>",
+		"<p>本章地址：无。</p>",
+		"<p>详情见 https://example.com/page?id=1 的说明。</p>",
+	}
+	for _, in := range cases {
+		out := htmlClean(t, in)
+		plain := strings.ReplaceAll(strings.ReplaceAll(in, "<p>", ""), "</p>", "")
+		if !strings.Contains(out, strings.TrimPrefix(plain, "&nbsp;&nbsp;&nbsp;&nbsp;")) {
+			t.Fatalf("反例误伤: in=%q out=%q", in, out)
+		}
+	}
+}
+
+// TestSanitizeAdPattern R63-d 吞标签消毒: \S*族→[^\s<>]*, 非lazy贪心.*→[^\n<]*,
+// lazy(.*?/.+?)保持原样(跨标签是触发词本意)。
+func TestSanitizeAdPattern(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{`无弹窗推荐地址：\S*`, `无弹窗推荐地址：[^\s<>]*`},
+		{`(www\.)?xyetianlian\.com\S*`, `(www\.)?xyetianlian\.com[^\s<>]*`},
+		{`biquio\S*`, `biquio[^\s<>]*`},
+		{`本站所有小说为转载作品.*$`, `本站所有小说为转载作品[^\n<]*$`},
+		{`作者：.*?所写的《.*?》无弹窗免费全文阅读`, `作者：.*?所写的《.*?》无弹窗免费全文阅读`},
+		{`何以笙箫默小说小说推荐阅读：.*?$`, `何以笙箫默小说小说推荐阅读：.*?$`},
+		{`txt全集\S+下载`, `txt全集[^\s<>]+下载`},
+		{`普通模式无危险词`, `普通模式无危险词`},
+	}
+	for _, c := range cases {
+		if got := sanitizeAdPattern(c.in); got != c.want {
+			t.Errorf("sanitize(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+// TestRuleConfigTagSafeDigest R63-d 集成回归: 规则自定义 \S* 模式经 FromRuleRaw 消毒后,
+// "无弹窗推荐地址：URL" 段回收不再吞 "</p>"(修前输出孤儿 "<p>")。
+func TestRuleConfigTagSafeDigest(t *testing.T) {
+	raw := []byte(`{"clean":{"removeSelectors":["script","style","iframe","ins","noscript","a"],"adPatterns":["无弹窗推荐地址：\\S*","(www\\.)?xyetianlian\\.com\\S*"],"whitelist":["p","br","b"],"normalize":true,"plainText":false}}`)
+	cfg := FromRuleRaw(raw)
+	in := "<p>无弹窗推荐地址：http://www.xyetianlian.com/yt57528/</p>"
+	out := CleanContentHTML(in, cfg)
+	if strings.Contains(out, "<p>") || strings.Contains(out, "无弹窗") || strings.Contains(out, "http") {
+		t.Fatalf("孤儿标签/广告残留: %q", out)
+	}
+	// 裸域名形态(非掩码路径)同样不吞闭标签
+	in2 := "<p>推荐地址：www.xyetianlian.com/yt/</p><p>下一段。</p>"
+	out2 := CleanContentHTML(in2, cfg)
+	if strings.Contains(out2, "xyetianlian") || strings.Contains(out2, "推荐地址") {
+		t.Fatalf("裸域名+前缀未回收: %q", out2)
+	}
+	if !strings.Contains(out2, "下一段。") {
+		t.Fatalf("正文误伤: %q", out2)
+	}
+}

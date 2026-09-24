@@ -52,7 +52,7 @@ func defaultAdPatterns() []string {
 	out = append(out, []string{
 		// TS DEFAULT_CLEAN_CONFIG 原始 6 条(域名条已并入 coreAdPatterns[0] 的
 		// 扩展形态: 子域标签 + 更多 TLD; 此处保留原形兼容历史规则字面)
-		`(www\.)?[a-z0-9-]+\.(com|net|cc|org|info|top|xyz|vip|site)(\/\S*)?`,
+		`(www\.)?[a-z0-9-]+\.(com|net|cc|org|info|top|xyz|vip|site)(/[^\s<>]*)?`,
 		`本章未完.*?点击下一页继续阅读`,
 		`请记住本书.*?域名`,
 		`最新章节请到.*?查看`,
@@ -81,23 +81,49 @@ func defaultAdPatterns() []string {
 	return out
 }
 
+// lineWs 行空白类(nbsp 容错): Go \s 不含 U+00A0, 源站 &nbsp; 经 goquery 解码落为
+// U+00A0 原字符, `^\s*` 类行锚在行首 nbsp 处卡死 —— R63-d 实证 xyetianlian 924 章
+// 整行 URL 残留根因(raw 形态 "&nbsp;&nbsp;&nbsp;&nbsp;http://...<br />", 行锚模式
+// 因行首 U+00A0 全部失效)。行锚统一用本类, 不再裸用 \s。
+// 注: 解释型字符串(\u00a0 落为原字符) —— raw string 里 \u 不转义会成 RE2 非法转义,
+// R62-c3 同款事故形态, TestAllAdPatternsCompile 巡检兜底。
+const lineWs = "(?:\\s|\u00a0)*"
+
+// domainBody 域名主体([1] 与 R63-d 引导前缀模式共用, 改动须同步两处语义)
+const domainBody = `(?:[a-z0-9-]{1,20}\.){0,2}[a-z0-9-]+\.(?:com\.cn|net\.cn|org\.cn|com|net|cc|org|info|top|xyz|vip|site|cn|la|mobi|tv)`
+
+// leadPrefixAddr 引导地址前缀词组(R63-d: "无弹窗推荐地址：http://..." 族)。词组可
+// 自由组合覆盖 "本书最新地址/最新章节地址/无弹窗地址/手机阅读地址" 等复合形态,
+// 至少一个限定词(裸 "地址" 不收, 防正文误伤)。本词组只在与域名/掩码占位符同现时
+// 消费, 单独出现交由 [16] 整行 mop-up。
+const leadPrefixAddr = `(?:最新|全文|手机|访问|推荐|阅读|原文|本书|小说|章节|无弹窗|首发|本站)+地址`
+
 // coreAdPatterns 反广告底线模式(硬底线, 语义同类先例: script/style 标签无视配置
 // 硬移除)。规则自定义 clean.adPatterns 为按站定制清单(R59-2c DB 实证: 35 规则中
 // 31 条自定义覆盖缺省, 恰恰漏掉请记住本书首发域名/整行 URL 等通用残留), 故通用
 // 高置信模式在此无条件叠加, 不受规则配置增删影响。仅收录误伤风险≈0 的形态,
 // 全部带防误伤反例测试(clean_test.go TestCoreAdPatternsFloor)。
-// 注: [2] 的 \uE000/\uE001 为 removeAdLines 内部 URL 掩码占位符 —— 带 scheme 的
+// 注: \uE000/\uE001 为 removeAdLines 内部 URL 掩码占位符 —— 带 scheme 的
 // URL 行被掩码保护不被域名模式删除, 底线改为按「整行仅剩掩码占位符」回收整行;
 // 消费顺序: removeAdLines 先掩码 → 逐条替换 → 掩码还原, 本组模式于掩码期间生效。
 var coreAdPatterns = []string{
-	// [1] 域名(含子域标签与 TLD 扩展: 修 "m.xxxx.com" 仅删 "xxxx.com" 残留 "m.")
-	`(?:[a-z0-9-]{1,20}\.){0,2}[a-z0-9-]+\.(?:com\.cn|net\.cn|org\.cn|com|net|cc|org|info|top|xyz|vip|site|cn|la|mobi|tv)(?:/\S*)?`,
-	// [2] 整行仅 URL(纯文本行形态 + <p> 包裹形态; 掩码占位符期生效)
-	"(?m)^\\s*\uE000\\d+\uE001[。．.!！]?\\s*$" +
-		// R62-c3 修: 原 \xa0 为 Go 字节转义(单字节 0xA0 非法 UTF-8) → 整条模式编译失败
-		// 被静默跳过(compileAdPattern 容错), 「整行仅 URL」回收功能自 R59 起从未生效,
-		// DB 实证 xyetianlian 9415 章整行 URL 残留; 改 \u00a0 rune 转义修复编译。
-		"|<p[^>]*>\\s*(?:\u00a0|\\s)*(?:<a\\b[^>]*>)?\\s*\uE000\\d+\uE001\\s*(?:</a>)?\\s*</p>",
+	// [0] R63-d 引导地址前缀+URL/域名 整段回收("无弹窗推荐地址：http://..."族;
+	// 掩码占位符期生效 —— 前缀后必须紧跟可见域名或掩码占位符, 防"访问地址：朝阳区"
+	// 类正文误伤; 置于 [1] 之前使裸域名随前缀整体回收, 避免域名先删致前缀残留)
+	leadPrefixAddr + `[：:]?` + lineWs + `(?:` + domainBody + `[^\s<>]*|` + maskOpen + `\d+` + maskClose + `)[，,。．.!！；;]?`,
+	// [1] 域名(含子域标签与 TLD 扩展: 修 "m.xxxx.com" 仅删 "xxxx.com" 残留 "m.";
+	// R63-d 路径段 [^\s<>]* 化 —— \S* 会吞 "</p>" 留孤儿开标签)
+	domainBody + `(?:/[^\s<>]*)?`,
+	// [2] 整行仅 URL(纯文本行形态 + <p> 包裹形态 + br 隔断形态; 掩码占位符期生效)
+	// R62-c3 修: 原 \xa0 为 Go 字节转义(单字节 0xA0 非法 UTF-8) → 整条模式编译失败
+	// 被静默跳过(compileAdPattern 容错), 「整行仅 URL」回收功能自 R59 起从未生效;
+	// 改 \u00a0 rune 转义修复编译。
+	// R63-d 修: 行锚 ^\s* 在行首 U+00A0 处卡死(Go \s 不含 U+00A0), raw 形态
+	// "&nbsp;&nbsp;&nbsp;&nbsp;URL<br />" 漏网 → 行锚统一 lineWs; 增 br 隔断形态
+	// (div 直排上下文无 <p> 包裹, Bug-15 包裹发生在 removeAdLines 之后不可见)。
+	"(?m)^" + lineWs + "\uE000\\d+\uE001[。．.!！]?" + lineWs + "$" +
+		"|<p[^>]*>" + lineWs + "(?:<a\\b[^>]*>)?" + lineWs + "\uE000\\d+\uE001" + lineWs + "(?:</a>)?" + lineWs + "</p>" +
+		"|<br\\b[^>]*>" + lineWs + "\uE000\\d+\uE001" + lineWs + "(?:<br\\b[^>]*)?",
 	// [3] 首发域名水印前缀(DB 残留 800+ 行/千章, 居首)
 	`请记住本书首发域名[：:]?`,
 	`请记住本站[：:]?`,
@@ -113,10 +139,10 @@ var coreAdPatterns = []string{
 	// [8] 间隔号规避品牌("笔・趣・阁"; 直写"笔趣阁"归品牌词层; R62-c3 增 、＆ 隔符:
 	// DB 黄金瞳 114 章 "笔、趣、阁" / "笔＆趣＆阁" 变体)
 	`笔[・•·.．、＆]\s*趣[・•·.．、＆]\s*阁`,
-	// [9] 星号装饰手打行("★★手打★шшш..★"; 星饰+ш/w 混淆域, 整行回收)
-	"(?m)^\\s*[★☆✦✧*＊\\s]*手打\\s*[★☆✦✧*＊шωw3vvs\\s.．。·_]*$" +
-		// R62-c3 修: 同 [2], \xa0 字节转义致编译失败静默跳过, 改 \u00a0
-		"|<p[^>]*>\\s*(?:\u00a0|\\s)*[★☆✦✧*＊\\s]*手打\\s*[★☆✦✧*＊шωw3vvs\\s.．。·_]*\\s*</p>",
+	// [9] 星号装饰手打行("★★手打★шшш..★"; 星饰+ш/w 混淆域, 整行回收;
+	// R63-d 行锚 lineWs 化同 [2] —— 行首 &nbsp; 卡死修复)
+	"(?m)^" + lineWs + "[★☆✦✧*＊\\s\u00a0]*手打\\s*[★☆✦✧*＊шωw3vvs\\s\u00a0.．。·_]*" + lineWs + "$" +
+		"|<p[^>]*>" + lineWs + "[★☆✦✧*＊\\s\u00a0]*手打\\s*[★☆✦✧*＊шωw3vvs\\s\u00a0.．。·_]*" + lineWs + "</p>",
 	// [10] 无错网会员手打尾注("…会员手打，更多章节请到网址：.")
 	`会员手打[，,]`,
 	`更多章节请到网址[：:.。]?`,
@@ -131,6 +157,10 @@ var coreAdPatterns = []string{
 	// [15] 站点导流行("阅读本书最新章节请到999OM,手机同步阅读请访问sj.999om,清爽无广告。…";
 	// R62-c3 DB 实证 xyetianlian 万古神帝 7 章; 不跨标签/行防误伤)
 	`阅读本书最新章节请到[^<>\n]{0,80}`,
+	// [16] R63-d 纯引导地址前缀整行回收(mop-up: 其他模式删 URL/域名后仅剩前缀的行,
+	// 如全角混淆域名经 [7] 删后剩 "无弹窗推荐地址："; 整行仅前缀+标点, 无正文误伤面)
+	"(?m)^" + lineWs + "[。．,，]?" + lineWs + leadPrefixAddr + "[：:]?" + lineWs + "[。．.!！]?" + lineWs + "$" +
+		"|<p[^>]*>" + lineWs + leadPrefixAddr + "[：:]?" + lineWs + "</p>",
 }
 
 // withFloorPatterns 消费侧底线叠加: 规则自定义/缺省 AdPatterns 之外无条件并入
@@ -195,8 +225,44 @@ func jsonUnmarshal(data []byte, v any) error {
 	return json.Unmarshal(data, v)
 }
 
+// sanitizeAdPattern 规则自定义广告模式的吞标签防护(R63-d: 35 规则 68 处 \S* 族实证
+// —— \S 含 <>, "无弹窗推荐地址：\S*" 会把 "</p>" 一并吞掉留下孤儿开标签入存。
+// 机械改写: \S*→[^\s<>]*, \S+→[^\s<>]+, 非 lazy 的 .*→[^\n<]*(单行 HTML 序列化下
+// 贪心 .* 直吞到文末), lazy 量词(.*?/.+?)不动 —— 跨标签匹配是触发词到定界符的本意。
+// 改写只会收窄匹配面, 恒不放宽; 纯文本面(无 <>)语义不变。RE2 无前瞻, lazy 区分
+// 用 \?? 可选尾问号 + 回调判定。注意 compileAdPattern 的 300 rune 上限作用在消毒后
+// 串上(实测最长规则模式 <60 rune, 远低于限; 上限本意为 DoS 防护)。
+func sanitizeAdPattern(p string) string {
+	if p == "" {
+		return p
+	}
+	out := reSStar.ReplaceAllString(p, `[^\s<>]*`)
+	out = reSPlus.ReplaceAllString(out, `[^\s<>]+`)
+	out = reDotStar.ReplaceAllStringFunc(out, func(m string) string {
+		if strings.HasSuffix(m, "?") {
+			return m // lazy: 跨标签是本意, 不动
+		}
+		return "[^\\n<]*"
+	})
+	out = reDotPlus.ReplaceAllStringFunc(out, func(m string) string {
+		if strings.HasSuffix(m, "?") {
+			return m
+		}
+		return "[^\\n<]+"
+	})
+	return out
+}
+
+var (
+	reSStar   = regexp.MustCompile(`\\S\*`)
+	reSPlus   = regexp.MustCompile(`\\S\+`)
+	reDotStar = regexp.MustCompile(`\.\*\??`)
+	reDotPlus = regexp.MustCompile(`\.\+\??`)
+)
+
 // FromRuleRaw 规则 config JSON → 清洗配置(对齐 parseRuleConfig + sanitizeCleanConfig):
-// clean 段缺失/非对象 → 整段缺省; 各字段缺失 → 字段缺省(safeStrArr 钳制 + 白名单小写化)。
+// clean 段缺失/非对象 → 整段缺省; 各字段缺失 → 字段缺省(safeStrArr 钳制 + 白名单小写化
+// + adPatterns 逐条 sanitizeAdPattern 吞标签消毒)。
 func FromRuleRaw(raw []byte) Config {
 	def := defaultConfig()
 	if len(raw) == 0 {
@@ -226,6 +292,9 @@ func FromRuleRaw(raw []byte) Config {
 		out.RemoveSelectors = rs
 	}
 	if ap := safeStrArr(c.AdPatterns, 30, 1000); ap != nil {
+		for i, p := range ap {
+			ap[i] = sanitizeAdPattern(p)
+		}
 		out.AdPatterns = ap
 	}
 	if wl := safeStrArr(c.Whitelist, 30, 20); wl != nil {
@@ -502,6 +571,12 @@ func itoa(n int) string {
 		b[i] = '-'
 	}
 	return string(b[i:])
+}
+
+// PlainLen 纯文本长度(口径: 剥全部标签后 rune 计数, 对齐 JS
+// cleaned.replace(/<[^>]+>/g,”).length; reclean 维护面与 bridge 落库共用)
+func PlainLen(html string) int {
+	return len([]rune(tagNaiveRe.ReplaceAllString(html, "")))
 }
 
 // ---------------- 违禁词过滤(R51-3-c; 配置经 Provider 注入) ----------------

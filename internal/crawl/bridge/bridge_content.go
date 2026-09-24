@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"unicode/utf8"
 
@@ -271,11 +270,10 @@ func (b *Bridge) appendChapterSlice(bookID string, items []callback.TocItemPaylo
 // kind: contents (清洗 + 正文落库, db 模式)
 // ============================================================
 
-// stripTagsLen 纯文本长度(cleaned.replace(/<[^>]+>/g,”).length 口径; UTF-16 长度以
-// rune 计近似 —— BMP 等价, astral 字符差 1 倍, worklog R55-3a2 留档)
+// stripTagsLen 纯文本长度(R63-d 精简: 委托 clean.PlainLen, 口径同
+// cleaned.replace(/<[^>]+>/g,”).length 的 rune 近似, worklog R55-3a2 留档)
 func stripTagsLen(s string) int {
-	stripped := tagStripRe.ReplaceAllString(s, "")
-	return len([]rune(stripped))
+	return clean.PlainLen(s)
 }
 
 // Contents kind=contents: 清洗 + 落库(幂等按 url; 乱序/重发安全; >1.5MB 整章 skip)。
@@ -448,6 +446,3 @@ func (b *Bridge) saveCoverFile(buf []byte, contentType string) (string, error) {
 	}
 	return defaultCoverSubdir + "/" + filepath.Base(name), nil
 }
-
-// tagStripRe 纯文本长度计算用标签剥离(与 <[^>]+> 同构)
-var tagStripRe = regexp.MustCompile(`<[^>]+>`)

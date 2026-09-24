@@ -7581,3 +7581,33 @@ Stage Summary:
 - ⑥主题 1:1: 8 源站可达性摸底+语义级对比方法落地(词干集合+人工核验, 甄别出 5 处前缀异名误报), 7/8 主题确认形态同构, 唯一真差异 pili banner 本轮复刻交付; x2552/trxsw/x33yq 源站对比留下轮
 - ⑧反反爬: TLS 指纹仿真(utls Chrome ClientHello)全链交付(规则级开关/三路 dial/SSRF 保持/回归实证), 6 真虫修复(含 1 个平台引导断链+1 个 R62 遗留语义局限)
 - 遗留移交: bqg713 test 复测(部署后应过)/fanqianxs CF 多层校验(桥采集为主)/pili read 弹幕块(互动功能, 低优先)/x2552+trxsw+x33yq 源站对比/智能 PSEO 开关默认关(用户可后台开启)
+
+---
+Task ID: 63-d
+Agent: 主控 (Z.ai Code)
+Task: 用户指令——注意内容清洗类似「无弹窗推荐地址：http://www.xyetianlian.com/yt57528/」「http://www.xyetianlian.com/yt57528/21678226.html」这种外站链接; 内容清洗/噪声过滤的范围包括所有获取到的内容。
+
+Work Log:
+- 开局: 沙箱第 7 次重置(Go SDK/二进制/dev.log 全丢) → scripts/recover.sh 一键恢复(35 规则/16 分类/看门狗/双代理) → 重启三大部头采集; git 干净于 6ab6414(R63 前序: TLS 指纹+6 真虫+pili banner 已收口)
+- 探针实证: 用户报告的「无弹窗推荐地址：http://...」在独立行/<p>包裹/行内嵌/简介 4 形态下全部残留; 裸 URL 独立行(R62 修复)正常回收
+- DB 实证: 万相之王 924 章含 <p>http://...html</p> 残留; 源站 raw 形态「&nbsp;&nbsp;&nbsp;&nbsp;URL<br />」(div 直排上下文)
+- 根因 1: Go \s 不含 U+00A0 —— 源站 &nbsp; 经 goquery 解码为 U+00A0 原字符, coreAdPatterns[2]/[9] 的 (?m)^\s* 行锚在行首 nbsp 处卡死; <p> 包裹形态不适用(div 直排, Bug-15 包裹在 removeAdLines 之后)
+- 修复 1: 新增 lineWs=(?:\s|\u00a0)* 行空白类; [2] 行锚 lineWs 化+新增 br 隔断形态(<br/>lineWs MASK lineWs<br/>); [9] 行锚同修
+- 根因 2: 引导前缀族无模式覆盖(掩码期 URL 不可见, 前缀「无弹窗推荐地址：」无消费者)
+- 修复 2: coreAdPatterns 新增 [0] 引导地址前缀+URL/域名整段回收(leadPrefixAddr 词组组合, 置于[1]域名模式前使裸域名随前缀整体回收)+[16] 纯前缀整行 mop-up(全角域名被[7]删后仅剩前缀的行)
+- 根因 3(系统性): 35 规则 68 处 \S* 族吞标签 —— \S 含 <>, 规则自定义「无弹窗推荐地址：\S*」把 </p> 一并吞掉留下孤儿开标签入存(探针实测输出 "<p>")
+- 修复 3: sanitizeAdPattern 摄入层消毒(\S*→[^\s<>]*, \S+→[^\s<>]+, 非 lazy 贪心 .*→[^\n<]*; lazy .*/.+? 跨标签是本意不动; RE2 无前瞻用 \??+回调判定)接线 FromRuleRaw(一处覆盖全部规则+未来导入); builtin_rules.json 28 规则 68 模式机械同步(json.tool 校验过); floor [0]/[1] 自身 tag-safe 化
+- 事故 2: lineWs/[0] 曾用反引号 raw string 写 \u00a0/\uE000 → Go raw string 不转义 → RE2 非法转义 \u → 整条模式编译失败被 compileAdPattern 静默跳过(R62-c3 \xa0 同款事故) → TestAllAdPatternsCompile 兜底抓获 → 改解释型字符串+常量拼接(maskOpen/maskClose)修复
+- 修复 4: 新端点 POST /api/admin/books/{id}/reclean(仿 recrawl 注册) —— 存量正文/简介按书源规则 clean 配置(经消毒)重跑清洗管线, 幂等只写变化行, 字数重聚合; clean.PlainLen 导出(bridge.stripTagsLen 委托, 删孤儿 tagStripRe)
+- 全量 reclean 实测: 万相之王 1838/1838、我有一剑 1700/1700、万古神帝 700/700、黄金瞳 63/556、我在万界送外卖 2228/0(已净)、大唐第一帝国 271/0(已净); 简介 introUpdated×3
+- WAL 陷阱再踩(R62 教训): python 只读副本读陈旧主文件(更新在 4.1MB WAL 未 checkpoint)误报 2 章残留 → 服务器公开读页实证已净(CLEAN-OK)
+- 手打×109 确认为正常正文(「亲手打脸」「单手打败」)非残留, 零处理
+- 清洗范围核查(用户指令「范围包括所有获取到的内容」): 正文(HTML+纯文本双模式)/章节标题/书名/作者/分类(CleanTextField)/简介(CleanIntro)/TestRule 路径(engine.go FromRuleRaw 同消毒)全链覆盖; wordCount/coverURL 非文本面
+- 门禁: gofmt 零/vet 零/test 全绿(clean 包 13 用例含 4 组新回归: NbspLeadContexts/LeadPrefixAddrFamily/NoFalsePositive/SanitizeAdPattern+RuleConfigTagSafeDigest)/build OK/lint OK
+- 浏览器终验: 读页 CLEAN-OK(无 URL/无首发域名水印)+标题正常+首页 68 链接零残留+0 报错; 采集任务已重启(新清洗器持续产出)
+
+Stage Summary:
+- 清洗底线层升级: [0] 引导前缀族/[2] nbsp+br 三形态/[9] nbsp/[16] mop-up; FromRuleRaw 摄入消毒为系统级防线(68 处规则模式行为收窄恒不放宽)
+- reclean 端点交付: 清洗模式升级后的存量洗净能力(本轮洗净 4318 章残留)
+- 新增回归测试 5 组(正例+防误伤反例+消毒单测), TestAllAdPatternsCompile 再次证明兜底价值
+- 遗留留档: 「何以笙箫默小说」站点特定推广词(触发词仅现存于列表页推广位, 正文 0 命中, 未加模式); DB 规则 config 保持原形(摄入消毒保证行为与 json 一致, 字面差异留档); 封面文件名双点形态(URL basename 解析尾部 '..', 功能无损)

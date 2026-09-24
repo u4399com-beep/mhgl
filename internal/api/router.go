@@ -65,6 +65,7 @@ func Register(mux *http.ServeMux, d Deps) {
 	mux.HandleFunc("DELETE /api/admin/books/{id}", admin(d.adminBookDelete))
 	mux.HandleFunc("GET /api/admin/books/{id}/toc", admin(d.adminBookToc))
 	mux.HandleFunc("POST /api/admin/books/{id}/recrawl", admin(d.adminBookRecrawl))
+	mux.HandleFunc("POST /api/admin/books/{id}/reclean", admin(d.adminBookReclean))
 	mux.HandleFunc("GET /api/admin/books/{id}/keywords", admin(d.adminBookKeywords))
 	mux.HandleFunc("POST /api/admin/books/{id}/keywords", admin(d.adminBookKeywordsPost))
 	mux.HandleFunc("DELETE /api/admin/books/{id}/keywords", admin(d.adminBookKeywordsDelete))
