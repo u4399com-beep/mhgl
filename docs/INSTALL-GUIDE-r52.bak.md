@@ -154,5 +154,6 @@ Nginx 需携带 `X-Forwarded-For`（后台登录限流按其取 IP）。
 
 ## 10. 功能对齐与迁移细节
 
-见 [agent-ctx/go-migration/PARITY.md](../agent-ctx/go-migration/PARITY.md)（全量/简化/退役三档矩阵）
-与 [agent-ctx/go-migration/theme-audit.md](../agent-ctx/go-migration/theme-audit.md)（逐页核实审计）。
+> 原引用的 `agent-ctx/go-migration/PARITY.md`（全量/简化/退役三档矩阵）与 `theme-audit.md`
+> （逐页核实审计）两文件已随 agent-ctx 历史清理散佚（可考古 git 历史）；三档矩阵现由
+> [docs/archive/docker/README.md](archive/docker/README.md) 代持（R66-d 起为单一事实源）。

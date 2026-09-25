@@ -306,6 +306,7 @@ func (b *Bridge) Contents(_ context.Context, p callback.ContentsPayload) error {
 	}
 
 	saved := 0
+	seenURLs := map[string]struct{}{} // [R67-b] 批内 URL 去重(仅对实际落库项: 同批重复项幂等只写一次, 修前双双计 chaptersUpdated 虚高)
 	for _, it := range p.Items {
 		url := asStr(it.URL, 2000)
 		rawHtml := it.ContentHTML
@@ -323,6 +324,12 @@ func (b *Bridge) Contents(_ context.Context, p callback.ContentsPayload) error {
 		if rawHtml == "" {
 			continue
 		}
+		// [R67-b] 去重判定置于 skip 检查之后: 超长/空正文跳过项不占去重位,
+		// 保证既有 skip 语义不变(同 URL 后续合法项仍可落库)
+		if _, dup := seenURLs[url]; dup {
+			continue
+		}
+		seenURLs[url] = struct{}{}
 		cleaned := clean.CleanContentHTML(rawHtml, ctx.clean)
 		plainLen := stripTagsLen(cleaned)
 		if chID, ok := chapByUrl[url]; ok {
@@ -410,19 +417,23 @@ func (b *Bridge) Cover(_ context.Context, p callback.CoverPayload) error {
 		b.taskLog("warn", fmt.Sprintf("封面回调非法(解码后 %d 字节), 跳过", len(buf)))
 		return fmt.Errorf("封面数据非法(解码后需 ≤10MB)")
 	}
+	// [R67-b] 书行预检前移: 修前先落盘文件再定位书行 —— 书被中途删除的病态窗口下
+	// covers/ 残留无 DB 引用的孤儿文件(文件成功但 update 无主, 每次重发都再写一份)
+	book := b.lookupBookForCallback(p.BookID, bookURL)
+	if book == nil {
+		b.taskLog("warn", "封面回调: 书籍不存在(sourceUrl="+asStr(bookURL, 120)+"), 跳过落盘(防孤儿文件)")
+		return nil // ok:true(与存盘失败的宽容语义同口径, 不阻断书的完成)
+	}
 	coverPath, err := b.saveCoverFile(buf, p.ContentType)
 	if err != nil {
 		b.taskLog("warn", "封面转存失败, 保留原外链封面: "+asStr(err.Error(), 160))
 		return nil // ok:true(存盘失败不阻断书的完成, 与 TS saveCoverWebp 失败同语义)
 	}
-	book := b.lookupBookForCallback(p.BookID, bookURL)
-	if book != nil {
-		if err := b.db.CrawlUpdateBookCover(book.ID, coverPath); err != nil {
-			return err
-		}
-		// coversSaved 归 Go 累计计数(asyncStats 绝对值覆盖, 单一写者每键); 此处不重复累加
-		b.taskLog("success", "封面已存盘: "+coverPath)
+	if err := b.db.CrawlUpdateBookCover(book.ID, coverPath); err != nil {
+		return err
 	}
+	// coversSaved 归 Go 累计计数(asyncStats 绝对值覆盖, 单一写者每键); 此处不重复累加
+	b.taskLog("success", "封面已存盘: "+coverPath)
 	return nil
 }
 

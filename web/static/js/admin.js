@@ -1446,7 +1446,18 @@
     });
   }
 
-  /* ---------------- 系统设置 ---------------- */
+  /* ---------------- 系统设置 ----------------
+   * [R67-c] 双头消歧: SETTING_LINKED 标注「该键另有语义化编辑入口」的联动关系
+   * (bannedWords=本页上方卡片 / proxyPool=代理池分区 / feedback=用户反馈分区);
+   * SETTING_PROTECTED 与后端 admin_dash.go protectedSettingKeys 同源(核心键不可删)。
+   */
+  var SETTING_LINKED = {
+    bannedWords: '与本页「违禁词过滤」卡片联动',
+    proxyPool: '与「代理池」分区联动',
+    feedback: '与「用户反馈」分区的反馈开关联动'
+  };
+  var SETTING_PROTECTED = ['bannedWords', 'seoTemplates', 'theme_overrides', 'linkwheel', 'feedback', 'pseoAutoGenerate', 'proxyPool', 'download', 'pseudostatic'];
+  function isProtectedKey(k) { return SETTING_PROTECTED.indexOf(k) >= 0; }
   function renderSettings(obj) {
     var el = $('set-list');
     el.className = '';
@@ -1455,7 +1466,12 @@
     el.innerHTML = keys.map(function (k) {
       var v = obj[k];
       var text = (typeof v === 'string') ? v : JSON.stringify(v, null, 2);
-      return '<div style="margin-bottom:12px">' + fld(k, '<textarea class="adm-input" data-setkey="' + esc(k) + '" style="min-height:64px;font-family:ui-monospace,Menlo,monospace">' + esc(text) + '</textarea>') + '</div>';
+      var note = SETTING_LINKED[k] ? '<div class="adm-muted" style="font-weight:400">⚠ ' + esc(SETTING_LINKED[k]) + ', 建议只在一处修改</div>' : '';
+      var del = isProtectedKey(k)
+        ? '<span class="adm-muted">核心键(代码内读取)不可删除</span>'
+        : '<button class="adm-btn is-tiny is-danger" data-delkey="' + esc(k) + '" type="button">删除</button>';
+      return '<div style="margin-bottom:12px">' + fld(k, '<textarea class="adm-input" data-setkey="' + esc(k) + '" style="min-height:64px;font-family:ui-monospace,Menlo,monospace">' + esc(text) + '</textarea>') + note +
+        '<div style="margin-top:4px">' + del + '</div></div>';
     }).join('');
   }
   function loadSettings() {
@@ -1464,8 +1480,20 @@
       .catch(function (e) { stateMsg('set-list', '加载失败: ' + errText(e), true); });
   }
   function initSettings() {
+    loadBannedWords();
     loadSettings();
     $('set-reload').addEventListener('click', loadSettings);
+    $('bw-save').addEventListener('click', saveBannedWords);
+    // [R67-c] 设置键删除(非核心键; 后端核心键白名单兜底)
+    $('set-list').addEventListener('click', function (ev) {
+      var btn = ev.target.closest('button[data-delkey]');
+      if (!btn) return;
+      var k = btn.getAttribute('data-delkey');
+      admConfirm('确定删除设置键「' + k + '」? 删除后读侧回落代码内默认值。', true).then(function (yes) {
+        if (!yes) return;
+        DEL('/api/admin/settings/' + encodeURIComponent(k)).then(function () { toast('设置键已删除'); loadSettings(); }).catch(function (e) { toast(errText(e), true); });
+      });
+    });
     $('set-add').addEventListener('click', function () {
       var k = $('set-new-key').value.trim();
       if (!k) { toast('请输入键名', true); return; }
@@ -1493,6 +1521,35 @@
       });
       seq.then(function () { toast('设置已保存'); loadSettings(); }).catch(function (e) { toast(errText(e), true); });
     });
+  }
+
+  /* ---------------- 违禁词过滤(Setting bannedWords 结构化编辑; API: GET/PUT /api/admin/banned-words) ---------------- */
+  function splitLines(t) {
+    return String(t || '').split(/\r?\n/).map(function (s) { return s.trim(); }).filter(Boolean);
+  }
+  function loadBannedWords() {
+    stateMsg('bw-state', '加载中…');
+    GET('/api/admin/banned-words').then(function (c) {
+      var words = c.words || [];
+      $('bw-enabled').checked = !!c.enabled;
+      $('bw-mode').value = c.mode === 'remove' ? 'remove' : 'mask';
+      $('bw-words').value = words.join('\n');
+      var el = $('bw-state');
+      el.className = '';
+      el.innerHTML = '<span class="adm-muted">当前 ' + words.length + ' 个违禁词, 过滤' + (c.enabled ? '已启用' : '未启用') + '</span>';
+    }).catch(function (e) { stateMsg('bw-state', '加载失败: ' + errText(e), true); });
+  }
+  function saveBannedWords() {
+    var words = splitLines($('bw-words').value);
+    var enabled = $('bw-enabled').checked;
+    if (enabled && !words.length) { toast('词表为空：请至少填写一个违禁词，或先关闭过滤开关', true); return; }
+    PUT('/api/admin/banned-words', { enabled: enabled, mode: $('bw-mode').value, words: words })
+      .then(function () {
+        toast('违禁词已保存');
+        loadBannedWords();
+        loadSettings(); // [R67-c] 双头消歧: 语义侧保存后刷新原始 KV 列表
+      })
+      .catch(function (e) { toast(errText(e), true); });
   }
 
   /* ---------------- 反馈 ---------------- */
@@ -1537,6 +1594,10 @@
   }
 
   /* ---------------- 备份 ---------------- */
+  var RESTORE_TABLE_LABEL = { Setting: '设置', Category: '分类', Site: '站点', FriendLink: '友链', Rule: '规则', Book: '书籍', Chapter: '章节', BookTag: '标签', Task: '任务', DownloadJob: '下载任务' };
+  function fmtRestoreMap(m) {
+    return Object.keys(m || {}).map(function (k) { return (RESTORE_TABLE_LABEL[k] || k) + ' ' + m[k]; }).join(' / ') || '无';
+  }
   function loadBackup() {
     stateMsg('bk-stats', '加载中…');
     GET('/api/admin/stats').then(function (s) {
@@ -1552,6 +1613,45 @@
     loadBackup();
     $('bk-refresh').addEventListener('click', loadBackup);
     $('bk-download').addEventListener('click', function () { toast('备份开始下载'); });
+    // [R67-c] 恢复入口(POST /api/admin/backup/restore?strategy=skip|overwrite, R56-2b 端点)
+    $('bk-restore').addEventListener('click', function () {
+      var fi = $('bk-restore-file');
+      var f = fi && fi.files && fi.files[0];
+      if (!f) { toast('请先选择备份 JSON 文件', true); return; }
+      var strategy = $('bk-restore-strategy').value === 'skip' ? 'skip' : 'overwrite';
+      var hint = strategy === 'overwrite' ? '同主键行将被备份内容覆盖。' : '已存在的同主键行将保留现库内容。';
+      admConfirm('确定从「' + f.name + '」恢复? ' + hint, true).then(function (yes) {
+        if (!yes) return;
+        stateMsg('bk-restore-state', '恢复中…(文件越大耗时越长, 请勿关闭页面)');
+        var reader = new FileReader();
+        reader.onerror = function () { stateMsg('bk-restore-state', '读取文件失败', true); };
+        reader.onload = function () {
+          fetch('/api/admin/backup/restore?strategy=' + strategy, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: String(reader.result)
+          }).then(function (res) {
+            if (res.status === 401) { location.href = '/admin/login'; throw new Error('登录已过期, 请重新登录'); }
+            return res.json().then(function (j) {
+              return { ok: res.ok && j && j.ok === true, data: j && j.data, error: j && j.error };
+            });
+          }).then(function (r) {
+            if (!r.ok) throw new Error(r.error || ('请求失败'));
+            var d = r.data || {};
+            var html = '<div class="adm-state" style="color:#10b981">恢复完成(策略: ' + (d.strategy === 'skip' ? '保留现库' : '备份为准') + ')' +
+              '<div>恢复: ' + esc(fmtRestoreMap(d.restored)) + '</div>' +
+              '<div>跳过: ' + esc(fmtRestoreMap(d.skipped)) + '</div>' +
+              '<div>失败: ' + Number(d.failedTotal || 0) + ' 条' + (d.failed && d.failed.length ? '(前 ' + d.failed.length + ' 条: ' + esc(d.failed.map(function (x) { return (RESTORE_TABLE_LABEL[x.table] || x.table) + '#' + (x.id || '-') + ' ' + (x.error || ''); }).join('；')) + ')' : '') + '</div></div>';
+            var el = $('bk-restore-state');
+            el.className = '';
+            el.innerHTML = html;
+            loadBackup();
+          }).catch(function (e) { stateMsg('bk-restore-state', '恢复失败: ' + errText(e), true); });
+        };
+        reader.readAsText(f);
+      });
+    });
   }
 
   /* ---------------- 启动 ---------------- */

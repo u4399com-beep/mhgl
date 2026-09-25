@@ -160,6 +160,13 @@ pageLoop:
 		}
 	}
 
+	// [R67-b] 发现数终值对齐: 修前 discovered 只在页循环尾推进, 单轮上限命中(break
+	// pageLoop)或末页在条目循环中跳出时终页计数不落盘 —— 进度面 discovered 恒为
+	// 前一页值(如首页即达 maxURLs 时恒 0), 与实际发现数(len(urls))脱钩
+	t.mu.Lock()
+	t.discovered = len(urls)
+	t.mu.Unlock()
+
 	// bookStart/bookEnd 序号过滤(1-based, 0=不限; 全局切片, TS runner 同口径)
 	filtered := sliceByBookStartEnd(urls, t.info.BookStart, t.info.BookEnd)
 	if len(filtered) < len(urls) {

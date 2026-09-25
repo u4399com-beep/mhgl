@@ -236,3 +236,42 @@ func (d Deps) adminSettingsPut(w http.ResponseWriter, r *http.Request) {
 	}
 	apiOK(w, d.readAllSettings())
 }
+
+// protectedSettingKeys 代码内读取的设置键白名单(不可删除)。[R67-c] 新增 DELETE 端点时
+// 评估口径: rg 全 internal 的 GetSetting(/SettingJSON( 读点 —— 删除即功能退化的键全集:
+//
+//	bannedWords(违禁词 api+bridge) / seoTemplates(前台 TDK) / theme_overrides(主题覆盖)
+//	linkwheel(友链链轮) / feedback(反馈开关) / pseoAutoGenerate(PSEO 自动钩子)
+//	proxyPool(代理池) / download(TXT 下载兜底文案) / pseudostatic(伪静态预设)
+//
+// 这些键只能改值(复位为默认), 不能整键删除。
+var protectedSettingKeys = map[string]bool{
+	"bannedWords": true, "seoTemplates": true, "theme_overrides": true,
+	"linkwheel": true, "feedback": true, "pseoAutoGenerate": true,
+	"proxyPool": true, "download": true, "pseudostatic": true,
+}
+
+// (d Deps) adminSettingDelete DELETE /api/admin/settings/{key} — [R67-c] R66-c 审查发现⑤。
+// 删除非核心设置键(误加探针键/历史垃圾行); 核心键(代码内读点, protectedSettingKeys)
+// 拒绝删除并提示复位路径。删除动作不触发缓存失效(核心键不可删, bannedWords 在白名单内)。
+func (d Deps) adminSettingDelete(w http.ResponseWriter, r *http.Request) {
+	key := r.PathValue("key")
+	if !settingKeyRe.MatchString(key) {
+		apiErr(w, http.StatusBadRequest, "非法的设置项 key")
+		return
+	}
+	if protectedSettingKeys[key] {
+		apiErr(w, http.StatusBadRequest, "核心设置键不可删除(删除会使对应功能退化), 如需复位请将其值改回默认")
+		return
+	}
+	res, err := d.DB.Exec(`DELETE FROM "Setting" WHERE key=?`, key)
+	if err != nil {
+		apiErr(w, http.StatusInternalServerError, "服务器内部错误")
+		return
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		apiErr(w, http.StatusNotFound, "设置键不存在")
+		return
+	}
+	apiOK(w, map[string]any{"deleted": true, "key": key})
+}

@@ -342,14 +342,17 @@ func (d Deps) publicSitemap(w http.ResponseWriter, r *http.Request) {
 		sb.WriteString("</sitemapindex>")
 		xml = sb.String()
 	default:
-		// 无 ?page/无 ?index → 旧行为(单页): 首页 loc + PSEO + books 5000 + chapters 5000
+		// 无 ?page/无 ?index → 单页 urlset: 首页 + 视图页/分类 + PSEO + books 5000 + chapters 5000
 		// (books/chapters 独立查询, 互不挤占名额, 对齐 TS legacy 形态)
+		// [R67-c] 双轨统一(R66-c 审查发现): 补齐原 web /sitemap.xml 独有面
+		// (全站书库/排行榜/分类), 本轨成为唯一生成器(web 层 301 重定向至此)。
 		entries := []string{}
 		homeLoc := base + "/?view=home"
 		if siteQ != "" {
 			homeLoc = base + "/?" + siteQ
 		}
 		entries = append(entries, sitemapURLEntry(homeLoc, 0, "daily", "1.0"))
+		entries = append(entries, d.sitemapStaticEntries(base, siteQ)...)
 		entries = append(entries, d.pseoSitemapEntries(base, siteQ)...)
 		books, _ := d.DB.QueryMaps(`SELECT id,num,updatedAt FROM "Book" ORDER BY updatedAt DESC LIMIT ?`, sitemapPageSize)
 		for _, b := range books {
@@ -438,6 +441,20 @@ func (d Deps) pseoSitemapEntries(base, siteQ string) []string {
 	return entries
 }
 
+// sitemapStaticEntries 固定视图页/分类页条目。[R67-c] 原 web /sitemap.xml 独有面并入
+// 本轨(全站书库/排行榜/分类), 分页(page=1)与单页(默认)两分支共用保证口径一致。
+func (d Deps) sitemapStaticEntries(base, siteQ string) []string {
+	entries := []string{}
+	entries = append(entries, sitemapURLEntry(appendSiteQ(base+"/?view=fulltext", siteQ), 0, "daily", "0.9"))
+	entries = append(entries, sitemapURLEntry(appendSiteQ(base+"/?view=ranking", siteQ), 0, "daily", "0.9"))
+	cats, _ := d.DB.QueryMaps(`SELECT id FROM "Category" ORDER BY sortOrder ASC LIMIT 500`)
+	for _, c := range cats {
+		loc := base + "/?view=category&cat=" + urlQueryEscape(store.ToStr(c["id"]))
+		entries = append(entries, sitemapURLEntry(appendSiteQ(loc, siteQ), 0, "weekly", "0.7"))
+	}
+	return entries
+}
+
 // sitemapPageEntries 第 N 页 URL 条目(books 前, chapters 后; PSEO 仅第 1 页)。
 func (d Deps) sitemapPageEntries(page int, base, preset, siteQ string) []string {
 	skip := (page - 1) * sitemapPageSize
@@ -445,8 +462,9 @@ func (d Deps) sitemapPageEntries(page int, base, preset, siteQ string) []string 
 		return nil
 	}
 	entries := []string{}
-	// PSEO 段(仅第 1 页)
+	// PSEO 段 + 固定视图/分类面(仅第 1 页)[R67-c: 与默认单页分支口径一致]
 	if page == 1 {
+		entries = append(entries, d.sitemapStaticEntries(base, siteQ)...)
 		entries = append(entries, d.pseoSitemapEntries(base, siteQ)...)
 	}
 	booksCount, _ := d.DB.Count(`SELECT count(*) FROM "Book"`)

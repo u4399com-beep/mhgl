@@ -538,6 +538,15 @@ WHERE b.author=? AND b.id<>? ORDER BY b.updatedAt DESC LIMIT 6`, author, bid)
 	}
 	canonical = joinSite(canonical, sid)
 	head := d.head(r, site, tdk.Title, tdk.Description, tdk.Keywords, canonical)
+	// [R67-c] og:image + Book JSON-LD(R66-c 审查发现: 有封面页面缺 og:image, 全站缺结构化数据)
+	ogImage := ogImageOf(r, ToStrSafe(book["cover"]))
+	head["OgImage"] = ogImage
+	ldURL := canonical
+	if origin := requestOrigin(r); origin != "" {
+		ldURL = origin + canonical
+	}
+	head["JsonLD"] = bookJSONLD(name, author, category, ToStrSafe(book["status"]),
+		ToStrSafe(book["intro"]), ldURL, ogImage)
 
 	data := d.baseData(r, site, head)
 	data["Book"] = book
@@ -627,6 +636,8 @@ func (d Deps) renderToc(w http.ResponseWriter, r *http.Request, sp map[string][]
 	}
 	base := tocHref(bid, bnum, sid)
 	head := d.head(r, site, tdk.Title, tdk.Description, "", base)
+	// [R67-c] 目录页 og:image(有封面页面覆盖; book 页另有 Book JSON-LD)
+	head["OgImage"] = ogImageOf(r, ToStrSafe(book["cover"]))
 
 	data := d.baseData(r, site, head)
 	data["Book"] = book
@@ -1096,7 +1107,9 @@ func pseoMatchedIDs(raw string) []string {
 func (d Deps) handleRobots(w http.ResponseWriter, r *http.Request) {
 	origin := requestOrigin(r)
 	var b strings.Builder
-	b.WriteString("User-agent: *\nAllow: /\nDisallow: /admin\nDisallow: /api/admin\n")
+	// [R67-c] 补 Disallow /feedback(R66-c 审查发现: 反馈页有 noindex meta 兜底,
+	// robots 再加一层)。
+	b.WriteString("User-agent: *\nAllow: /\nDisallow: /admin\nDisallow: /api/admin\nDisallow: /feedback\n")
 	if origin != "" {
 		b.WriteString("Sitemap: " + origin + "/sitemap.xml\n")
 	}
@@ -1104,66 +1117,23 @@ func (d Deps) handleRobots(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(b.String()))
 }
 
-// xmlEscape XML 文本转义(sitemap <loc>/<lastmod> 拼接层; origin 含 Host 头不可信, 全值过此)。
-func xmlEscape(s string) string {
-	var b strings.Builder
-	for _, r := range s {
-		switch r {
-		case '&':
-			b.WriteString("&amp;")
-		case '<':
-			b.WriteString("&lt;")
-		case '>':
-			b.WriteString("&gt;")
-		case '"':
-			b.WriteString("&quot;")
-		case '\'':
-			b.WriteString("&apos;")
-		default:
-			b.WriteRune(r)
-		}
-	}
-	return b.String()
-}
-
+// [R67-c] handleSitemap /sitemap.xml → 301 /api/public/sitemap(R66-c 审查发现: 双轨口径不一)。
+// 修前 web 轨自拼(首页/视图/分类 + 书 2000, 无章节/PSEO), API 轨(书籍/章节 5000 + PSEO +
+// 分页 sitemapindex + 5min 缓存)更完整 —— 以 API 轨为唯一生成器(并已补齐视图/分类面),
+// 本路由收敛为重定向; robots.txt 的 Sitemap 行不变(爬虫遵循 301)。
+// 站群: resolveSite 出的 site 参数随查询串转发, API 轨据此补站点专属域名 base 与 site 参数。
 func (d Deps) handleSitemap(w http.ResponseWriter, r *http.Request) {
-	site := d.resolveSite(r)
-	sid := siteID(site)
-	origin := requestOrigin(r)
-	books, _ := d.DB.WebSitemapBooks(2000)
-	cats, _ := d.DB.ListCategories()
-
-	var b strings.Builder
-	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n")
-	b.WriteString(`<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">` + "\n")
-	add := func(loc, lastmod string) {
-		b.WriteString("<url><loc>")
-		if origin != "" {
-			b.WriteString(xmlEscape(origin))
-		}
-		b.WriteString(xmlEscape(loc))
-		b.WriteString("</loc>")
-		if lastmod != "" {
-			b.WriteString("<lastmod>" + xmlEscape(lastmod) + "</lastmod>")
-		}
-		b.WriteString("</url>\n")
+	target := "/api/public/sitemap"
+	q := r.URL.Query()
+	var site map[string]any
+	if d.DB != nil { // DB 未装配(单测)时降级为无 site 参数转发
+		site = d.resolveSite(r)
 	}
-	add("/", "")
-	// [R62-b] viewHref 内部已 joinSite 追加 site 参数, 外层再包一层 joinSite(…, sid)
-	// 造成「site=X&site=X」重复参数(修前 sitemap 实测 3 类 URL 全部双写)。去外层包裹。
-	add(viewHref("fulltext", sid, nil), "")
-	add(viewHref("ranking", sid, nil), "")
-	for _, c := range cats {
-		add(viewHref("category", sid, map[string]string{"cat": ToStrSafe(c["id"])}), "")
+	if s := siteID(site); s != "" && q.Get("site") == "" {
+		q.Set("site", s)
 	}
-	for _, bk := range books {
-		num := num64(bk["num"])
-		if num <= 0 {
-			continue
-		}
-		add(joinSite("/book/"+itoa64local(num)+".html", sid), fmtDateMS(num64(bk["updatedAt"])))
+	if enc := q.Encode(); enc != "" {
+		target += "?" + enc
 	}
-	b.WriteString("</urlset>")
-	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
-	_, _ = w.Write([]byte(b.String()))
+	http.Redirect(w, r, target, http.StatusMovedPermanently)
 }

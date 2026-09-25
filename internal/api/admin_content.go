@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"mhgl/internal/store"
+	"mhgl/internal/web"
 )
 
 // ---------------- pseo ----------------
@@ -377,26 +378,23 @@ func (d Deps) adminSeoTemplatesPut(w http.ResponseWriter, r *http.Request) {
 
 // ---------------- themes ----------------
 
-// themeCatalog 静态主题清单(对齐 themes.ts THEMES 注册表 id/name; 仅清单档)。
-var themeCatalog = []map[string]any{
-	{"id": "aijjxs", "name": "久久小说(克隆)", "desc": "久久小说布局克隆(默认主题)"},
-	{"id": "pili", "name": "霹雳书屋(克隆)", "desc": "霹雳书屋布局克隆"},
-	{"id": "kks101", "name": "101看書(克隆)", "desc": "101看書布局克隆"},
-	{"id": "qb23", "name": "铅笔小说(克隆)", "desc": "铅笔小说布局克隆"},
-	{"id": "ddyueshu", "name": "顶点小说(克隆)", "desc": "顶点小说布局克隆"},
-	{"id": "x2552", "name": "吾爱文学(克隆)", "desc": "吾爱文学布局克隆"},
-	{"id": "huangjinwu", "name": "黄金屋(克隆)", "desc": "黄金屋布局克隆"},
-	{"id": "ggd66", "name": "格格党(克隆)", "desc": "格格党布局克隆"},
-	{"id": "shipsay", "name": "船说CMS(克隆)", "desc": "船说CMS布局克隆"},
-	{"id": "trxsw", "name": "唐人小说(克隆)", "desc": "唐人小说布局克隆"},
-	{"id": "x33yq", "name": "33言情(克隆)", "desc": "33言情布局克隆"},
+// themeCatalogItems [R67-c] 主题展示清单改读 web 层注册表(单一来源: tpl/themes 目录
+// × themeMeta 登记表)。修前此处 11 主题硬编码与 validThemeIDs/tpl/themes 三处手工同步
+// (R66-c 审查发现④)。
+func themeCatalogItems() []map[string]any {
+	items := make([]map[string]any, 0, len(web.ThemeCatalog()))
+	for _, t := range web.ThemeCatalog() {
+		items = append(items, map[string]any{"id": t.ID, "name": t.Name, "desc": t.Desc})
+	}
+	return items
 }
 
-// (d Deps) adminThemesList GET /api/admin/themes(静态清单; q 过滤)
+// (d Deps) adminThemesList GET /api/admin/themes(单一来源清单; q 过滤)
 func (d Deps) adminThemesList(w http.ResponseWriter, r *http.Request) {
 	q := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("q")))
-	items := make([]map[string]any, 0, len(themeCatalog))
-	for _, t := range themeCatalog {
+	catalog := themeCatalogItems()
+	items := make([]map[string]any, 0, len(catalog))
+	for _, t := range catalog {
 		if q != "" &&
 			!strings.Contains(strings.ToLower(strOf(t["id"], 50)), q) &&
 			!strings.Contains(strings.ToLower(strOf(t["name"], 50)), q) &&

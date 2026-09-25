@@ -13,6 +13,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"mhgl/internal/sanitize"
 )
 
 // ---------------- sanitizeChapterHTML(外部抓取正文 = 不可信输入) ----------------
@@ -57,16 +59,17 @@ func TestSanitizeChapterHTML_KeepsSafeContent(t *testing.T) {
 }
 
 func TestIsSafeURLValue(t *testing.T) {
+	// [R67-c] 消毒器已下沉 internal/sanitize, 判定面同口径回归保留在此
 	unsafe := []string{"javascript:alert(1)", " JavaScript:alert(1)", " jav&#x09;ascript:alert(1)", "java\nscript:x", "data:text/html,x", "vbscript:x", "\x14javascript:x", "mailto:a@b.c", "file:///etc/passwd"}
 	safe := []string{"", "/book/1.html", "#top", "https://example.com/a?b=c", "http://example.com", "cover/1.jpg", "  /relative  "}
 	for _, u := range unsafe {
-		if isSafeURLValue(u) {
-			t.Fatalf("isSafeURLValue(%q)=true, want false", u)
+		if sanitize.IsSafeURLValue(u) {
+			t.Fatalf("IsSafeURLValue(%q)=true, want false", u)
 		}
 	}
 	for _, u := range safe {
-		if !isSafeURLValue(u) {
-			t.Fatalf("isSafeURLValue(%q)=false, want true", u)
+		if !sanitize.IsSafeURLValue(u) {
+			t.Fatalf("IsSafeURLValue(%q)=false, want true", u)
 		}
 	}
 }
@@ -195,11 +198,8 @@ func TestParsePrettyPathForms(t *testing.T) {
 	}
 }
 
-func TestXMLEscape(t *testing.T) {
-	if got := xmlEscape(`<loc>&"'</loc>`); got != "&lt;loc&gt;&amp;&quot;&apos;&lt;/loc&gt;" {
-		t.Fatalf("xmlEscape: %q", got)
-	}
-}
+// [R67-c] TestXMLEscape 移除: /sitemap.xml 已改为 301 → /api/public/sitemap(双轨统一),
+// web 层不再自拼 XML; XML 转义面归 api 层 public_files.xmlEscape(有独立回归)。
 
 func TestSafeHref(t *testing.T) {
 	for _, u := range []string{"javascript:alert(1)", "//evil.com", "data:text/html,x", "JAVASCRIPT:x",

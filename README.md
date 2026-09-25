@@ -98,7 +98,7 @@ internal/api/builtin_rules.json  # 内置规则库(go:embed, 35 条实测规则,
 internal/web/tpl/themes/    # 11 套前台主题模板(aijjxs/pili/shipsay/x2552/kks101/trxsw/ddyueshu/ggd66/huangjinwu/qb23/x33yq)
 prisma/schema.prisma        # 数据模型: Category/Site/Rule/Task/Book/Chapter 等
 db/custom.db                # SQLite 运行时数据(不入版本库, ★备份它)
-web/                        # 运行时资产: web/covers 封面、web/static 静态文件(产物不入版本库)
+web/                        # web/covers 封面(已被平台 checkpoint 自动提交进 git, 重置可随仓库恢复) + web/static 静态源文件(入库)
 mini-services/              # 上表八个支撑服务(各自独立 package.json)
 scripts/                    # dev-go.sh 启动 / recover.sh 恢复 / bootstrap-db.ts 空库引导 / 运维小工具
 docs/legacy-seeds/          # TS 时代规则种子归档(语义已固化进 builtin_rules.json)
@@ -130,7 +130,11 @@ Go 质量门全量：`gofmt -l internal/ && go vet ./... && go test -count=1 ./i
 
 ## 数据备份
 
-本地模式下数据全部在 `db/custom.db` 与 `web/covers/`（封面）/下载产物：停掉服务后直接拷贝即可；后台「数据备份」页支持一键导出/导入 JSON（书籍超 **200 本**自动降级为仅元数据导出，大库用文件级备份）。
+三类数据、三种保护机制（R67-d 核对口径）：
+
+- **`db/custom.db`（主数据，不入版本库）**：常规备份 = 停服后直接拷贝文件，或后台「数据备份」页一键导出/导入 JSON（书籍超 **200 本**自动降级为仅元数据导出，大库用文件级备份）；整库丢失时 `bash scripts/recover.sh` 重建空表 + `bun run bootstrap` 幂等引导（35 条内置规则/分类/默认站点/三部头任务自动回归）——**书籍/章节数据不可再生，务必例行备份**。
+- **`web/covers/`（封面）**：已被平台 checkpoint **自动提交进 git**（当前 490+ 张）——这是沙箱重置后的数据保护机制，封面随仓库整体恢复，无需单独备份；自建部署迁移时随目录拷贝。
+- **`worklog.md` / `agent-ctx/` / `docs/`（协作档案，git 追踪）**：跨 agent 协作总线、任务上下文与文档档案，git 内自带历史；退役部署链存于 `docs/archive/`（历史 worklog 已归档至 `docs/archive/worklog-2026-09.md`）。
 
 ## 免责声明
 

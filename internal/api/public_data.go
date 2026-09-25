@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"strings"
 
+	"mhgl/internal/sanitize"
 	"mhgl/internal/store"
 )
 
@@ -269,6 +270,12 @@ FROM "Chapter" c LEFT JOIN "Book" b ON b.id=c.bookId WHERE c.id=?`, id)
 	// [R21-h-1] 违禁词过滤(前台公共渲染点, 对齐 TS public/chapter): 只过滤文本段不动标签
 	if content != "" {
 		content = applyBannedWordsToHtml(content, d.bannedWordsConfigCached())
+	}
+	// [R67-c] 展示级纵深消毒(R66-c 审查发现: db 内容无展示级消毒直出 API): 修前
+	// db 存储 HTML 原样出参, 现复用 web 层下沉的公共消毒器(scheme 白名单/on* 剥离/
+	// 危险块剥离), 与前台 SSR readHTML 同一层防线; txt 路径已实体转义, 消毒幂等无损。
+	if content != "" {
+		content = sanitize.ChapterHTML(content)
 	}
 	prev, _, _ := d.DB.QueryMap(`SELECT id,idx,title FROM "Chapter" WHERE bookId=? AND idx<? ORDER BY idx DESC LIMIT 1`,
 		ch["bId"], ch["idx"])

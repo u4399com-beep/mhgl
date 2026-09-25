@@ -11,6 +11,8 @@
 <meta property="og:title" content="{{.Head.Title}}">
 {{if .Head.Description}}<meta property="og:description" content="{{.Head.Description}}">{{end}}
 {{if .Head.Canonical}}<meta property="og:url" content="{{.Head.Canonical}}">{{end}}
+{{if .Head.OgImage}}<meta property="og:image" content="{{.Head.OgImage}}">{{end}}
+{{if .Head.JsonLD}}<script type="application/ld+json">{{.Head.JsonLD}}</script>{{end}}
 <meta name="theme-color" content="#1f5fa9">
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" type="image/png" href="/static/icons/icon-192.png">

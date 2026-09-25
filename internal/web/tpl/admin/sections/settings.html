@@ -1,13 +1,40 @@
 {{define "content"}}
 <section class="adm-card">
   <div class="adm-card-head">
+    <h2>违禁词过滤</h2>
+    <div class="adm-toolbar">
+      <button class="adm-btn is-primary is-tiny" id="bw-save" type="button">保存违禁词</button>
+    </div>
+  </div>
+  <p class="adm-muted" style="margin:0 0 12px">章节正文命中的违禁词按所选方式处理；保存后约 1 分钟内全站生效(进程内缓存 60s)。
+    本卡片与下方 Setting 原始键 bannedWords 为同一份数据(保存后下方列表自动刷新), 请勿双头混改。</p>
+  <div class="adm-toolbar" style="align-items:center">
+    <label style="display:inline-flex;align-items:center;gap:8px;font-size:14px">
+      <input type="checkbox" id="bw-enabled" aria-label="启用违禁词过滤">
+      <span>启用违禁词过滤</span>
+    </label>
+    <label style="display:inline-flex;align-items:center;gap:8px;font-size:14px">处理方式
+      <select class="adm-input is-select" id="bw-mode" aria-label="处理方式">
+        <option value="mask">替换为 *(打码)</option>
+        <option value="remove">直接删除</option>
+      </select>
+    </label>
+  </div>
+  <label class="adm-label" style="display:block;margin-top:10px">违禁词表(每行一个；最多 500 个, 每词最长 50 字, 自动去重且忽略大小写重复)
+    <textarea class="adm-input" id="bw-words" style="min-height:140px;font-family:ui-monospace,Menlo,monospace" placeholder="每行填写一个违禁词" aria-label="违禁词表"></textarea>
+  </label>
+  <div id="bw-state" class="adm-state" aria-live="polite">加载中…</div>
+</section>
+<section class="adm-card" style="margin-top:16px">
+  <div class="adm-card-head">
     <h2>系统设置(Setting KV)</h2>
     <div class="adm-toolbar">
       <button class="adm-btn is-tiny" id="set-reload" type="button">重新加载</button>
       <button class="adm-btn is-primary is-tiny" id="set-save" type="button">保存全部</button>
     </div>
   </div>
-  <p class="adm-muted" style="margin:0 0 12px">值为 JSON 形态(字符串/数字/布尔/对象)。留空保存为空串, 读侧解析失败即回落代码内默认值, 误改不致损。</p>
+  <p class="adm-muted" style="margin:0 0 12px">值为 JSON 形态(字符串/数字/布尔/对象)。留空保存为空串, 读侧解析失败即回落代码内默认值, 误改不致损。
+    标注「联动」的键在其他分区有语义化编辑入口, 建议只在一处修改; 核心键(代码内读取)不可删除。</p>
   <div id="set-list" class="adm-state">加载中…</div>
   <div class="adm-toolbar" style="margin-top:12px">
     <input class="adm-input" id="set-new-key" placeholder="新增设置键, 如 seoTemplates" aria-label="新键名">

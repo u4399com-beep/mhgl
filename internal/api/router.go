@@ -86,6 +86,7 @@ func Register(mux *http.ServeMux, d Deps) {
 	mux.HandleFunc("GET /api/admin/health", admin(d.adminHealth))
 	mux.HandleFunc("GET /api/admin/settings", admin(d.adminSettingsGet))
 	mux.HandleFunc("PUT /api/admin/settings", admin(d.adminSettingsPut))
+	mux.HandleFunc("DELETE /api/admin/settings/{key}", admin(d.adminSettingDelete)) // [R67-c] 非核心键删除(核心键白名单防护)
 
 	// ---- admin: 分类 ----
 	mux.HandleFunc("GET /api/admin/categories", admin(d.adminCategoriesList))

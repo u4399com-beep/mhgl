@@ -9,8 +9,22 @@
   </div>
   <div id="bk-stats" class="adm-state">加载中…</div>
 </section>
-<section class="adm-card">
+<section class="adm-card" style="margin-top:16px">
+  <div class="adm-card-head"><h2>恢复(上传备份 JSON)</h2></div>
+  <p class="adm-muted" style="margin:0 0 12px">上传「导出全表 JSON」生成的备份文件, 服务端单事务内逐表按主键恢复(R56-2b 起可用)。
+    冲突策略: 「备份为准」覆盖同主键行; 「保留现库」跳过已存在行。建议大库恢复前先停跑采集任务。</p>
+  <div class="adm-toolbar" id="bk-restore-row">
+    <input type="file" id="bk-restore-file" accept=".json,application/json" class="adm-input" aria-label="选择备份 JSON 文件">
+    <select class="adm-input is-select" id="bk-restore-strategy" aria-label="冲突策略">
+      <option value="overwrite">备份为准(覆盖同主键行)</option>
+      <option value="skip">保留现库(跳过已存在行)</option>
+    </select>
+    <button class="adm-btn is-primary is-tiny" id="bk-restore" type="button">开始恢复</button>
+  </div>
+  <div id="bk-restore-state" class="adm-state" aria-live="polite">尚未执行恢复。</div>
+</section>
+<section class="adm-card" style="margin-top:16px">
   <div class="adm-card-head"><h2>说明</h2></div>
-  <p class="adm-muted" style="margin:0">导出为各表 JSON 汇总(restore 暂缓, 见 PARITY)。建议大库导出前先停跑任务, 保证一致性快照。</p>
+  <p class="adm-muted" style="margin:0">导出为各表 JSON 汇总, 恢复使用上方「恢复」卡片上传同一份文件。建议大库导出前先停跑任务, 保证一致性快照。</p>
 </section>
 {{end}}

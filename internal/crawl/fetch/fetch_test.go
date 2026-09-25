@@ -215,8 +215,9 @@ func TestRetryAfter429Cooldown(t *testing.T) {
 }
 
 // TestFingerprintHeaders ⑦头组与 UA 家族自洽: Chrome 必有 sec-ch-ua 且品牌版本与 UA
-// 一致; Safari 必无 sec-ch-ua 与 Sec-Fetch-*; Firefox 只发 Sec-Fetch; Sec-Fetch-Site
-// 按 Referer 关系判定
+// 一致; Safari 发 Sec-Fetch-* 但不发 sec-ch-ua(Fetch Metadata 自 Safari 16.4 落地,
+// 池内 UA ≥17.4; WebKit 无 Client Hints — [R67-a] 口径); Firefox 只发 Sec-Fetch;
+// Sec-Fetch-Site 按 Referer 关系判定; Sec-Fetch-User 恒 ?1(真实浏览器从不发 ?0)
 func TestFingerprintHeaders(t *testing.T) {
 	chromeUA := "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36"
 	h := fingerprintHeaders(chromeUA, "", "https://example.com/a")
@@ -235,13 +236,15 @@ func TestFingerprintHeaders(t *testing.T) {
 	if _, ok := hs["sec-ch-ua"]; ok {
 		t.Fatalf("Safari 不应发 sec-ch-ua: %v", hs)
 	}
-	if _, ok := hs["Sec-Fetch-Dest"]; ok {
-		t.Fatalf("Safari 不应发 Sec-Fetch-*: %v", hs)
+	// [R67-a] Safari 16.4+ 发 Sec-Fetch-*(池内 UA 均 ≥17.4); 修前不发与 UA 版本自相矛盾
+	if hs["Sec-Fetch-Dest"] != "document" || hs["Sec-Fetch-Mode"] != "navigate" ||
+		hs["Sec-Fetch-Site"] != "cross-site" || hs["Sec-Fetch-User"] != "?1" {
+		t.Fatalf("Safari Sec-Fetch 家族异常: %v", hs)
 	}
 
 	ffUA := "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0"
 	hf := fingerprintHeaders(ffUA, "https://example.com/toc", "https://example.com/book")
-	if hf["Sec-Fetch-Site"] != "same-origin" || hf["Sec-Fetch-User"] != "?0" {
+	if hf["Sec-Fetch-Site"] != "same-origin" || hf["Sec-Fetch-User"] != "?1" {
 		t.Fatalf("Firefox Sec-Fetch 组异常: %v", hf)
 	}
 	if _, ok := hf["sec-ch-ua"]; ok {

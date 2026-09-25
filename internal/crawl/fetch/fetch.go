@@ -11,6 +11,13 @@
 // / 拦截页检测(blockcheck.go, Result.Blocked 出口判定)
 // / TLS 指纹仿真(utls.go, fetch.tlsFingerprint=chrome: 直连/代理隧道后 Chrome
 // ClientHello 重放, ALPN 钉 h1; 缺省关, 内部通道 token/contentProxy 不启用)
+// / [R67-a] 重定向链逐跳 Referer 浏览器语义(strict-origin-when-cross-origin:
+// 降级不发/跨源仅 origin/同源全 URL — 修前标准库对显式 Referer 原样透传到所有
+// 后续跳, 泄漏给重定向链上任一异源目标且本身即非浏览器指纹)
+// / [R67-a] 代理地址缺省端口(http:80/https:443/socks5:1080)/ CGNAT 100.64/10
+// 纳入 SSRF 拒绝面 / 负 Retries 零值防御
+// / 头序评估结论: Go 标准库 h1 头序为字典序不可控, 头序仿真需 fork net/http,
+// 只评估不动手(详见 fingerprint.go 文件头与 worklog R67-a)
 // 语义权威: /home/z/my-project/src/lib/crawl/fetcher.ts(子集移植)
 // ============================================================
 package fetch
@@ -38,6 +45,9 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/andybalholm/brotli"
+	"github.com/klauspost/compress/zstd"
 
 	"mhgl/internal/crawl/rule"
 	"mhgl/internal/crawl/util"
@@ -283,6 +293,11 @@ var loopbackHostRe = regexp.MustCompile(`(?i)^(localhost|.*\.localhost|127\.[0-9
 func isLoopbackIP(ip net.IP) bool { return ip.IsLoopback() }
 
 func isDeniedIP(ip net.IP) bool {
+	// [R67-a] CGNAT 100.64.0.0/10(RFC 6598 运营商/云厂商内网段): net.IP.IsPrivate
+	// 不覆盖该段, 补齐防 SSRF 内网探测面
+	if v4 := ip.To4(); v4 != nil && v4[0] == 100 && v4[1] >= 64 && v4[1] <= 127 {
+		return true
+	}
 	// 私网/链路本地(含云元数据 169.254.169.254)/未指定/组播 一律拒绝(仅 loopback 可豁免)
 	return ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
 		ip.IsUnspecified() || ip.IsMulticast()
@@ -431,6 +446,12 @@ func New(cfg rule.FetchConfig) *Client {
 	if cfg.HostGateLimit < 1 {
 		cfg.HostGateLimit = 1
 	}
+	// [R67-a] 负 Retries 防御: rawFetch attempts=1+Retries ≤0 时重试循环整体跳过,
+	// 每次抓取必以「抓取失败」告终(与 Timeout 的零值回退同理兜直构调用方; Sanitize
+	// 正常路径已锥 0..5 不受影响)
+	if cfg.Retries < 0 {
+		cfg.Retries = 0
+	}
 	c := &Client{
 		cfg:              cfg,
 		globalSem:        make(chan struct{}, cfg.GlobalConcurrency),
@@ -460,6 +481,28 @@ func New(cfg rule.FetchConfig) *Client {
 			if len(via) >= 5 {
 				return errors.New("重定向次数过多")
 			}
+			// [R67-a] 逐跳 Referer 按浏览器 strict-origin-when-cross-origin 缺省
+			// 策略重写: Go 标准库对显式 Referer(net/http client.go refererForURL
+			// explicitRef 早退臂)恒原样透传到所有后续跳 —— 修前首跳 Referer
+			// (含 cfg.headers 配置的全 URL 形态)会泄漏给重定向链上任一异源目标,
+			// 且跨源跳仍带原站 Referer 本身即非浏览器指纹。语义:
+			// ①https→http 降级不发 ②跨源仅发来源 origin ③同源发完整 URL(剥
+			// userinfo, 与 Go 内建 refererForURL 口径一致)。cfg.headers Referer
+			// 的覆盖语义只作用于首跳(与浏览器「重定向后 Referer 永远重算」一致)
+			if len(via) > 0 {
+				if prev := via[len(via)-1].URL; prev != nil {
+					switch {
+					case prev.Scheme == "https" && req.URL.Scheme == "http":
+						req.Header.Del("Referer")
+					case prev.Scheme != req.URL.Scheme || prev.Host != req.URL.Host:
+						req.Header.Set("Referer", prev.Scheme+"://"+prev.Host+"/")
+					default:
+						ref := *prev
+						ref.User = nil
+						req.Header.Set("Referer", ref.String())
+					}
+				}
+			}
 			return nil
 		},
 	}
@@ -488,6 +531,8 @@ func New(cfg rule.FetchConfig) *Client {
 }
 
 // parseProxyAddr 代理地址串 → 代理 URL(缺省 http 前缀; socks5h 归一 socks5;
+// 无端口条目补缺省端口 [R67-a]: http:80/https:443/socks5:1080, curl 同口径 —
+// 修前无端口条目通过解析却在拨号期以 missing port 失败, 错误面漂移到传输层;
 // 非法/不支持协议返回 false)。New(静态池)与 SetDynamicProxies(动态池)共用单一实现
 func parseProxyAddr(raw string) (*url.URL, bool) {
 	raw = strings.TrimSpace(raw)
@@ -501,11 +546,22 @@ func parseProxyAddr(raw string) (*url.URL, bool) {
 	if err != nil {
 		return nil, false
 	}
+	if pu.Scheme == "socks5h" {
+		pu.Scheme = "socks5"
+	}
+	// [R67-a] 无端口形态补缺省(JoinHostPort 保 IPv6 literal 括号形态)
+	if pu.Port() == "" {
+		switch pu.Scheme {
+		case "http":
+			pu.Host = net.JoinHostPort(pu.Hostname(), "80")
+		case "https":
+			pu.Host = net.JoinHostPort(pu.Hostname(), "443")
+		case "socks5":
+			pu.Host = net.JoinHostPort(pu.Hostname(), "1080")
+		}
+	}
 	switch pu.Scheme {
 	case "http", "https", "socks5":
-		return pu, true
-	case "socks5h":
-		pu.Scheme = "socks5"
 		return pu, true
 	}
 	return nil, false
@@ -1285,9 +1341,10 @@ func (c *Client) doOnce(ctx context.Context, rawURL, refererURL string, extraHea
 	req.Header.Set("User-Agent", ua)
 	req.Header.Set("Accept", acceptForFamily(family)) // 家族化 Accept(Safari 不发 avif/apng)
 	req.Header.Set("Accept-Language", acceptLanguageFor(ua))
-	// 显式 Accept-Encoding: gzip, deflate(不发 br/zstd — Go 标准库解不了); 声明后
-	// Transport 不再自动解压, 由 readBody 按响应 Content-Encoding 手动解压
-	req.Header.Set("Accept-Encoding", "gzip, deflate")
+	// 显式家族化 Accept-Encoding([R67-a] 头集完整性: 真实浏览器全家族广告 br,
+	// Chrome/Firefox 额外 zstd — 与响应解压能力成对, 见 readBodyDecompressed);
+	// 声明后 Transport 不再自动解压, 由 readBody 按响应 Content-Encoding 手动解压
+	req.Header.Set("Accept-Encoding", acceptEncodingFor(family))
 	req.Header.Set("Upgrade-Insecure-Requests", "1")
 	// Referer 解析提前(指纹 Sec-Fetch-Site 依赖生效 Referer)
 	effReferer := ""
@@ -1389,9 +1446,10 @@ func (e *bodyOverLimitError) Error() string {
 }
 
 // readBodyDecompressed 读响应体(≤10MB, 超限报错不截断)+按 Content-Encoding 手动解压
-// (请求已显式声明 Accept-Encoding: gzip, deflate → Transport 不自动解压)
+// (请求已显式声明家族化 Accept-Encoding → Transport 不自动解压)
 // [R52-5 P3] 修前 io.LimitReader(body, 10MB) 静默截断超限响应; 修后读 maxBodyBytes+1
 // 探测超限 → bodyOverLimitError 走上层既有重试/镜像切换/失败链(与 TS reject 口径一致)
+// [R67-a] 补 br(brotli)/zstd 解压(与 acceptEncodingFor 广告面成对; 均为既有间接依赖)
 func readBodyDecompressed(resp *http.Response) ([]byte, error) {
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes+1))
 	if err != nil {
@@ -1423,6 +1481,18 @@ func readBodyDecompressed(resp *http.Response) ([]byte, error) {
 		fr := flate.NewReader(bytes.NewReader(raw))
 		defer fr.Close()
 		return readAllCapped(fr)
+	case "br":
+		// [R67-a] brotli(andybalholm/brotli 既有间接依赖; Reader 无 Close 语义)
+		br := brotli.NewReader(bytes.NewReader(raw))
+		return readAllCapped(br)
+	case "zstd":
+		// [R67-a] zstd(klauspost/compress 既有间接依赖; 解码器有状态, 每请求新建)
+		zr, zerr := zstd.NewReader(bytes.NewReader(raw))
+		if zerr != nil {
+			return nil, fmt.Errorf("zstd 解压失败: %v", zerr)
+		}
+		defer zr.Close()
+		return readAllCapped(zr)
 	default:
 		return raw, nil
 	}

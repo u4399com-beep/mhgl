@@ -203,8 +203,13 @@ func (m *Manager) Start(p rule.TaskStartPayload) error {
 	t := newTask(p, m)
 	// R51-2-b #6: 持锁期间置 running 再入表 — 原实现置位发生在 run 协程内,
 	// 同 id 二次 start 在注册与 run 置位窗口间可绕过 busy() 判定(双跑竞态)
+	// [R67-b] startedAt/phase 同锁初始化: 修前二者由 run 协程稍后置位, Start 至 run
+	// 首行之间的窗口内 Status 快照 StartedAtMs 为零值时刻(负值 ≈ -6.2e13 ms)、phase
+	// 为空串, 管理面启动瞬间呈现「1970 年前启动」幻象
 	t.mu.Lock()
 	t.running = true
+	t.startedAt = time.Now()
+	t.phase = "idle"
 	t.mu.Unlock()
 	m.tasks[p.Task.ID] = t
 	m.mu.Unlock()
@@ -254,22 +259,10 @@ func (m *Manager) List() []TaskBrief {
 	return out
 }
 
-// Counts running/paused 任务数(健康检查用)
-func (m *Manager) Counts() (running, paused int) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for _, t := range m.tasks {
-		t.mu.Lock()
-		if t.running && !t.paused {
-			running++
-		}
-		if t.paused {
-			paused++
-		}
-		t.mu.Unlock()
-	}
-	return running, paused
-}
+// [R67-b] Counts 删除(孤儿代码): 全仓零消费者(api/engine 的健康面各自实现,
+// cmd/server /healthz 直读 MemStats); 且其 running 计数未排除 stopped(与 R53-5
+// snapshot/brief 口径不一致) —— 与其留下一个语义陈旧的死方法, 不如删除,
+// 未来接线时按 snapshotLocked 口径重写
 
 // UptimeMs 进程存活时长
 func (m *Manager) UptimeMs() int64 {

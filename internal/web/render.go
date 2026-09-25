@@ -11,6 +11,7 @@ package web
 
 import (
 	"embed"
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"io/fs"
@@ -264,6 +265,62 @@ func (d Deps) head(r *http.Request, site map[string]any, title, desc, kw, canoni
 		"Canonical":   canonical,
 		"OgType":      "website",
 	}
+}
+
+// ogImageOf og:image 绝对地址。[R67-c] R66-c 审查发现: 11 主题缺 og:image。
+// 本地封面走 /api/public/cover?file= 包装(coverURL 形态), 有 origin 时补成绝对地址
+// (og:image 协议要求绝对 URL; origin 不可用降级相对路径, 与 canonical 同退化口径),
+// 外链封面(http/https)直用; 空封面返回 ""(模板侧不输出该 meta)。
+func ogImageOf(r *http.Request, cover string) string {
+	u := coverURL(cover)
+	if u == "" {
+		return ""
+	}
+	if strings.HasPrefix(u, "http://") || strings.HasPrefix(u, "https://") {
+		return u
+	}
+	if origin := requestOrigin(r); origin != "" {
+		return origin + u
+	}
+	return u
+}
+
+// bookJSONLD 书籍页结构化数据(Schema.org Book)。[R67-c] R66-c 审查发现: 11 主题缺 JSON-LD。
+// 注入安全: 全部字段为库内书籍数据经 plainText 消化(纯文本)/白名单枚举/站内 canonical;
+// json.Marshal 默认把 <>& 转义为 \uXXXX, 产出内不含裸 < > &, 即使数据面被注入也无法
+// 逃出 <script> 元素 —— 以 template.JS 包装落入 ld+json script(实测 html/template 对
+// script 上下文中的 template.JS 原样放行, 而字符串形态会被 JSON 二次引号化破坏结构)。
+func bookJSONLD(name, author, category, status, intro, url, image string) template.JS {
+	m := map[string]any{
+		"@context": "https://schema.org",
+		"@type":    "Book",
+		"name":     name,
+	}
+	if author != "" {
+		m["author"] = map[string]any{"@type": "Person", "name": author}
+	}
+	if category != "" {
+		m["genre"] = category
+	}
+	if status != "" {
+		m["additionalProperty"] = map[string]any{
+			"@type": "PropertyValue", "name": "连载状态", "value": statusLabel(status),
+		}
+	}
+	if intro != "" {
+		m["description"] = clampCodePoints(plainText(intro), 160)
+	}
+	if url != "" {
+		m["url"] = url
+	}
+	if image != "" {
+		m["image"] = image
+	}
+	b, err := json.Marshal(m)
+	if err != nil {
+		return ""
+	}
+	return template.JS(b)
 }
 
 // ---- 模板函数 ----

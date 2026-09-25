@@ -6,14 +6,33 @@
 //	家族化; TS 侧的低熵全量 CH(platform-version/arch/bitness/model/wow64)暂不移植)
 //
 // 一致性即本能力的核心:
-//   - Chromium(Chrome/Edge): sec-ch-ua(品牌版本从 UA 正则提取, 与 UA 同版)
+//   - Chromium(Chrome/Edge): sec-ch-ua(品牌版本从 UA 正则提取, 与 UA 同版;
+//     [R67-a] Edge 只发 Edge+Chromium+GREASE 三品牌 — 修前混入 "Google Chrome"
+//     品牌, 真 Edge 从不声明 Google Chrome, 自相矛盾指纹)
 //   - sec-ch-ua-mobile(?0/?1 按 UA 移动性) + sec-ch-ua-platform(按 UA 平台段)
-//   - Sec-Fetch 四件套;
-//   - Safari: 一律不发 sec-ch-ua 与 Sec-Fetch-*(Fetch Metadata 不支持),
-//     防"Safari UA 带 Chromium 专属头"的反向破绽;
-//   - Firefox: 只发 Sec-Fetch-*(发 Metadata 不发 Client Hints);
+//   - [R67-a] sec-ch-ua 品牌序按 UA 播撒的稳定置换(Chrome 真实行为: 品牌序经
+//     GREASE 随机化; 修前恒定 "Chromium,Google Chrome,Not:A-Brand" 固定序本身
+//     即可被服务端识别为非浏览器特征。同一 UA 稳定同序 = 与 UA 钉扎的会话稳定性
+//     一致, 不做逐请求乱序避免同一会话内自相矛盾)
+//   - Sec-Fetch 四件套: Chromium + Firefox + Safari(池内 Safari UA 均 ≥17.4,
+//     Fetch Metadata 于 Safari 16.4 落地, 修前不发反而与 UA 版本自相矛盾);
+//   - [R67-a] Sec-Fetch-User 恒 "?1": 真实浏览器只发 "?1"(用户激活)或不发,
+//     "?0" 从不上线(TS feat-round-8 的 ?0 口径与真实浏览器行为相悖, 偏差留档;
+//     Go 引擎为现行唯一引擎, 以真实浏览器语义为权威)
 //   - Accept 按家族化(TS ACCEPT_HTML_BY_FAMILY); Accept-Language 按 UA locale 段推导;
-//   - Accept-Encoding 显式 gzip, deflate(不发 br/zstd — Go 标准库解不了)
+//   - [R67-a] Accept-Encoding 按家族化补齐 br/zstd(真实浏览器全部广告 br: Safari 恒
+//     "gzip, deflate, br"; Chrome/Firefox 额外带 zstd; 修前恒 "gzip, deflate" 本身即
+//     全家族一致性指纹异常)。br/zstd 解压用既有间接依赖 andybalholm/brotli 与
+//     klauspost/compress(已在 go.sum/模块缓存内, 零新依赖下载), readBodyDecompressed
+//     按 Content-Encoding 对应解压
+//
+// 头序评估结论([R67-a] 留档): Go 标准库 net/http 对 HTTP/1.1 请求头按字典序
+// 排序写线(net/http.Header.WriteSubset sortedKeyValues), 请求头发送顺序不可
+// 通过 Header map 控制或扰动; utls 仅接管 TLS ClientHello, HTTP 头序仍由
+// Transport 决定。真实 Chrome 的头序为固定业务序(UA 在 Accept 前、Sec-Fetch 家族
+// 在 Accept 后等), 与字典序不同 —— 逐字节头序仿真需替换整个 h1 写线路径
+// (fhttp/azuretls 类 fork net/http 或手写 RoundTripper, >100 行+新依赖), 本轮
+// 只评估不动手, 详见 worklog R67-a。
 //
 // ============================================================
 package fetch
@@ -97,6 +116,20 @@ func acceptForFamily(family string) string {
 		return acceptHTMLSafari
 	default:
 		return acceptHTMLDefault
+	}
+}
+
+// acceptEncodingFor 家族化 Accept-Encoding([R67-a] 头集完整性): 请求头值家族自洽
+// 与响应解压能力成对 —— 广告 br/zstd 即必须能解(readBodyDecompressed 同步实现,
+// 解压库为既有间接依赖, 无新依赖)。unknown 家族保守保持旧值 "gzip, deflate"
+func acceptEncodingFor(family string) string {
+	switch family {
+	case "chromium", "firefox":
+		return "gzip, deflate, br, zstd"
+	case "safari":
+		return "gzip, deflate, br"
+	default:
+		return "gzip, deflate"
 	}
 }
 
@@ -206,16 +239,17 @@ func fingerprintHeaders(ua, referer, targetURL string) map[string]string {
 	headers := map[string]string{
 		"Accept-Language": acceptLanguageFor(ua),
 	}
-	if family == "chromium" || family == "firefox" {
+	// [R67-a] Safari 纳入 Sec-Fetch 家族: Fetch Metadata 自 Safari 16.4 落地,
+	// 池内 Safari UA(17.4/18.4)不发反而与 UA 版本自相矛盾; sec-ch-ua 仍不发
+	// (WebKit 无 Client Hints, 保持)
+	if family == "chromium" || family == "firefox" || family == "safari" {
 		headers["Sec-Fetch-Dest"] = "document"
 		headers["Sec-Fetch-Mode"] = "navigate"
 		headers["Sec-Fetch-Site"] = secFetchSite(referer, targetURL)
-		// 首跳(无 Referer, 用户激活导航) ?1; 后续(有 Referer) ?0(TS feat-round-8 同口径)
-		if referer != "" {
-			headers["Sec-Fetch-User"] = "?0"
-		} else {
-			headers["Sec-Fetch-User"] = "?1"
-		}
+		// [R67-a] 恒 "?1": 真实浏览器 Sec-Fetch-User 仅在用户激活时出现且值恒
+		// "?1", "?0" 从不上线(修前有 Referer 时发 "?0" = 非浏览器特征;
+		// 采集请求模拟用户浏览行为, 恒按用户激活口径)
+		headers["Sec-Fetch-User"] = "?1"
 	}
 	if family == "chromium" {
 		cv := ""
@@ -227,11 +261,16 @@ func fingerprintHeaders(ua, referer, targetURL string) map[string]string {
 			if m := edgeVerRe.FindStringSubmatch(ua); len(m) > 1 {
 				ev = m[1]
 			}
+			// [R67-a] 品牌集对齐真实浏览器: Chrome = Google Chrome+Chromium+GREASE;
+			// Edge = Microsoft Edge+Chromium+GREASE(修前 Edge 混入 "Google Chrome"
+			// 品牌, 真 Edge 从不声明)
+			var brands []string
 			if ev != "" {
-				headers["sec-ch-ua"] = `"Chromium";v="` + cv + `", "Google Chrome";v="` + cv + `", "Microsoft Edge";v="` + ev + `", "Not:A-Brand";v="24"`
+				brands = []string{`"Microsoft Edge";v="` + ev + `"`, `"Chromium";v="` + cv + `"`, `"Not:A-Brand";v="24"`}
 			} else {
-				headers["sec-ch-ua"] = `"Chromium";v="` + cv + `", "Google Chrome";v="` + cv + `", "Not:A-Brand";v="24"`
+				brands = []string{`"Google Chrome";v="` + cv + `"`, `"Chromium";v="` + cv + `"`, `"Not:A-Brand";v="24"`}
 			}
+			headers["sec-ch-ua"] = strings.Join(permuteChromiumBrands(brands, ua), ", ")
 			if isMobileUA(ua) {
 				headers["sec-ch-ua-mobile"] = "?1"
 			} else {
@@ -241,4 +280,24 @@ func fingerprintHeaders(ua, referer, targetURL string) map[string]string {
 		}
 	}
 	return headers
+}
+
+// permuteChromiumBrands sec-ch-ua 品牌序稳定置换(种子=UA 串 FNV-1a 派生):
+// 同一 UA 恒定同序(与 UA 钉扎的会话稳定性一致), 异 UA 间序打散 —— 品牌序随机化
+// 是 Chrome 真实行为(GREASE), 固定序本身即机器指纹。确定性实现(非逐请求随机):
+// 测试可断言且钉扎 UA 的会话内不自相矛盾
+func permuteChromiumBrands(brands []string, ua string) []string {
+	h := uint64(14695981039346656037) // FNV-1a offset basis
+	for i := 0; i < len(ua); i++ {
+		h ^= uint64(ua[i])
+		h *= 1099511628211 // FNV-1a prime
+	}
+	out := append([]string(nil), brands...)
+	for i := len(out) - 1; i > 0; i-- { // Fisher-Yates 降序, 混合后取高位防低位偏向
+		h ^= h >> 33
+		h *= 0x9E3779B97F4A7C15
+		j := int((h >> 33) % uint64(i+1))
+		out[i], out[j] = out[j], out[i]
+	}
+	return out
 }

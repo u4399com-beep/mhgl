@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"mhgl/internal/store"
+	"mhgl/internal/web"
 )
 
 // ---------------- categories ----------------
@@ -232,14 +233,11 @@ func (d Deps) adminCategoriesConsolidate(w http.ResponseWriter, r *http.Request)
 
 var siteDomainRe = regexp.MustCompile(`^(localhost(:\d{1,5})?|[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+(:\d{1,5})?)$`)
 
-var validThemeIDs = map[string]bool{
-	"aijjxs": true, "pili": true, "kks101": true, "qb23": true, "ddyueshu": true,
-	"x2552": true, "huangjinwu": true, "ggd66": true, "shipsay": true, "trxsw": true, "x33yq": true,
-}
-
+// validTheme [R67-c] 主题合法性单一来源: web 层注册表(embed FS tpl/themes 目录动态清单)。
+// 修前 validThemeIDs 11 主题硬编码需与 tpl/themes 目录手工同步(R66-c 审查发现④)。
 func validTheme(raw any) string {
 	id := strings.TrimSpace(strOf(raw, 50))
-	if validThemeIDs[id] {
+	if web.ThemeValid(id) {
 		return id
 	}
 	return "aijjxs"
@@ -373,7 +371,7 @@ func (d Deps) adminSiteUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	if v, has := body["themeId"]; has {
 		tid := strings.TrimSpace(strOf(v, 50))
-		if !validThemeIDs[tid] {
+		if !web.ThemeValid(tid) {
 			apiErr(w, http.StatusBadRequest, "未知主题模板")
 			return
 		}
@@ -471,7 +469,7 @@ func (d Deps) adminSitesBatch(w http.ResponseWriter, r *http.Request) {
 		if payload != nil {
 			tid = strings.TrimSpace(strOf(payload["themeId"], 50))
 		}
-		if !validThemeIDs[tid] {
+		if !web.ThemeValid(tid) {
 			apiErr(w, http.StatusBadRequest, "未知主题模板")
 			return
 		}
