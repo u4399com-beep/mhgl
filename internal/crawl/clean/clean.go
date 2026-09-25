@@ -593,10 +593,14 @@ func removeLonelyMaskTokens(s string) string {
 	}
 }
 
-// lonelyMaskAt 判定 loc 处掩码 token 是否孤立: 前向首个非空白 rune 为 '>'(或到文本
-// 起点) 且 后向首个非空白 rune 为 '<'(或到文本终点)。
+// lonelyMaskAt 判定 loc 处掩码 token 是否孤立: 前向首个非空白 rune 为 '>'(或扫描到
+// 文本起点仍全空白) 且 后向首个非空白 rune 为 '<'(或到文本终点)。
+// [R66-b] 修前前向扫描遇文本起点(loc[0]==0 或前缀全空白)恒返回 false, 与本函数/
+// removeLonelyMaskTokens 注释「或文本起点」语义相悖 —— 章节体首孤立 URL 行(HTML 模式
+// 无 <p> 包裹形态 "URL<br>正文…", [2] br 形态要求 br 在前不可锚)漏网; 修后文本起点
+// 视同 '>' 边界, 与后向「文本终点即边界」对称
 func lonelyMaskAt(s string, loc []int) bool {
-	fwd := false
+	fwd := true // 文本起点即边界(循环体未执行/前缀全空白时保持)
 	for i := loc[0]; i > 0; {
 		r, sz := utf8.DecodeLastRuneInString(s[:i])
 		i -= sz

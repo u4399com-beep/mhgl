@@ -61,6 +61,16 @@ const (
 	backoffMax  = 8 * time.Second
 )
 
+// [R66-a] challenge 形态退避重试(200 壳挑战页): 退避曲线 base×2^attempt 钳 max,
+// 附 +0~50% 抖动; 重试次数预算 = min(cfg.Retries, challengeRetryMax)(Retries=0 保持
+// 旧口径零重试)。base 为包级变量仅供测试注入缩短等待, 生产恒 400ms
+const (
+	challengeRetryMax   = 2
+	challengeBackoffMax = 3 * time.Second
+)
+
+var challengeBackoffBase = 400 * time.Millisecond
+
 // 代理失败冷却(30s×2^n 指数, 钳 10min)
 const (
 	proxyFailBase = 30 * time.Second
@@ -236,6 +246,21 @@ func (g *hostGate) noteSuccess() {
 		g.oks = 0
 	}
 	g.minGap = g.baseGap // 成功即恢复基准节奏
+}
+
+// noteChallenge 挑战页证据反馈([R66-a] 反反爬 ③配套): 200 壳挑战页(looksBlocked 命中)
+// 是目标站压速信号 —— 仅自适应放宽准入节奏(×1.5 钳 gateGapCap, 与连败自适应同款曲线),
+// 不动并发降额链(200 挑战的证据强度低于 429/503 限流, 不应直接枪毙并发额度);
+// 成功请求会把 minGap 归位基准(noteSuccess), 瞬态挑战只影响紧随其后的准入
+func (g *hostGate) noteChallenge() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.baseGap > 0 {
+		g.minGap = time.Duration(float64(g.minGap) * 1.5)
+		if g.minGap > gateGapCap {
+			g.minGap = gateGapCap
+		}
+	}
 }
 
 // setRateLimited 限流冷却窗(Retry-After): 仅当新窗更晚才推进(避免旧值回拨)
@@ -668,6 +693,42 @@ func randomIndex() uint64 {
 	return uint64(time.Now().UnixNano())
 }
 
+// noteChallengePacing 挑战证据按 host 反馈到对应闸门(Challenge 重试路径消费;
+// finalURL 解析失败/host 空则静默忽略)
+func (c *Client) noteChallengePacing(finalURL string) {
+	u, err := url.Parse(finalURL)
+	if err != nil {
+		return
+	}
+	if host := strings.ToLower(u.Host); host != "" {
+		c.gateFor(host).noteChallenge()
+	}
+}
+
+// challengeExtraRetries challenge 重试额外次数预算(总尝试 = 1+本值):
+// min(cfg.Retries, challengeRetryMax) —— Retries=0 的规则保持旧口径(挑战即失败不重试)
+func (c *Client) challengeExtraRetries() int {
+	if c.cfg.Retries < challengeRetryMax {
+		return c.cfg.Retries
+	}
+	return challengeRetryMax
+}
+
+// challengeBackoff 挑战退避: base×2^attempt 指数钳 max, 附 +0~50% 抖动
+// (等间隔重试序列本身是机器指纹, 抖动打散; randomIndex crypto/rand 独立源)
+func challengeBackoff(attempt int) time.Duration {
+	d := challengeBackoffBase << uint(attempt)
+	if d > challengeBackoffMax || d <= 0 {
+		d = challengeBackoffMax
+	}
+	return d + time.Duration(randomIndex()%uint64(d/2+1))
+}
+
+// proxyLoopbackExempt 回环目标直连豁免开关(缺省 true = 生产口径: 本地 mock/token
+// 代理经代理转发出不去, 回环目标恒直连)。仅压测 harness 置 false 以便本地 mock 源站
+// 也走代理回路测量代理层开销(R66-a 测试缝; 不得在非测试路径改写)
+var proxyLoopbackExempt = true
+
 // pickProxy 代理选取: 回环目标豁免直连; 冷却中代理过滤; 全冷却回退直连+warn(限频)。
 // 轮换形态(R58-2a): 缺省加权随机(成功计数为权, 实证可用者多摊流量且全员保底权重 1,
 // 避免健康分降序静态切片头部被集中打爆); "random" 均匀随机; "roundrobin"/"round-robin"
@@ -676,7 +737,7 @@ func (c *Client) pickProxy(target *url.URL) *url.URL {
 	if len(c.proxies) == 0 || target == nil {
 		return nil
 	}
-	if loopbackHostRe.MatchString(target.Hostname()) {
+	if proxyLoopbackExempt && loopbackHostRe.MatchString(target.Hostname()) {
 		return nil // 回环豁免直连(本地 mock/token 代理经代理转发出不去)
 	}
 	c.mu.Lock()
@@ -1420,21 +1481,38 @@ func parseCookieHeader(s string) []*http.Cookie {
 	return out
 }
 
-// fetch 完整抓取: 传输 + charset 解码 + 拦截页出口判定
+// fetch 完整抓取: 传输 + charset 解码 + 拦截页出口判定。
+// [R66-a](反反爬 ③) challenge 形态退避重试: rawFetch 的退避链只覆盖传输层/HTTP 状态
+// 错误, 200 壳挑战页此前以「成功返回」穿出后被编排层直接按失败消费(计连败/弃书) ——
+// 瞬态软挑战(rate-limit 壳/挑战 cookie 未带)本可退避后过关。修后此处对 Blocked 结果
+// 按 exponential+jitter 退避重试(预算 min(cfg.Retries, 2) 次), 每次重试经 rawFetch
+// 重过 hostGate(minGap 节奏准入)且 CookieJar 会话持续 —— 挑战 Set-Cookie 回写后携带
+// 重放, 与浏览器「领挑战→解题→带证重访」行为同构; 每次挑战命中同步放宽本 host
+// 准入节奏(noteChallengePacing), 挑战计数照旧逐次累加(blockedCount 可观测口径不变)
 func (c *Client) fetch(ctx context.Context, rawURL, refererURL string, directOnly bool) (Result, error) {
-	res, err := c.rawFetch(ctx, rawURL, refererURL, directOnly, false)
-	if err != nil {
-		// 404 与其余错误统一失败语义(与 TS !res.ok 口径一致)
-		return Result{}, err
-	}
-	charset := rule.SniffCharset([]byte(res.contentType), res.body)
-	htmlStr := rule.DecodeBody(res.body, charset)
-	// 拦截页/挑战壳出口判定(blockcheck.go; 词表语义权威在 TS fetcher.ts)
-	blocked := looksBlocked(htmlStr, res.status, res.server)
-	if blocked {
+	for attempt := 0; ; attempt++ {
+		res, err := c.rawFetch(ctx, rawURL, refererURL, directOnly, false)
+		if err != nil {
+			// 404 与其余错误统一失败语义(与 TS !res.ok 口径一致)
+			return Result{}, err
+		}
+		charset := rule.SniffCharset([]byte(res.contentType), res.body)
+		htmlStr := rule.DecodeBody(res.body, charset)
+		// 拦截页/挑战壳出口判定(blockcheck.go; 词表语义权威在 TS fetcher.ts)
+		blocked := looksBlocked(htmlStr, res.status, res.server)
+		if !blocked {
+			return Result{HTML: htmlStr, FinalURL: res.finalURL, StatusCode: res.status}, nil
+		}
 		c.blockedCount.Add(1)
+		c.noteChallengePacing(res.finalURL)
+		if attempt >= c.challengeExtraRetries() {
+			return Result{HTML: htmlStr, FinalURL: res.finalURL, StatusCode: res.status, Blocked: true}, nil
+		}
+		if serr := util.SleepCtx(ctx, challengeBackoff(attempt)); serr != nil {
+			// ctx 取消(停止/暂停): 不再重试, 按挑战失败返回(编排层等价 403 失败链)
+			return Result{HTML: htmlStr, FinalURL: res.finalURL, StatusCode: res.status, Blocked: true}, nil
+		}
 	}
-	return Result{HTML: htmlStr, FinalURL: res.finalURL, StatusCode: res.status, Blocked: blocked}, nil
 }
 
 // ---------------- token 预取(bb-d) ----------------

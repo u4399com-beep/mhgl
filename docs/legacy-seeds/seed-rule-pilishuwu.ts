@@ -8,7 +8,7 @@ export {}
 // 侦察手段: 本机裸 curl 403(Cloudflare) → 改用 z-ai-web-dev-sdk page_reader 后端通道
 // 成功抓取 首页/分类列表页 P1 P2/书籍 info 页×2/目录 menu 页/正文 read 页 真实 HTML,
 // 证据存档 tool-results/r10b-www_pilishuwu_com_*.html(gitignored)。站点为 wmcms-web
-// 模板(/templates/wmcms-web/), 结构与 docker/autofill-rules.json 的 pili 条目互相印证。
+// 模板(/templates/wmcms-web/), 结构与 docs/archive/docker/autofill-rules.json 的 pili 条目互相印证(R66-d 归档前路径 docker/)。
 //
 // URL 结构(实测):
 //   * 列表页 = /{cat}/list/0_0_0_0_0_0_0_{page}.html —— ★关键修正: 分页走筛选段格式,

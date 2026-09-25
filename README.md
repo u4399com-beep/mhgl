@@ -38,17 +38,21 @@
 | 数据库 | modernc.org/sqlite（纯 Go 驱动, 无 cgo）+ SQLite 单文件 |
 | 模板/UI | html/template + 手写 CSS/原生 JS（前台 aijjxs 主题 + 深色管理台） |
 | 采集引擎 | 原 crawler-go 引擎代码级并入（goquery 解析 + R51~R54 反反爬体系全量保真） |
-| 部署 | 裸机 systemd / Docker 多阶段（golang 构建 → alpine 运行） |
+| 部署 | 裸机 systemd 直跑单二进制（Docker 链已退役，归档 `docs/archive/docker/`） |
 
 ## 快速开始
 
-**Docker 一键安装（生产推荐）**——前置：一台能装 Docker 的 Linux 服务器（首次构建约需 4GB 内存）：
+**生产部署（裸机）**——前置：Linux + Go 1.24+（`bash scripts/install-go.sh` 一键装）与 Bun（引导脚本用）：
 
 ```bash
 git clone https://github.com/u4399com-beep/heis.git novel-system
 cd novel-system
-bash install.sh
+bun install                        # 工具链依赖(prisma CLI + 引导/恢复脚本)
+cp .env.example .env               # 配置; 生产务必改 ADMIN_PASSWORD!
+bash scripts/recover.sh            # 一键：建表 → 启动(:3000) → 引导 → 看门狗（幂等, 可重跑）
 ```
+
+> 常驻用 systemd（`Restart=on-failure`）；部署速查与常见问题见 [DEPLOY.md](./DEPLOY.md)，全流程图文见 [docs/INSTALL-GUIDE.md](./docs/INSTALL-GUIDE.md)。
 
 **本地开发**——前置：[Bun](https://bun.sh)（v1.3+，工具链/引导脚本用）与 Go 1.24+（`bash scripts/install-go.sh` 一键装）：
 
@@ -82,7 +86,7 @@ bun run bootstrap                    # 空库一键引导(35 条规则/站点/�
 | 3017 | `qidian-proxy` | 起点中文(镜像API)目录签名载荷解码 + 正文转换代理（仅起点规则正文链路需要，正文还需配置 QD_YWKEY/QD_YWGUID 凭证） | `cd mini-services/qidian-proxy && bun run start` |
 
 - 主应用**不启动任何小服务也能正常跑**：内置 35 条规则绝大多数可直连采集，个别站点规则依赖对应代理小服务；依赖对照与排错见 [docs/INSTALL-GUIDE.md](./docs/INSTALL-GUIDE.md) 第 6.7 节；
-- **Docker 部署时 5 个 bun 代理（3010/3011/3013/3014/3015）已随主容器共置**，零配置；仅 Python 版 `scrapling-bridge` 不进默认镜像（可选增强，`--profile stealthy`，见 DEPLOY.md）；`cloak-browser`(3016) 与 `qidian-proxy`(3017) 不在容器内共置，本地开发按需启动；
+- 生产裸机部署时 5 个 bun 代理（3010/3011/3013/3014/3015）按上表命令逐个启动（或 systemd 常驻）；`cloak-browser`(3016) 与 `qidian-proxy`(3017) 按需启动；
 - ⚠ 请勿把 3010~3017 端口暴露到不受信任的网络（`fetch-relay` 与 `scrapling-bridge` 源码钉死仅绑 127.0.0.1）。
 
 ## 目录结构
@@ -98,10 +102,9 @@ web/                        # 运行时资产: web/covers 封面、web/static �
 mini-services/              # 上表八个支撑服务(各自独立 package.json)
 scripts/                    # dev-go.sh 启动 / recover.sh 恢复 / bootstrap-db.ts 空库引导 / 运维小工具
 docs/legacy-seeds/          # TS 时代规则种子归档(语义已固化进 builtin_rules.json)
+docs/archive/docker/        # Docker 部署链退役归档(R66-d, 见其 README)
 .zscripts/                  # 平台启动/守护脚本与运行日志
-docker/                     # 自动填充引导: autofill.mjs + autofill-rules.json(9 站点清单)
 docs/                       # INSTALL-GUIDE.md 小白教程 / rule-limits.md 规则手册 / images/ 截图
-Dockerfile docker-compose.yml install.sh docker-entrypoint.sh   # 生产部署(见 DEPLOY.md)
 ```
 
 ### 常用命令（package.json）
@@ -121,13 +124,13 @@ Go 质量门全量：`gofmt -l internal/ && go vet ./... && go test -count=1 ./i
 - `bootstrap-db.ts`：空库一键引导（恢复链关键件：登录→import-builtin 导入 35 条内置规则→分类固化→默认站点→三大部头任务，幂等）。
 - `install-go.sh` / `dev-go.sh` / `dev-watchdog.sh` / `recover.sh`：Go 工具链安装、单体启动、OOM 守护、环境重置一键恢复。
 - `mock-novel-site.ts` / `ratelimit-site.ts`：本地模拟源站（规则测试与极限校准的探测目标）。
-- `export-autofill-rules.ts`：一次性运维工具（导出 `docker/autofill-rules.json`；seed 源已迁 `docs/legacy-seeds/`，R64-d 修正 import 路径）。R64-d 清理：Prisma 时代一次性脚本 `backfill-book-num.ts` / `migrate-bqg-chapter-urls.ts` 已删（git 历史可考）。
+- R66-d 清理：Docker 链退役，`install.sh`/`docker-entrypoint.sh`/`export-autofill-rules.ts` 及 `docker/` 自动填充引导整体移入 `docs/archive/docker/`（git 历史可考）。R64-d 已删 Prisma 时代一次性脚本 `backfill-book-num.ts` / `migrate-bqg-chapter-urls.ts`。
 - `docs/legacy-seeds/`：TS 时代规则种子归档（35 站语义已全量固化进 `internal/api/builtin_rules.json`，R62-a 迁入，见其 README）。
 - `archive/`：历史轮次验证脚本归档（只移不删，不参与质量门），见 `archive/README.md`。
 
 ## 数据备份
 
-本地模式下数据全部在 `db/custom.db` 与 `web/covers/`（封面）/下载产物：停掉服务后直接拷贝即可；后台「数据备份」页支持一键导出/导入 JSON（书籍超 **200 本**自动降级为仅元数据导出，大库用文件级备份）。Docker 模式见 [DEPLOY.md](./DEPLOY.md) 第五节。
+本地模式下数据全部在 `db/custom.db` 与 `web/covers/`（封面）/下载产物：停掉服务后直接拷贝即可；后台「数据备份」页支持一键导出/导入 JSON（书籍超 **200 本**自动降级为仅元数据导出，大库用文件级备份）。
 
 ## 免责声明
 

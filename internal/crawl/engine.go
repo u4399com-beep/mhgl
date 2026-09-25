@@ -22,6 +22,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
@@ -69,6 +70,10 @@ type managerAdapter struct {
 	mgr *task.Manager
 	// periodicCancel 代理池周期化循环取消句柄(StopAll 优雅退出时一并收割; nil=未启动)
 	periodicCancel context.CancelFunc
+	// stopping 优雅退出标志([R66-a]): StopAll 置位后 scheduleAutoRefresh 不再重启任务
+	// —— 修前停机窗口内睡醒的 autoRefresh goroutine 会在 StopAll 之后重新 Start 任务,
+	// 任务在进程退出前短暂运行且无人监管(终态回调/看门狗面与正常态不同)
+	stopping atomic.Bool
 }
 
 // NewManager 构造任务管理器: task.NewManager + SetSinkFactory(bridge.NewFactory 直连
@@ -201,6 +206,9 @@ func (a *managerAdapter) Status(taskID string) (exists, running bool, phase stri
 // 终态残留(done/error/stopped)跳过, 其余(running/paused/未知)一律收割。
 // [R57-2a] 顺带取消代理池周期化循环(进程退出面统一收口)
 func (a *managerAdapter) StopAll() {
+	// [R66-a] 先置停机标志再收割: 与 scheduleAutoRefresh 的睡眠醒后复查构成封闭窗口
+	// (醒后见 stopping=true 即弃, 不再 Start)
+	a.stopping.Store(true)
 	for _, b := range a.mgr.List() {
 		if terminalStatuses[b.Phase] {
 			continue
@@ -292,6 +300,10 @@ func (a *managerAdapter) scheduleAutoRefresh(taskID string) {
 		// 等待期间任务可能被删除/关闭 autoRefresh/已在跑: 复查后再启动(幂等安全)
 		t2, err := a.db.GetTask(taskID)
 		if err != nil || t2 == nil || !t2.AutoRefresh || t2.Status == "running" {
+			return
+		}
+		// [R66-a] 优雅退出窗口守卫: StopAll 已置位则不再重启(见 stopping 字段注)
+		if a.stopping.Load() {
 			return
 		}
 		if err := a.Start(taskID); err != nil {

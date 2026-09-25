@@ -370,18 +370,22 @@ func (b *Bridge) createChapterWithContent(bookID, rawTitle, url, cleaned string,
 // kind: cover (base64 → 按 contentType 原格式落盘 → 回写 Book.cover)
 // ============================================================
 
-// coverExtByType contentType → 扩展名(PLAN §7: 无 sharp, 按原格式存; 未知类型回落 .jpg)
+// coverExtByType contentType → 扩展名(返回值【不带点】, 由 saveCoverFile 模板统一补;
+// PLAN §7: 无 sharp, 按原格式存; 未知类型回落 jpg)。
+// [R66-b] 修前返回带点形态(".jpg"), 与模板字面 '.' 拼接生成 book_<ms>_<rand>..jpg
+// 双点文件(web/covers 留档 38 个, git 实证 R63-c 引入 CreateTemp 模板后出现);
+// 部分浏览器/CDN 对双扩展名 MIME 误判, 且文件名形态污染
 func coverExtByType(ct string) string {
 	ct = strings.ToLower(strings.TrimSpace(ct))
 	switch {
 	case strings.Contains(ct, "png"):
-		return ".png"
+		return "png"
 	case strings.Contains(ct, "webp"):
-		return ".webp"
+		return "webp"
 	case strings.Contains(ct, "gif"):
-		return ".gif"
+		return "gif"
 	default:
-		return ".jpg"
+		return "jpg"
 	}
 }
 
@@ -433,7 +437,10 @@ func (b *Bridge) saveCoverFile(buf []byte, contentType string) (string, error) {
 	}
 	// [R63-c] os.CreateTemp 原子唯一命名: 修前 NowMS+rand(10000) 在并发封面落盘的
 	// 同毫秒窗口可碰撞(1/10000), WriteFile 静默覆写 → 两本书指向同一封面文件
-	f, err := os.CreateTemp(dir, fmt.Sprintf("book_%d_*.%s", store.NowMS(), coverExtByType(contentType)))
+	// [R66-b] 扩展名防御性规范化(TrimPrefix): 模板字面 '.' + 带点后缀曾拼出
+	// book_<ms>_<rand>..jpg 双点文件名, 此处保证无论上游返回形态单点落盘
+	ext := strings.TrimPrefix(coverExtByType(contentType), ".")
+	f, err := os.CreateTemp(dir, fmt.Sprintf("book_%d_*.%s", store.NowMS(), ext))
 	if err != nil {
 		return "", err
 	}

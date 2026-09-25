@@ -1414,7 +1414,7 @@
         return '<tr><td>' + esc(j.bookName || j.bookId) + '</td><td>' + badge(j.status === 'success' ? 'done' : (j.status === 'failed' ? 'error' : j.status)) + '</td>' +
           '<td class="adm-muted">' + esc(j.filePath || '-') + '</td><td class="adm-muted">' + (j.size ? fmtBytes(j.size) : '-') + '</td>' +
           '<td class="adm-muted">' + fmtTime(j.createdAt) + '</td>' +
-          '<td><div class="adm-actions">' + (j.filePath ? '<a class="adm-btn is-tiny" href="/api/public/download?file=' + encodeURIComponent(j.filePath) + '">下载</a>' : '') +
+          '<td><div class="adm-actions">' + (j.bookId ? '<a class="adm-btn is-tiny" href="/api/public/download?book=' + encodeURIComponent(j.bookId) + '">下载</a>' : '') +
           '<button class="adm-btn is-tiny is-danger" data-act="del" data-id="' + esc(j.id) + '">删除</button></div></td></tr>';
       }).join('') + '</tbody></table>';
   }
@@ -1469,7 +1469,11 @@
     $('set-add').addEventListener('click', function () {
       var k = $('set-new-key').value.trim();
       if (!k) { toast('请输入键名', true); return; }
-      PUT('/api/admin/settings', { key: k, value: '' }).then(function () { toast('键已添加'); $('set-new-key').value = ''; loadSettings(); }).catch(function (e) { toast(errText(e), true); });
+      // [R66-c] 修前 PUT({key:k, value:''}) —— 后端把 body 整体当「键→值映射」逐条入库,
+      // 实际写出名为 key/value 的垃圾行, 目标键从未创建。改发映射形态 {键: 值}。
+      var addBody = {};
+      addBody[k] = '';
+      PUT('/api/admin/settings', addBody).then(function () { toast('键已添加'); $('set-new-key').value = ''; loadSettings(); }).catch(function (e) { toast(errText(e), true); });
     });
     $('set-save').addEventListener('click', function () {
       var boxes = document.querySelectorAll('[data-setkey]');
@@ -1477,10 +1481,14 @@
       boxes.forEach(function (b) {
         var k = b.getAttribute('data-setkey'), raw = b.value.trim();
         var v;
-        if (raw === '') { seq = seq.then(function () { return PUT('/api/admin/settings', { key: k, value: '' }); }); return; }
-        try { v = JSON.parse(raw); } catch (e) { v = raw; }
+        if (raw === '') { v = ''; } else { try { v = JSON.parse(raw); } catch (e) { v = raw; } }
+        // [R66-c] 修前 PUT({key:k, value:v}) 与后端 adminSettingsPut 的「body=键值映射」
+        // 契约错位: 实际写入 Setting 表 key/value 两个垃圾键, 目标设置永远保存不上。
+        // 改发 {设置键: 值} 映射形态(与 feedback.html 开关写入同款契约)。
         (function (kk, vv) {
-          seq = seq.then(function () { return PUT('/api/admin/settings', { key: kk, value: vv }); });
+          var body = {};
+          body[kk] = vv;
+          seq = seq.then(function () { return PUT('/api/admin/settings', body); });
         })(k, v);
       });
       seq.then(function () { toast('设置已保存'); loadSettings(); }).catch(function (e) { toast(errText(e), true); });

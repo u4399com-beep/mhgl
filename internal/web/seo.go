@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 )
@@ -430,9 +431,17 @@ func hasAnyTag(s string, tags ...string) bool {
 	return false
 }
 
-var tagReCache = map[string]*regexp.Regexp{}
+// tagReCache 标签开形态正则缓存(仅 p/div/br 三键; [R66-c] 补互斥锁 —— 修前并发
+// 渲染阅读页(readHTML→contentToParagraphs→hasAnyTag)冷缓存首遇可并发写 map,
+// Go 运行时对并发 map 写直接 fatal(不可 recover), 属进程级崩溃面; 加锁后写路径串行)。
+var (
+	tagReCacheMu sync.Mutex
+	tagReCache   = map[string]*regexp.Regexp{}
+)
 
 func tagReFor(tag string) *regexp.Regexp {
+	tagReCacheMu.Lock()
+	defer tagReCacheMu.Unlock()
 	if re, ok := tagReCache[tag]; ok {
 		return re
 	}

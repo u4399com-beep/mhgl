@@ -125,6 +125,10 @@ func looksBlocked(h string, status int, serverHeader string) bool {
 	if h == "" {
 		return true
 	}
+	// [R66-a] 全文码点计数一次(修前 <200/<500/≥1200/jsd 豁免四处各扫一遍 O(n) → 1 次;
+	// head 4000 截断仍按 lower 自身码点数 —— ToLower 对极少数字符(İ 类) 1 码点→2 码点
+	// 膨胀, 截断口径沿用原实现不计入 n)
+	n := utf8.RuneCountInString(h)
 	// 合法 JSON 响应体整体豁免(置于词表之前: 正文 JSON 合法出现的"验证码/安全验证"
 	// 等词汇不应触发 HTML 特征词库误拦)
 	if isPlainJSONBody(h) {
@@ -145,7 +149,7 @@ func looksBlocked(h string, status int, serverHeader string) bool {
 	// CF JS Detections 探测脚本良性豁免: 页面有正常标题且足够长时, 内嵌 jsd 不代表
 	// 当前是挑战页(真实内容页误拦防护, TS jsdBenign 同口径)
 	jsdBenign := strings.Contains(lower, "challenge-platform/scripts/jsd") &&
-		utf8.RuneCountInString(h) >= 1200 && hasNormalTitle(h)
+		n >= 1200 && hasNormalTitle(h)
 	// 强挑战特征(CF 等): 无论长短一律判拦
 	if !jsdBenign {
 		for _, k := range strongBlockMarkers {
@@ -155,18 +159,18 @@ func looksBlocked(h string, status int, serverHeader string) bool {
 		}
 	}
 	// 极短内容视为被拦(<200B)
-	if utf8.RuneCountInString(h) < 200 {
+	if n < 200 {
 		return true
 	}
 	// 200~500 字短页且可见文本 <50 字 → 疑似空壳拦截页(典型 WAF 占位)
-	if n := utf8.RuneCountInString(h); n < 500 {
+	if n < 500 {
 		if vt := visibleText(h); utf8.RuneCountInString(vt) < 50 {
 			return true
 		}
 	}
 	// 含正常 <title> 且足够长的页面视为正常内容页(正文/导航提及"验证码/verify"等
 	// 词不误判)
-	if utf8.RuneCountInString(h) >= 1200 && hasNormalTitle(h) {
+	if n >= 1200 && hasNormalTitle(h) {
 		return false
 	}
 	// 弱标记: 无正常标题豁免时仅扫前 4000 字符(TS lower.slice(0, 4000) 同口径)。
@@ -174,17 +178,18 @@ func looksBlocked(h string, status int, serverHeader string) bool {
 	// 本分支即 ~40MB 临时分配(无正常标题的站点每个内容页都付一次); 改为按 rune
 	// 边界的字节切片, 语义不变(仍取前 4000 码点, 不会斩断多字节字符)且零大额分配
 	head := lower
-	if utf8.RuneCountInString(head) > 4000 {
-		cut := len(head)
-		n := 0
+	{
+		cut, seen := len(head), 0
 		for idx := range head {
-			if n == 4000 {
+			if seen == 4000 {
 				cut = idx
 				break
 			}
-			n++
+			seen++
 		}
-		head = head[:cut]
+		if seen == 4000 {
+			head = head[:cut]
+		}
 	}
 	for _, k := range weakBlockMarkers {
 		if strings.Contains(head, k) {

@@ -360,3 +360,36 @@ func TestRuleConfigTagSafeDigest(t *testing.T) {
 		t.Fatalf("正文误伤: %q", out2)
 	}
 }
+
+// TestR66bLonelyMaskTextStart [R66-b] 孤立掩码 token 前向「文本起点即边界」回归:
+// 修前 lonelyMaskAt 前向扫描遇文本起点(loc[0]==0 或前缀全空白)恒返回 false, 与注释
+// 「或文本起点」语义相悖 —— 章节体首孤立 URL 行(HTML 模式无 <p> 包裹形态 "URL<br>正文",
+// [2] br 形态要求 br 在前不可锚; 整章仅 URL 形态)漏网。
+func TestR66bLonelyMaskTextStart(t *testing.T) {
+	// 体首裸 URL + br 隔断(HTML 模式; 修前 URL 行残留)
+	out := htmlClean(t, "http://www.x.com/a/1.html<br>正文开始。第二句。")
+	if strings.Contains(out, "x.com") || strings.Contains(out, "http") {
+		t.Fatalf("章节体首孤立 URL 未回收: %q", out)
+	}
+	if !strings.Contains(out, "正文开始。") {
+		t.Fatalf("正文误伤: %q", out)
+	}
+	// 整章仅 URL(体首+体尾双边界; 修前整体残留并被段重建包进 <p>)
+	out = htmlClean(t, "http://www.y.com/2/")
+	if strings.Contains(out, "y.com") || strings.Contains(out, "http") {
+		t.Fatalf("整章仅 URL 未回收: %q", out)
+	}
+	// 前缀全空白 + 体尾(空白起点同视为文本起点边界)
+	out = htmlClean(t, "<p>正文段落。</p>\u00a0\u00a0http://www.z.com/3/\u3000")
+	if strings.Contains(out, "z.com") {
+		t.Fatalf("空白前缀孤立 URL 未回收: %q", out)
+	}
+	if !strings.Contains(out, "正文段落。") {
+		t.Fatalf("正文误伤: %q", out)
+	}
+	// 防误伤: 体首 URL 后紧贴可见文字(非标签/终点)必须保留
+	keep := htmlClean(t, "http://www.keep.com/home 是这本书的官网链接。")
+	if !strings.Contains(keep, "http://www.keep.com/home") || !strings.Contains(keep, "是这本书的官网链接。") {
+		t.Fatalf("体首 URL 行内形态误删: %q", keep)
+	}
+}

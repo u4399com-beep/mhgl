@@ -416,11 +416,24 @@ func BuildTDK(cfg TDKSiteCfg, ctx TDKCtx, pageType string) (title, description, 
 	title = renderTdkTpl(tplT, ctx)
 	description = renderTdkTpl(tplD, ctx)
 	keywords = renderTdkKw(tplK, ctx)
+	// [R66-c] 产出长度钳制(对齐 web/seo.go composeXxxTdk 站内口径: title≤40/desc≤160
+	// 码点, keywords 已在 renderTdkKw 钳 200)。修前书名/作者/分类等爬虫可控数据
+	// (书名可达 200 字节)经占位符直出无界 <title>/<meta description> —— 智能 TDK
+	// 开启即重现 R64-c 修掉的「超长查询串直出无界 TDK」病灶; 站点级覆盖模板
+	// (ParseSiteCfg 允许 500 码点)同受此钳保护。
+	title = clampRunes(title, tdkTitleMaxCodePoints)
+	description = clampRunes(description, tdkDescMaxCodePoints)
 	if strings.TrimSpace(title) == "" || strings.TrimSpace(description) == "" {
 		return "", "", "" // 渲染失败(如关键占位符全空) → 调用方回落原逻辑
 	}
 	return title, description, keywords
 }
+
+// TDK 产出码点上限(与 web 层 composeBookTdk/composeTocTdk/composeChapterTdk 同口径)。
+const (
+	tdkTitleMaxCodePoints = 40
+	tdkDescMaxCodePoints  = 160
+)
 
 // tdkRandInt crypto/rand 均匀取 [0,n); n<=0 或异常回落 0。
 func tdkRandInt(n int) int {
@@ -495,6 +508,14 @@ func tdkVals(ctx TDKCtx) map[string]string {
 	if year == "" {
 		year = time.Now().Format("2006")
 	}
+	// [R66-c] 空作者回落「佚名」(对齐 adminBooksCreate 手动入库缺省): 11 套书族
+	// 模板含「{作者}创作的/{作者}笔下」句式, 修前空作者直出「是创作的小说」空洞
+	// 语法(SEO 降质面); 站名生产面恒非空(web.siteTitle 兜底), 分类空值在各模板
+	// 中自然成句(「{分类}小说」→「小说」)无需回落。
+	author := strings.TrimSpace(ctx.Author)
+	if author == "" {
+		author = "佚名"
+	}
 	hot := ""
 	if n := len(tdkHotWords); n > 0 {
 		hot = tdkHotWords[tdkRandInt(n)]
@@ -502,7 +523,7 @@ func tdkVals(ctx TDKCtx) map[string]string {
 	return map[string]string{
 		"站名":  strings.TrimSpace(ctx.SiteName),
 		"书名":  strings.TrimSpace(ctx.BookName),
-		"作者":  strings.TrimSpace(ctx.Author),
+		"作者":  author,
 		"分类":  strings.TrimSpace(ctx.Category),
 		"状态":  strings.TrimSpace(ctx.Status),
 		"字数段": WordBand(ctx.Words),
