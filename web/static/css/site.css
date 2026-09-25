@@ -235,6 +235,8 @@ body.clone-aijjxs a:hover{color:var(--brand);text-decoration:underline}
 .clone-aijjxs .ajx-read-txt p:first-child{text-indent:0}
 /* 正文外卡(真站 .view_content 玻璃纸卡); JS 记忆背景仍打在 #view_content_txt 内层, 不冲突 */
 .clone-aijjxs .ajx-view-content{border:1px solid #e2d6c5;border-radius:16px;background:rgba(255,252,246,.72);padding:clamp(24px,4vw,40px);box-shadow:0 10px 28px rgba(33,21,11,.1)}
+/* [R67] 默认态(未选背景): 正文卡让位页面整体底色 — 卡底透明仅留边框阴影, 米黄渐变完整透出, 与页面底色一致; 选定背景后恢复玻璃卡 */
+.clone-aijjxs .ajx-view-content.is-pagebg{background:transparent}
 .clone-aijjxs .ajx-view-page{display:flex;justify-content:center;gap:10px;padding:10px 9px;border:1px solid #e2d6c5;border-radius:13px;background:rgba(255,252,246,.7);max-width:min(1080px,calc(100% - 24px));margin:10px auto 0}
 .clone-aijjxs .ajx-view-tips{max-width:min(1080px,calc(100% - 24px));margin:10px auto 24px;padding:10px 9px;border:1px dashed #d8c6af;border-radius:13px;text-align:center;font-size:13px;color:#75695b}
 .clone-aijjxs .ajx-rl{display:inline-flex;align-items:center;justify-content:center;min-width:88px;min-height:36px;padding:6px 16px;border:1px solid #d5b998;border-radius:8px;background:#fff8ec;color:#6b3418;font-size:14px;cursor:pointer;text-decoration:none}

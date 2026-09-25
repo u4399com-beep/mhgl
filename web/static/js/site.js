@@ -19,7 +19,11 @@
   var txt = document.getElementById('view_content_txt');
   if (txt) {
     var prefs = loadPrefs();
-    var bg = prefs.bg || '#f8f8f8';
+    // [R67] aijjxs 阅读页默认底色与页面整体底色一致: 无记忆偏好时不涂色(透明), 页面米黄渐变透出;
+    // 其余主题维持 #f8f8f8 记忆纸色不变。判据 = aijjxs 专属正文卡 .ajx-view-content 存在;
+    // 用户显式选过背景(prefs.bg 非空)则任何主题都始终优先用户选择。
+    var ajxPageBg = !!document.querySelector('.ajx-view-content');
+    var bg = prefs.bg || (ajxPageBg ? '' : '#f8f8f8');
     var fs = prefs.fs || '17';
     var ink = prefs.ink || '#27231f';
     var ff = prefs.ff || '';
@@ -29,6 +33,9 @@
       txt.style.color = ink;
       txt.style.fontSize = fs + 'px';
       txt.style.fontFamily = ff || '';
+      // [R67] 默认态: 正文玻璃卡同步让位(仅留边框阴影), 页面底色完整透出; 选定背景后恢复玻璃卡
+      var card = document.querySelector('.ajx-view-content');
+      if (card) card.classList.toggle('is-pagebg', !bg);
       document.querySelectorAll('.ajx-c').forEach(function (el) {
         el.classList.toggle('is-active', el.getAttribute('data-bg') === bg);
       });

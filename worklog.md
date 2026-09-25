@@ -237,3 +237,20 @@ Stage Summary:
 - 规则矩阵(10 条跨站点结构): PASS 7 = 努努书坊(197 书/toc 14)/飘天文学(toc 9743)/茉莉小说/手机小说(杰奇WAP GBK)/八零电子书(toc 200)/WuxiaWorld Lite(toc 500)/久久小说网(toc 1313)——list/book/toc/content 四阶段全通
 - FAIL 3(均 list 阶段): 同人小说网(上游 502 网络层)/笔趣阁(403——测试端点不应用 contentProxyUrl 的已知语义局限, R65 澄清口径)/错层小说网(反爬拦截页, 需代理+镜像通道, 与固化降速参数场景同族)
 - 结论: 35 规则中抽样 10 条 + R65 实测若干, 规则面总体健康; 3 条 FAIL 属源站网络/反爬形态而非规则 selector 失效
+---
+Task ID: R67-fix-readbg
+Agent: main-controller
+Task: 用户指令——aijjxs 模版阅读页正文设置默认底色与页面整体底色一致
+
+Work Log:
+- 定位链路: 页面整体底色=米黄渐变(site.css:246 body.clone-aijjxs:has(.ajx-read)); 正文两层底色=玻璃外卡 .ajx-view-content rgba(255,252,246,.72)(site.css:239) + site.js:22 默认硬涂 #f8f8f8(冷白) 于 #view_content_txt 内联——冷白 slab 与暖米页面不一致为用户所指问题
+- site.js: 默认底色主题作用域化——判据 ajxPageBg=.ajx-view-content 存在(aijjxs 专属标记, rg 实证 11 主题仅 aijjxs 有), 命中时默认 bg=''(不涂色, CSS transparent 生效), 其余 10 主题维持 #f8f8f8 原状; prefs.bg 用户显式选择恒优先; apply() 内联动 card.classList.toggle('is-pagebg', !bg)
+- site.css: 新增 .clone-aijjxs .ajx-view-content.is-pagebg{background:transparent}——默认态玻璃卡让位(仅留边框阴影), 页面米黄渐变完整透出, 正文底色与页面整体底色逐像素一致; 选定背景后类移除玻璃卡恢复(与 R59-2a 真站玻璃卡设计兼容)
+- aijjxs/layout.html: site.css/site.js/pwa.js 缓存戳 ?v=r56-2c → ?v=r67-a; 重建走 dev-go.sh 增量(building… 实证), 静态 css/js 磁盘服务即时生效
+- 顺手清前轮 gofmt 债: internal/api/r67c_test.go 整文件格式化(git diff -w 实证纯空白差异零逻辑变化), gofmt -l 全绿
+- 运维: 进程重启致 xyetianlian 采集任务 paused(优雅停机置位), POST control start 恢复运行(84/312 推进中); xbqg777 重启窗口期自然跑完(done 141/142); 新进程日志重定向 /tmp/main-dev-restart.log(NO-FATAL)
+
+Stage Summary:
+- 阅读页正文默认底色与页面整体底色一致已落地并三层验证: ①DOM computed: 默认态卡底 rgba(0,0,0,0)+txt 无内联涂色+is-pagebg 挂载+0 色块高亮 ②交互闭环: 选色→涂色+玻璃卡恢复+localStorage 记忆→刷新持久化→清偏好回归页面底色 ③像素实证: 卡内 (238,229,215) 与同水平线页面底色三采样逐像素相等(对照玻璃标题卡 249,244,234 偏亮符合设计)
+- 隔离性: 其余 10 主题行为零变化(守卫判据+守卫外代码路径不变); 375px 移动端同验证通过; 浏览器 console 零错误
+- 用户选色后暂无"回归页面底色"色块入口(清 localStorage 可回归), 记为可选后续项
