@@ -102,6 +102,11 @@ pageLoop:
 		}
 		res, err := t.fetcher.Fetch(t.ctx, pageURL, "")
 		if err != nil {
+			// [R68-a] stop 引发的取消非真实失败(与 pipeline stopInterrupted 口径一致):
+			// 修前 stop 瞬间的在飞列表页请求被计入连败/stats.Errors, 收尾日志残留噪声
+			if t.stopInterrupted() {
+				break
+			}
 			failStreak++
 			t.mu.Lock()
 			t.stats.Errors++
@@ -109,6 +114,26 @@ pageLoop:
 			t.logf("error", "列表页 P%d 抓取失败(%d/%d 连败): %v", page, failStreak, discoveryFailCircuit, err)
 			if failStreak >= discoveryFailCircuit {
 				t.logf("warn", "连续 %d 页列表抓取失败, 判定源站不可用, 提前终止翻页(已发现 %d 本)", failStreak, len(urls))
+				break
+			}
+			continue
+		}
+		// [R68-a] 拦截页(200 壳挑战页)按等价 HTTP 403 失败处置(R51-3-a ⑤出口判定语义,
+		// 与 processBook/toc/正文段全消费点同口径): 修前 Blocked 结果(err=nil)落进解析层
+		// → 0 条新增 → 计入「连续空页」熔断 —— 源站压速/下挑战被误诊为「已越过站点末页」,
+		// 且失败零记账(stats.Errors/连败链均未推进), 挑战重试链耗尽后的持续挑战毫无痕迹
+		if res.Blocked {
+			if t.stopInterrupted() {
+				break
+			}
+			failStreak++
+			t.mu.Lock()
+			t.stats.Errors++
+			t.mu.Unlock()
+			t.logf("error", "列表页 P%d 拦截页判定(等价 HTTP 403 计失败, %d/%d 连败): %s",
+				page, failStreak, discoveryFailCircuit, util.TruncateLog(pageURL, 120))
+			if failStreak >= discoveryFailCircuit {
+				t.logf("warn", "连续 %d 页列表抓取失败(拦截页/错误), 判定源站不可用, 提前终止翻页(已发现 %d 本)", failStreak, len(urls))
 				break
 			}
 			continue

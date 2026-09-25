@@ -44,8 +44,10 @@
         {{with .Pager}}
         <div class="ajx-pager">
           {{if .PrevURL}}<a class="ajx-pager-btn" href="{{.PrevURL}}">上一页</a>{{else}}<span class="ajx-pager-btn is-disabled">上一页</span>{{end}}
-          <span class="ajx-pager-info">第 {{.Page}} / {{.TotalPages}} 页 · 共 {{.Total}} 本</span>
+          <span class="ajx-pager-btn" title="总数"><b>{{.Total}}</b></span>
+          {{range .Pages}}{{if eq .N $.Pager.Page}}<b>{{.N}}</b>{{else}}<a class="ajx-pager-btn" href="{{.URL}}">{{.N}}</a>{{end}}{{end}}
           {{if .NextURL}}<a class="ajx-pager-btn" href="{{.NextURL}}">下一页</a>{{else}}<span class="ajx-pager-btn is-disabled">下一页</span>{{end}}
+          {{if .LastURL}}<a class="ajx-pager-btn" href="{{.LastURL}}">尾页</a>{{end}}
         </div>
         {{end}}
       </div>

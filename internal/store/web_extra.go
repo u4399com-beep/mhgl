@@ -101,12 +101,7 @@ func (d *DB) WebListBooks(page, pageSize int, cat, q, sort, status string) ([]ma
 	return rows, int64(total), nil
 }
 
-// WebBookDetail 书籍详情(+分类名+章节数)。
-func (d *DB) WebBookDetail(id string) (map[string]any, bool, error) {
-	m, ok, err := d.QueryMap(`SELECT `+webBookCols+`, (SELECT count(*) FROM "Chapter" ch WHERE ch.bookId=b.id) AS chapterCount`+
-		webBookFrom()+` WHERE b.id=?`, id)
-	return m, ok, err
-}
+// [R67/R68 死代码清退] WebBookDetail 删除(全仓零消费者, web 层详情页走列表查询链)。
 
 // WebChapterPage 书籍章节分页(idx 升序)。
 func (d *DB) WebChapterPage(bookID string, page, size int) ([]map[string]any, error) {

@@ -167,10 +167,12 @@
 .clone-pili .pli-text-set a{border:1px solid #e5e0da;border-radius:3px;padding:1px 8px;margin:0 2px;color:#666;text-decoration:none;cursor:pointer}
 .clone-pili .pli-text-set a:hover{border-color:#fd8929;color:#f65400}
 .clone-pili .pli-read-panel{border-radius:0 4px 4px 4px}
-.clone-pili .pli-read-title{margin:16px 0 4px;font-size:20px;color:#333;text-align:center}
+/* [R68-c] 标题号对齐源站 read.css .text-head 24px/32px */
+.clone-pili .pli-read-title{margin:16px 0 4px;font-size:24px;line-height:32px;color:#333;text-align:center}
 .clone-pili .pli-read-sub{margin:0;text-align:center;font-size:15px;color:#666}
 .clone-pili .pli-read-info{text-align:center;font-size:12.5px;color:#999;margin:4px 0 12px}
-.clone-pili .pli-readcontent{color:#444;min-height:320px;padding:0 14px}
+/* [R68-c] min-height 对齐源站 .text-wrap 600px */
+.clone-pili .pli-readcontent{color:#444;min-height:600px;padding:0 14px}
 .clone-pili .pli-readcontent p{margin:0 0 1.1em;text-indent:2em}
 
 /* 分页 */
@@ -228,7 +230,8 @@
 /* ---- R60 裸奔类补齐(主控核收) ---- */
 .clone-pili .pli-ft-links{text-align:center;color:#999;font-size:12px;padding:14px 0 20px;border-top:1px solid #e5ddd0;margin-top:24px}
 .clone-pili .pli-ft-links a{color:#8a6d3b;margin:0 6px}
-.clone-pili .pli-read-txt{font-size:16px;line-height:2;color:#2b2118;padding:18px 22px;background:#fffdf8;border:1px solid #efe7d8;border-radius:3px;word-break:break-word}
+/* [R68-c] 边框对齐源站 .text-wrap #d8d8d8(修前 #efe7d8) */
+.clone-pili .pli-read-txt{font-size:16px;line-height:2;color:#2b2118;padding:18px 22px;background:#fffdf8;border:1px solid #d8d8d8;border-radius:3px;word-break:break-word}
 .clone-pili .pli-read-txt p{margin:0 0 .9em}
 .clone-pili .pli-history,.clone-pili .pli-keyword,.clone-pili .pli-pseo{width:1200px;max-width:100%;margin:0 auto 16px;background:#fff;border:1px solid #e5ddd0;border-radius:3px;padding:16px 20px;box-sizing:border-box}
 .clone-pili .pli-in-panel{padding-left:18px;list-style:decimal}
@@ -261,3 +264,7 @@
   .clone-pili .pli-banner-info strong{font-size:16px}
   .clone-pili .pli-banner-name{bottom:10px}
 }
+
+/* [R68-c] 阅读工具条选中态(其余主题均有 is-active 反馈, 本主题修前缺失; 作用域 .clone-pili) */
+.clone-pili .pli-text-set a.is-active{border-color:#f65400;color:#f65400}
+.clone-pili .ajx-ys a.is-active{font-weight:700;text-decoration:underline}

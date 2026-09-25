@@ -9,7 +9,7 @@
 ## ① 三条命令（生产推荐，裸机）
 
 ```bash
-git clone https://github.com/u4399com-beep/heis.git novel-system && cd novel-system
+git clone https://github.com/u4399com-beep/mhgl.git novel-system && cd novel-system
 bun install && cp .env.example .env   # 工具链依赖(prisma CLI+引导脚本)；改 .env 里 ADMIN_PASSWORD!
 bash scripts/recover.sh               # 一键：装 Go → 建表 → 启动(:3000) → 引导(35 条规则/站点/任务) → 看门狗；幂等可重跑
 ```

@@ -322,3 +322,6 @@
 .clone-trxsw .trx-ft-links{text-align:center;color:#9aa3c7;font-size:12px;padding:14px 0 20px;border-top:1px dashed #d5dcf0;margin-top:22px}
 .clone-trxsw .trx-ft-links a{color:#6f78a7;margin:0 4px}
 .clone-trxsw .trx-nav1-rank{display:flex;gap:8px;flex-wrap:wrap;padding:10px 12px;background:#fff;border:1px solid #d9e6f2;border-radius:3px;margin-bottom:12px}
+
+/* [R68-c] 阅读工具条选中态(字号钮修前无选中反馈; 色取自本主题 trx-reset 品牌绿; 作用域 .clone-trxsw) */
+.clone-trxsw .trx-size-btn.is-active,.clone-trxsw .trx-size .trx-size-btn.is-active{background-color:#0d8f72;color:#fff}

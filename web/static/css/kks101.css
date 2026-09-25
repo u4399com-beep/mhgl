@@ -210,3 +210,6 @@
 
 /* ---- R60 裸奔类补齐(主控核收) ---- */
 .clone-kks101 .kks-home,.clone-kks101 .kks-full,.clone-kks101 .kks-keyword,.clone-kks101 .kks-ranking,.clone-kks101 .kks-pseo{display:block;margin-bottom:14px}
+
+/* [R68-c] 阅读工具条选中态(修前缺失; 作用域 .clone-kks101) */
+.clone-kks101 .kks-text-set a.is-active{border-color:#1f6cb2;color:#1f6cb2;font-weight:700}

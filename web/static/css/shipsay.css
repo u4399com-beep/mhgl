@@ -195,3 +195,10 @@
 .clone-shipsay .ss-bglist{display:inline-flex;gap:6px;align-items:center}
 .clone-shipsay .ss-fontsize{display:inline-flex;gap:6px;align-items:center;margin-left:10px}
 .clone-shipsay .ss-text_title{font-size:18px;color:#1a1a1a;text-align:center;padding:10px 0;border-bottom:2px solid #ed4259;margin-bottom:12px;font-weight:700}
+
+/* [R68-c] 阅读工具条选中态(修前缺失; swatch 补同款按钮化, 作用域 .clone-shipsay) */
+.clone-shipsay .ss-bglist a{border:1px solid #e3e3e3;border-radius:3px;background:#fff;color:#1a1a1a;font-size:13px;padding:2px 10px;cursor:pointer;text-decoration:none}
+.clone-shipsay .ss-bglist a:hover{border-color:#ed4259;color:#ed4259}
+.clone-shipsay .ss-bglist a.is-active{border-color:#ed4259;color:#ed4259;font-weight:700}
+.clone-shipsay .ss-text_control button.is-active{border-color:#ed4259;color:#ed4259}
+.clone-shipsay .ajx-ys a.is-active{color:#ed4259;font-weight:700;text-decoration:underline}

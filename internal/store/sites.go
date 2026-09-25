@@ -16,15 +16,7 @@ func (d *DB) SiteByID(id string) (map[string]any, bool, error) {
 	return d.QueryMap(`SELECT * FROM "Site" WHERE id=?`, id)
 }
 
-// SiteByDomain 按域名匹配(站群自动路由)。
-func (d *DB) SiteByDomain(dom string) (map[string]any, bool, error) {
-	return d.QueryMap(`SELECT * FROM "Site" WHERE domain=? AND status=1 LIMIT 1`, dom)
-}
-
-// ListEnabledSites 启用站列表(站群互链/切换用)。
-func (d *DB) ListEnabledSites() ([]map[string]any, error) {
-	return d.QueryMaps(`SELECT * FROM "Site" WHERE status=1 ORDER BY createdAt ASC`)
-}
+// [R67/R68 死代码清退] SiteByDomain/ListEnabledSites 删除(TS 站群自动路由口径遗留, 全仓零消费者)。
 
 // ListCategories 分类(含书计数)。
 func (d *DB) ListCategories() ([]map[string]any, error) {

@@ -60,11 +60,4 @@ func (d *DB) SettingJSON(key string, out any) (bool, error) {
 	return true, nil
 }
 
-// SetSettingJSON 序列化写入。
-func (d *DB) SetSettingJSON(key string, val any) error {
-	b, err := json.Marshal(val)
-	if err != nil {
-		return err
-	}
-	return d.SetSetting(key, string(b))
-}
+// [R67/R68 死代码清退] SetSettingJSON 删除(全仓零消费者, 调用面恒走 SetSetting 原始串口径)。

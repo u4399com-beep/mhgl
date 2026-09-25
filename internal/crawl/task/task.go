@@ -263,11 +263,7 @@ func (m *Manager) List() []TaskBrief {
 // cmd/server /healthz 直读 MemStats); 且其 running 计数未排除 stopped(与 R53-5
 // snapshot/brief 口径不一致) —— 与其留下一个语义陈旧的死方法, 不如删除,
 // 未来接线时按 snapshotLocked 口径重写
-
-// UptimeMs 进程存活时长
-func (m *Manager) UptimeMs() int64 {
-	return time.Since(m.startedAt).Milliseconds()
-}
+// [R68 死代码清退] UptimeMs 删除(全仓零消费者)。
 
 // removeIfSelf 身份校验移除(仅当注册表内该 id 仍指向 cur 才删)。
 // [R54-2a] stop 收割与终态 TTL 双路径共用 —— 修前 stop 收割走无条件 remove(delete id),

@@ -21,4 +21,4 @@ if ! curl -fsSL -o "$PREFIX/go.tgz" "https://go.dev/dl/$TGZ"; then
 fi
 tar -xzf "$PREFIX/go.tgz" -C "$PREFIX" && rm -f "$PREFIX/go.tgz"
 "$PREFIX/go/bin/go" version
-echo "[install-go] 完成。run.sh 会自动把 $PREFIX/go/bin 加入 PATH"
+echo "[install-go] 完成。dev-go.sh/recover.sh 会自动把 $PREFIX/go/bin 加入 PATH(dev-go.sh 检测到 go 缺失时也会自动调本脚本)"

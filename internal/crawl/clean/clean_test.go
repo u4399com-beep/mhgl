@@ -393,3 +393,74 @@ func TestR66bLonelyMaskTextStart(t *testing.T) {
 		t.Fatalf("体首 URL 行内形态误删: %q", keep)
 	}
 }
+
+// TestR68bJieqiFooterAndPagerPatterns [R68-b] 生产 DB 旁证实证增强的三条缺省模式:
+// 杰奇CMS 书页页脚水印行 / 翻页标记变体(方括号+箭头残尾) / 书名【】空壳推广行。
+// 同时覆盖防误伤反例(相似但不满足短语链的正文必须保留)。
+func TestR68bJieqiFooterAndPagerPatterns(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		keep string // 必须保留的正文锚(空串=期望整体回收)
+	}{
+		{
+			name: "杰奇页脚水印行回收",
+			in:   "<p>正文段落, 情节继续推进。</p><p>作者：某某某所写的《万相之王》无弹窗免费全文阅读为转载作品,章节由网友发布。</p>",
+			keep: "正文段落, 情节继续推进。",
+		},
+		{
+			name: "翻页标记方括号变体回收",
+			in:   "<p>情节推进到这里。</p><p>本章未完，点击[下一页]继续阅读&gt;&gt;</p>",
+			keep: "情节推进到这里。",
+		},
+		{
+			name: "翻页标记箭头残尾回收",
+			in:   "<p>情节推进到这里。</p><p>本章未完,点击「下一页」继续阅读--&gt;&gt;</p>",
+			keep: "情节推进到这里。",
+		},
+		{
+			name: "书名空壳推广行回收",
+			in:   "<p>段落文字。</p><p>【万相之王】\u00a0\u00a0【】</p>",
+			keep: "段落文字。",
+		},
+		{
+			name: "防误伤: 作者+书名但无『无弹窗…转载作品』链",
+			in:   "<p>作者：某某所写的《平凡的世界》曾获茅盾文学奖,影响深远。</p>",
+			keep: "《平凡的世界》曾获茅盾文学奖",
+		},
+		{
+			name: "防误伤: 本章未完但无『点击…继续阅读』组合",
+			in:   "<p>这一卷本章未完,下一卷将展开新的冒险。</p>",
+			keep: "下一卷将展开新的冒险",
+		},
+		{
+			name: "防误伤: 书评类双非空【】对",
+			in:   "<p>【书评】这本书节奏很好,值得追更。</p>",
+			keep: "这本书节奏很好",
+		},
+	}
+	for _, c := range cases {
+		out := htmlClean(t, c.in)
+		if c.keep == "" {
+			continue
+		}
+		if !strings.Contains(out, c.keep) {
+			t.Fatalf("%s: 正文误伤: %q", c.name, out)
+		}
+	}
+	// 回收面断言(整体性噪声必须消失)
+	reclaim := []struct{ name, in, forbid string }{
+		{"页脚水印", "作者：张三所写的《万相之王》无弹窗章节内容为转载作品请收藏", "无弹窗"},
+		{"翻页方括号", "本章未完，点击[下一页]继续阅读&gt;&gt;", "本章未完"},
+		{"空壳推广", "【万相之王】\u3000【】", "【】"},
+	}
+	for _, c := range reclaim {
+		out := htmlClean(t, "<p>前文。</p><p>"+c.in+"</p><p>后文。</p>")
+		if strings.Contains(out, c.forbid) {
+			t.Fatalf("%s: 未回收: %q", c.name, out)
+		}
+		if !strings.Contains(out, "前文。") || !strings.Contains(out, "后文。") {
+			t.Fatalf("%s: 相邻正文误伤: %q", c.name, out)
+		}
+	}
+}

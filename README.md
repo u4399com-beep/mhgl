@@ -45,11 +45,11 @@
 **生产部署（裸机）**——前置：Linux + Go 1.24+（`bash scripts/install-go.sh` 一键装）与 Bun（引导脚本用）：
 
 ```bash
-git clone https://github.com/u4399com-beep/heis.git novel-system
-cd novel-system
+git clone https://github.com/u4399com-beep/mhgl.git        # 仓库地址以 `git remote -v` 为准
+cd mhgl
 bun install                        # 工具链依赖(prisma CLI + 引导/恢复脚本)
 cp .env.example .env               # 配置; 生产务必改 ADMIN_PASSWORD!
-bash scripts/recover.sh            # 一键：建表 → 启动(:3000) → 引导 → 看门狗（幂等, 可重跑）
+bash scripts/recover.sh            # 一键：装 Go → 建表 → 启动(:3000) → 引导 → 看门狗（幂等, 可重跑）
 ```
 
 > 常驻用 systemd（`Restart=on-failure`）；部署速查与常见问题见 [DEPLOY.md](./DEPLOY.md)，全流程图文见 [docs/INSTALL-GUIDE.md](./docs/INSTALL-GUIDE.md)。
@@ -63,7 +63,9 @@ bun run dev                          # 启动 Go 单体(自动构建 .build/mhgl
 bun run bootstrap                    # 空库一键引导(35 条规则/站点/三大部头任务, 幂等)
 ```
 
-> 沙箱/环境重置后一条命令恢复：`bash scripts/recover.sh`（装 Go → 建表 → 启动 → 引导 → 看门狗 → 报告，见教程 §15）。
+> **预览挂掉 / 服务连不上 / 端口 3000 无人监听？** 一条命令自愈：`bash scripts/recover.sh`
+> （装 Go → 建表 → 启动 → 引导 → 看门狗 → 报告，幂等可重跑；`bun run dev` 也已自愈化——
+> go 缺失自动装、DB 缺失自动建表+引导，见教程 §4/§7）。
 
 | 地址 | 用途 |
 | --- | --- |
@@ -111,7 +113,7 @@ docs/                       # INSTALL-GUIDE.md 小白教程 / rule-limits.md 规
 
 | 命令 | 作用 |
 | --- | --- |
-| `bun run dev` | 构建并启动 Go 单体（:3000，源码有变更自动重建） |
+| `bun run dev` | 构建并启动 Go 单体（:3000，源码有变更自动重建；[R68-d] 自愈化：go 缺失自动 `install-go.sh`、DB 缺失/缺表自动 `prisma db push`+引导，`MHGL_AUTO_BOOTSTRAP=0` 关闭） |
 | `bun run build` / `bun run start` | 仅构建 / 直接运行二进制 `.build/mhgl` |
 | `bun run lint` | 质量门（`go vet ./...`） |
 | `bun run bootstrap` | 空库一键引导（导入 35 条内置规则/分类固化/默认站点/三大部头任务，幂等） |
@@ -119,10 +121,20 @@ docs/                       # INSTALL-GUIDE.md 小白教程 / rule-limits.md 规
 
 Go 质量门全量：`gofmt -l internal/ && go vet ./... && go test -count=1 ./internal/... && go build -o .build/mhgl ./cmd/server`。
 
+### 故障排查速查（R68-d）
+
+| 症状 | 处置 |
+| --- | --- |
+| **预览挂掉 / 3000 无人监听** | `bash scripts/recover.sh` 一键自愈（幂等，装 Go→建表→启动→引导→看门狗）；详教程「一键恢复」章 |
+| `go not found` | 现已自动处理（`bun run dev` 自装）；手动补：`bash scripts/install-go.sh` |
+| 端口 3000 被占 | `ss -ltnp \| grep 3000` 找到占用进程；或 `PORT=3100 bun run dev` 换端口 |
+| 采集任务 paused | 后台任务页点「启动」，或 `POST /api/admin/tasks/{id}/control` body `{"action":"start"}`（断点续采不丢进度） |
+| 首页/正文乱码 | GBK 站已自动探测（GB18030 兜底）；个别站核对规则编码配置后重采，详教程 FAQ |
+
 ### scripts/ 约定
 
 - `bootstrap-db.ts`：空库一键引导（恢复链关键件：登录→import-builtin 导入 35 条内置规则→分类固化→默认站点→三大部头任务，幂等）。
-- `install-go.sh` / `dev-go.sh` / `dev-watchdog.sh` / `recover.sh`：Go 工具链安装、单体启动、OOM 守护、环境重置一键恢复。
+- `install-go.sh` / `dev-go.sh` / `dev-watchdog.sh` / `recover.sh`：Go 工具链安装、单体启动（[R68-d] 自愈化：go 缺失自装 + DB 缺失自举，可 `MHGL_AUTO_BOOTSTRAP=0` 关闭）、OOM 守护、环境重置一键恢复。
 - `mock-novel-site.ts` / `ratelimit-site.ts`：本地模拟源站（规则测试与极限校准的探测目标）。
 - R66-d 清理：Docker 链退役，`install.sh`/`docker-entrypoint.sh`/`export-autofill-rules.ts` 及 `docker/` 自动填充引导整体移入 `docs/archive/docker/`（git 历史可考）。R64-d 已删 Prisma 时代一次性脚本 `backfill-book-num.ts` / `migrate-bqg-chapter-urls.ts`。
 - `docs/legacy-seeds/`：TS 时代规则种子归档（35 站语义已全量固化进 `internal/api/builtin_rules.json`，R62-a 迁入，见其 README）。

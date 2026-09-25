@@ -8,24 +8,7 @@ import (
 	"errors"
 )
 
-// ChapterURLIndex 书内 url→idx 映射(增量决策 existUrlMap 口径)。
-func (d *DB) ChapterURLIndex(bookID string) (map[string]int, error) {
-	rows, err := d.Query(`SELECT url, idx FROM "Chapter" WHERE bookId=? AND url<>''`, bookID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	m := make(map[string]int, 256)
-	for rows.Next() {
-		var u string
-		var idx int64
-		if err := rows.Scan(&u, &idx); err != nil {
-			return nil, err
-		}
-		m[u] = int(idx)
-	}
-	return m, rows.Err()
-}
+// [R67/R68 死代码清退] ChapterURLIndex 删除(TS 增量决策 existUrlMap 口径遗留, 全仓零消费者)。
 
 // ChapterCount 书章节数。
 func (d *DB) ChapterCount(bookID string) (int, error) {
@@ -47,13 +30,7 @@ func (d *DB) LastChapterURL(bookID string) (string, error) {
 	return u, err
 }
 
-// InsertChapter 建章(storage 恒 db; content/fetched 由调用方后续填充)。
-func (d *DB) InsertChapter(id, bookID string, idx int, title, volume, url string) error {
-	now := NowMS()
-	_, err := d.Exec(`INSERT INTO "Chapter" (id,bookId,idx,title,volume,url,content,storage,filePath,wordCount,fetched,createdAt,updatedAt)
-VALUES (?,?,?,?,?,?,NULL,'db',NULL,0,0,?,?)`, id, bookID, idx, title, volume, url, now, now)
-	return err
-}
+// [R67/R68 死代码清退] InsertChapter 删除(全仓零消费者, 建章恒走 bridge 批量/事务路径)。
 
 // UpdateChapterContent 章节正文 upsert(幂等按 url 由调用方决策; fetched=1)。
 func (d *DB) UpdateChapterContent(chapterID, url, content string, wordCount int) error {

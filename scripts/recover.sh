@@ -6,6 +6,8 @@
 #        ADMIN_PASSWORD=xxx bash scripts/recover.sh     # 覆盖管理员密码
 #        RECOVER_DRYRUN=1 bash scripts/recover.sh       # 演练模式: 只打印将执行的动作,
 #                                                       # 不安装/不建库/不启动/不引导
+#        RECOVER_START_TASKS=1 bash scripts/recover.sh  # [R68-d] bootstrap 后自动启动
+#                                                       # 本次新建的任务(已存在的任务不动)
 #
 # 背景: 沙箱重置会 杀进程 + 清空 $HOME 下 Go SDK + 清掉 DB 文件, 导致
 #       3000 端口无人监听 → 预览打不开。本脚本把原本 5 步手工恢复链
@@ -17,7 +19,8 @@
 #   [3/6] 检测 3000 端口, 未监听则后台拉起 bun run dev, 轮询 / 直到 200
 #         (超时 180s —— 首次构建 + 拉模块可能 2~3 分钟)
 #   [4/6] bun run scripts/bootstrap-db.ts 幂等引导(规则/分类/站点/任务,
-#         不带 --start, 不会自动开采集)
+#         不带 --start, 不会自动开采集; RECOVER_START_TASKS=1 时带 --start,
+#         仅自动启动本次新建的任务, 已存在的任务不改动)
 #   [5/6] 检测 dev-watchdog.sh 看门狗, 未运行则后台拉起
 #   [6/6] 打印恢复报告(服务 HTTP 码 / 规则数 / 书数 / 分类数)
 #
@@ -134,11 +137,20 @@ fi
 ADMIN_PASSWORD="${ADMIN_PASSWORD:-audit-fix-2025}"
 export ADMIN_PASSWORD
 if [ "$http_code" = "200" ]; then
-  say "[4/6] 运行 bootstrap-db.ts (幂等引导, 不带 --start 不自动开采集)"
-  if [ "$DRYRUN" = "1" ]; then
-    echo "  [dryrun] 将执行: bun run scripts/bootstrap-db.ts"
+  if [ "${RECOVER_START_TASKS:-0}" = "1" ]; then
+    say "[4/6] 运行 bootstrap-db.ts --start (幂等引导; 本次新建任务自动启动, 已存在的不动)"
+    if [ "$DRYRUN" = "1" ]; then
+      echo "  [dryrun] 将执行: bun run scripts/bootstrap-db.ts --start"
+    else
+      bun run scripts/bootstrap-db.ts --start || warn "bootstrap 失败 —— 服务未就绪/密码不符? 可稍后单独重跑: bun run scripts/bootstrap-db.ts"
+    fi
   else
-    bun run scripts/bootstrap-db.ts || warn "bootstrap 失败 —— 服务未就绪/密码不符? 可稍后单独重跑: bun run scripts/bootstrap-db.ts"
+    say "[4/6] 运行 bootstrap-db.ts (幂等引导, 不带 --start 不自动开采集)"
+    if [ "$DRYRUN" = "1" ]; then
+      echo "  [dryrun] 将执行: bun run scripts/bootstrap-db.ts"
+    else
+      bun run scripts/bootstrap-db.ts || warn "bootstrap 失败 —— 服务未就绪/密码不符? 可稍后单独重跑: bun run scripts/bootstrap-db.ts"
+    fi
   fi
 else
   warn "[4/6] 服务未探活(HTTP $http_code), 跳过 bootstrap; 服务就绪后请手动跑: bun run scripts/bootstrap-db.ts"
@@ -169,6 +181,8 @@ if pgrep -f 'scripts/dev-watchdog.sh' >/dev/null 2>&1; then
 else
   echo "  看门狗   : 未运行 (!) — 手动: ( setsid nohup bash scripts/dev-watchdog.sh > /tmp/watchdog.log 2>&1 < /dev/null & )"
 fi
+echo "  任务续采 : 服务重启后被收编为 paused 的任务 → 后台「采集任务」页点「启动」,"
+echo "             或 POST /api/admin/tasks/{id}/control --data '{\"action\":\"start\"}' 续采(断点不丢)"
 
 if [ "$http_code" = "200" ]; then
   stats_json="$(curl -s --max-time 10 -c "$JAR" -o /dev/null -X POST http://127.0.0.1:3000/api/auth/login \

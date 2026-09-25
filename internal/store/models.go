@@ -115,11 +115,7 @@ func (d *DB) GetRuleConfig(ruleID string) (name string, config string, err error
 	return name, config, err
 }
 
-// UpdateTaskStatus 状态迁移(恒带 updatedAt)。
-func (d *DB) UpdateTaskStatus(id, status string) error {
-	_, err := d.Exec(`UPDATE "Task" SET status=?, updatedAt=? WHERE id=?`, status, NowMS(), id)
-	return err
-}
+// [R67/R68 死代码清退] UpdateTaskStatus 删除(被 UpdateTaskStatusIf 取代, api+engine 全用后者)。
 
 // UpdateTaskStatusIf 条件状态迁移(防并发双写, 对齐 R54 清扫器条件写收口); 返回是否实际更新。
 func (d *DB) UpdateTaskStatusIf(id, status, expectFrom string) (bool, error) {

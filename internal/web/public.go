@@ -99,11 +99,21 @@ var navFloatCats = []string{
 	"游戏竞技", "科幻未来", "悬疑灵异", "体育竞技", "耽美纯爱", "同人衍生", "现实百态",
 }
 
+// pageLink 数字页码项(N=页码, URL=该页链接; [R68-c] aijjxs 分类页对齐源站数字分页形态)。
+type pageLink struct {
+	N   int
+	URL string
+}
+
 // pager 分页数据(上一页/下一页/计数)。
 type pager struct {
 	Page, TotalPages int
 	Total            int64
 	PrevURL, NextURL string
+	// [R68-c] 源站 aijjxs 分类页 .pager 形态: 总数徽标 + 数字页码窗口(1..N) + 下一页/尾页。
+	// Pages 为以当前页为中心 ±4 贴齐边界的窗口(最多 10 个), LastURL 仅非末页时非空。
+	Pages   []pageLink
+	LastURL string
 }
 
 func makePager(page int, total int64, size int, urlFor func(int) string) pager {
@@ -117,6 +127,22 @@ func makePager(page int, total int64, size int, urlFor func(int) string) pager {
 	}
 	if page < tp {
 		p.NextURL = urlFor(page + 1)
+		p.LastURL = urlFor(tp)
+	}
+	// [R68-c] 数字窗口: start=page-4 贴左界, end=start+9 贴右界, 右界触发时窗口回移补满 10 个。
+	start := page - 4
+	if start < 1 {
+		start = 1
+	}
+	end := start + 9
+	if end > tp {
+		end = tp
+	}
+	if end-start+1 >= 10 {
+		start = end - 9
+	}
+	for i := start; i <= end; i++ {
+		p.Pages = append(p.Pages, pageLink{N: i, URL: urlFor(i)})
 	}
 	return p
 }

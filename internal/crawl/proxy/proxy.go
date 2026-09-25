@@ -511,7 +511,7 @@ func (h *Harvester) insertFresh(ctx context.Context, batch []ParsedProxy) (int64
 		}
 		res, err := h.db.ExecContext(ctx,
 			`INSERT INTO "FreeProxy" (id, protocol, host, port, country, anonymity, source, lastError, createdAt, updatedAt)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, '', ?, ?)`,
+                         VALUES (?, ?, ?, ?, ?, ?, ?, '', ?, ?)`,
 			h.newID(), p.Protocol, p.Host, p.Port, p.Country, p.Anonymity, p.Source, now, now)
 		if err != nil {
 			if isUniqueErr(err) { // 并发收割竞态: 已被收录即幂等跳过
@@ -641,7 +641,7 @@ func (h *Harvester) Check(ctx context.Context, opts CheckOptions) (CheckResult, 
 		orderBy = "lastCheckedAt ASC, healthScore DESC"
 	}
 	query := `SELECT id, protocol, host, port, anonymity, country, healthScore FROM "FreeProxy"
-		WHERE ` + strings.Join(where, " AND ") + ` ORDER BY ` + orderBy + ` LIMIT ?`
+                WHERE ` + strings.Join(where, " AND ") + ` ORDER BY ` + orderBy + ` LIMIT ?`
 	args = append(args, limit)
 	rows, err := h.db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -856,7 +856,12 @@ func dialSOCKS4(ctx context.Context, proxyAddr, targetHost string, targetPort in
 
 	req := []byte{0x04, 0x01, byte(targetPort >> 8), byte(targetPort & 0xFF), ip[0], ip[1], ip[2], ip[3], 0x00}
 	if useSocks4a {
-		req = append(req[:len(req)-1], []byte(targetHost+"\x00")...) // 去尾部 NULL 后附 hostname+NULL
+		// [R68-a] 4a 规范线形: USERID 终止 NUL 必须保留, hostname+NUL 追加其后
+		// (socks4a 协议: VER CMD DSTPORT DSTIP=0.0.0.x USERID NUL HOSTNAME NUL)。
+		// 修前 append(req[:len(req)-1], ...) 把 USERID 终止 NUL 剥掉 —— 严格解析的
+		// 服务端会把 hostname 当 USERID 读, 随后阻塞等待 hostname 终止符 → 握手超时,
+		// 代理被误判死(本地 lenient mock 测不出, 仅真实 4a 服务端暴露)
+		req = append(req, []byte(targetHost+"\x00")...)
 	}
 	if _, err := conn.Write(req); err != nil {
 		conn.Close()
@@ -888,8 +893,8 @@ func (h *Harvester) applyCheckResult(ctx context.Context, row candidateRow, out 
 		}
 		_, err := h.db.ExecContext(ctx,
 			`UPDATE "FreeProxy" SET alive=1, healthScore=?, successCount=successCount+1, latencyMs=?,
-			 country=CASE WHEN ?<>'' THEN ? ELSE country END, countryName=?, exitIp=?, anonymity=?,
-			 lastError='', lastCheckedAt=?, lastSuccessAt=?, updatedAt=? WHERE id=?`,
+                         country=CASE WHEN ?<>'' THEN ? ELSE country END, countryName=?, exitIp=?, anonymity=?,
+                         lastError='', lastCheckedAt=?, lastSuccessAt=?, updatedAt=? WHERE id=?`,
 			score, out.latencyMs, out.country, out.country, out.countryName, out.exitIp,
 			deriveAnonymity(row.Anonymity, row.Host, out.exitIp), now, now, now, row.ID)
 		_ = err // 单行回写失败不影响整轮(下轮 stale 模式可复验)
@@ -899,7 +904,7 @@ func (h *Harvester) applyCheckResult(ctx context.Context, row candidateRow, out 
 	lastErr := truncate(proxyKey+" → "+out.err, 200)
 	_, err := h.db.ExecContext(ctx,
 		`UPDATE "FreeProxy" SET alive=0, healthScore=?, failCount=failCount+1, lastError=?,
-		 lastCheckedAt=?, updatedAt=? WHERE id=?`,
+                 lastCheckedAt=?, updatedAt=? WHERE id=?`,
 		score, lastErr, now, now, row.ID)
 	_ = err
 }

@@ -1268,7 +1268,9 @@ func cleanTextFieldMinimal(raw string, maxLen int) string {
 	v = html.UnescapeString(v)
 	v = ctrlRe.ReplaceAllString(v, "")
 	v = invisibleCharsRe.ReplaceAllString(v, "")
-	// 空白折叠(\s+ → ' ', 含全角空格族; 对齐 TS R22-b-1)
+	// 空白折叠(→ ' ', 含全角空格族; 对齐 TS R22-b-1)。[R68-b] 修前裸 \s+ 不含
+	// U+00A0/U+3000 等 unicode 空白(注释宣称"含全角空格族"与实现相悖) —— "连载\xa0中"
+	// 类 status/keywords/latestChapter 值把 nbsp/全角空格原样带入字段
 	v = collapseSpaceRe.ReplaceAllString(v, " ")
 	v = strings.TrimSpace(v)
 	if maxLen > 0 {
@@ -1280,4 +1282,6 @@ func cleanTextFieldMinimal(raw string, maxLen int) string {
 	return v
 }
 
-var collapseSpaceRe = regexp.MustCompile(`\s+`)
+// collapseSpaceRe 空白折叠类 = JS \s 全集 + unicode 空格族(对齐 clean 包 jsSpaceRe 口径;
+// raw string 内用 \x{...} RE2 形式, 禁 \uXXXX 转义)
+var collapseSpaceRe = regexp.MustCompile(`[\t\n\v\f\r \x{00a0}\x{1680}\x{2000}-\x{200a}\x{2028}\x{2029}\x{202f}\x{205f}\x{3000}\x{feff}]+`)

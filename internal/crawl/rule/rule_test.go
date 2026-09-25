@@ -430,3 +430,23 @@ func TestRegexExtractParticipatingEmptyGroup(t *testing.T) {
 		t.Fatalf("attr unset group = %q, want ac", got)
 	}
 }
+
+// TestR68bCollapseSpaceUnicodeFieldValues [R68-b] 字段值空白折叠 unicode 补全回归:
+// 修前 collapseSpaceRe 裸 \s+ 不含 U+00A0/U+3000/U+2005/U+FEFF 等 unicode 空白
+// (注释宣称"含全角空格族"与实现相悖) —— "连载\xa0中"类 status/keywords 值把
+// nbsp/全角空格原样带入字段。
+func TestR68bCollapseSpaceUnicodeFieldValues(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"连载\u00a0中", "连载 中"},
+		{"\u3000仙侠\u3000", "仙侠"},
+		{"\ufeff玄幻推荐", "玄幻推荐"},
+		{"a\u2005b", "a b"},
+		{"连载\u2028中", "连载 中"},
+		{"普通\t空白\n折叠", "普通 空白 折叠"},
+	}
+	for _, c := range cases {
+		if got := cleanTextFieldMinimal(c.in, 0); got != c.want {
+			t.Fatalf("cleanTextFieldMinimal(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}

@@ -254,3 +254,101 @@ Stage Summary:
 - 阅读页正文默认底色与页面整体底色一致已落地并三层验证: ①DOM computed: 默认态卡底 rgba(0,0,0,0)+txt 无内联涂色+is-pagebg 挂载+0 色块高亮 ②交互闭环: 选色→涂色+玻璃卡恢复+localStorage 记忆→刷新持久化→清偏好回归页面底色 ③像素实证: 卡内 (238,229,215) 与同水平线页面底色三采样逐像素相等(对照玻璃标题卡 249,244,234 偏亮符合设计)
 - 隔离性: 其余 10 主题行为零变化(守卫判据+守卫外代码路径不变); 375px 移动端同验证通过; 浏览器 console 零错误
 - 用户选色后暂无"回归页面底色"色块入口(清 localStorage 可回归), 记为可选后续项
+
+---
+Task ID: R68-d
+Agent: R68-d
+Task: item 12 图文部署教程重写 + item 6 自愈启动链落地(「预览总是挂掉」根治)
+
+Work Log:
+- 开局补课: 通读 worklog 归档指针+R65~R67 各条(重点 R66-d 归档制/README 三机制口径/.zscripts 平台零触碰; R67-d INSTALL-GUIDE 核对基线); 环境实况采集: :3000 存活(200)+看门狗在跑+go-sdk 1.24.5 在位+db 16M 在位; 全程零 kill/restart, 运行服务与采集任务零触碰(终验 uptimeMs 连续, 任务 running 状态贯穿全轮)
+- [关键事实核证] GOTOOLCHAIN 双版本口径: install-go.sh 装 1.24.5 基础工具链, go.mod 声明 1.26.0 → 项目内 go 命令经 GOTOOLCHAIN=auto 自动切 1.26.0(缓存 ~/go/pkg/mod/toolchain@*, 项目外 version 显示 1.24.5 属正常); store.Open 零迁移实证(db.go: 缺核心表直接 fatal "table missing/incompatible", 推翻旧教程「服务自动建表」陈述); clone URL 对齐: git ls-remote 双证 mhgl.git main==本地 HEAD(378fc48), heis.git main 异 hash(46eaca24)=陈旧镜像 → origin mhgl.git 为权威
+- [item 6 落地] scripts/dev-go.sh 自愈化(+75 行): ①go 缺失→自动 install-go.sh 幂等安装+re-export 重检(显式 GO_SDK_BIN 指向缺失时尊重定制位只报错不自装; 安装失败友好报错 exit 1, 修 set -e 短路吞消息问题); ②DB 缺失/0 字节/缺核心表(Task/Book/Chapter/Rule/Category, python3 sqlite 深查无 python3 时文件非空按可用)→DATABASE_URL 按 DB_PATH 绝对路径对齐 bunx prisma db push 建表(联调 DB_PATH 覆盖语义保持)→构建完成后挂后台探活子壳(300s 窗, 放构建后避免首次构建吃掉额度): 服务 200 后自动 bootstrap-db.ts 幂等引导(35 规则/16 分类/默认站点/3 任务不自动开采); 总开关 MHGL_AUTO_BOOTSTRAP=0 整套关闭; 增量构建/exec 形态/PORT/DB_PATH/MEM_LIMIT_MB 覆盖逐字不变
+- [item 6 隔离验证(在线服务零风险)] bash -n 4 脚本全过; /tmp/r68d-test 桩件干跑(仅 go build/exec/prisma push/bootstrap/超时常量 5 处替换为 echo/加速, 检测逻辑字节级同源, PORT=5999 防误连线上): T1b go缺+DB缺双自愈全链过/T1c 安装失败友好报错 exit 1 过/T2 开关关闭过/T3 GO_SDK_BIN 显式缺失 exit 1 不自装过/T4 完整库跳过过/T5 0 字节库触发过/T6 有文件无核心表触发过; 真实库 db_ready 等价逻辑 mode=ro 核验 True(现网行为=跳过自愈, 与旧版一致); 插曲如实记录: T1c 首跑 sed 锚定失误致真实 install-go.sh 实装 1.24.5 进 /tmp/r68d-test/fakehome3(非 $HOME 非系统目录, 已清理, 生产 ~/go-sdk 未动)
+- [item 6 顺手微调] recover.sh: 新增 RECOVER_START_TASKS=1(bootstrap 后自动启动本次新建任务, 已存在任务不动)+[6/6] 报告新增「任务续采」行(paused 任务后台「启动」或 POST control {"action":"start"}); RECOVER_DRYRUN=1 对在线服务实跑验证全绿(报告: 200/35 规则/5 书/16 分类); install-go.sh 陈旧「run.sh 会自动加 PATH」注释修正为 dev-go.sh/recover.sh 现役口径; README: 预览挂掉→recover.sh 显眼化(快速开始醒目提示块)+新增「故障排查速查」表 5 行(预览挂/go not found/端口占/paused 续采/GBK 乱码)+常用命令表与 scripts 约定同步自愈化口径+clone URL 修正 heis.git→mhgl.git(origin 实证; DEPLOY.md 同病灶不属领地只报告)
+- [item 12 落地] docs/INSTALL-GUIDE.md 全文重写(646 行 diff, 十章+极简清单): §1 前置条件(硬件表/bun 官方 curl+版本样例/git/Go 两路径+GOTOOLCHAIN 双版本口径细讲); §2 获取代码(clone+11 目录逐一注解+.env 四行起步); §3 数据库初始化(零迁移机制澄清框→prisma db push 预期输出→bootstrap 装什么五件套表格+预期输出→迁移路径); §4 启动(bun run dev 真实链路 ASCII 图解/首次构建耗时表/200+healthz 验证/联调覆盖/自愈行为表+关闭开关/常驻两形态/Secure Cookie R62-f 要点保留); §5 看门狗(15s 拉起+日志路径表+自建部署改路径提醒); §6 管理后台(登录/密码三口径/导航/任务三模式与参数/代理池/主题 11 套); §7 recover.sh(使用场景/六步逐条表格/DRYRUN+START_TASKS+ADMIN_PASSWORD/恢复资产表/预览挂掉根因科普表); §8 数据备份三类三机制(与 README 逐字同口径); §9 FAQ 十问(全部含可直接复制命令); 附一分钟清单; 4 张新截图对应插入 §4.3/§6.1/§6.2/§6.3
+- [item 12 截图] agent-browser 实拍在线站点(1360×900): install-01-home 前台首页/install-02-admin-login 登录页/install-03-admin-dashboard 登录后仪表盘(真实登录流程)/install-04-admin-tasks 任务管理页; PIL 校验 5 张全非空白(采样数百 distinct colors)+尺寸齐; 删除与 04 重复的整页版; 截图内容审计: 公开页+任务名/进度, 无 token/密钥泄露
+- [收尾门禁] bash -n scripts/*.sh 全过; 教程图片引用 4/4 文件存在; 教程引用脚本/文档 10/10 存在; 禁词核查零(无 history rewrite/force push/Docker 操作指引, 仅「不需要 Docker」合法表述); 服务终态: 200+healthz ok+任务 running 未受扰; 未动领地: internal//web//prisma//package.json/.zscripts/worklog 外协作档案零触碰(git status 中 internal/* web/static/* 修改均为并行 agent WIP)
+
+Stage Summary:
+- item 6 交付: dev-go.sh 自愈化双分支(go 自装+DB 自举)落地并 7 场景桩件验证全过, MHGL_AUTO_BOOTSTRAP=0 可关, 现网行为零变化(db_ready 只读核验); recover.sh +RECOVER_START_TASKS+任务续采报告行; install-go.sh 注释现役化; README 预览挂掉速查显眼化+clone URL 对齐 origin(附 DEPLOY.md 同病灶报告)——沙箱重置三连杀(进程/SDK/DB)从「手动 recover 才能救」升级为「bun run dev 即自愈, recover.sh 兜底复核」双层防线
+- item 12 交付: INSTALL-GUIDE.md 面向从零部署者全重写(十章结构/每步预期输出/命令逐一与仓库现役核对), 纠正旧教程两处失实(「服务自动建表」→零迁移必须 prisma push; install-go 版本口径→1.24.5+GOTOOLCHAIN 1.26 双层真相); 4 张 install-XX 新截图; 备份件 INSTALL-GUIDE-r52.bak.md 未动(遵 R66-d/R67-d 裁定)
+- 验证证据: bash -n 全绿/T1b~T6 桩件矩阵/recover.sh DRYRUN 实跑报告/图片引用 4/4+引用文件 10/10/禁词零/服务存活+任务未受扰
+- 移交报告: ①DEPLOY.md(非领地)clone URL 仍指 heis.git 陈旧镜像, 建议主控同步改 mhgl.git ②dev-watchdog.sh 硬编码 cd /home/z/my-project(沙箱路径), 自建部署需手改, 教程已注明, 通用化(动态取项目根)留后续轮评估 ③install-go.sh GO_VER=1.24.5+go.mod 1.26.0 依赖 GOTOOLCHAIN 网络下载, 若想免二次下载可评估直接钉 1.26.0(本轮保守未动, 现行为实证可用)
+---
+---
+Task ID: R68-a
+Agent: R68-a(断连, 主控代录)
+Task: items 2/8 反反爬增强+引擎逐行抓虫
+
+Work Log:
+- [取证核实] rawFetch 闸门按候选 host 归属: 修前整条 mirror 链共用主 host 闸(镜像 host 无 pacing 汇聚点+镜像 429/503 误把主站闸打入冷却窗+「429 换镜像不受本 host 冷却约束」承诺未兑现); 修后每候选按自身 host 取闸换闸
+- [主控补修 R68-a-fix] 候选循环两缺口: ①同 host 双候选(MirrorDomains 重复配置成对同域, mirrorGroup 实证可产出)②urlHostOf 失败返回 "" 不触发换闸 —— 两形态都在未持闸状态进入 attempts 循环(绕过 pacing+错误路径无条件 release 超发闸票); 修后「进 attempt 前置闸」不变式+release 按 gateHeld 状态精确收放
+- [取证核实] Cf-Mitigated: challenge 响应头判定接线(CF 官方挑战信令, body 特征缺失时的零误伤补判; blockcheck 出口判定取或)
+- [取证核实] blockcheck 词表扩充: strongBlockMarkers 补 challenges.cloudflare.com(Turnstile 组件/托管挑战脚本宿主); weakBlockMarkers 补中文 WAP 拦截文案族(访问过于频繁/请开启浏览器javascript/启用javascript, 短页无标题才扫, 正常标题豁免不误伤)
+- [取证核实] proxy.go SOCKS4a 握手规范线形修复: 修前 append(req[:len-1],hostname+NUL) 剥掉 USERID 终止 NUL, 严格解析的 4a 服务端把 hostname 当 USERID 读→握手超时代理被误判死; 修后 USERID NUL 保留+hostname NUL 追加其后
+- [取证核实] queue.go 两修: ①stop 引发的列表页请求取消不计失败(与 pipeline stopInterrupted 口径一致)②列表页 200 壳拦截页按等价 HTTP 403 处置(计失败+推进连败链+熔断尊重; 修前 Blocked 结果 err=nil 落解析层 0 条新增被误诊「已越过站点末页」且 stats.Errors 零记账)
+- [回归测试 4 件套(主控补齐落地)] r68a_test.go: Cf-Mitigated 头挑战走重试链(1+min(Retries,2) 请求预算)/blockcheck 新词表正反例(强标记无豁免+弱标记正常标题豁免 n≥1200)/mirrorGroup 同 host 候选对存在性证明/rawFetch 同 host 双候选闸票收放不变式(503+Retry-After:1 钳冷却窗 2s 级跑完; 两轮全败后恢复源站闸状态完好)
+- [时间盒外如实] utls TLS 指纹评估未完成(断连); 头序随机化维持 R67-a「需 fork net/http 只留档」结论不变
+
+Stage Summary:
+- 4 真虫修复: mirror 链闸门误责+无 pacing 汇聚/Cf-Mitigated 信令漏判/SOCKS4a 握手剥 NUL/queue 拦截页零记账误诊
+- 主控补修闸门持闸不变式缺口(同 host 双候选超发闸票); 回归测试 4 件套+task 包 2 件全部落地
+- 门禁: gofmt 零/vet 零/fetch+task+rule+clean 测试全绿/build OK
+
+---
+Task ID: R68-b
+Agent: R68-b(断连, 主控代录)
+Task: item 11 每条规则噪声清洗核验+clean/rule 逐行抓虫
+
+Work Log:
+- [取证核实] clean.go 缺省广告词表补 3 条生产 DB 旁证模式(万相之王/xyetianlian 现役残留): ①杰奇CMS 书页页脚水印行(作者：X所写的《Y》无弹窗…转载作品, 收入缺省表使 intro/content 双出口覆盖)②翻页标记变体(本章未完+点击…继续阅读, 方括号/箭头残尾形态)③书名【】空壳推广行(【X】+空白+空【】)
+- [取证核实] rule/parse.go collapseSpaceRe 空白折叠类补全 unicode 空白族(U+00A0/U+3000/U+2000-200A/U+2028/2029/U+202F/U+205F/U+FEFF; 修前裸 \s+ 不含, 注释宣称"含全角空格族"与实现相悖, "连载\xa0中"类字段值原样带 nbsp)
+- [主控补齐回归测试] clean_test.go TestR68bJieqiFooterAndPagerPatterns(3 正例+3 防误伤反例+整体回收断言); rule_test.go TestR68bCollapseSpaceUnicodeFieldValues(6 用例含 U+2005/U+2028/U+FEFF)
+- [主控生产旁证复核] 只读副本抽检最新 400 章: 杰奇页脚水印 0/翻页变体 0/空壳推广 0/URL 行 0/U+3000 壳 0; nbsp 68/400 经上下文抽样判定均为正文合法形态(章节标题分隔符/英文名/段首缩进), 非噪声无需处理
+- [时间盒外如实] 35 条规则×四阶段全矩阵实测未完成(断连); 本轮交付=生产数据旁证+清洗面增强+历史 bug 回归(R63-d/R66-b 既有测试全绿)
+
+Stage Summary:
+- 缺省清洗词表+3 生产实证模式(含防误伤反例); 字段值空白折叠 unicode 补全
+- 生产旁证: 新采集面 5 类噪声 0 残留; nbsp 判定合法形态
+- 门禁: clean+rule+fetch+task 测试全绿; builtin_rules.json 零改动(35 条)
+
+---
+Task ID: R68-c
+Agent: R68-c(断连, 主控代录)
+Task: items 5/10 主题回源 1:1 对比+每主题每页面核实+aijjxs 回归底色入口
+
+Work Log:
+- [取证核实] aijjxs 分类页 1:1 数字分页(public.go pager 扩展 Pages±4 窗口最多 10 个+LastURL 尾页; category.html 总数徽标+数字页码+当前页 b 标记; site.css .ajx-pager>b 品牌底 34×30 对齐源站 .pager 形态) —— 浏览器实证: 总数徽标 5+当前页渲染+样式(brand 底/30px/34px)全中
+- [取证核实] aijjxs 对齐源站终态 4 处: 顶栏三停暗红渐变+内阴影立体化(原单色)/logo 深橙棕 800+text-shadow+品牌渐变短划(R59 素色口径过时)/listbg 封面 92×128 左留 118(修前 112×154/148 为真站 HTML 属性值非 CSS 终态)/移动端 listbg 100px 槽 76×104+圆角 12
+- [取证核实] aijjxs 书页作者其它作品栏(模板挂点 {{if .AuthorOthers}} has-side 本就存在而 CSS 缺失): 补 .has-side 三列 grid+第三列虚线暖底卡+900/680 断点响应式; 当前 DB 无同作者多书故不渲染(逻辑自洽, 有数据即现)
+- [取证核实] aijjxs 阅读页: 页脚暖渐变圆角卡+回到顶部钮 read 页 bottom 18px(其余页 88px)+搜索框 placeholder 对齐源站文案+6 色块源站命名(蓝色回忆/灰色天空/青山不老/粉红世家/明黄清俊/雪白世界)
+- [取证核实] R67-fix 遗留项落地: 「回归页面底色」色块(.ajx-c-restore 米黄渐变打底+斜杠示意清除, data-bg="" 清偏好) —— 浏览器闭环实证: 7 色块挂载/选色→玻璃卡恢复+localStorage 记忆/回归→透明+is-pagebg+记忆清空/刷新持久化; R67-fix 默认态零回归
+- [取证核实] 其余主题 is-active 选中态补齐(kks101/pili/shipsay/trxsw 阅读工具条修前无选中反馈; 色取自各主题品牌色, 作用域 .clone-{id} 零越界); pili 阅读页三处对齐源站 read.css(标题 24px/32px+min-height 600px+边框 #d8d8d8)
+- [主控收尾] 4 主题 CSS 缓存戳同步 bump ?v=r68-c(kks101/pili/shipsay/trxsw, 静态 css 磁盘服务配合缓存破除); aijjxs layout 戳 R68-c agent 已自更
+- [时间盒外如实] 其余 6 主题(ddyueshu/x2552/huangjinwu/ggd66/qb23/shipsay 页面级)逐页回源对比未完成(断连); 源站可访问性差异大(pili CF 防护等), 已完成主题均以实测源站 CSS 为据
+
+Stage Summary:
+- aijjxs 分类分页 1:1+顶栏/logo/封面卡/阅读页脚 5 处对齐源站终态+回归底色入口闭环
+- 4 主题工具条选中态补齐+pili 阅读页 3 处对齐; 缓存戳 5 主题同步 r68-c
+- 浏览器终验: 阅读页交互闭环/分类分页渲染/375px 零溢出/console 零错误
+
+---
+Task ID: R68-final
+Agent: main-controller
+Task: R68 收口(开局恢复+预览根因+4 agent 核收+死代码清退+门禁+部署+浏览器终验+commit)
+
+Work Log:
+- 开局: 沙箱第五次重置(进程/go/db 全空)→ recover.sh 一键恢复全链实证(装 go1.26/prisma db push/bootstrap 35 规则 16 分类 3 任务/看门狗); 新任务 ID 由 bootstrap 生成
+- item 4: 三任务启动快速填充 —— yueyouxs 跑完(2 本大部头)/xyetianlian running(万相之王 1838 章完+女帝转生 8188 章推进)/xbqg777 running(固化降速); 数据面 7 书/11910 章(10767 已采正文)
+- item 6 根因闭环: 「预览总是挂掉」=沙箱重置杀进程+清 $HOME Go SDK+清 DB→3000 无人监听; 平台引导链 .zscripts/dev.sh→bun run dev→dev-go.sh 修前 go 缺失直接 exit 1 不自安装+DB 缺失不自举; R68-d 落地 dev-go.sh 自愈化(go 缺失自动 install-go.sh/DB 缺失自动 prisma db push+bootstrap, MHGL_AUTO_BOOTSTRAP=0 可关)+recover.sh RECOVER_START_TASKS=1+README 故障排查速查表; 本轮实测 recover.sh 兜底链路全程有效
+- R68-a/b/c 断连核收: 工作树取证(git diff -w 区分格式噪音/真实变更 682 行)+逐 hunk 审+fetch.go 闸门持闸不变式缺口补修+回归测试 6 件补齐落地(fetch 4/clean 1/rule 1)+task queue 2 件+worklog 代录
+- item 3/9 死代码清退 9 项全落地(R66-d 报告主控定夺): store 7(UpdateTaskStatus/SetSettingJSON/ChapterURLIndex/InsertChapter/SiteByDomain/ListEnabledSites/WebBookDetail)+crawl 2(Manager.UptimeMs/Client.FetchContent; 测试调用点改 FetchContentRef 等价); 每项留注释指向替代口径
+- 全门禁: gofmt 零/vet 零/15 包 test 全绿(fetch 30.7s 含新回归)/build OK; 4 主题缓存戳 bump r68-c
+- 部署: 重建二进制→pkill→watchdog 5s 拉起→三任务 control start 恢复→数据面推进实证
+- 浏览器终验: 首页 7 书全呈现/书籍页标题正常/阅读页回归色块 7 挂载+选色回归双向闭环+localStorage 记忆/刷新持久化/分类页数字分页(总数徽标+当前页 b 品牌底 34×30)/375px 零溢出+封面 76px/console 零错误
+- DEPLOY.md clone URL heis.git→mhgl.git(R68-d 移交项, git ls-remote 双证口径)
+
+Stage Summary:
+- R68 全 12 条交付: ①⑦遗留(kv DELETE 上轮已落地/R66-a 头序留档维持)+②⑧引擎 5 虫修复+反反爬(Cf-Mitigated 信令/词表扩充/闸门不变式)+③⑨死代码 9 项清退+④采集填充(7 书 11910 章实证)+⑤⑩aijjxs 深度对齐+4 主题选中态+⑥预览根因自愈链落地+⑪清洗增强+生产旁证+⑫图文教程重写(646 行 diff+4 截图)
+- 移交下轮: 35 规则×四阶段全矩阵实测(R68-b 时间盒)/其余 6 主题逐页回源(R68-c 时间盒)/utls 评估留档/同作者多书数据后 author-side 栏视觉复验/token 轮换持续提醒

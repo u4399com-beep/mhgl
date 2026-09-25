@@ -46,7 +46,7 @@ func TestContentProxyNoMirrorRotation(t *testing.T) {
 	})
 	defer c.Close()
 
-	res, err := c.FetchContent(context.Background(), "http://target.example/book/1.html")
+	res, err := c.FetchContentRef(context.Background(), "http://target.example/book/1.html", "")
 	// 修后: 镜像零请求; 主代理 500 → 降级直连 target.example(DNS 不可达) → 最终错误
 	if err == nil {
 		t.Fatalf("主代理 500+直连不可达应报错; got res.HTML=%q", res.HTML)

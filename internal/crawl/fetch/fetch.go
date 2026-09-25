@@ -18,6 +18,10 @@
 // 纳入 SSRF 拒绝面 / 负 Retries 零值防御
 // / 头序评估结论: Go 标准库 h1 头序为字典序不可控, 头序仿真需 fork net/http,
 // 只评估不动手(详见 fingerprint.go 文件头与 worklog R67-a)
+// / [R68-a] 逐行抓虫: rawFetch 闸门按候选 host 归属(修前 mirror 链共用主 host 闸 —
+// 镜像 host 无 pacing 汇聚点 + 镜像 429/503 误把主站闸打入冷却窗 + 「429 换镜像不受
+// 本 host 冷却约束」承诺未兑现); Cf-Mitigated: challenge 响应头判定接线(blockcheck
+// 出口判定取或, CF 官方挑战信令零误伤补判)
 // 语义权威: /home/z/my-project/src/lib/crawl/fetcher.ts(子集移植)
 // ============================================================
 package fetch
@@ -1022,11 +1026,8 @@ func (c *Client) FetchBinary(ctx context.Context, rawURL string) ([]byte, string
 	return res.body, res.contentType, nil
 }
 
-// FetchContent content 段抓取: contentProxyUrl 包裹优先(响应 JSON {ok,content} 或纯文本行
-// → <p> wrap), 失败降级直连原 URL(契约 §4)。无 Referer 形态, 委托 FetchContentRef
-func (c *Client) FetchContent(ctx context.Context, rawURL string) (Result, error) {
-	return c.FetchContentRef(ctx, rawURL, "")
-}
+// [R67/R68 死代码清退] FetchContent 删除(无 Referer 包装壳零生产消费者;
+// 生产 contentProxy 经 fetchConfig 直配 engine/rule 面, 正文段恒走 FetchContentRef)。
 
 // FetchContentRef 带 Referer 的正文段抓取: contentProxyUrl 包裹优先, 降级直连时
 // 注入显式 Referer(契约 §4 refererChain: 章节页带目录页 Referer)
@@ -1132,19 +1133,6 @@ func (c *Client) rawFetch(ctx context.Context, rawURL, refererURL string, direct
 		primaryHost = strings.ToLower(u.Host)
 		primaryHostname = strings.ToLower(u.Hostname())
 	}
-	gate := c.gateFor(primaryHost)
-	if err := gate.acquire(ctx); err != nil {
-		return rawResult{}, err
-	}
-	// [R52-5 P3] 持闸所有权跟踪: 退避 sleep 前 release、醒后 re-acquire(合并 R51-3-a ⑥
-	// 「重试间 release+re-acquire」为一处) —— 修前退避 400ms~8s 期间持闸空睡, 同 host
-	// 其他请求被无谓阻塞; defer 按 gateHeld 精确释放一次, 防 acquire 中断路径重复 release
-	gateHeld := true
-	defer func() {
-		if gateHeld {
-			gate.release()
-		}
-	}()
 
 	// [R63-c] 内部通道(contentProxy/token 直连, loopbackExempt=true)不做镜像组展开:
 	// mirrorGroup 会把 contentProxy URL 的 host 改写成源站镜像域 —— bqg713 实配
@@ -1161,7 +1149,48 @@ func (c *Client) rawFetch(ctx context.Context, rawURL, refererURL string, direct
 	// [R53-2a] 非 403/429 的 4xx(400/401/405/412...)不可切换镜像(TS isMirrorSwitchableError
 	// 仅 403/5xx 可切换): 同候选退避重试耗尽后快速失败, 不再轮换镜像
 	failNoMirror := false
-	for mi, cand := range group {
+	// [R68-a] 闸门按候选 host 归属(修前整条 mirror 链共用主 host 闸):
+	// ①异 host 镜像候选没有自有闸门 —— 多个主 URL 同时故障切换到同一镜像 host 时,
+	//   各主闸独立放行, 镜像 host 无 pacing 汇聚点(同 host 节奏被绕过);
+	// ②镜像 host 返回的 429/503 会把主 host 闸打入限流冷却窗(误责: 健康主站被镜像
+	//   的限流连坐 30~120s, 与 R53-2a「代理误责」R64-a「取消误责」同类);
+	// ③既有注释声称「429 换镜像目标为异 host, 不受本 host 限流冷却约束」, 实现却经
+	//   同闸 acquire 睡满冷却窗, 注释与行为矛盾。修后每候选按自身 host 取闸, 候选间
+	//   切换不再白吃上一候选的退避(新闸 minGap/冷却窗自带节奏)。
+	// [R52-5 P3] 持闸所有权跟踪: 退避 sleep 前 release、醒后 re-acquire(合并 R51-3-a ⑥
+	// 「重试间 release+re-acquire」为一处) —— 修前退避 400ms~8s 期间持闸空睡, 同 host
+	// 其他请求被无谓阻塞; defer 按 gateHeld 精确释放一次, 防 acquire 中断路径重复 release
+	gate := c.gateFor(primaryHost)
+	gateHost := primaryHost
+	if err := gate.acquire(ctx); err != nil {
+		return rawResult{}, err
+	}
+	gateHeld := true
+	defer func() {
+		if gateHeld {
+			gate.release()
+		}
+	}()
+	for _, cand := range group {
+		if candHost := urlHostOf(cand); candHost != "" && candHost != gateHost {
+			if gateHeld { // 候选末轮失败路径已释放, 此处幂等防御
+				gate.release()
+				gateHeld = false
+			}
+			gate = c.gateFor(candHost)
+			gateHost = candHost
+		}
+		// [R68-a-fix] 候选首 attempt 前必须持闸: ①同 host 连续候选(MirrorDomains 重复
+		// 配置成对同域)上一候选末轮失败已 release; ②urlHostOf 失败(url.Parse 异常返回
+		// "")不触发换闸分支 —— 修前两形态都在未持闸状态进入 attempts 循环: 既绕过
+		// pacing 汇聚点, 错误路径的无条件 release 还会超发闸票(他人 acquire 的空位被
+		// 多放一票)。统一「进 attempt 前置闸」不变式, 换闸分支只负责切归属。
+		if !gateHeld {
+			if err := gate.acquire(ctx); err != nil {
+				return rawResult{}, err
+			}
+			gateHeld = true
+		}
 		for a := 0; a < attempts; a++ {
 			if err := ctx.Err(); err != nil {
 				return rawResult{}, err
@@ -1197,7 +1226,8 @@ func (c *Client) rawFetch(ctx context.Context, rawURL, refererURL string, direct
 				}
 				// [R53-2a](400 壳不喂降额链) 其余非 403/429 的 4xx: 同候选退避重试已按下方
 				// 既有路径进行, 但不换镜像 —— Go 口径 403/429/5xx/网络层失败可切换镜像
-				// (429 换镜像目标为异 host, 不受本 host 限流冷却约束)
+				// ([R68-a] 429 换镜像目标为异 host, 经候选自有闸准入, 不受本 host 限流
+				// 冷却约束 —— 修前同闸 acquire 实际睡满冷却窗, 承诺未兑现)
 				if httpErr.code >= 400 && httpErr.code < 500 && httpErr.code != 403 && httpErr.code != 429 {
 					failNoMirror = true
 				}
@@ -1208,12 +1238,15 @@ func (c *Client) rawFetch(ctx context.Context, rawURL, refererURL string, direct
 				boff = backoffMax
 			}
 			// [R52-5 P3] 退避 sleep 前 release(醒后重过闸): 修前持闸空睡, 同 host 在飞被
-			// 无谓占住一档; 末轮(本候选最后一次尝试)不退避不重过闸 —— 错误即返回, 避免
-			// 无谓再吃一次 minGap/限流冷却等待(与修前时序一致)
-			gate.release()
-			gateHeld = false
-			if a == attempts-1 && mi == len(group)-1 {
-				break // 末候选末轮: 错误即返回, 不退避不重过闸(与修前返回时序一致)
+			// 无谓占住一档; 末轮不退避不重过闸 —— 候选末轮失败直接进入下一候选(其自有
+			// 闸在候选循环顶换闸准入)或返回错误, 不对本 host 白吃一次退避。
+			// [R68-a-fix] 按持闸状态精确释放(修前无条件 release, 未持闸路径会超发闸票)
+			if gateHeld {
+				gate.release()
+				gateHeld = false
+			}
+			if a == attempts-1 {
+				break
 			}
 			_ = util.SleepCtx(ctx, boff+time.Duration(time.Now().UnixNano()%200)*time.Millisecond)
 			// 醒后重过闸(R51-3-a ⑥ 语义合并于此): acquire 内单 timer 阻塞等待, 尊重
@@ -1247,6 +1280,10 @@ type rawResult struct {
 	finalURL    string
 	status      int
 	server      string // Server 头(WAF 联合判定消费)
+	// challengeHdr [R68-a] Cf-Mitigated: challenge 响应头判定(Cloudflare 官方挑战信令,
+	// 仅 CF 在对本次请求下发挑战时携带 —— 200 壳挑战页里 body 特征缺失/非常规形态时
+	// 的零误伤补判信号; 与 looksBlocked 取或, 编排层同按 Blocked 消费)
+	challengeHdr bool
 }
 
 func (r rawResult) bodyText() string { return string(r.body) }
@@ -1418,7 +1455,10 @@ func (c *Client) doOnce(ctx context.Context, rawURL, refererURL string, extraHea
 		// 部分读也当失败(R51-2-b #2: len(body)>0 但中途断流 → 半截正文不得入库)
 		return rawResult{}, readErr
 	}
-	res := rawResult{body: body, contentType: resp.Header.Get("Content-Type"), finalURL: resp.Request.URL.String(), status: resp.StatusCode, server: resp.Header.Get("Server")}
+	// [R68-a] CF 官方挑战信令头: Cf-Mitigated: challenge(大小写不敏感, 头值域
+	// challenge|connectivity 等; 挑战恒 challenge)—— body 特征之前的最强信号
+	challengeHdr := strings.EqualFold(strings.TrimSpace(resp.Header.Get("Cf-Mitigated")), "challenge")
+	res := rawResult{body: body, contentType: resp.Header.Get("Content-Type"), finalURL: resp.Request.URL.String(), status: resp.StatusCode, server: resp.Header.Get("Server"), challengeHdr: challengeHdr}
 	if resp.StatusCode == 404 {
 		// 404 语义对齐 TS !res.ok: 资源不存在即失败, 不交解析层(R51-2-b #8)
 		return res, &httpStatusError{code: 404}
@@ -1568,8 +1608,11 @@ func (c *Client) fetch(ctx context.Context, rawURL, refererURL string, directOnl
 		}
 		charset := rule.SniffCharset([]byte(res.contentType), res.body)
 		htmlStr := rule.DecodeBody(res.body, charset)
-		// 拦截页/挑战壳出口判定(blockcheck.go; 词表语义权威在 TS fetcher.ts)
-		blocked := looksBlocked(htmlStr, res.status, res.server)
+		// 拦截页/挑战壳出口判定(blockcheck.go; 词表语义权威在 TS fetcher.ts)。
+		// [R68-a] 并入 Cf-Mitigated: challenge 响应头判定 —— 该头是 CF 官方挑战信令,
+		// 仅在实际下发挑战时出现, body 特征(JSON 豁免/长页+正常标题)可能漏判的
+		// 零误伤补判信号
+		blocked := looksBlocked(htmlStr, res.status, res.server) || res.challengeHdr
 		if !blocked {
 			return Result{HTML: htmlStr, FinalURL: res.finalURL, StatusCode: res.status}, nil
 		}
