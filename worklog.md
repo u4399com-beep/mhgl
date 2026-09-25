@@ -224,3 +224,16 @@ Work Log:
 Stage Summary:
 - R67 全部交付: 反反爬(逐跳 Referer+指纹自洽三修+头集完整性+SSRF CGNAT)+4 真虫(discovered/1970 幻象/虚高/孤儿文件)+R66 审查 10 项全落地+worklog 归档制(-98%)+主题注册表单一来源
 - 移交下轮: 规则矩阵抽样复验(R67-b 时间盒未做)/死代码 9 项移除决策/头序仿真 fork 评估(留档)/token 轮换持续提醒
+
+---
+Task ID: R67-b-supplement
+Agent: main-controller
+Task: R67-b 遗留矩阵数据打捞(.r67b-work/matrix.jsonl 断连前已产出未及上报)
+
+Work Log:
+- 发现 R67-b 断连前已实测 10 条规则矩阵于 .r67b-work/matrix.jsonl(工作目录被误提交), 数据打捞后补录, 目录清退出库
+
+Stage Summary:
+- 规则矩阵(10 条跨站点结构): PASS 7 = 努努书坊(197 书/toc 14)/飘天文学(toc 9743)/茉莉小说/手机小说(杰奇WAP GBK)/八零电子书(toc 200)/WuxiaWorld Lite(toc 500)/久久小说网(toc 1313)——list/book/toc/content 四阶段全通
+- FAIL 3(均 list 阶段): 同人小说网(上游 502 网络层)/笔趣阁(403——测试端点不应用 contentProxyUrl 的已知语义局限, R65 澄清口径)/错层小说网(反爬拦截页, 需代理+镜像通道, 与固化降速参数场景同族)
+- 结论: 35 规则中抽样 10 条 + R65 实测若干, 规则面总体健康; 3 条 FAIL 属源站网络/反爬形态而非规则 selector 失效
