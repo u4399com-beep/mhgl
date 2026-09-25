@@ -7776,3 +7776,18 @@ Work Log:
 Stage Summary:
 - 9 项智能设置: 8 项全接线 + 1 项(autoSuggest)明确留档闭环, 零悬置
 - 智能TDK 本轮从无到有(18 套预设+随机组合+站群 UI)
+---
+Task ID: R65-final
+Agent: main-controller
+Task: R65 收口（终验+commit+push）
+
+Work Log:
+- 浏览器端到端终验: ①智能 TDK 站群 UI(18 套勾选+5 页类型下拉+保存)→book 页 8 连抓 3 风格随机命中→补勾首页/分类套后 home 4 连 2 风格+category 3 连 2 风格 → 占位符(书名/作者/分类/状态/热词)全部正确; ②规则结构化表单渲染(分区/中文引导/四类选择器下拉)→真实编辑保存 PUT 200→回读语义零丢失(urlTemplate 保留实证)
+- TDK 保留启用状态交付(sets 1/3/7/14-18, pages 全 smart, 站长可在后台自由增减)
+- 门禁终验: gofmt 零/vet 零/14 包 test 全绿/build OK/node --check OK
+- commit 7909674 (22 files, +1736/-21) 推送 GitHub main(远端 R63-d rehash 版 cc48e6c 为本地超集, force-with-lease 安全覆盖, update-ref 对齐)
+
+Stage Summary:
+- R65 全部交付: 规则表单结构化(指令2)/智能TDK 18套(指令3)/智能设置9项审计(指令4)/规则实测矩阵+极限参数三档(指令1)/R64 遗留收口(指令5)
+- 采集任务运行中持续回填(万古神帝 5967/7774+); 数据面 7 书/9000+ 章
+- 遗留移交: 封面文件名双点形态(功能无损留档)/.git 325M 历史评估/Docker 链退役评估(R64-d 报告)/token 轮换提醒(已在聊天暴露需撤销轮换)
