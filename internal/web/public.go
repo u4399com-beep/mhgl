@@ -14,7 +14,9 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
+	"mhgl/internal/crawl/smart"
 	"mhgl/internal/store"
 )
 
@@ -135,6 +137,45 @@ func siteTdkOf(site map[string]any) (title, desc, kw string) {
 	return
 }
 
+// [R65-b] smartTdkFill 智能 TDK 填充: 站点行 smartTdk 配置(JSON, 见 store/site_tdk.go)
+// 开启且当前页类型策略=smart 时, 从启用套中随机选一套经 crawl/smart 引擎渲染 TDK 三件套。
+// 未配置/未开启/无可用套/渲染为空 → ok=false, 调用方走原逻辑(R62 修复语义零回退;
+// 默认关闭, 存量站点零影响)。
+func (d Deps) smartTdkFill(site map[string]any, pageType string, book map[string]any, catName string) (composedTdk, bool) {
+	cfg := smart.ParseSiteCfg(ToStrSafe(site["smartTdk"]))
+	if !cfg.Enabled {
+		return composedTdk{}, false
+	}
+	ctx := smart.TDKCtx{
+		SiteName: siteTitle(site),
+		Year:     time.Now().Format("2006"),
+	}
+	if book != nil {
+		ctx.BookName = plainText(ToStrSafe(book["name"]))
+		ctx.Author = plainText(ToStrSafe(book["author"]))
+		ctx.Category = plainText(ToStrSafe(book["category"]))
+		switch ToStrSafe(book["status"]) {
+		case "completed":
+			ctx.Status = "已完结"
+		case "ongoing":
+			ctx.Status = "连载中"
+		}
+		ctx.Words = store.ToInt(book["wordCount"])
+	}
+	if catName != "" {
+		// 无锚分类页(catName=「全部」)无具体分类语义, 引擎句式会失真 → 回落原逻辑
+		if pageType == smart.PageCategory && catName == "全部" {
+			return composedTdk{}, false
+		}
+		ctx.Category = catName
+	}
+	title, desc, kw := smart.BuildTDK(cfg, ctx, pageType)
+	if strings.TrimSpace(title) == "" || strings.TrimSpace(desc) == "" {
+		return composedTdk{}, false
+	}
+	return composedTdk{Title: title, Description: desc, Keywords: kw}, true
+}
+
 // ---------------- / 与 /?view=... ----------------
 
 func (d Deps) handleRoot(w http.ResponseWriter, r *http.Request) {
@@ -224,6 +265,10 @@ func (d Deps) renderHome(w http.ResponseWriter, r *http.Request, sp map[string][
 	// [R62-b] keywords 空回落(对齐 TS useSiteSEO「小说,在线阅读」; 修前空值整个 meta 不输出)。
 	if sk == "" {
 		sk = "小说,在线阅读"
+	}
+	// [R65-b] 智能 TDK(首页): 站点启用首页套(17/18)时随机生成; 未启用保持上行 R62 修复语义零回退。
+	if td, ok := d.smartTdkFill(site, smart.PageHome, nil, ""); ok {
+		homeTitle, sd, sk = td.Title, td.Description, td.Keywords
 	}
 	canonical := "/"
 	if page > 1 {
@@ -481,6 +526,10 @@ WHERE b.author=? AND b.id<>? ORDER BY b.updatedAt DESC LIMIT 6`, author, bid)
 		sitename: siteTitle(site), status: ToStrSafe(book["status"]),
 		intro: ToStrSafe(book["intro"]), siteKeywords: ToStrSafe(site["keywords"]),
 	})
+	// [R65-b] 智能 TDK(书籍页): 站点启用书籍套时随机生成; 未启用走上行原逻辑零变化。
+	if td, ok := d.smartTdkFill(site, smart.PageBook, book, ""); ok {
+		tdk = td
+	}
 	var canonical string
 	if bnum > 0 {
 		canonical = "/book/" + itoa64local(bnum) + ".html"
@@ -572,6 +621,10 @@ func (d Deps) renderToc(w http.ResponseWriter, r *http.Request, sp map[string][]
 		status: ToStrSafe(book["status"]), chapterCount: strconv.Itoa(total),
 		siteKeywords: ToStrSafe(site["keywords"]),
 	})
+	// [R65-b] 智能 TDK(目录页): 同上, 未启用零变化。
+	if td, ok := d.smartTdkFill(site, smart.PageToc, book, ""); ok {
+		tdk = td
+	}
 	base := tocHref(bid, bnum, sid)
 	head := d.head(r, site, tdk.Title, tdk.Description, "", base)
 
@@ -655,6 +708,10 @@ func (d Deps) renderReadPage(w http.ResponseWriter, r *http.Request, sp map[stri
 		excerpt:      clampCodePoints(plainText(ToStrSafe(ch["content"])), 110),
 		siteKeywords: ToStrSafe(site["keywords"]),
 	})
+	// [R65-b] 智能 TDK(阅读页): 同上, 未启用零变化。
+	if td, ok := d.smartTdkFill(site, smart.PageRead, book, ""); ok {
+		tdk = td
+	}
 	canonical := ""
 	if bnum > 0 && cidx > 0 {
 		canonical = joinSite("/read/"+itoa64local(bnum)+"/"+itoa64local(cidx)+".html", sid)
@@ -833,7 +890,14 @@ func (d Deps) renderCategory(w http.ResponseWriter, r *http.Request, sp map[stri
 
 	name := siteTitle(site)
 	tdkTitle := catName + "小说最新上传 - " + name
-	head := d.head(r, site, tdkTitle, name+catName+"分类小说最新上传列表，免费在线阅读与 TXT 下载。", catName+",小说列表", joinSite(viewHref("category", sid, map[string]string{"cat": cat}), ""))
+	headDesc := name + catName + "分类小说最新上传列表，免费在线阅读与 TXT 下载。"
+	headKw := catName + ",小说列表"
+	// [R65-b] 智能 TDK(分类页): 站点启用分类套(14-16)时随机生成; 无锚分类页(「全部」)与
+	// 未启用均回落上行原逻辑(对齐 R62 同语义)。
+	if td, ok := d.smartTdkFill(site, smart.PageCategory, nil, catName); ok {
+		tdkTitle, headDesc, headKw = td.Title, td.Description, td.Keywords
+	}
+	head := d.head(r, site, tdkTitle, headDesc, headKw, joinSite(viewHref("category", sid, map[string]string{"cat": cat}), ""))
 
 	data := d.baseData(r, site, head)
 	data["Books"] = books

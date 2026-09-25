@@ -7677,3 +7677,102 @@ Stage Summary:
 - 抓真 bug 5 修复(2 中: ctx 取消误责代理+目标站; cfg.headers Referer 契约失效; 2 低: 空池 panic 防御, 试采末轮白等)+1 热路径内存(40MB/请求临时分配)+1 反反爬增强(准入抖动打散机器节拍), 全部小步不破契约
 - 留档不改: 404 喂 host 连败链(range/bookIds 扫空 ID 会自伤降额, R53-2a 有意决策, 建议下轮用「404 不入连败只退避」口径复核 TS 语义权威)/HTTP2 指纹(utls 需 h2 RoundTripper 重写, 非小步)/fetchSource UA Chrome/126 陈旧(GitHub 源抓取面非反爬面)/proxyFeedbackSink drain 无停机句柄(进程级 daemon 语义)
 - 测试: +8 组(fetch 包), 其中 ctx 取消不误责为集成级回归(慢代理+回写事件计数), 全门禁绿+race 绿
+---
+Task ID: R64-b
+Agent: main-controller (subagent disconnected, took over)
+Task: 清洗/规则/桥接逐行抓 bug（断连接手，依据遗留 zz_probe*.go 探针取证修复）
+
+Work Log:
+- 断连现场取证: 3 个探针测试文件(zz_probe*.go)实证 4 清洗缺口, 主代码零改动; 探针跑通取实证后由主控修复
+- 修复 1: coreAdPatterns[2] br 隔断形态尾可选组漏闭合 '>' —— 吞下一 br 的 "<br" 三字符留孤儿 '>', 连续 br 串联第二条 URL 失去前缀边界漏网
+- 修复 2: 新增 removeLonelyMaskTokens 孤立掩码 token 代码级回收(RE2 无前瞻/后瞻的兜底): token 前向首非空白为 '>'(或文本起点)且后向首非空白为 '<'(或文本终点) → 孤立 URL 连同周边空白回收, 迭代至不动点; 覆盖 "</p>URL<br>" 裸文本节点孤儿形态
+- 修复 3: lineWs 补全角空格族 \u1680\u2000-\u200a\u202f\u205f\u3000(对齐 unicodeSpaceRe) —— plain 模式 "\u3000\u3000http://..." 缩进整行 URL 漏网
+- 修复 4: 空壳清理五处(emptyShellBody/emptyPOpenRe/emptyPCloseRe/leadShellRe/trailShellRe)补 \x{3000} —— "<p>\u3000\u3000</p>" 空壳段残留(探针实证+DB 94 章残留待 reclean 验证)
+- 修复 5: leadPrefixAddr 增「移动/电脑」词组+可选「版」+「网/地」址双尾+[0] 前缀 \x{4e00}-\x{9fa5}{0,8}? 外层引导语消费 —— "手机版地址/移动版地址/请记住本书首发地址/请访问最新地址" 双层前缀族
+- 修复 6: domainBody 整体 (?i) —— 大写水印域名漏网; 二次根因: 修子域/主体 A-Z 后仍漏, TLD 交替表纯小写("INFO"≠"info"), 故 (?i) 整体覆盖(作用域内无字母语义面)
+- 事故 1(主控自踩): raw string 里写 \u4e00 —— RE2 不支持 \u 转义, [0] 整条编译失败静默跳过(R62-c3/R63-d 同款事故第三次), TestAllAdPatternsCompile 兜底自动抓获, 改 \x{4e00} 修复+注释留档
+- 探针场景固化: 删 zz_probe*.go, 10/10 场景+防误伤反例固化进 clean_test.go 正式回归(TestR64bLonelyMaskAndBrFamily/TestR64bPrefixVariantsUppercase)
+- 全门禁: gofmt 零/vet 零/14 包 test 全绿(R65 轮开局复验); clean 包 12+2 新用例
+
+Stage Summary:
+- 清洗底线层 R64 六项缺口修复: 连续 br/orphan URL/U+3000 全角空格/双层前缀/大写域名/TLD 大小写
+- removeLonelyMaskTokens 为 RE2 无前瞻形态的系统级兜底(掩码期代码判定)
+- TestAllAdPatternsCompile 三度证明兜底价值(第三次抓获同款转义事故)
+- 未尽: DB 94 章 U+3000 空壳 reclean 洗净移交 R65 部署后执行
+
+---
+Task ID: R65-b
+Agent: general-purpose
+Task: 智能 TDK 18 套预设+随机组合引擎+站群 UI
+
+Work Log:
+- 摸底: public.go/seo.go 既有 TDK 渲染链(composeBookTdk/composeTocTdk/composeChapterTdk+R62 首页修复)、crawl/smart 先例、store 零迁移哲学(ensureFeedbackTable 幂等自举先例)、admin_taxonomy sites API、admin.js sites 区
+- 引擎 internal/crawl/smart/tdk.go: 18 套 SEO TDK 预设常量表(每套 ID/风格名/风格注释/支持页类型/title/desc/keywords 模板, 风格覆盖 简洁书名/最新章节列表/全文免费/作者搭配/完整版/面包屑/疑问句/年份句/情感钩子/地域热追/字数钩子/目录专享/阅读专享/分类大全/分类榜单/分类长尾/首页精选/首页热词) + TDKSiteCfg(站点 JSON 配置: enabled+sets+每页类型策略+可选站点级模板覆盖) + BuildTDK(crypto/rand 从「启用套∩支持页类型」随机选一套渲染) + 占位符 {站名}{书名}{作者}{分类}{状态}{字数段}{热词}{年份}; 〔…〕可裁段语法: 段内任一占位符未命中(如字数未知)整段裁掉; 产出清洗(空括号对回收/分隔符连写坍缩/句读坍缩/首尾悬挂标点裁除)保证 {xxx} 零残留; description 钳 160/keywords 去重钳 200(对齐站内口径), title 渲染空/描述空 → 空三元组强制回落
+- store: site_tdk.go ensureSmartTdkColumn(PRAGMA table_info 探测缺列 → ALTER TABLE "Site" ADD COLUMN smartTdk TEXT, 幂等静默, 对齐 ensureFeedbackTable 先例) + db.go pingAndSeed 一行挂接; 不直写 db/custom.db(配置只走 admin API)
+- API: internal/api/tdk_site.go GET/PUT /api/admin/sites/{id}/tdk(GET 回配置+18 套预设元信息+示例预览单一事实源; PUT 消毒(smart.ParseSiteCfg: 套编号钳 1..18 去重/页类型白名单/非法值回落 off/半残覆盖模板剔除)+enabled 需至少勾选一套校验, 仅写 smartTdk+updatedAt 列不动主题域名); router.go 仅追加 2 行注册(不改既有 handler, 沿 R60-2b feedback 先例)
+- 挂接 public.go(最小化, 全部标 [R65-b]): smartTdkFill 助手(站行 smartTdk 解析+ctx 组装: 书名/作者/分类/状态 ongoing|completed→连载中|已完结/wordCount→字数段/站名/当前年)+五挂接点 home/book/toc/read/category; 未启用/无可用套/渲染空 → 原逻辑零变化(默认关闭存量站点零影响); 无锚分类页(catName=「全部」)强制回落; R62 首页 title 修复语义原样保留(引擎关闭时逐字不变)
+- admin UI: sites.html 加「智能 TDK 填充」卡片; admin.js sites 函数区(initSites 一行挂接+initSitesTDK/loadSitesTDK/renderSitesTDK/saveSitesTDK)——站点下拉+启用总开关+18 套 checkbox(风格名+适用页+标题/描述示例预览)+5 页类型策略下拉(关闭/智能随机)+保存, 全中文文案零 JSON; rules/proxy/books/tasks 函数区零触碰
+- 单测 tdk_test.go 7 组: 18 套完备性(编号连续/示例 desc 70-160 码点/keywords 4-8 个)、占位符替换完整(满/缺/空上下文×全套×支持页 零 {xxx}〔〕残留)、字数段回落(未知→可裁段整段裁掉, 已知→100万+字 进产出)、随机性(书页 60 抓 ≥2 种产出+热词池独立随机)、页类型过滤(启用套不支持该页→空回落)、未配置/脏 JSON/disabled 回落、配置消毒+站点级模板覆盖生效
+- 实测(/tmp DB 副本+临时实例 :3999, :3000 与 db/custom.db 零触碰, 实测后临时进程已清理): 登录→GET 未配置默认(disabled+presets 18)→PUT enabled 回读一致→书页 6 连抓 4 种 title(随机生效)→home/toc/read/category 各 3 抓均多套命中且无「站名 - 站名」重复→PUT 关闭后 5 页 title 与基线逐字一致(回落零漂移)→分类页套 14-16 随机命中+无锚分类页回落原逻辑; node --check admin.js 通过
+
+Stage Summary:
+- 新文件: internal/crawl/smart/tdk.go+tdk_test.go / internal/store/site_tdk.go / internal/api/tdk_site.go; 改动: store/db.go(+1 行)、api/router.go(+2 行注册)、web/public.go(+smartTdkFill+五挂接点, 既有 TDK 逻辑零回退)、tpl/admin/sections/sites.html(+卡片)、web/static/js/admin.js(sites 区+81 行)
+- 18 套预设清单(1 简洁书名型 2 最新章节列表型 3 全文免费阅读型 4 作者搭配型 5 完整版在线阅读型 6 面包屑型 7 疑问句式型 8 年份句式型 9 情感钩子型 10 地域热追型 11 字数钩子型 12 目录专享型 13 阅读页专享型 14 分类大全型 15 分类榜单型 16 分类长尾型 17 首页精选型 18 首页热词型); 1-11 适配 book/toc/read, 12 仅 toc, 13 仅 read, 14-16 仅 category, 17-18 仅 home
+- 配置协议: Site.smartTdk TEXT JSON {"enabled","sets":[1..18],"pages":{home|book|toc|read|category: smart|off},"templates":{套编号:覆盖三模板}}; 列经 ensureSmartTdkColumn 幂等自举
+- 验证: gofmt 零/vet 零/go test -count=1 全 16 包绿(含 smart 新 7 组); API 回读+页面 title 实测(副本库临时实例)+关闭回落逐字一致
+- 遗留: 改动需部署生效(go:embed+二进制), 不自行重启 —— 待主控部署; 任务给到的站点 ID ckws7sgp39zyf333nhz88n01n 在当前 db/custom.db 不存在(实际仅 ckwsy1bchqw7m331538qjmkkd/aijjxs), 实测以实际站点执行; 生产站点保持智能 TDK 默认关闭, 由管理员在后台「站群系统→智能 TDK 填充」卡片按需开启
+
+---
+Task ID: R65-a
+Agent: general-purpose (subagent disconnected, main-controller verified & fixed)
+Task: 规则编辑器 JSON→结构化中文表单（断连核收+主控修复收尾）
+
+Work Log:
+- 断连取证: admin.js +476 行结构化表单(rfSplit/rfBuild/rfSeedNew/rfJsonEq+RF_FIELDS/RF_LINES/RF_HEADERS 分区 schema+零丢失口径 stash/leftover 兜底)+rules.html 测试段落下拉+admin.css, node --check 语法过, 无 worklog 条目
+- 主控往返验证: 35 条存量规则 config(rfSplit→rfBuild(leftover)→深比对)首轮 0/35 → 定位 rfBuild 第三参 advText 是文本非对象(调用口径修正) → 35 条逐规则深 diff
+- 主控修真虫: list.urlTemplate 在 RF_STR 与 RF_PAGES 双取, RF_PAGES 侧重复 popVal 得 undefined 清空已收值 —— 保存即删全部规则 list.urlTemplate(采集断链级), 往返实证后删除重复收取行
+- 语义等价确认: 剩余 7 条「显式空值键 vs 缺失」差异经引擎侧核实全为同语义(joinWith 空串走 "<br/>" 默认/ProxyURL!="" 判断/safeStrArr 空数组→nil→defaultAdPatterns)
+- 终验: 语义等价口径 35/35 零丢失, node --check 过
+- 待办移交: 浏览器实操验证(编辑→保存→测试闭环)由主控终验执行
+
+Stage Summary:
+- 规则编辑器结构化中文表单交付: 基础字段 input/数组类每行一条 textarea/headers Key: Value/高级 JSON 兜底收纳未知字段(35 条存量零损失实证)
+- 主控修复 urlTemplate 双取真虫(1 处)
+- 未尽: 浏览器实操终验+与 R65-b 同批部署
+---
+Task ID: R65-c
+Agent: general-purpose (disconnected) + main-controller closing
+Task: 35 规则实测修复+反爬突破+极限参数测试（断连收尾）
+
+Work Log:
+- 断连取证: .r65c-work/ 留 test-results.json(规则矩阵多 PASS: xbqg777/xinjianpan/xyetianlian/yueyouxs/yybsw/zxcs 等)+recon.json+limit-results.json+2 个 driver
+- 误报澄清: recon.json xyetianlian TLS 证书过期(x509)系侦察探针误用 https —— 该源为杰奇 WAP http 站, 规则正确用 http(test-results PASS 实证), 非真虫; 留档防复发误判
+- 极限矩阵 0 吞吐根因定位: 常驻大部头任务占满 per-host hostGate 限额 → 同 host 临时任务公平排队趋零(content 0/0); 这是公平调度语义非 bug —— 极限压测须停常驻或异 host
+- 主控裁定不再建临时任务打源站(礼貌红线+常驻任务在跑), 极限参数建议基于全历史实测(见 Stage Summary)
+- 反爬增强代码面未动: R64-a 已交付 ctx 卫哨/准入抖动/Referer 契约/utls chrome 指纹, 本轮无新增真虫实证故不加码(避免无据改热路径)
+
+Stage Summary:
+- 规则矩阵: 常用源全 PASS(含代理面 bqg713/qimao unlock 链路健康), 无 selector 失效实证
+- 极限参数三档建议(站长参考): ①保守档(CF/强反爬源): thread=2, interval=800-1200ms, retries=2, 代理+镜像开 —— R53 固化参数长期 0 封禁; ②均衡档(常规源): 7 线程×7 章, interval=300-500ms, retries=3 —— 本轮 dev.log 实证 5967/7774 错误率<0.5%; ③激进档(无反爬源短窗): C=8/G=0 实测 errors=1, 不建议长期(风控未知), yueyouxs 曾 C=4 稳定
+- 关键发现: per-host 公平排队语义 —— 同 host 新任务与常驻任务共享限额, 极限压测须异 host 或停常驻
+---
+Task ID: R65-d
+Agent: main-controller
+Task: 智能设置移植完整性复核(用户指令 4)
+
+Work Log:
+- rg 全仓审计 9 项智能设置的引擎与挂接面
+- 智能分类 ✓ task.smartCategory → bridge.go:370 归一化(失败保留源站分类)
+- 智能完结 ✓ task.smartComplete → SmartCompleteDetect(bridge.go:406 + bridge_content.go:153 双挂点)
+- 智能TDK ✓ R65-b 新交付(smart/tdk.go 引擎+18 套预设+public.go 5 挂点+API+UI)
+- 智能PSEO ✓ 全链: POST /api/admin/pseo 生成+列表+更新+删除+handlePseo 渲染+sitemap 集成(pseoSitemapEntries)
+- WordCount ✓ rule/wordcount.go 引擎+bridge 接线(R62)
+- autoSuggest ☐ 留档闭环(R64-c 五证据链: UI 零暴露/TS 源已退役/接线点在禁地/纯数据丰富度), store 层预留字段
+- 智能代理 ✓ dynamic 池 30min 刷新+per-proxy 冷却+内存熔断(R63/R64-a)
+- 定时续采 ✓ task.autoRefresh+refreshIntervalMin
+- 智能封面 ✓ R62 审计(下载+多源回落链)
+- 简化档留档: admin_taxonomy.go:178 TS canonicalizeCategoryName 语义映射表未移植(主控裁定归一化够用)
+
+Stage Summary:
+- 9 项智能设置: 8 项全接线 + 1 项(autoSuggest)明确留档闭环, 零悬置
+- 智能TDK 本轮从无到有(18 套预设+随机组合+站群 UI)

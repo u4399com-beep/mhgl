@@ -64,7 +64,8 @@ func (d *DB) pingAndSeed() error {
 		}
 	}
 	d.ensureProxyIndexes()
-	d.ensureFeedbackTable() // R60-2b: Feedback 表自举(已存在则空转, 幂等)
+	d.ensureFeedbackTable()  // R60-2b: Feedback 表自举(已存在则空转, 幂等)
+	d.ensureSmartTdkColumn() // [R65-b] Site.smartTdk 列自举(站点智能 TDK 配置; 存在则空转, 幂等)
 	log.Printf("[store] opened %s (mode=wal, maxConns=1)", d.path)
 	return nil
 }

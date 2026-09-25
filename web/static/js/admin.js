@@ -501,15 +501,477 @@
     GET('/api/admin/rules?size=200').then(function (d) { renderRules(d.rules || d || []); })
       .catch(function (e) { stateMsg('rule-list', '加载失败: ' + errText(e), true); });
   }
+  /* ================= 规则结构化表单(R65-a) =================
+     需求: 站长不懂 JSON —— 原 rf-config 220px JSON textarea 改为分区中文表单。
+     零丢失口径: 表单只「覆盖」明确列出的路径; 其余字段(未知/高级子参数)在打开时
+     收纳进「高级 JSON」兜底 textarea, 保存时原样合并回主对象(35 条存量规则零损失)。
+     纯逻辑 rfSplit/rfBuild 在 Node 环境导出(文件尾 guard)做往返深比对单测。 */
+  var rfState = null; /* 当前弹层的 {v:表单值映射, stash:自动保留参数, notes, leftover} */
+  var RF_TYPE_OPTS = [['css', 'CSS 选择器'], ['json', 'JSON 点路径'], ['regex', '正则表达式'], ['const', '固定值']];
+  var RF_PAGES = [['list', 'list'], ['book', 'book'], ['toc', 'toc'], ['content', 'content']];
+  /* 各页段表单覆盖的字段: [键, 中文label, attr占位]; 未列出的字段名走高级 JSON 兜底 */
+  var RF_FIELDS = {
+    list: [['name', '书名', 'text'], ['author', '作者', 'text'], ['bookUrl', '书籍链接', 'href'], ['cover', '封面图', 'src'], ['intro', '简介', 'html'], ['category', '分类', 'text'], ['status', '状态', 'text'], ['latestChapter', '最新章节', 'text'], ['wordCount', '字数', 'text'], ['updateTime', '更新时间', 'text']],
+    book: [['name', '书名', 'text'], ['author', '作者', 'text'], ['cover', '封面图', 'src'], ['intro', '简介', 'html'], ['category', '分类', 'text'], ['status', '状态', 'text'], ['latestChapter', '最新章节', 'text'], ['wordCount', '字数', 'text'], ['keywords', '关键词', 'text']],
+    toc: [['title', '章节标题', 'text'], ['url', '章节链接', 'href']],
+    content: [['title', '章节标题', 'text'], ['content', '正文内容', 'html']]
+  };
+  var RF_STR = ['list.urlTemplate', 'fetch.customUa', 'fetch.cookies', 'fetch.contentProxyUrl', 'fetch.proxyUrl', 'fetch.mirrorDomains', 'fetch.proxyCountries'];
+  var RF_NUM = ['fetch.timeout', 'fetch.retries', 'fetch.waitMs', 'fetch.hostGateLimit', 'fetch.hostGateConcurrency', 'fetch.globalConcurrency'];
+  /* [路径, 空值回退] —— 引擎侧缺省等价(sanitize 强制同值), 写回无语义漂移 */
+  var RF_SEL = [['fetch.engine', 'auto'], ['fetch.uaMode', 'rotate']];
+  /* 布尔三态: v=显式 true/false; null=原配置缺失 → 展示引擎缺省, 未被用户改动则保存时维持缺失 */
+  var RF_BOOL = [['fetch.autoCookie', true], ['fetch.referer', true], ['fetch.refererChain', false], ['fetch.allowLoopback', false], ['fetch.needsProxy', false], ['clean.normalize', true], ['clean.plainText', false]];
+  /* 数组类: 每行一条; 留空/清空 = 移除该键 = 引擎缺省(空数组与缺失同语义, 见 clean.FromRuleRaw safeStrArr) */
+  var RF_LINES = ['clean.removeSelectors', 'clean.adPatterns', 'clean.whitelist'];
+  var RF_CSV = ['fetch.browserFallbackStatus'];
+  var RF_HEADERS = ['fetch.headers'];
+  var RF_SELROWS = ['list.itemSelector', 'toc.itemSelector', 'toc.tocLink'];
+  var RF_PAGS = ['list', 'toc', 'content'];
+  /* 新建规则预填(镜像 API defaultRuleConfigJSON, 缺省布尔不物化的保持缺失) */
+  var RF_NEW_SEED = {
+    clean: {
+      removeSelectors: ['script', 'style', 'iframe', 'ins', 'noscript', '.adsbygoogle', '.ad', '#ad'],
+      adPatterns: ['(www\\.)?[a-z0-9-]+\\.(com|net|cc|org|info|top|xyz|vip|site)(\\/\\S*)?', '本章未完.*?点击下一页继续阅读', '请记住本书.*?域名', '最新章节请到.*?查看', '[（(]?完?本[网站站][）)]?', '一秒记住.*?免费读'],
+      whitelist: ['p', 'br', 'b', 'strong', 'em', 'i', 'u', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6']
+    }
+  };
+
+  function rfIsObj(x) { return x !== null && x !== undefined && typeof x === 'object' && !Array.isArray(x); }
+  function rfClone(x) { return JSON.parse(JSON.stringify(x)); }
+  function rfGet(root, path) {
+    var seg = path.split('.'), o = root;
+    for (var i = 0; i < seg.length; i++) {
+      if (!rfIsObj(o)) return undefined;
+      o = o[seg[i]];
+    }
+    return o;
+  }
+  function rfDelPath(root, path) {
+    var seg = path.split('.'), o = root;
+    for (var i = 0; i < seg.length; i++) {
+      if (!rfIsObj(o)) return;
+      if (i === seg.length - 1) delete o[seg[i]];
+      else o = o[seg[i]];
+    }
+  }
+  function rfSetPath(root, path, val) {
+    var seg = path.split('.');
+    var parent = seg.length > 1 ? rfEnsurePath(root, seg.slice(0, -1).join('.')) : root;
+    parent[seg[seg.length - 1]] = val;
+  }
+  function rfEnsurePath(root, path) {
+    var seg = path.split('.'), o = root;
+    for (var i = 0; i < seg.length; i++) {
+      if (!rfIsObj(o[seg[i]])) o[seg[i]] = {};
+      o = o[seg[i]];
+    }
+    return o;
+  }
+  /* 语义深比对(键序无关) —— 保存后回读校验用 */
+  function rfJsonEq(a, b) {
+    if (a === b) return true;
+    if (a === null || b === null || typeof a !== typeof b) return false;
+    if (Array.isArray(a) || Array.isArray(b)) {
+      if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+      for (var i = 0; i < a.length; i++) if (!rfJsonEq(a[i], b[i])) return false;
+      return true;
+    }
+    if (typeof a === 'object') {
+      var ka = Object.keys(a), kb = Object.keys(b);
+      if (ka.length !== kb.length) return false;
+      for (var j = 0; j < ka.length; j++) {
+        if (!Object.prototype.hasOwnProperty.call(b, ka[j]) || !rfJsonEq(a[ka[j]], b[ka[j]])) return false;
+      }
+      return true;
+    }
+    return false;
+  }
+
+  /* rfSplit: 配置对象 → {v, stash, notes, leftover}
+     v: 扁平表单值(键=点路径); stash: 高级子参数原件(replaceFrom/flags/pagination 未知键等);
+     notes: 人读的「已自动保留」清单; leftover: 未覆盖字段(rest 原地弹出后剩余)。 */
+  function rfSplit(cfg0) {
+    var rest = rfIsObj(cfg0) ? rfClone(cfg0) : {};
+    var v = {}, stash = {}, notes = [];
+    function popVal(path) {
+      var seg = path.split('.'), o = rest;
+      for (var i = 0; i < seg.length; i++) {
+        if (!rfIsObj(o)) return undefined;
+        if (i === seg.length - 1) { var val = o[seg[i]]; delete o[seg[i]]; return val; }
+        o = o[seg[i]];
+      }
+      return undefined;
+    }
+    function popObj(path) { var x = rfGet(rest, path); if (rfIsObj(x)) { popVal(path); return x; } return null; }
+    function s(x) { return (x === undefined || x === null) ? '' : String(x); }
+    function takeSel(path, src) {
+      v[path + '.type'] = src && src.type !== undefined && src.type !== null && src.type !== '' ? String(src.type) : 'css';
+      v[path + '.expression'] = src ? String(src.expression || '') : '';
+      v[path + '.attr'] = (src && src.attr !== undefined && src.attr !== null) ? String(src.attr) : '';
+    }
+    function takeSelRow(path) {
+      var obj = popObj(path);
+      takeSel(path, obj);
+      if (rfIsObj(obj)) {
+        var ex = rfClone(obj);
+        delete ex.type; delete ex.expression; delete ex.attr;
+        var ks = Object.keys(ex);
+        if (ks.length) { stash['sel:' + path] = ex; notes.push(path + ' 的 ' + ks.join('/')); }
+      }
+    }
+    RF_STR.forEach(function (p) { v[p] = s(popVal(p)); });
+    RF_NUM.forEach(function (p) { v[p] = s(popVal(p)); });
+    RF_SEL.forEach(function (p) { v[p[0]] = s(popVal(p[0])); });
+    RF_BOOL.forEach(function (b) { var x = popVal(b[0]); v[b[0]] = (x === undefined || x === null) ? null : !!x; v[b[0] + '#def'] = b[1]; });
+    RF_LINES.forEach(function (p) { var x = popVal(p); v[p] = Array.isArray(x) ? x.map(String).join('\n') : s(x); });
+    RF_CSV.forEach(function (p) { var x = popVal(p); v[p] = Array.isArray(x) ? x.map(String).join(',') : s(x); });
+    RF_HEADERS.forEach(function (p) {
+      var x = popVal(p), lines = [];
+      if (rfIsObj(x)) Object.keys(x).forEach(function (k) { lines.push(k + ': ' + String(x[k])); });
+      v[p] = lines.join('\n');
+    });
+    RF_PAGES.forEach(function (pg) {
+      var p = pg[0], en = popVal(p + '.enabled');
+      v[p + '.enabled'] = (en === undefined || en === null) ? null : !!en;
+      /* R65-a 修: list.urlTemplate 已在 RF_STR 收取, 此处重复 popVal 得 undefined 会
+         把已收值清空(保存即删 list.urlTemplate → 采集断链), 往返单测 35/35 实证 */
+    });
+    RF_SELROWS.forEach(takeSelRow);
+    RF_PAGES.forEach(function (pg) {
+      var p = pg[0];
+      RF_FIELDS[p].forEach(function (fd) {
+        var path = p + '.fields.' + fd[0];
+        var obj = popObj(path);
+        takeSel(path, obj);
+        if (rfIsObj(obj)) {
+          var ex = rfClone(obj);
+          delete ex.type; delete ex.expression; delete ex.attr;
+          var ks = Object.keys(ex);
+          if (ks.length) { stash['fld:' + path] = ex; notes.push(path + ' 的 ' + ks.join('/')); }
+        }
+      });
+    });
+    RF_PAGS.forEach(function (p) {
+      var pg = popObj(p + '.pagination');
+      if (pg) {
+        v[p + '.pagination.enabled'] = (pg.enabled === undefined || pg.enabled === null) ? null : !!pg.enabled;
+        v[p + '.pagination.maxPages'] = s(pg.maxPages);
+        v[p + '.pagination.joinWith'] = s(pg.joinWith);
+        takeSel(p + '.pagination.nextLink', rfIsObj(pg.nextLink) ? pg.nextLink : null);
+        stash['pag:' + p] = rfClone(pg); /* 原件兜底(保 nextLink 未知子键等) */
+        var extra = Object.keys(pg).filter(function (k) { return ['enabled', 'maxPages', 'joinWith', 'nextLink'].indexOf(k) < 0; });
+        if (extra.length) notes.push(p + '.pagination 的 ' + extra.join('/'));
+      } else {
+        v[p + '.pagination.enabled'] = null;
+        v[p + '.pagination.maxPages'] = '';
+        v[p + '.pagination.joinWith'] = '';
+        takeSel(p + '.pagination.nextLink', null);
+      }
+    });
+    return { v: v, stash: stash, notes: notes, leftover: rest };
+  }
+
+  function rfSeedNew(v) {
+    ['list', 'book', 'toc', 'content'].forEach(function (p) { if (v[p + '.enabled'] === null) v[p + '.enabled'] = true; });
+    if (!v['fetch.engine']) v['fetch.engine'] = 'auto';
+    if (!v['fetch.uaMode']) v['fetch.uaMode'] = 'rotate';
+    ['timeout:20000', 'retries:2', 'waitMs:800', 'hostGateLimit:3', 'hostGateConcurrency:3', 'globalConcurrency:10'].forEach(function (kv) {
+      var a = kv.split(':');
+      if (!String(v['fetch.' + a[0]] || '').trim()) v['fetch.' + a[0]] = a[1];
+    });
+    if (!String(v['fetch.browserFallbackStatus'] || '').trim()) v['fetch.browserFallbackStatus'] = '403,412,429,503';
+    v['fetch.autoCookie'] = true; v['fetch.referer'] = true; v['clean.normalize'] = true; v['clean.plainText'] = false;
+    RF_LINES.forEach(function (p) {
+      if (String(v[p] || '').trim() !== '') return;
+      var k = p.split('.')[1];
+      if (RF_NEW_SEED.clean[k]) v[p] = RF_NEW_SEED.clean[k].join('\n');
+    });
+    if (!String(v['toc.pagination.maxPages'] || '').trim()) v['toc.pagination.maxPages'] = '20';
+    if (!String(v['content.pagination.maxPages'] || '').trim()) v['content.pagination.maxPages'] = '10';
+    if (!String(v['content.pagination.joinWith'] || '').trim()) v['content.pagination.joinWith'] = '<br/>';
+  }
+
+  function rfLinesArr(t) {
+    return String(t || '').split('\n').map(function (x) { return x.trim(); }).filter(function (x) { return x !== ''; });
+  }
+  function rfHeaderObj(t) {
+    var out = {};
+    String(t || '').split('\n').forEach(function (ln) {
+      ln = ln.trim();
+      var i = ln.indexOf(':');
+      if (i <= 0) return;
+      var k = ln.slice(0, i).trim(), val = ln.slice(i + 1).trim();
+      if (k && val) out[k] = val;
+    });
+    return out;
+  }
+  function rfWriteSelRow(base, v, extras, path) {
+    var expr = String(v[path + '.expression'] || '').trim();
+    if (expr === '') { rfDelPath(base, path); return; } /* 清空=移除(原本缺失则无操作) */
+    var obj = rfIsObj(extras) ? rfClone(extras) : {};
+    obj.type = String(v[path + '.type'] || 'css');
+    obj.expression = expr;
+    var at = String(v[path + '.attr'] === undefined || v[path + '.attr'] === null ? '' : v[path + '.attr']).trim();
+    if (at !== '') obj.attr = at; else delete obj.attr;
+    rfSetPath(base, path, obj);
+  }
+
+  /* rfBuild: 表单值 + 自动保留参数 + 高级JSON 文本 → 完整规则配置对象。
+     高级 JSON 非法时 throw(由调用方 try/catch → toast, 弹层保持打开不写坏规则)。 */
+  function rfBuild(v, stash, advText) {
+    var base;
+    var t = String(advText || '').trim();
+    if (t === '') base = {};
+    else {
+      base = JSON.parse(t);
+      if (!rfIsObj(base)) throw new Error('高级 JSON 必须是 {…} 对象');
+    }
+    RF_STR.forEach(function (p) {
+      var x = String(v[p] === undefined || v[p] === null ? '' : v[p]).trim();
+      if (x === '') rfDelPath(base, p); else rfSetPath(base, p, x);
+    });
+    RF_NUM.forEach(function (p) {
+      var x = String(v[p] === undefined || v[p] === null ? '' : v[p]).trim();
+      if (x === '' || !isFinite(Number(x))) rfDelPath(base, p);
+      else rfSetPath(base, p, Math.round(Number(x)));
+    });
+    RF_SEL.forEach(function (p) { rfSetPath(base, p[0], String(v[p[0]] || '').trim() || p[1]); });
+    RF_BOOL.forEach(function (b) {
+      var val = v[b[0]];
+      if (val === null || val === undefined) rfDelPath(base, b[0]); /* 原缺失且未动 → 维持缺失 */
+      else rfSetPath(base, b[0], !!val);
+    });
+    RF_LINES.forEach(function (p) {
+      var arr = rfLinesArr(v[p]);
+      if (arr.length) rfSetPath(base, p, arr); else rfDelPath(base, p);
+    });
+    RF_CSV.forEach(function (p) {
+      var arr = rfLinesArr(String(v[p] || '').replace(/,/g, '\n')).map(Number);
+      if (arr.length && arr.every(function (n) { return isFinite(n); })) rfSetPath(base, p, arr);
+      else rfDelPath(base, p);
+    });
+    RF_HEADERS.forEach(function (p) {
+      var h = rfHeaderObj(v[p]);
+      if (Object.keys(h).length) rfSetPath(base, p, h); else rfDelPath(base, p);
+    });
+    RF_PAGES.forEach(function (pg) {
+      var p = pg[0], en = v[p + '.enabled'];
+      if (en === null || en === undefined) rfDelPath(base, p + '.enabled');
+      else rfSetPath(base, p + '.enabled', !!en);
+    });
+    RF_SELROWS.forEach(function (path) { rfWriteSelRow(base, v, stash['sel:' + path] || null, path); });
+    RF_PAGES.forEach(function (pg) {
+      var p = pg[0];
+      RF_FIELDS[p].forEach(function (fd) {
+        var path = p + '.fields.' + fd[0];
+        rfWriteSelRow(base, v, stash['fld:' + path] || null, path);
+      });
+    });
+    RF_PAGS.forEach(function (p) {
+      var en = v[p + '.pagination.enabled'];
+      var mx = String(v[p + '.pagination.maxPages'] || '').trim();
+      var jw = String(v[p + '.pagination.joinWith'] || '').trim();
+      var nxExpr = String(v[p + '.pagination.nextLink.expression'] || '').trim();
+      var raw = stash['pag:' + p] || null;
+      var mxOk = mx !== '' && isFinite(Number(mx)) && Number(mx) > 0;
+      var meaningful = !!raw || en === true || mxOk || nxExpr !== '' || jw !== '';
+      if (!meaningful) { rfDelPath(base, p + '.pagination'); return; }
+      var obj = rfIsObj(raw) ? rfClone(raw) : {};
+      rfSetPath(base, p + '.pagination', obj);
+      obj.enabled = (en === null || en === undefined) ? !!(raw && raw.enabled) : !!en;
+      if (mxOk) obj.maxPages = Math.round(Number(mx)); else delete obj.maxPages;
+      if (jw !== '') obj.joinWith = jw; else delete obj.joinWith;
+      if (nxExpr === '') delete obj.nextLink;
+      else {
+        var nl = rfIsObj(obj.nextLink) ? obj.nextLink : {};
+        nl.type = String(v[p + '.pagination.nextLink.type'] || 'css');
+        nl.expression = nxExpr;
+        var at = String(v[p + '.pagination.nextLink.attr'] === undefined || v[p + '.pagination.nextLink.attr'] === null ? '' : v[p + '.pagination.nextLink.attr']).trim();
+        if (at !== '') nl.attr = at; else delete nl.attr;
+        obj.nextLink = nl;
+      }
+    });
+    return base;
+  }
+
+  /* ---------- 表单 HTML 组装 ---------- */
+  function rfLabeled(label, inner, hint) {
+    return '<label class="adm-label"><span class="rf-lab">' + esc(label) + '</span>' + inner +
+      (hint ? '<span class="adm-hint">' + esc(hint) + '</span>' : '') + '</label>';
+  }
+  function rfInput(path, val, ph, type) {
+    return '<input class="adm-input" data-rf="' + path + '" type="' + (type || 'text') + '" value="' +
+      esc(val === undefined || val === null ? '' : val) + '"' + (ph ? ' placeholder="' + esc(ph) + '"' : '') + '>';
+  }
+  function rfSel(path, options, val) {
+    var h = '<select class="adm-input" data-rf="' + path + '">';
+    options.forEach(function (o) {
+      h += '<option value="' + esc(o[0]) + '"' + (String(val) === String(o[0]) ? ' selected' : '') + '>' + esc(o[1]) + '</option>';
+    });
+    return h + '</select>';
+  }
+  function rfChk(path, label, checked, hint) {
+    return '<label class="adm-label is-check" style="min-height:32px"><input type="checkbox" data-rf="' + path + '"' + (checked ? ' checked' : '') + '> <span>' + esc(label) + '</span></label>' +
+      (hint ? '<span class="adm-hint">' + esc(hint) + '</span>' : '');
+  }
+  /* 选择器三件套行: [类型 select][表达式][attr 取值方式] */
+  function rfRow(path, label, attrPh, exprPh) {
+    var v = rfState.v;
+    return rfLabeled(label,
+      '<div class="rf-row">' + rfSel(path + '.type', RF_TYPE_OPTS, v[path + '.type'] || 'css') +
+      '<input class="adm-input rf-grow" data-rf="' + path + '.expression" value="' + esc(v[path + '.expression'] || '') + '"' + (exprPh ? ' placeholder="' + esc(exprPh) + '"' : '') + '>' +
+      '<input class="adm-input rf-attr" data-rf="' + path + '.attr" value="' + esc(v[path + '.attr'] || '') + '" placeholder="' + esc(attrPh || 'text') + '" title="取值方式: text/html/href/src/content 或正则组号">' +
+      '</div>');
+  }
+  function rfBoolChecked(path) {
+    var x = rfState.v[path];
+    return (x === null || x === undefined) ? !!rfState.v[path + '#def'] : !!x;
+  }
+  function rfPagBlock(p, withJoin) {
+    var v = rfState.v;
+    var h = rfLabeled('翻页设置',
+      '<div class="rf-row"><label class="adm-label is-check" style="min-height:32px"><input type="checkbox" data-rf="' + p + '.pagination.enabled"' + (rfBoolChecked(p + '.pagination.enabled') ? ' checked' : '') + '> <span>启用翻页</span></label>' +
+      '<input class="adm-input rf-attr" data-rf="' + p + '.pagination.maxPages" type="number" min="1" max="500" value="' + esc(v[p + '.pagination.maxPages'] || '') + '" placeholder="最多页数"></div>',
+      '启用后按「下一页」链接继续抓下一页; 不启用则只抓一页');
+    h += rfRow(p + '.pagination.nextLink', '「下一页」链接选择器', 'href', '如 a.next, 留空=不用下一页链接');
+    if (withJoin) h += rfLabeled('分页拼接符', rfInput(p + '.pagination.joinWith', v[p + '.pagination.joinWith'], '<br/>'), '同章分页内容拼接时插入的 HTML, 正文常用 <br/>');
+    return h;
+  }
+  function rfFieldsBlock(p, note) {
+    var h = '<div class="rf-lab" style="margin-top:2px">字段提取</div>';
+    RF_FIELDS[p].forEach(function (fd) { h += rfRow(p + '.fields.' + fd[0], fd[1], fd[2]); });
+    h += '<div class="adm-hint">' + esc(note || '取值方式(attr): text=文字 / html=含标签 / href=链接 / src=图片地址 / content=meta 值; 正则取捕获组填数字(如 1); 留空=默认') + '</div>';
+    return h;
+  }
+  function rfSec(title, open, body) {
+    return '<details class="adm-rf-sec"' + (open ? ' open' : '') + '><summary>' + esc(title) + '</summary><div class="rf-body">' + body + '</div></details>';
+  }
   function ruleFormHTML(r) {
-    r = r || {};
-    return fld('规则名称', '<input class="adm-input" id="rf-name" value="' + esc(r.name || '') + '" required>') +
-      fld('描述', '<input class="adm-input" id="rf-desc" value="' + esc(r.description || '') + '">') +
-      chk('rf-enabled', '启用', r.enabled === undefined ? true : !!r.enabled) +
-      fld('规则配置(JSON)', '<textarea class="adm-input" id="rf-config" style="min-height:220px;font-family:ui-monospace,Menlo,monospace">' + esc(r.config || '{}') + '</textarea>');
+    var rObj = r || {};
+    rfState = rfSplit(safeParse(rObj.config));
+    var v = rfState.v;
+    if (!r) rfSeedNew(v);
+    var h = '<div class="adm-hint" style="margin:-2px 0 10px">按分区填写即可; 不懂的字段保持原样, 保存不会破坏已有配置, 未展示的高级参数自动保留。</div>';
+    h += fld('规则名称', '<input class="adm-input" id="rf-name" value="' + esc(rObj.name || '') + '" required>');
+    h += fld('描述', '<input class="adm-input" id="rf-desc" value="' + esc(rObj.description || '') + '" placeholder="一句话说明这个源站, 可留空">');
+    h += chk('rf-enabled', '启用该规则(停用后不可被任务选用)', rObj.enabled === undefined ? true : !!rObj.enabled);
+    /* ① 列表页 */
+    h += rfSec('① 列表页(找书)', true,
+      rfChk('list.enabled', '启用列表页', rfBoolChecked('list.enabled'), '列表页=从分类/排行等列表找书; 只采单本可不启用') +
+      rfLabeled('列表页 URL 模板', rfInput('list.urlTemplate', v['list.urlTemplate'], 'https://…/list/{page}.html, {page}=页码'), '支持 {page} 页码与 {offset:N} 偏移占位; 也可不填, 由采集任务的列表 URL 提供') +
+      rfRow('list.itemSelector', '列表条目选择器(每本书那一块)', 'text', '如 div#articlelist ul li') +
+      '<div class="adm-hint">一条选择器要能同时选中页面上所有书的卡片/行</div>' +
+      rfPagBlock('list', false) +
+      rfFieldsBlock('list'));
+    /* ② 书籍详情页 */
+    h += rfSec('② 书籍详情页(书名/作者/简介)', true,
+      rfChk('book.enabled', '启用书籍详情页', rfBoolChecked('book.enabled')) +
+      rfFieldsBlock('book'));
+    /* ③ 目录页 */
+    h += rfSec('③ 目录页(章节列表)', false,
+      rfChk('toc.enabled', '启用目录页', rfBoolChecked('toc.enabled')) +
+      rfRow('toc.itemSelector', '目录条目选择器(每章那一块)', 'text', '如 div.zjbox dd a') +
+      '<div class="adm-hint">要能同时选中全部章节链接所在元素</div>' +
+      rfRow('toc.tocLink', '章节链接补充选择器(多数留空)', 'href', '目录翻页/二级链接时才需要') +
+      rfPagBlock('toc', false) +
+      rfFieldsBlock('toc', '章节字段一般固定为 标题(text) + 链接(href); 其余章节字段名(如 itemId)会收进高级 JSON'));
+    /* ④ 正文页 */
+    h += rfSec('④ 正文页(章节内容)', true,
+      rfChk('content.enabled', '启用正文页', rfBoolChecked('content.enabled')) +
+      rfFieldsBlock('content', '正文取值方式(attr)建议 html(保留段落标签), 纯文字化在「内容清洗」设置; 广告文字由广告清理正则删除') +
+      rfPagBlock('content', true));
+    /* ⑤ 抓取设置 */
+    h += rfSec('⑤ 抓取设置(请求头/UA/代理)', false,
+      '<div class="rf-grid">' +
+      rfLabeled('请求引擎', rfSel('fetch.engine', [['auto', '自动(推荐)'], ['http', '仅 HTTP 直连'], ['browser', '无头浏览器(不支持)']], v['fetch.engine'] || 'auto'), '选「无头浏览器」会被引擎拒绝启动') +
+      rfLabeled('UA 模式', rfSel('fetch.uaMode', [['rotate', '随机轮换(推荐)'], ['desktop', '桌面仿真'], ['mobile', '手机仿真'], ['custom', '自定义 UA(下方)'], ['fixed', '引擎默认']], v['fetch.uaMode'] || 'rotate')) +
+      rfLabeled('自定义 UA', rfInput('fetch.customUa', v['fetch.customUa'], 'Mozilla/5.0 … 完整 UA 串'), 'UA 模式选「自定义」时生效') +
+      rfLabeled('超时(毫秒)', rfInput('fetch.timeout', v['fetch.timeout'], '20000', 'number'), '单次请求最长等待') +
+      rfLabeled('重试次数', rfInput('fetch.retries', v['fetch.retries'], '2', 'number'), '失败后重试 0~5 次') +
+      rfLabeled('等待(毫秒)', rfInput('fetch.waitMs', v['fetch.waitMs'], '800', 'number'), '旧版遗留字段, 一般不动') +
+      rfLabeled('每站点并发', rfInput('fetch.hostGateLimit', v['fetch.hostGateLimit'], '3', 'number'), '同一站点同时在飞的请求数') +
+      rfLabeled('并发闸(覆盖上限)', rfInput('fetch.hostGateConcurrency', v['fetch.hostGateConcurrency'], '3', 'number'), '填写后覆盖「每站点并发」') +
+      rfLabeled('全局并发', rfInput('fetch.globalConcurrency', v['fetch.globalConcurrency'], '10', 'number'), '全部站点合计在飞请求数') +
+      '</div>' +
+      rfLabeled('自定义请求头(每行一条, 格式 Key: Value)', '<textarea class="adm-input rf-mono" data-rf="fetch.headers" rows="3" placeholder="Accept: application/json&#10;X-Site-Token: abc123">' + esc(v['fetch.headers'] || '') + '</textarea>', '站点需要特殊请求头时才填; Cookie 请填下方专用栏') +
+      rfLabeled('Cookie 字符串', rfInput('fetch.cookies', v['fetch.cookies'], 'k1=v1; k2=v2'), '单行, 多个用分号分隔') +
+      '<div class="rf-grid" style="margin-top:10px">' +
+      rfChk('fetch.referer', '自动 Referer', rfBoolChecked('fetch.referer')) +
+      rfChk('fetch.refererChain', 'Referer 链', rfBoolChecked('fetch.refererChain')) +
+      rfChk('fetch.autoCookie', '自动记 Cookie', rfBoolChecked('fetch.autoCookie')) +
+      rfChk('fetch.allowLoopback', '允许本机地址', rfBoolChecked('fetch.allowLoopback')) +
+      rfChk('fetch.needsProxy', '需免费代理池', rfBoolChecked('fetch.needsProxy')) +
+      '</div>' +
+      '<div class="adm-hint">⚠「需免费代理池」当前引擎不支持: 勾选会导致采集任务拒绝启动; 「允许本机地址」仅调试用, 生产勿开</div>' +
+      rfLabeled('正文代理 URL', rfInput('fetch.contentProxyUrl', v['fetch.contentProxyUrl'], 'http://127.0.0.1:3010/unlock?url={url}'), '正文/图片经此代理转发, {url} 会替换为目标地址') +
+      rfLabeled('代理池', rfInput('fetch.proxyUrl', v['fetch.proxyUrl'], 'http://ip:port, socks5h://ip:port'), '逗号分隔; 需国内 IP 出口的站点在此配代理') +
+      rfLabeled('镜像域名', rfInput('fetch.mirrorDomains', v['fetch.mirrorDomains'], 'a.com, b.org'), '逗号分隔; 主域失败时轮换尝试') +
+      rfLabeled('代理地区', rfInput('fetch.proxyCountries', v['fetch.proxyCountries'], 'CN'), '一般留空') +
+      rfLabeled('浏览器回退状态码', rfInput('fetch.browserFallbackStatus', v['fetch.browserFallbackStatus'], '403,412,429,503'), '逗号分隔; 默认 403,412,429,503 视为未自定义(与缺省相同则等效于关)'));
+    /* ⑥ 内容清洗 */
+    h += rfSec('⑥ 内容清洗(广告/正文净化)', false,
+      rfLabeled('移除元素(每行一个 CSS 选择器, 这些元素整块删除)', '<textarea class="adm-input rf-mono" data-rf="clean.removeSelectors" rows="4" placeholder="script&#10;style&#10;.adsbygoogle">' + esc(v['clean.removeSelectors'] || '') + '</textarea>', '如 script、style、iframe、.ad; 留空用默认') +
+      rfLabeled('广告清理正则(每行一条, 命中的文字会被删除)', '<textarea class="adm-input rf-mono" data-rf="clean.adPatterns" rows="5" placeholder="请记住本书.*?域名&#10;(www\\.)?[a-z0-9-]+\\.com(/\\S*)?">' + esc(v['clean.adPatterns'] || '') + '</textarea>', '删「本章未完」「最新网址」等水印文字; 留空用默认') +
+      rfLabeled('白名单标签(每行一个, 正文仅保留这些标签)', '<textarea class="adm-input rf-mono" data-rf="clean.whitelist" rows="4" placeholder="p&#10;br&#10;strong">' + esc(v['clean.whitelist'] || '') + '</textarea>', '留空用默认(p/br/b/strong/em/i/u 与标题族)') +
+      '<div class="rf-grid" style="margin-top:10px">' +
+      rfChk('clean.normalize', '段落规范化', rfBoolChecked('clean.normalize')) +
+      rfChk('clean.plainText', '只保留纯文本', rfBoolChecked('clean.plainText')) +
+      '</div>' +
+      '<div class="adm-hint">「只保留纯文本」会去掉正文全部 HTML 标签, 仅留文字</div>');
+    /* ⑦ 高级 JSON 兜底(零丢失保证) */
+    var advBody = (rfState.notes.length ? '<div class="adm-hint" style="color:var(--amber)">以下参数不在表单展示范围, 保存时自动原样保留: ' + esc(rfState.notes.join('；')) + '</div>' : '') +
+      rfLabeled('高级 JSON(表单未覆盖的字段, 保存时原样合并回规则)', '<textarea class="adm-input rf-mono" id="rf-adv" style="min-height:150px" placeholder="本规则暂无表单外字段">' + esc(Object.keys(rfState.leftover).length ? JSON.stringify(rfState.leftover, null, 2) : '') + '</textarea>', '不懂 JSON 请勿修改此处; 同名字段以表单为准');
+    h += rfSec('⑦ 高级 JSON(专家用, 选填)', false, advBody);
+    return h;
+  }
+  /* [R65-a] 布尔勾选在 change 时物化到 v(区分「原本缺失=未动」与「显式值」; 文本/下拉在收集时读取) */
+  function wireRfCheckboxes(form) {
+    if (!form) return;
+    Array.prototype.forEach.call(form.querySelectorAll('input[type=checkbox][data-rf]'), function (el) {
+      el.addEventListener('change', function () { if (rfState) rfState.v[el.getAttribute('data-rf')] = el.checked; });
+    });
+  }
+  /* [R65-a] 组装保存体: 读表单 → rfBuild; 组装/序列化任何一步失败都 throw(调用方 toast, 弹层不关不写库) */
+  function rfCollect() {
+    if (!rfState) throw new Error('表单未初始化, 请关闭弹层重试');
+    var form = $('adm-dlg-form');
+    Array.prototype.forEach.call(form.querySelectorAll('[data-rf]'), function (el) {
+      if (el.type === 'checkbox') return;
+      rfState.v[el.getAttribute('data-rf')] = el.value;
+    });
+    var adv = $('rf-adv') ? $('rf-adv').value : '';
+    var cfg;
+    try { cfg = rfBuild(rfState.v, rfState.stash, adv); }
+    catch (e) { throw new Error('高级 JSON 不是合法对象: ' + ((e && e.message) || e)); }
+    try { return JSON.parse(JSON.stringify(cfg)); }
+    catch (e2) { throw new Error('规则配置序列化失败: ' + ((e2 && e2.message) || e2)); }
+  }
+  /* [R65-a] 新建/编辑共用弹层; onSave(sent, close) 收到组装好的保存体 */
+  function openRuleDialog(title, r, onSave) {
+    openDialog(title, ruleFormHTML(r), function (form, close) {
+      var sent;
+      try { sent = { name: $('rf-name').value.trim(), description: $('rf-desc').value.trim(), enabled: $('rf-enabled').checked, config: rfCollect() }; }
+      catch (e) { toast(errText(e), true); throw e; }
+      return onSave(sent, close);
+    });
+    wireRfCheckboxes($('adm-dlg-form'));
+  }
+  /* [R65-a] 测试面板段落选择(模板静态供给后自动跳过注入; 兼容未部署的旧模板) */
+  function ensureTestSectionSel() {
+    if ($('rule-test-section')) return;
+    var anchor = $('rule-test-url');
+    if (!anchor || !anchor.parentNode) return;
+    var d = document.createElement('select');
+    d.className = 'adm-input is-select';
+    d.id = 'rule-test-section';
+    d.setAttribute('aria-label', '测试段落');
+    d.innerHTML = '<option value="list">列表页</option><option value="book">详情页</option><option value="toc">目录页</option><option value="content">正文页</option>';
+    anchor.parentNode.insertBefore(d, anchor);
   }
   function initRules() {
     loadRules();
+    ensureTestSectionSel();
     $('rule-refresh').addEventListener('click', loadRules);
     $('rule-import').addEventListener('click', function () {
       admConfirm('导入内置规则库(与现有同名规则保 id 覆盖)?').then(function (yes) {
@@ -519,21 +981,23 @@
       });
     });
     $('rule-new').addEventListener('click', function () {
-      openDialog('新建规则', ruleFormHTML(null), function (form, close) {
-        var config;
-        try { config = JSON.parse($('rf-config').value); } catch (e) { throw new Error('规则配置不是合法 JSON: ' + e.message); }
-        return POST('/api/admin/rules', { name: $('rf-name').value.trim(), description: $('rf-desc').value.trim(), enabled: $('rf-enabled').checked, config: config })
+      openRuleDialog('新建规则', null, function (sent, close) {
+        return POST('/api/admin/rules', sent)
           .then(function () { close(); toast('规则已创建'); loadRules(); });
       });
     });
+    /* [R65-a] 修前只发 {ruleId,url} → 端点缺 section 恒 400; 改为取规则配置按段试采(对齐 adminRulesTest 契约) */
     $('rule-test-run').addEventListener('click', function () {
       var id = $('rule-test-id').value, url = $('rule-test-url').value.trim();
       var out = $('rule-test-result');
+      var sec = $('rule-test-section') ? $('rule-test-section').value : 'list';
       if (!id || !url) { out.textContent = '请先选择规则并填写目标 URL。'; return; }
-      out.textContent = '测试中…';
-      POST('/api/admin/rules/test', { ruleId: id, url: url }).then(function (r) {
-        out.textContent = JSON.stringify(r, null, 2);
-      }).catch(function (e) { out.textContent = '测试失败: ' + errText(e); });
+      out.textContent = '测试中…(' + sec + ' 段)';
+      GET('/api/admin/rules/' + encodeURIComponent(id)).then(function (r) {
+        var cfg = safeParse(r.config);
+        return POST('/api/admin/rules/test', { section: sec, url: url, rule: cfg[sec] || {}, fetch: cfg.fetch || {}, clean: cfg.clean || {} });
+      }).then(function (res) { out.textContent = JSON.stringify(res, null, 2); })
+        .catch(function (e) { out.textContent = '测试失败: ' + errText(e); });
     });
     var list = $('rule-list');
     list.addEventListener('click', function (ev) {
@@ -551,11 +1015,15 @@
         });
       } else if (act === 'edit') {
         GET('/api/admin/rules/' + encodeURIComponent(id)).then(function (r) {
-          openDialog('编辑规则', ruleFormHTML(r), function (form, close) {
-            var config;
-            try { config = JSON.parse($('rf-config').value); } catch (e) { throw new Error('规则配置不是合法 JSON: ' + e.message); }
-            return PUT('/api/admin/rules/' + encodeURIComponent(id), { name: $('rf-name').value.trim(), description: $('rf-desc').value.trim(), enabled: $('rf-enabled').checked, config: config })
-              .then(function () { close(); toast('规则已保存'); loadRules(); });
+          openRuleDialog('编辑规则', r, function (sent, close) {
+            return PUT('/api/admin/rules/' + encodeURIComponent(id), sent).then(function () {
+              /* [R65-a] 保存后回读校验: 与保存意图逐字段比对, 不一致立即提示 */
+              return GET('/api/admin/rules/' + encodeURIComponent(id)).then(function (back) {
+                var same = rfJsonEq(safeParse(back.config), sent.config);
+                close(); loadRules();
+                toast(same ? '规则已保存, 回读校验一致' : '规则已保存, 但回读配置与表单不一致, 请重新打开核对', !same);
+              });
+            });
           });
         }).catch(function (e) { toast(errText(e), true); });
       }
@@ -784,6 +1252,7 @@
   }
   function initSites() {
     loadSites();
+    initSitesTDK(); // [R65-b] 智能 TDK 配置卡片(18 套预设勾选+页类型策略)
     $('site-refresh').addEventListener('click', loadSites);
     $('site-new').addEventListener('click', function () {
       openDialog('新建站点', siteFormHTML(null), function (form, close) {
@@ -810,6 +1279,86 @@
         });
       }
     });
+  }
+
+  /* ---------------- 智能 TDK(R65-b: 18 套预设勾选+页类型策略, 数据源 GET/PUT /api/admin/sites/{id}/tdk) ---------------- */
+  var stdkPages = [['home', '首页'], ['book', '书籍页'], ['toc', '目录页'], ['read', '阅读页'], ['category', '分类页']];
+  var stdkPageNames = { home: '首页', book: '书籍页', toc: '目录页', read: '阅读页', category: '分类页' };
+
+  function initSitesTDK() {
+    $('stdk-refresh').addEventListener('click', loadSitesTDK);
+    loadSitesTDK();
+  }
+
+  function loadSitesTDK() {
+    stateMsg('stdk-body', '加载中…');
+    GET('/api/admin/sites').then(function (d) {
+      var rows = d.sites || d || [];
+      if (!rows.length) { stateMsg('stdk-body', '暂无站点，请先在上方创建站点。'); return; }
+      GET('/api/admin/sites/' + encodeURIComponent(rows[0].id) + '/tdk').then(function (td) {
+        renderSitesTDK(rows, td);
+      }).catch(function (e) { stateMsg('stdk-body', '加载失败: ' + errText(e), true); });
+    }).catch(function (e) { stateMsg('stdk-body', '加载失败: ' + errText(e), true); });
+  }
+
+  function renderSitesTDK(sites, td) {
+    var cfg = td.config || {};
+    var presets = td.presets || [];
+    var pages = cfg.pages || {};
+    var setOn = {};
+    (cfg.sets || []).forEach(function (n) { setOn[n] = true; });
+    var h = '<div style="display:flex;flex-wrap:wrap;gap:14px;align-items:center;margin-bottom:10px">' +
+      '<label class="adm-label">选择站点 ' + sel('stdk-site', sites.map(function (s) { return [s.id, s.name + '（' + (s.domain || '-') + '）']; }), td.siteId) + '</label>' +
+      chk('stdk-enabled', '启用智能 TDK（开启后，下方勾选的页类型走随机组合填充）', !!cfg.enabled) +
+      '</div>';
+    h += '<div style="font-weight:600;margin:6px 0">18 套预设模板（勾选启用若干套，每次渲染随机抽一套）</div>';
+    h += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:8px">';
+    presets.forEach(function (p) {
+      var pg = (p.pages || []).map(function (x) { return stdkPageNames[x] || x; }).join(' / ');
+      h += '<label style="border:1px solid rgba(127,127,127,.35);border-radius:6px;padding:8px;display:block;cursor:pointer">' +
+        '<div style="display:flex;gap:6px;align-items:center">' +
+        '<input type="checkbox" class="stdk-set" value="' + esc(p.id) + '"' + (setOn[p.id] ? ' checked' : '') + '> ' +
+        '<b>' + esc(p.id) + '. ' + esc(p.name) + '</b></div>' +
+        '<div class="adm-muted" style="margin-top:4px">适用页：' + esc(pg) + '</div>' +
+        '<div class="adm-muted" style="margin-top:4px">标题示例：' + esc(p.exampleTitle) + '</div>' +
+        '<div class="adm-muted" style="margin-top:2px">描述示例：' + esc(p.exampleDesc) + '</div>' +
+        '</label>';
+    });
+    h += '</div>';
+    h += '<div style="font-weight:600;margin:12px 0 6px">页类型策略</div>';
+    h += '<div style="display:flex;flex-wrap:wrap;gap:12px">';
+    stdkPages.forEach(function (kv) {
+      h += '<label class="adm-label">' + kv[1] + ' ' +
+        '<select class="adm-input stdk-page" data-page="' + kv[0] + '">' +
+        '<option value="off"' + (pages[kv[0]] === 'smart' ? '' : ' selected') + '>关闭（用原逻辑）</option>' +
+        '<option value="smart"' + (pages[kv[0]] === 'smart' ? ' selected' : '') + '>智能随机填充</option>' +
+        '</select></label>';
+    });
+    h += '</div>';
+    h += '<div style="margin-top:12px;display:flex;align-items:center;gap:10px">' +
+      '<button class="adm-btn is-primary" id="stdk-save" type="button">保存智能 TDK 配置</button>' +
+      '<span class="adm-muted">未开启的页类型保持原有 TDK 逻辑，存量页面零影响。</span></div>';
+    var el = $('stdk-body');
+    el.className = '';
+    el.innerHTML = h;
+    $('stdk-site').addEventListener('change', function () {
+      GET('/api/admin/sites/' + encodeURIComponent($('stdk-site').value) + '/tdk').then(function (td2) {
+        renderSitesTDK(sites, td2);
+      }).catch(function (e) { toast(errText(e), true); });
+    });
+    $('stdk-save').addEventListener('click', saveSitesTDK);
+  }
+
+  function saveSitesTDK() {
+    var sets = [];
+    document.querySelectorAll('#stdk-body .stdk-set:checked').forEach(function (cb) { sets.push(Number(cb.value)); });
+    var pages = {};
+    document.querySelectorAll('#stdk-body .stdk-page').forEach(function (sl) { pages[sl.getAttribute('data-page')] = sl.value; });
+    var enabled = $('stdk-enabled').checked;
+    if (enabled && !sets.length) { toast('开启智能 TDK 前请至少勾选一套预设模板', true); return; }
+    PUT('/api/admin/sites/' + encodeURIComponent($('stdk-site').value) + '/tdk', { enabled: enabled, sets: sets, pages: pages })
+      .then(function () { toast('智能 TDK 配置已保存'); })
+      .catch(function (e) { toast(errText(e), true); });
   }
 
   /* ---------------- 友链 ---------------- */
@@ -1013,6 +1562,11 @@
       if (INIT[sec]) { try { INIT[sec](); } catch (e) { toast('初始化失败: ' + errText(e), true); } }
     }
   }
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+  if (typeof document === 'undefined') {
+    /* [R65-a] Node(非浏览器)环境: 仅导出规则表单纯逻辑供零损失往返单测, 不做任何 DOM 初始化 */
+    if (typeof module !== 'undefined' && module.exports) {
+      module.exports = { rfSplit: rfSplit, rfBuild: rfBuild, rfSeedNew: rfSeedNew, rfJsonEq: rfJsonEq, RF_FIELDS: RF_FIELDS };
+    }
+  } else if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
   else boot();
 })();

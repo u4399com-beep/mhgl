@@ -14,6 +14,11 @@
   <div class="adm-card-head"><h2>规则测试</h2></div>
   <div class="adm-toolbar" style="margin:0 0 10px">
     <select class="adm-input is-select" id="rule-test-id" aria-label="选择规则"></select>
+    <!-- [R65-a] 测试段落(admin.js 旧模板未部署时会自动注入同款下拉, 双向兼容) -->
+    <select class="adm-input is-select" id="rule-test-section" aria-label="测试段落">
+      <option value="list">列表页</option><option value="book">详情页</option>
+      <option value="toc">目录页</option><option value="content">正文页</option>
+    </select>
     <input class="adm-input is-grow" id="rule-test-url" type="url" placeholder="https://example.com/book/1.html" aria-label="测试 URL">
     <button class="adm-btn is-tiny" id="rule-test-run" type="button">运行测试</button>
   </div>

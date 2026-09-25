@@ -102,6 +102,8 @@ func Register(mux *http.ServeMux, d Deps) {
 	mux.HandleFunc("POST /api/admin/sites/auto-tdk", admin(d.adminSitesAutoTdk))
 	mux.HandleFunc("PUT /api/admin/sites/{id}", admin(d.adminSiteUpdate))
 	mux.HandleFunc("DELETE /api/admin/sites/{id}", admin(d.adminSiteDelete))
+	mux.HandleFunc("GET /api/admin/sites/{id}/tdk", admin(d.adminSiteTdkGet)) // [R65-b] 智能 TDK 配置读(18 套预设+示例)
+	mux.HandleFunc("PUT /api/admin/sites/{id}/tdk", admin(d.adminSiteTdkPut)) // [R65-b] 智能 TDK 配置写(消毒后存 Site.smartTdk)
 
 	// ---- admin: 友链 ----
 	mux.HandleFunc("GET /api/admin/links", admin(d.adminLinksList))

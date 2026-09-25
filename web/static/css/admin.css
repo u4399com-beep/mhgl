@@ -149,3 +149,22 @@ textarea.adm-input{min-height:88px;resize:vertical}
   .adm-input.is-select{max-width:100%}
   .adm-table th,.adm-table td{padding:8px 6px}
 }
+
+/* ---- R65-a 规则结构化表单(弹层分区/details/hint) ---- */
+.adm-dialog{max-height:calc(100vh - 40px);overflow-y:auto}
+.adm-hint{font-size:11px;color:var(--dim);line-height:1.55}
+.adm-rf-sec{border:1px solid var(--line);border-radius:10px;background:var(--panel-2);margin-bottom:10px;overflow:hidden}
+.adm-rf-sec summary{cursor:pointer;padding:10px 12px;font-size:13px;font-weight:700;color:var(--text);user-select:none;list-style:none;display:flex;align-items:center;gap:8px}
+.adm-rf-sec summary::-webkit-details-marker{display:none}
+.adm-rf-sec summary::before{content:'▸';color:var(--amber);transition:transform .15s ease}
+.adm-rf-sec[open] summary::before{transform:rotate(90deg)}
+.adm-rf-sec summary:hover{background:rgba(255,255,255,.03)}
+.adm-rf-sec .rf-body{padding:2px 12px 12px;display:flex;flex-direction:column;gap:10px}
+.rf-lab{font-size:12px;color:var(--muted);font-weight:600}
+.rf-row{display:flex;gap:6px;min-width:0;align-items:center;flex-wrap:wrap}
+.rf-row select{width:92px;flex-shrink:0;min-height:40px}
+.rf-row .rf-attr{width:112px;flex-shrink:0}
+.rf-row .rf-grow{flex:1;min-width:120px}
+.rf-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.rf-mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
+@media (max-width: 480px){.rf-grid{grid-template-columns:1fr}.rf-row .rf-attr{width:92px}}
