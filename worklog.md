@@ -726,3 +726,4 @@ Work Log:
 Stage Summary:
 - 四条指令交付: ①纯 Go 链路维持+沙箱运维机制实证归档(recover.sh 派生写法为唯一逃逸路径) ②10 真虫修复+1 反反爬增强+1 噪声增强(全带回归, 三方甄别合入) ③全库调试残留/TODO 清零 ④推送 origin/main
 - 移交 R73: git token 轮换持续提醒; rawFetch 全局闸与 host 闸锁序问题(a 留档设计层); 纯 www 无 scheme 标题形态(R71 移交, 现实样本未见)
+- [推送插曲补录] R71 收尾存在伪对齐遗留: 远端实为 f4c352d(旧 R71), 本地 897b2c5(amend 加 3 covers)从未真正推上去而 update-ref 已对齐 → 本轮 R72 首推 non-fast-forward 被拒; 处置: fetch 验证两 R71 仅差 3 张 covers → rebase --onto f4c352d 897b2c5(R72 重放为 d7a55de) + checkout 补齐 3 covers(2f396db) → fast-forward 推送成功+fetch 反向校验严格对齐; 纪律升级: update-ref 前必须先 fetch 核对远端真实头, 禁在推送成功前 update-ref
