@@ -6,7 +6,7 @@
 #        ADMIN_PASSWORD=xxx bash scripts/recover.sh     # 覆盖管理员密码
 #        RECOVER_DRYRUN=1 bash scripts/recover.sh       # 演练模式: 只打印将执行的动作,
 #                                                       # 不安装/不建库/不启动/不引导
-#        RECOVER_START_TASKS=1 bash scripts/recover.sh  # [R68-d] bootstrap 后自动启动
+#        RECOVER_START_TASKS=1 bash scripts/recover.sh  # bootstrap 后自动启动
 #                                                       # 本次新建的任务(已存在的任务不动)
 #
 # 背景: 沙箱重置会 杀进程 + 清空 $HOME 下 Go SDK + 清掉 DB 文件, 导致
@@ -14,17 +14,17 @@
 #       (装 Go → 重建库 → 起服务 → bootstrap → 看门狗) 收敛为一键幂等流程:
 #
 #   [1/6] 检测 Go SDK, 缺失则 bash scripts/install-go.sh
-#   [2/6] 检测 DB 表(Task/Book/Chapter/Rule/Category), 缺库/缺表则
-#         rm 旧库文件 → bunx prisma db push 重建空表
-#   [3/6] 检测 3000 端口, 未监听则后台拉起 bun run dev, 轮询 / 直到 200
+#   [2/6] 检测 DB 文件完整性: 缺失→跳过(服务自建); 损坏/缺核心表→rm 坏文件
+#         (服务启动时 EnsureSchema 原生重建, 无任何外部工具依赖) [R69 纯 Go 化]
+#   [3/6] 检测 3000 端口, 未监听则后台拉起 dev-go.sh, 轮询 / 直到 200
 #         (超时 180s —— 首次构建 + 拉模块可能 2~3 分钟)
-#   [4/6] bun run scripts/bootstrap-db.ts 幂等引导(规则/分类/站点/任务,
-#         不带 --start, 不会自动开采集; RECOVER_START_TASKS=1 时带 --start,
-#         仅自动启动本次新建的任务, 已存在的任务不改动)
+#   [4/6] .build/mhgl bootstrap 幂等引导(规则/分类/站点/任务, 不开采集;
+#         服务空库自动播种的同口径 CLI 形态, 幂等可重复) [R69: 替代 TS 引导脚本]
 #   [5/6] 检测 dev-watchdog.sh 看门狗, 未运行则后台拉起
 #   [6/6] 打印恢复报告(服务 HTTP 码 / 规则数 / 书数 / 分类数)
 #
 # 幂等: 可重复执行, 各步检测到位即跳过。允许单步失败继续(不用 set -e)。
+# 纯 Go: 全流程零 bun/Node/Prisma 依赖 [R69]。
 # ============================================================
 set -uo pipefail
 cd "$(dirname "$0")/.."
@@ -36,8 +36,6 @@ say()  { echo "[recover] $*"; }
 warn() { echo "[recover] ! $*"; }
 
 port_listening() { ss -ltn 2>/dev/null | grep -q ':3000 '; }
-
-command -v bun >/dev/null 2>&1 || warn "未找到 bun —— 启动/引导步骤会失败(安装见 docs/INSTALL-GUIDE.md §4)"
 
 # ------------------------------------------------------------
 # [1/6] Go 工具链
@@ -53,11 +51,13 @@ else
     bash scripts/install-go.sh || warn "install-go.sh 失败, 继续后续步骤(编译/启动可能仍失败)"
   fi
 fi
+export PATH="${HOME}/go-sdk/go/bin:$PATH"
 
 # ------------------------------------------------------------
-# [2/6] DB 文件与表结构
+# [2/6] DB 文件完整性(缺失→服务自建; 损坏/缺核心表→删坏文件交服务重建)
 # ------------------------------------------------------------
-db_state="$(DB_PATH_CHECK="db/custom.db" python3 - <<'PYCHECK' 2>/dev/null
+DB_FILE="${DB_PATH:-db/custom.db}"
+db_state="$(DB_PATH_CHECK="$DB_FILE" python3 - <<'PYCHECK' 2>/dev/null
 import os, sqlite3
 p = os.environ.get("DB_PATH_CHECK", "db/custom.db")
 if not os.path.exists(p):
@@ -78,24 +78,19 @@ PYCHECK
 [ -n "$db_state" ] || db_state="PY_FAIL"   # python3 缺失/崩溃 → 空输出按缺表处理
 
 if [ "$db_state" = "DB_OK" ]; then
-  say "[2/6] DB 表结构完整 (db/custom.db), 跳过重建"
+  say "[2/6] DB 完整 ($DB_FILE), 跳过"
+elif [ "$db_state" = "DBFILE_MISSING" ]; then
+  say "[2/6] DB 文件缺失 ($DB_FILE) → 服务启动时原生自建(EnsureSchema), 无需处理"
 else
-  say "[2/6] DB 缺失/缺表 ($db_state) → 重建空库"
+  say "[2/6] DB 损坏/缺核心表 ($db_state) → 删除坏文件, 服务启动时原生重建"
   if port_listening; then
-    warn "3000 端口仍在监听但 DB 缺表 —— 异常状态; 仅重建表结构, 不重启服务"
+    warn "3000 端口仍在监听但 DB 缺表 —— 异常状态; 仅删坏文件, 不重启服务"
   fi
   if [ "$DRYRUN" = "1" ]; then
-    echo "  [dryrun] 将执行: rm -f db/custom.db db/custom.db-wal db/custom.db-shm"
-    echo "  [dryrun] 将执行: DATABASE_URL=file:\$(pwd)/db/custom.db bunx prisma db push --skip-generate"
+    echo "  [dryrun] 将执行: rm -f $DB_FILE $DB_FILE-wal $DB_FILE-shm"
   else
-    rm -f db/custom.db db/custom.db-wal db/custom.db-shm
-    mkdir -p db
-    export DATABASE_URL="file:$(pwd)/db/custom.db"   # .env 已有同值, 此处显式兜底
-    if bunx prisma db push --skip-generate; then
-      say "     prisma db push 完成, 表结构已重建"
-    else
-      warn "prisma db push 失败 —— 检查 bunx/网络/磁盘后重跑本脚本"
-    fi
+    rm -f "$DB_FILE" "$DB_FILE-wal" "$DB_FILE-shm"
+    mkdir -p "$(dirname "$DB_FILE")"
   fi
 fi
 
@@ -106,10 +101,10 @@ if port_listening; then
   say "[3/6] 端口 3000 已监听"
 else
   if [ "$DRYRUN" = "1" ]; then
-    say "[3/6] [dryrun] 3000 未监听, 将执行: ( setsid nohup bun run dev > dev.log 2>&1 < /dev/null & )"
+    say "[3/6] [dryrun] 3000 未监听, 将执行: ( setsid nohup bash scripts/dev-go.sh > dev.log 2>&1 < /dev/null & )"
   else
-    say "[3/6] 3000 未监听 → 后台拉起 bun run dev (日志: dev.log)"
-    ( setsid nohup bun run dev > dev.log 2>&1 < /dev/null & )
+    say "[3/6] 3000 未监听 → 后台拉起 dev-go.sh (日志: dev.log)"
+    ( setsid nohup bash scripts/dev-go.sh > dev.log 2>&1 < /dev/null & )
   fi
 fi
 
@@ -132,28 +127,82 @@ else
 fi
 
 # ------------------------------------------------------------
-# [4/6] bootstrap 幂等引导(规则/分类/站点/任务, 不 --start)
+# [4/6] bootstrap 幂等引导(.build/mhgl bootstrap; 不开采集)
+#   RECOVER_START_TASKS=1: 记录引导前任务名 → 引导后仅启动本次新建任务
 # ------------------------------------------------------------
 ADMIN_PASSWORD="${ADMIN_PASSWORD:-audit-fix-2025}"
 export ADMIN_PASSWORD
+
+api_get() {  # $1=路径(需已登录 jar) → stdout=body
+  curl -s --max-time 10 -b "$JAR" "http://127.0.0.1:3000$1" 2>/dev/null || true
+}
+admin_login() {
+  rm -f "$JAR"
+  curl -s --max-time 10 -c "$JAR" -o /dev/null -X POST http://127.0.0.1:3000/api/auth/login \
+    -H 'Content-Type: application/json' -d "{\"password\":\"$ADMIN_PASSWORD\"}" >/dev/null 2>&1
+}
+# task_names 快照: python3 解析 /api/admin/tasks 的 name 列表
+task_names() {
+  api_get /api/admin/tasks | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    print('\n'.join(sorted(t.get('name','') for t in d.get('data') or [])))
+except Exception:
+    pass
+" 2>/dev/null || true
+}
+
 if [ "$http_code" = "200" ]; then
+  BUILD_BIN=".build/mhgl"
+  if [ ! -x "$BUILD_BIN" ]; then
+    say "[4/6] .build/mhgl 不存在 → go build(服务进程可能尚未产出二进制)"
+    if [ "$DRYRUN" != "1" ]; then go build -o "$BUILD_BIN" ./cmd/server || warn "go build 失败"; fi
+  fi
   if [ "${RECOVER_START_TASKS:-0}" = "1" ]; then
-    say "[4/6] 运行 bootstrap-db.ts --start (幂等引导; 本次新建任务自动启动, 已存在的不动)"
+    say "[4/6] 运行 .build/mhgl bootstrap (幂等引导; 随后启动本次新建任务)"
     if [ "$DRYRUN" = "1" ]; then
-      echo "  [dryrun] 将执行: bun run scripts/bootstrap-db.ts --start"
+      echo "  [dryrun] 将执行: 快照任务名 → $BUILD_BIN bootstrap → 登录 API 启动新增任务"
     else
-      bun run scripts/bootstrap-db.ts --start || warn "bootstrap 失败 —— 服务未就绪/密码不符? 可稍后单独重跑: bun run scripts/bootstrap-db.ts"
+      BEFORE="$(admin_login; task_names)"
+      "$BUILD_BIN" bootstrap || warn "bootstrap 失败 —— 可稍后单独重跑: .build/mhgl bootstrap"
+      AFTER="$(admin_login; task_names)"
+      NEWN="$(comm -13 <(printf '%s\n' "$BEFORE" | sort -u) <(printf '%s\n' "$AFTER" | sort -u) | sed '/^$/d')"
+      if [ -n "$NEWN" ]; then
+        admin_login
+        printf '%s\n' "$NEWN" | while IFS= read -r tname; do
+          tid="$(api_get /api/admin/tasks | TNAME="$tname" python3 -c "
+import sys, json, os
+want = os.environ.get('TNAME','')
+try:
+    d = json.load(sys.stdin)
+    for t in d.get('data') or []:
+        if t.get('name') == want:
+            print(t['id']); break
+except Exception:
+    pass
+" 2>/dev/null)"
+          if [ -n "$tid" ]; then
+            code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 -b "$JAR" -X POST \
+              "http://127.0.0.1:3000/api/admin/tasks/$tid/control" \
+              -H 'Content-Type: application/json' -d '{"action":"start"}' 2>/dev/null || true)"
+            say "       新任务启动: $tname (id=$tid) → HTTP $code"
+          fi
+        done
+      else
+        say "       无本次新建任务(既有任务不动)"
+      fi
     fi
   else
-    say "[4/6] 运行 bootstrap-db.ts (幂等引导, 不带 --start 不自动开采集)"
+    say "[4/6] 运行 .build/mhgl bootstrap (幂等引导, 不自动开采集)"
     if [ "$DRYRUN" = "1" ]; then
-      echo "  [dryrun] 将执行: bun run scripts/bootstrap-db.ts"
+      echo "  [dryrun] 将执行: $BUILD_BIN bootstrap"
     else
-      bun run scripts/bootstrap-db.ts || warn "bootstrap 失败 —— 服务未就绪/密码不符? 可稍后单独重跑: bun run scripts/bootstrap-db.ts"
+      "$BUILD_BIN" bootstrap || warn "bootstrap 失败 —— 可稍后单独重跑: .build/mhgl bootstrap"
     fi
   fi
 else
-  warn "[4/6] 服务未探活(HTTP $http_code), 跳过 bootstrap; 服务就绪后请手动跑: bun run scripts/bootstrap-db.ts"
+  warn "[4/6] 服务未探活(HTTP $http_code), 跳过 bootstrap; 服务就绪后请手动跑: .build/mhgl bootstrap"
 fi
 
 # ------------------------------------------------------------
@@ -185,10 +234,9 @@ echo "  任务续采 : 服务重启后被收编为 paused 的任务 → 后台�
 echo "             或 POST /api/admin/tasks/{id}/control --data '{\"action\":\"start\"}' 续采(断点不丢)"
 
 if [ "$http_code" = "200" ]; then
-  stats_json="$(curl -s --max-time 10 -c "$JAR" -o /dev/null -X POST http://127.0.0.1:3000/api/auth/login \
-    -H 'Content-Type: application/json' -d "{\"password\":\"$ADMIN_PASSWORD\"}" >/dev/null 2>&1 \
-    && curl -s --max-time 10 -b "$JAR" http://127.0.0.1:3000/api/admin/stats 2>/dev/null || true)"
-  rules_json="$(curl -s --max-time 10 -b "$JAR" http://127.0.0.1:3000/api/admin/rules 2>/dev/null || true)"
+  admin_login
+  stats_json="$(api_get /api/admin/stats)"
+  rules_json="$(api_get /api/admin/rules)"
   rm -f "$JAR"
 
   parse_num() {  # $1=json  $2=python 表达式 → 数字或 "?"
@@ -208,7 +256,7 @@ except Exception:
 
   if [ "$rules" != "?" ] || [ "$books" != "?" ]; then
     echo "  数据面   : 规则 $rules 条 / 书籍 $books 本 / 分类 $cats 个"
-    echo "  提示     : 数据面为 0 时重跑本脚本或手动 bun run scripts/bootstrap-db.ts"
+    echo "  提示     : 数据面为 0 时重跑本脚本或手动 .build/mhgl bootstrap"
   else
     echo "  数据面   : 无法读取(登录失败? 核对 ADMIN_PASSWORD, 缺省同登录页提示)"
   fi

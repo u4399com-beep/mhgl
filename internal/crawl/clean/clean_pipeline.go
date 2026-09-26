@@ -175,7 +175,13 @@ var emptyInlineShellTags = []string{"b", "strong", "em", "i", "u", "span", "font
 // "<p>\u00a0</p>" 空壳因此漏清(DB yueyouxs 实证)
 // R64-b 增 \x{3000}: 中文正文全角空格缩进空壳段 "<p>\u3000\u3000</p>" 同款漏清
 // (探针实证 + DB 94 章残留), 与 lineWs 全角空格族同步。
-const emptyShellBody = `(?:\s|\x{00a0}|\x{3000}|&nbsp;|<br\b[^>]*>)*`
+// [R69-b] 增空括号对: 广告域名删除后的残壳 "<p>（）</p>"/"<p>【 】</p>"(裸域名整行
+// 被 [1] 删后仅剩括号对; scheme URL 括号整行由 [2] maskLead/maskTrail 回收, 裸域名
+// 形态无掩码、删除后必须靠空壳层兜底) —— 仅「整段内容=空白+成对空括号」才判空,
+// 括号内有任意可见字符(「（一）」「【书评】…」)不命中, 单侧括号不成对不命中。
+const emptyShellWs = `(?:\s|\x{00a0}|\x{3000}|&nbsp;)*`
+const bracketPair = `(?:\(` + emptyShellWs + `\)|（` + emptyShellWs + `）|\[` + emptyShellWs + `\]|【` + emptyShellWs + `】)`
+const emptyShellBody = `(?:\s|\x{00a0}|\x{3000}|&nbsp;|<br\b[^>]*>|` + bracketPair + `)*`
 
 func compileEmptyShellRes(tags []string) []*regexp.Regexp {
 	out := make([]*regexp.Regexp, 0, len(tags))

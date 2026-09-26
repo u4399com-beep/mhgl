@@ -26,6 +26,7 @@ func TestSanitizeChapterHTML_BypassVectors(t *testing.T) {
 		{"img onerror", `<img src=x onerror=alert(1)>`, "onerror"},
 		{"斜杠分隔onerror(HTML5 tokenizer / 等价空白)", `<img src=x/onerror=alert(1)>`, "onerror"},
 		{"实体冒号javascript", `<a href="javascript&#58;alert(1)">x</a>`, "javascript"},
+		{"无分号实体冒号javascript(R69-c)", `<a href="javascript&#58alert(1)">x</a>`, "javascript"},
 		{"tab走私scheme", `<a href="jav&#x09;ascript:alert(1)">x</a>`, "ascript"},
 		{"字面tab换行", "<a href=\"java\tscript:alert(1)\">x</a>", "ascript"},
 		{"data协议", `<a href="data:text/html;base64,PHNjcmlwdD4=">x</a>`, "data:"},
@@ -60,7 +61,7 @@ func TestSanitizeChapterHTML_KeepsSafeContent(t *testing.T) {
 
 func TestIsSafeURLValue(t *testing.T) {
 	// [R67-c] 消毒器已下沉 internal/sanitize, 判定面同口径回归保留在此
-	unsafe := []string{"javascript:alert(1)", " JavaScript:alert(1)", " jav&#x09;ascript:alert(1)", "java\nscript:x", "data:text/html,x", "vbscript:x", "\x14javascript:x", "mailto:a@b.c", "file:///etc/passwd"}
+	unsafe := []string{"javascript:alert(1)", " JavaScript:alert(1)", " jav&#x09;ascript:alert(1)", "java\nscript:x", "data:text/html,x", "vbscript:x", "\x14javascript:x", "mailto:a@b.c", "file:///etc/passwd", "javascript&#58alert(1)", "javascript&#x3aprompt(1)"}
 	safe := []string{"", "/book/1.html", "#top", "https://example.com/a?b=c", "http://example.com", "cover/1.jpg", "  /relative  "}
 	for _, u := range unsafe {
 		if sanitize.IsSafeURLValue(u) {
@@ -615,5 +616,46 @@ func TestAllThemes_CSSClassCoverage(t *testing.T) {
 				t.Errorf("主题 %s 页 %s 裸奔类(渲染出现但 %s 未定义): %s", theme, page, cssName, strings.Join(keys, " "))
 			}
 		}
+	}
+}
+
+// TestServeWebStatic_CacheMaxAge [R69-c] serveWebStatic 修前硬编码 max-age=3600 无视
+// maxAge 参数(manifest 注册 300 形同虚设)。回归: 注册值必须逐字落在 Cache-Control。
+func TestServeWebStatic_CacheMaxAge(t *testing.T) {
+	pkgDir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(pkgDir, "..", "..")
+	if _, err := os.Stat(filepath.Join(root, "web", "static", "manifest.webmanifest")); err != nil {
+		t.Skipf("web/static 不可达(非源码树运行): %v", err)
+	}
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(pkgDir) })
+
+	cases := []struct {
+		name   string
+		file   string
+		ctype  string
+		maxAge int
+		want   string
+	}{
+		{"manifest 注册 300", "manifest.webmanifest", "application/manifest+json; charset=utf-8", 300, "public, max-age=300"},
+		{"sw.js no-cache", "sw.js", "text/javascript; charset=utf-8", 0, "no-cache"},
+		{"favicon 3600", "icons/icon-192.png", "image/png", 3600, "public, max-age=3600"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			serveWebStatic(c.file, c.ctype, c.maxAge)(rec, httptest.NewRequest(http.MethodGet, "/"+c.file, nil))
+			if got := rec.Header().Get("Cache-Control"); got != c.want {
+				t.Fatalf("Cache-Control=%q want %q (status=%d)", got, c.want, rec.Code)
+			}
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status=%d, want 200", rec.Code)
+			}
+		})
 	}
 }

@@ -1,21 +1,23 @@
-# mhgl · 小说聚合站（全栈 Golang 单体）
+# mhgl · 小说聚合站（纯 Go 单体）
 
-> 🏗️ **R55 架构声明**：项目已整体迁移为 **Golang 单体**——Web 服务/前台站群/后台管理/REST API/
-> 采集引擎/调度器编译为**一个 Go 二进制**（监听 :3000），Node.js/Next.js 运行时退役。
-> 数据库沿用 SQLite 原文件（零迁移）。TS 时代源码 `src/` 已于 R62-a 全量移除（语义已全部移植进 `internal/`，历史可考 git）。
+> 🏗️ **R69 纯 Go 化声明**：Web 服务/前台站群/后台管理/REST API/采集引擎/调度器编译为**一个 Go 二进制**
+> （`.build/mhgl`，监听 :3000）。**必备路径零 Node/bun/Prisma/TS 依赖**：数据库建表由服务每次启动时
+> **原生自举**（幂等 DDL，毫秒级，既有库零改动），空库自动播种运营数据——原 `bunx prisma db push` +
+> `bootstrap-db.ts` 的 TS/Prisma 引导链已于 R69 全量退役（历史可考 git），全新部署只需要一个 Go 工具链。
 >
-> 📖 **安装部署教程（R55 Go 单体版）**：**[docs/INSTALL-GUIDE.md](./docs/INSTALL-GUIDE.md)**（上一版 Next.js 教程留档 docs/INSTALL-GUIDE-r52.bak.md）
+> 📖 **安装部署教程（图文）**：**[docs/INSTALL-GUIDE.md](./docs/INSTALL-GUIDE.md)** · 生产速查卡：[DEPLOY.md](./DEPLOY.md)
 
-## 架构（R55）
+## 架构（R69）
 
 ```
 一个二进制 (.build/mhgl)  →  :3000
-├── cmd/server            装配入口(config/store/recovery/manager/http)
-├── internal/store        SQLite 直连(Prisma 格式兼容, 单写者 WAL)
-├── internal/crawl        采集引擎(原 crawler-go 并入: 反反爬/解析/编排 + bridge 直连持久化 + 调度)
+├── cmd/server            装配入口(config/store/bootstrap/恢复/采集/HTTP; `mhgl bootstrap` 子命令)
+├── internal/store        SQLite 直连(纯 Go 驱动 modernc.org/sqlite, 无 cgo, 单写者 WAL)
+├── internal/bootstrap    原生自举: 启动幂等建表(14 表) + 空库播种(规则/分类/站点/任务)
+├── internal/crawl        采集引擎(反反爬/解析/清洗/编排 + bridge 直连持久化 + 调度)
 ├── internal/api          /api/admin/** + /api/public/** JSON 面
-├── internal/web          前台 SSR(aijjxs 主题) + 后台管理(html/template + 原生 JS/CSS)
-└── internal/auth         HMAC Cookie 鉴权(与旧栈同源, 会话无缝)
+├── internal/web          前台 SSR(11 主题, 模板 go:embed 内嵌二进制) + 后台管理(html/template + 原生 JS/CSS)
+└── internal/auth         HMAC Cookie 鉴权
 ```
 
 ## 功能特性
@@ -31,122 +33,102 @@
 
 | 层 | 技术 |
 | --- | --- |
-| 层 | 技术（R55 Go 单体） |
-| --- | --- |
-| 语言/运行时 | Go 1.24+（单二进制, 无 Node 依赖） |
+| 语言/运行时 | **Go 1.26+**（单二进制, 无 Node 依赖） |
 | HTTP | stdlib net/http（Go 1.22+ 方法+通配路由） |
-| 数据库 | modernc.org/sqlite（纯 Go 驱动, 无 cgo）+ SQLite 单文件 |
-| 模板/UI | html/template + 手写 CSS/原生 JS（前台 aijjxs 主题 + 深色管理台） |
-| 采集引擎 | 原 crawler-go 引擎代码级并入（goquery 解析 + R51~R54 反反爬体系全量保真） |
+| 数据库 | modernc.org/sqlite（纯 Go 驱动, 无 cgo）+ SQLite 单文件；启动时原生幂等建表（14 表） |
+| 模板/UI | html/template（**go:embed 内嵌二进制**）+ 手写 CSS/原生 JS（前台 11 主题 + 深色管理台） |
+| 静态资源 | `web/static` 磁盘直服（改 CSS/JS 即时生效, 无需重建） |
+| 采集引擎 | `internal/crawl`（goquery 解析 + 反反爬体系全量保真） |
 | 部署 | 裸机 systemd 直跑单二进制（Docker 链已退役，归档 `docs/archive/docker/`） |
 
 ## 快速开始
 
-**生产部署（裸机）**——前置：Linux + Go 1.24+（`bash scripts/install-go.sh` 一键装）与 Bun（引导脚本用）：
+前置：Linux + **Go 1.26+ 工具链**（`bash scripts/install-go.sh` 一键装到 `~/go-sdk`，幂等、免 sudo、国内网络自动回退镜像）。三条命令起站：
 
 ```bash
-git clone https://github.com/u4399com-beep/mhgl.git        # 仓库地址以 `git remote -v` 为准
-cd mhgl
-bun install                        # 工具链依赖(prisma CLI + 引导/恢复脚本)
-cp .env.example .env               # 配置; 生产务必改 ADMIN_PASSWORD!
-bash scripts/recover.sh            # 一键：装 Go → 建表 → 启动(:3000) → 引导 → 看门狗（幂等, 可重跑）
+git clone https://github.com/u4399com-beep/mhgl.git && cd mhgl    # 仓库地址以 `git remote -v` 为准
+bash scripts/install-go.sh && export PATH=$HOME/go-sdk/go/bin:$PATH   # ① 装 Go 工具链(幂等)
+go build -o .build/mhgl ./cmd/server                              # ② 构建单二进制(~23MB)
+./.build/mhgl                                                     # ③ 运行 → :3000(前台+后台+API+采集一体)
 ```
 
-> 常驻用 systemd（`Restart=on-failure`）；部署速查与常见问题见 [DEPLOY.md](./DEPLOY.md)，全流程图文见 [docs/INSTALL-GUIDE.md](./docs/INSTALL-GUIDE.md)。
+**首次启动自动完成数据库初始化，零外部工具**：幂等建表（14 张，毫秒级）→ 空库后台自动播种（**35 条**内置采集规则 / **16** 分类 / 默认站点 `localhost:3000`·aijjxs 主题 / **3** 条大部头采集任务——任务仅创建不启动）。`MHGL_AUTO_SEED=0` 可关闭自动播种；`./.build/mhgl bootstrap` 可随时显式幂等引导（不起服务）。
 
-**本地开发**——前置：[Bun](https://bun.sh)（v1.3+，工具链/引导脚本用）与 Go 1.24+（`bash scripts/install-go.sh` 一键装）：
+开发/懒人启动：`bash scripts/dev-go.sh`（`bun run dev` 仍作为薄别名可用）——go 缺失自动安装（自愈）+ 源码变更增量重建 + exec 二进制。
 
-```bash
-bun install                          # 工具链依赖(prisma CLI + 引导/恢复脚本)
-cp .env.example .env                 # 配置(数据库/后台密码等, 注释齐全); 改 ADMIN_PASSWORD!
-bun run dev                          # 启动 Go 单体(自动构建 .build/mhgl, :3000)
-bun run bootstrap                    # 空库一键引导(35 条规则/站点/三大部头任务, 幂等)
-```
-
-> **预览挂掉 / 服务连不上 / 端口 3000 无人监听？** 一条命令自愈：`bash scripts/recover.sh`
-> （装 Go → 建表 → 启动 → 引导 → 看门狗 → 报告，幂等可重跑；`bun run dev` 也已自愈化——
-> go 缺失自动装、DB 缺失自动建表+引导，见教程 §4/§7）。
+> 常驻用 systemd（`Restart=on-failure`，单元样例见 [DEPLOY.md](./DEPLOY.md)）；全流程图文见 [docs/INSTALL-GUIDE.md](./docs/INSTALL-GUIDE.md)。
 
 | 地址 | 用途 |
 | --- | --- |
-| `http://localhost:3000/` | 后台管理（规则/任务/书籍/章节） |
+| `http://localhost:3000/admin` | 后台管理（规则/任务/书籍/章节） |
 | `http://localhost:3000/?view=home` | 前台站点（书城/阅读/搜索） |
 
-> 🔐 后台默认密码 `audit-fix-2025`（dev 模式登录页会显示提示与一键填入）；**生产务必在 `.env` 设置 `ADMIN_PASSWORD` 强密码**。装完去哪做：后台导入规则 → 建站点 → 建任务，全流程见 [docs/INSTALL-GUIDE.md](./docs/INSTALL-GUIDE.md) 第 7~8 章。
+> 🔐 后台密码：dev 模式缺省 `audit-fix-2025`（登录页会显示提示与一键填入）；**生产务必设置 `ADMIN_PASSWORD` 强密码**（`GO_ENV=production` 且密码为空时登录恒失败，fail-closed）。装完去哪做：后台「采集规则 → 一键导入」其实播种已替你做完 → 建任务 → 开采，全流程见 [docs/INSTALL-GUIDE.md](./docs/INSTALL-GUIDE.md) §6。
 
-## mini-services 支撑服务（8 个，端口 3010~3017）
+> **预览挂掉 / 服务连不上 / 端口 3000 无人监听？** 一条命令自愈：`bash scripts/recover.sh`
+> （装 Go → DB 完整性检查 → 启动 → 幂等引导 → 看门狗 → 报告，幂等可重跑；`scripts/dev-go.sh`
+> 也已自愈化——go 缺失自动装、库缺失自动自建，见教程 §4/§7）。
 
-| 端口 | 服务 | 用途 | 启动 |
-| --- | --- | --- | --- |
-| 3010 | `bqg713-proxy` | 笔趣阁 bqg713 AES-token 外置转换代理（`/rewrite` `/token`） | `cd mini-services/bqg713-proxy && bun run start` |
-| 3011 | `fetch-relay` | bun fetch 中继桥（TLS 指纹出路，`RequestInit.proxy`） | `cd mini-services/fetch-relay && bun run start` |
-| 3012 | `scrapling-bridge` | Scrapling 桥：static(curl_cffi)/stealthy(patchright 解 CF 挑战)/playwright 三模式 | `cd mini-services/scrapling-bridge && bun run dev`（需先按其说明装 Python venv） |
-| 3013 | `qimao-proxy` | 七猫官方 API 逐请求 MD5 双签名 + 正文 AES 解密 | `cd mini-services/qimao-proxy && bun run start` |
-| 3014 | `deqixs-proxy` | 得奇小说网正文三参数动态签名链路代理 | `cd mini-services/deqixs-proxy && bun run start` |
-| 3015 | `xjp-proxy` | 新键盘小说网 var c 双层正文解密代理 | `cd mini-services/xjp-proxy && bun run start` |
-| 3016 | `cloak-browser` | 独立反检测浏览器服务（puppeteer-extra stealth 三档隐身；采集引擎未把它接入自动降级链，属可选增强） | `cd mini-services/cloak-browser && bun run dev`（需本机 chromium） |
-| 3017 | `qidian-proxy` | 起点中文(镜像API)目录签名载荷解码 + 正文转换代理（仅起点规则正文链路需要，正文还需配置 QD_YWKEY/QD_YWGUID 凭证） | `cd mini-services/qidian-proxy && bun run start` |
+## 外置代理小服务（已退役，R69）
 
-- 主应用**不启动任何小服务也能正常跑**：内置 35 条规则绝大多数可直连采集，个别站点规则依赖对应代理小服务；依赖对照与排错见 [docs/INSTALL-GUIDE.md](./docs/INSTALL-GUIDE.md) 第 6.7 节；
-- 生产裸机部署时 5 个 bun 代理（3010/3011/3013/3014/3015）按上表命令逐个启动（或 systemd 常驻）；`cloak-browser`(3016) 与 `qidian-proxy`(3017) 按需启动；
-- ⚠ 请勿把 3010~3017 端口暴露到不受信任的网络（`fetch-relay` 与 `scrapling-bridge` 源码钉死仅绑 127.0.0.1）。
+原 8 个 TS/Python 外置代理小服务（`bqg713-proxy` / `fetch-relay` / `scrapling-bridge` / `qimao-proxy` / `deqixs-proxy` / `xjp-proxy` / `cloak-browser` / `qidian-proxy`，端口 3010~3017）已随 **R69 纯 Go 化**整体退役（可考古 git 历史 `mini-services/` 目录）。现役采集引擎直连采集，外置签名/解密站点由对应规则自身的 fetch 配置（代理池 / curl 指纹 / token 预取）承担，不再需要任何伴生进程。
 
 ## 目录结构
 
 ```
-cmd/server/                 # Go 装配入口(config/store/recovery/manager/http)
-internal/                   # 全部业务: store(SQLite 直连) / crawl(采集引擎) / api(JSON 面) / web(前台 SSR+后台模板) / auth
-internal/api/builtin_rules.json  # 内置规则库(go:embed, 35 条实测规则, 后台「一键导入」数据源)
-internal/web/tpl/themes/    # 11 套前台主题模板(aijjxs/pili/shipsay/x2552/kks101/trxsw/ddyueshu/ggd66/huangjinwu/qb23/x33yq)
-prisma/schema.prisma        # 数据模型: Category/Site/Rule/Task/Book/Chapter 等
-db/custom.db                # SQLite 运行时数据(不入版本库, ★备份它)
-web/                        # web/covers 封面(已被平台 checkpoint 自动提交进 git, 重置可随仓库恢复) + web/static 静态源文件(入库)
-mini-services/              # 上表八个支撑服务(各自独立 package.json)
-scripts/                    # dev-go.sh 启动 / recover.sh 恢复 / bootstrap-db.ts 空库引导 / 运维小工具
-docs/legacy-seeds/          # TS 时代规则种子归档(语义已固化进 builtin_rules.json)
-docs/archive/docker/        # Docker 部署链退役归档(R66-d, 见其 README)
-.zscripts/                  # 平台启动/守护脚本与运行日志
+cmd/server/                 # Go 装配入口(config/store/bootstrap/恢复/采集/HTTP)
+internal/                   # 全部业务: store(SQLite 直连) / bootstrap(原生自举) / crawl(采集引擎) / api(JSON 面) / web(前台+后台) / auth
+internal/api/builtin_rules.json  # 内置规则库(go:embed, 35 条实测规则, 播种与后台「一键导入」数据源)
+internal/web/tpl/           # 11 套前台主题模板(go:embed 内嵌二进制; 升级换二进制即生效)
+web/covers/                 # 封面落盘目录(COVER_DIR 可覆盖; 已被平台 checkpoint 自动提交进 git)
+web/static/                 # 前台/后台静态源文件(css/js, 磁盘直服, 入库)
+db/                         # SQLite 运行时数据 custom.db(+ -wal/-shm, 不入版本库, ★备份它)
+download/  upload/          # TXT 下载产物 / 上传暂存
+scripts/                    # install-go.sh 装 Go / dev-go.sh 启动(自愈) / dev-watchdog.sh 守护 / recover.sh 一键恢复
 docs/                       # INSTALL-GUIDE.md 小白教程 / rule-limits.md 规则手册 / images/ 截图
+.zscripts/                  # 平台启动/守护脚本与运行日志
 ```
 
-### 常用命令（package.json）
+### 常用命令
 
 | 命令 | 作用 |
 | --- | --- |
-| `bun run dev` | 构建并启动 Go 单体（:3000，源码有变更自动重建；[R68-d] 自愈化：go 缺失自动 `install-go.sh`、DB 缺失/缺表自动 `prisma db push`+引导，`MHGL_AUTO_BOOTSTRAP=0` 关闭） |
-| `bun run build` / `bun run start` | 仅构建 / 直接运行二进制 `.build/mhgl` |
-| `bun run lint` | 质量门（`go vet ./...`） |
-| `bun run bootstrap` | 空库一键引导（导入 35 条内置规则/分类固化/默认站点/三大部头任务，幂等） |
-| `bash scripts/recover.sh` | 沙箱/环境重置后一键恢复（装 Go→建表→启动→引导→看门狗→报告） |
+| `go build -o .build/mhgl ./cmd/server` | 构建单二进制 |
+| `./.build/mhgl` | 运行（:3000；每次启动幂等建表+空库自动播种） |
+| `./.build/mhgl bootstrap` | 显式幂等引导：建表 + 35 规则/16 分类/默认站点/3 任务，随即退出（不起服务、不需要密码） |
+| `bash scripts/dev-go.sh`（`bun run dev` 薄别名等价） | 开发启动：go 缺失自装 + 增量构建 + exec 二进制 |
+| `bash scripts/recover.sh` | 沙箱/环境重置一键恢复（装 Go→DB 完整性→启动→引导→看门狗→报告；`RECOVER_START_TASKS=1` 顺带启动本次新建任务） |
 
 Go 质量门全量：`gofmt -l internal/ && go vet ./... && go test -count=1 ./internal/... && go build -o .build/mhgl ./cmd/server`。
 
-### 故障排查速查（R68-d）
+### 故障排查速查
 
 | 症状 | 处置 |
 | --- | --- |
-| **预览挂掉 / 3000 无人监听** | `bash scripts/recover.sh` 一键自愈（幂等，装 Go→建表→启动→引导→看门狗）；详教程「一键恢复」章 |
-| `go not found` | 现已自动处理（`bun run dev` 自装）；手动补：`bash scripts/install-go.sh` |
-| 端口 3000 被占 | `ss -ltnp \| grep 3000` 找到占用进程；或 `PORT=3100 bun run dev` 换端口 |
+| **预览挂掉 / 3000 无人监听** | `bash scripts/recover.sh` 一键自愈（幂等，装 Go→DB 检查→启动→引导→看门狗）；详教程 §7 |
+| `go not found` | `scripts/dev-go.sh` 会自动装；手动补：`bash scripts/install-go.sh && export PATH=$HOME/go-sdk/go/bin:$PATH` |
+| 端口 3000 被占 | `ss -ltnp \| grep 3000` 找到占用进程；或 `PORT=3100 ./.build/mhgl` 换端口 |
 | 采集任务 paused | 后台任务页点「启动」，或 `POST /api/admin/tasks/{id}/control` body `{"action":"start"}`（断点续采不丢进度） |
 | 首页/正文乱码 | GBK 站已自动探测（GB18030 兜底）；个别站核对规则编码配置后重采，详教程 FAQ |
+| 不想要自动播种 | `MHGL_AUTO_SEED=0` 启动；或先 `./.build/mhgl bootstrap` 手动铺底（此后规则非空，自动播种不再触发） |
 
 ### scripts/ 约定
 
-- `bootstrap-db.ts`：空库一键引导（恢复链关键件：登录→import-builtin 导入 35 条内置规则→分类固化→默认站点→三大部头任务，幂等）。
-- `install-go.sh` / `dev-go.sh` / `dev-watchdog.sh` / `recover.sh`：Go 工具链安装、单体启动（[R68-d] 自愈化：go 缺失自装 + DB 缺失自举，可 `MHGL_AUTO_BOOTSTRAP=0` 关闭）、OOM 守护、环境重置一键恢复。
-- `mock-novel-site.ts` / `ratelimit-site.ts`：本地模拟源站（规则测试与极限校准的探测目标）。
-- R66-d 清理：Docker 链退役，`install.sh`/`docker-entrypoint.sh`/`export-autofill-rules.ts` 及 `docker/` 自动填充引导整体移入 `docs/archive/docker/`（git 历史可考）。R64-d 已删 Prisma 时代一次性脚本 `backfill-book-num.ts` / `migrate-bqg-chapter-urls.ts`。
-- `docs/legacy-seeds/`：TS 时代规则种子归档（35 站语义已全量固化进 `internal/api/builtin_rules.json`，R62-a 迁入，见其 README）。
-- `archive/`：历史轮次验证脚本归档（只移不删，不参与质量门），见 `archive/README.md`。
+- `install-go.sh`：Go 1.26+ 工具链一键安装到 `~/go-sdk`（幂等；go.dev 不可达自动回退 golang.google.cn 镜像）。
+- `dev-go.sh`：单体启动器（PATH/GOMEMLIMIT 装配 → go 缺失自愈安装 → 源码变更增量构建 → `exec .build/mhgl`）。
+- `dev-watchdog.sh`：端口 3000 死亡 15s 自动拉起（OOM 兜底）；`recover.sh`：环境重置六步一键恢复（见教程 §7）。
+- 历史注（R69）：原 TS/Prisma 引导链（建库脚本 + 空库引导 TS 脚本）已退役——职责内化进 `internal/bootstrap`（启动自举 + `mhgl bootstrap` 子命令），`prisma/`、`node_modules/` 不再是任何必需路径的一环。
+- `mock-novel-site.ts` / `ratelimit-site.ts`：本地模拟源站（规则测试与极限校准的探测目标，可选）。
+- `docs/legacy-seeds/`：TS 时代规则种子归档（35 站语义已全量固化进 `internal/api/builtin_rules.json`）。
+- `docs/archive/docker/`：Docker 部署链退役归档（R66-d）；`archive/`：历史轮次验证脚本归档（见各自 README）。
 
 ## 数据备份
 
-三类数据、三种保护机制（R67-d 核对口径）：
+三类数据、三种保护机制：
 
-- **`db/custom.db`（主数据，不入版本库）**：常规备份 = 停服后直接拷贝文件，或后台「数据备份」页一键导出/导入 JSON（书籍超 **200 本**自动降级为仅元数据导出，大库用文件级备份）；整库丢失时 `bash scripts/recover.sh` 重建空表 + `bun run bootstrap` 幂等引导（35 条内置规则/分类/默认站点/三部头任务自动回归）——**书籍/章节数据不可再生，务必例行备份**。
-- **`web/covers/`（封面）**：已被平台 checkpoint **自动提交进 git**（当前 490+ 张）——这是沙箱重置后的数据保护机制，封面随仓库整体恢复，无需单独备份；自建部署迁移时随目录拷贝。
-- **`worklog.md` / `agent-ctx/` / `docs/`（协作档案，git 追踪）**：跨 agent 协作总线、任务上下文与文档档案，git 内自带历史；退役部署链存于 `docs/archive/`（历史 worklog 已归档至 `docs/archive/worklog-2026-09.md`）。
+- **`db/custom.db`（主数据，不入版本库）**：SQLite 处于 WAL 模式——在线备份用 `sqlite3 db/custom.db ".backup '备份文件.db'"`（一致性快照），或**停服后**直接拷贝文件；或后台「数据备份」页一键导出/导入 JSON（书籍超 **200 本**自动降级为仅元数据导出，大库用文件级备份）。整库丢失时重跑服务即自动重建空表 + 空库播种——**书籍/章节数据不可再生，务必例行备份**。
+- **`web/covers/`（封面）**：已被平台 checkpoint **自动提交进 git**——沙箱重置后封面随仓库整体恢复，无需单独备份；自建部署迁移时随目录拷贝。
+- **`worklog.md` / `agent-ctx/` / `docs/`（协作档案，git 追踪）**：跨 agent 协作总线、任务上下文与文档档案，git 内自带历史；退役部署链存于 `docs/archive/`。
 
 ## 免责声明
 

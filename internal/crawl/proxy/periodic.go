@@ -31,6 +31,9 @@ const (
 	PeriodicCheckDefault = 30 * time.Minute
 	// PeriodicCheckLimitDefault 每轮校验条数缺省 150
 	PeriodicCheckLimitDefault = 150
+	// PeriodicIntervalFloor 间隔下限([R69-a] 负输入防御): env/opts 过小时钳到此值,
+	// 防 PROXY_HARVEST_INTERVAL=1ms 之类误配置把收割循环变成对源站的持续轰炸
+	PeriodicIntervalFloor = time.Minute
 	// EnvHarvestInterval 收割间隔环境变量(PROXY_HARVEST_INTERVAL;
 	// 支持 Go duration 形态 "6h"/"90m" 或纯数字按分钟 "45")
 	EnvHarvestInterval = "PROXY_HARVEST_INTERVAL"
@@ -54,7 +57,8 @@ type PeriodicOptions struct {
 }
 
 // resolvePeriodicOptions 选项归一(纯函数, env 读取集中于此供单测):
-// 收割间隔优先级 显式 opts > env > 缺省; 非法形态一律退缺省
+// 收割间隔优先级 显式 opts > env > 缺省; 非法形态一律退缺省;
+// [R69-a] 双间隔一律钳 PeriodicIntervalFloor(负输入防御, 显式 opts 同样受钳)
 func resolvePeriodicOptions(opts PeriodicOptions) PeriodicOptions {
 	if opts.HarvestInterval <= 0 {
 		opts.HarvestInterval = PeriodicHarvestDefault
@@ -71,6 +75,13 @@ func resolvePeriodicOptions(opts PeriodicOptions) PeriodicOptions {
 	}
 	if opts.CheckLimit <= 0 {
 		opts.CheckLimit = PeriodicCheckLimitDefault
+	}
+	// [R69-a] 间隔下限防御(含 env 解析出的亚分钟值与显式 opts 小值)
+	if opts.HarvestInterval < PeriodicIntervalFloor {
+		opts.HarvestInterval = PeriodicIntervalFloor
+	}
+	if opts.CheckInterval < PeriodicIntervalFloor {
+		opts.CheckInterval = PeriodicIntervalFloor
 	}
 	if opts.Logf == nil {
 		opts.Logf = func(format string, args ...interface{}) {

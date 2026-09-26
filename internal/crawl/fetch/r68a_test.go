@@ -171,13 +171,13 @@ func TestR68aRawFetchSameHostCandidatesGateInvariant(t *testing.T) {
 	for round := 1; round <= 2; round++ {
 		// loopbackExempt=false: 镜像组展开(R63-c: 该通道才做 mirror 展开), SSRF 由
 		// cfg.AllowLoopback 放行回环
-		if _, err := c.rawFetch(context.Background(), srv.URL+"/x", "", false, false); err == nil {
+		if _, err := c.rawFetch(context.Background(), srv.URL+"/x", "", false, false, false); err == nil {
 			t.Fatalf("round %d: 全候选 503 应返回错误", round)
 		}
 		resetGates()
 	}
 	// 闸未被超发破坏: 恢复源站后下一轮应正常成功
-	if _, err := c.rawFetch(context.Background(), srv.URL+"/x", "", false, false); err != nil {
+	if _, err := c.rawFetch(context.Background(), srv.URL+"/x", "", false, false, false); err != nil {
 		t.Fatalf("闸状态应完好(修前超发只增不放, 收放记账被破坏): %v", err)
 	}
 }

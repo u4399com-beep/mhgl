@@ -335,11 +335,18 @@ func (b *Bridge) Contents(_ context.Context, p callback.ContentsPayload) error {
 		if chID, ok := chapByUrl[url]; ok {
 			// oo-① 同款容错: 章节行被并发删除时降级建行兜底, 内容不丢失
 			if err := b.db.UpdateChapterContent(chID, url, cleaned, plainLen); err != nil {
-				b.createChapterWithContent(book.ID, it.Title, url, cleaned, plainLen)
+				if cerr := b.createChapterWithContent(book.ID, it.Title, url, cleaned, plainLen); cerr != nil {
+					// [R69-b] 两条写路径全败=本章未落库, 不计 chaptersUpdated(计数诚实:
+					// 修前 saved++ 恒执行, chaptersUpdated 虚高与实际落库行数脱钩);
+					// 章节保持 fetched=false 由下轮增量重试承担
+					continue
+				}
 			}
 		} else {
 			// 建章链缺章兜底(chapters 回调遗漏/乱序): 尾插建行直接带正文
-			b.createChapterWithContent(book.ID, it.Title, url, cleaned, plainLen)
+			if err := b.createChapterWithContent(book.ID, it.Title, url, cleaned, plainLen); err != nil {
+				continue // [R69-b] 未落库不计 chaptersUpdated(同上)
+			}
 		}
 		saved++
 	}
@@ -359,18 +366,19 @@ func (b *Bridge) Contents(_ context.Context, p callback.ContentsPayload) error {
 }
 
 // createChapterWithContent 缺章兜底建行: idx 用尾插(maxIdx+1), 防 @@unique([bookId,idx])
-// 冲突; 失败静默(下轮增量重试)。
-func (b *Bridge) createChapterWithContent(bookID, rawTitle, url, cleaned string, plainLen int) {
+// 冲突; [R69-b] 返回错误供调用方判定「本章未落库」(修前静默吞错使调用方 saved++ 恒计,
+// chaptersUpdated 与实际落库行数脱钩)。
+func (b *Bridge) createChapterWithContent(bookID, rawTitle, url, cleaned string, plainLen int) error {
 	maxIdx, err := b.db.CrawlMaxChapterIdx(bookID)
 	if err != nil {
-		return
+		return err
 	}
 	title := clean.CleanChapterTitle(asStr(rawTitle, 300), "")
 	if title == "" {
 		title = "未命名章节"
 	}
 	content := cleaned
-	_ = b.db.CrawlCreateChapter(bookID, maxIdx+1, title, "", url, "db", &content, plainLen)
+	return b.db.CrawlCreateChapter(bookID, maxIdx+1, title, "", url, "db", &content, plainLen)
 }
 
 // ============================================================

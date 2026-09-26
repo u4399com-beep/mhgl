@@ -54,19 +54,31 @@ var (
 
 // decodeCharRefsOnce 字符引用单遍解码(仅探测用, 幂等): 数字实体(十/十六, 兼容无分号形态)
 // + URL 走私相关命名实体(tab/newline/colon/sol/semi)。非法/代理区段码点丢空。
+// [R69-c] 修前按 m[3:len(m)-1] / m[2:len(m)-1] 取数字段 —— 隐含「末字符必为 ;」假设;
+// 无分号形态(&#58 / &#x3a, HTML5 属性值中数字实体本就免分号合法)会把末位数字当分号
+// 剥掉, 解码出错误码点(javascript&#58 → "javascript\x05"), scheme 探测失配 → 危险
+// URL fail-open 直通浏览器(浏览器侧解码正确)。改为仅在有分号时剥分号。
 func decodeCharRefsOnce(s string) string {
 	if !strings.Contains(s, "&#") && !strings.Contains(s, "&") {
 		return s
 	}
 	s = decHexRe.ReplaceAllStringFunc(s, func(m string) string {
-		code, err := strconv.ParseInt(m[3:len(m)-1], 16, 64)
+		digits := m[3:]
+		if strings.HasSuffix(digits, ";") {
+			digits = digits[:len(digits)-1]
+		}
+		code, err := strconv.ParseInt(digits, 16, 64)
 		if err != nil || code < 0 || code > 0x10ffff || (code >= 0xd800 && code <= 0xdfff) {
 			return ""
 		}
 		return string(rune(code))
 	})
 	s = decDecRe.ReplaceAllStringFunc(s, func(m string) string {
-		code, err := strconv.ParseInt(m[2:len(m)-1], 10, 64)
+		digits := m[2:]
+		if strings.HasSuffix(digits, ";") {
+			digits = digits[:len(digits)-1]
+		}
+		code, err := strconv.ParseInt(digits, 10, 64)
 		if err != nil || code < 0 || code > 0x10ffff || (code >= 0xd800 && code <= 0xdfff) {
 			return ""
 		}

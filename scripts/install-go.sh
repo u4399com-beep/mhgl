@@ -3,7 +3,7 @@
 # 沙箱/环境重置会清空 $HOME 下内容, 重置后执行: bash scripts/install-go.sh
 # 幂等: 已安装且版本匹配则跳过。镜像源自动回退(go.dev → golang.google.cn)。
 set -euo pipefail
-GO_VER="1.24.5"
+GO_VER="1.26.0"
 PREFIX="${HOME}/go-sdk"
 ARCH="$(uname -m)"
 case "$ARCH" in x86_64) GOARCH="amd64" ;; aarch64|arm64) GOARCH="arm64" ;; *) echo "unsupported arch: $ARCH"; exit 1 ;; esac

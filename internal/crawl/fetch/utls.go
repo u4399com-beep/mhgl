@@ -33,6 +33,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -43,6 +44,51 @@ import (
 // utlsHelloID ClientHello 仿真规格: HelloChrome_Auto = 库内最新 Chrome 规格
 // 指针(utls v1.8.2 → HelloChrome_133), 随 utls 升级自动跟进
 var utlsHelloID = utls.HelloChrome_Auto
+
+// EnvTLSFPRotate TLS 指纹轮换开关环境变量([R69-a] opt-in): 置 "1"/"true"/"on"/"yes"
+// 时按 host 稳定轮换 ClientHello 规格档(同 host 恒同档与会话一致性口径一致, 异 host
+// 间 JA3 打散)。规则面 tlsFingerprint 仅白名单 "chrome"(rule.Sanitize 领土外),
+// 故以环境变量门控而不动规则面; 缺省关 = 既有单规格口径零变化
+const EnvTLSFPRotate = "MHGL_TLSFP_ROTATE"
+
+// utlsRotateEnabled 轮换开关(包初始化读 env; 测试可直接覆写此变量)
+var utlsRotateEnabled = isTruthyEnv(EnvTLSFPRotate)
+
+// utlsRotateProfiles 轮换档位: 近三代 Chrome 规格(均为 TLS 扩展 shuffler 已启用
+// 的现代形态; ALPN 由 utlsHandshake 覆写为 http/1.1 不受档位影响)
+var utlsRotateProfiles = []utls.ClientHelloID{
+	utls.HelloChrome_Auto, // 133
+	utls.HelloChrome_131,
+	utls.HelloChrome_120,
+}
+
+// utlsProfileFor host → ClientHello 规格(轮换关: 恒 utlsHelloID 单规格;
+// 轮换开: FNV-1a(host) 取模稳定归档 — 同 host 恒同档, 异 host 均摊三档)
+func utlsProfileFor(host string) utls.ClientHelloID {
+	if utlsRotateEnabled {
+		return utlsRotateProfiles[fnv1a64(host)%uint64(len(utlsRotateProfiles))]
+	}
+	return utlsHelloID
+}
+
+// fnv1a64 FNV-1a 64 位(host 归档哈希; 与 permuteChromiumBrands 同族)
+func fnv1a64(s string) uint64 {
+	h := uint64(14695981039346656037)
+	for i := 0; i < len(s); i++ {
+		h ^= uint64(s[i])
+		h *= 1099511628211
+	}
+	return h
+}
+
+// isTruthyEnv 环境变量真值判定("1"/"true"/"on"/"yes" 大小写不敏感)
+func isTruthyEnv(key string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(key))) {
+	case "1", "true", "on", "yes":
+		return true
+	}
+	return false
+}
 
 // utlsHandshakeTimeout TLS 握手硬超时(独立于请求超时的兜底, 防慢握手占住
 // 连接槽位; 取 min(本值, ctx 既有 deadline))
@@ -66,7 +112,7 @@ func utlsHandshake(ctx context.Context, conn net.Conn, host string) (net.Conn, e
 	if utlsConfigHook != nil {
 		cfg = utlsConfigHook(host)
 	}
-	uconn := utls.UClient(conn, cfg, utlsHelloID)
+	uconn := utls.UClient(conn, cfg, utlsProfileFor(host))
 	if err := uconn.BuildHandshakeState(); err != nil {
 		_ = conn.Close()
 		return nil, fmt.Errorf("utls ClientHello 构建失败: %w", err)
@@ -143,7 +189,9 @@ func (c *Client) proxyTLSDialContext(pu *url.URL) func(context.Context, string, 
 
 // connectTunnel http/https 代理 CONNECT 隧道: 拨代理(https 代理跳用标准
 // crypto/tls — 代理跳指纹无关紧要, 目标 TLS 由 utls 接管) → CONNECT
-// addr(带 Proxy-Authorization) → 2xx → 返回带缓冲残余的隧道流
+// addr(带 Proxy-Authorization) → 2xx → 返回带缓冲残余的隧道流。
+// [R69-a] CONNECT 往返硬超时与 ctx deadline 对齐(取更早者): 修前固定 30s 不感知
+// ctx, 已取消请求(任务停止/请求超时先到)的 CONNECT 往返仍可挂满 30s 占住拨号槽
 func connectTunnel(ctx context.Context, pu *url.URL, addr string) (net.Conn, error) {
 	d := &net.Dialer{Timeout: 15 * time.Second, KeepAlive: 30 * time.Second}
 	phost, pport := pu.Hostname(), pu.Port()
@@ -177,7 +225,12 @@ func connectTunnel(ctx context.Context, pu *url.URL, addr string) (net.Conn, err
 		cred := base64.StdEncoding.EncodeToString([]byte(pu.User.Username() + ":" + pwd))
 		req.Header.Set("Proxy-Authorization", "Basic "+cred)
 	}
-	_ = conn.SetDeadline(time.Now().Add(30 * time.Second)) // CONNECT 往返硬超时
+	// CONNECT 往返硬超时: 30s 与 ctx deadline 取更早者([R69-a] ctx 感知)
+	connectDeadline := time.Now().Add(30 * time.Second)
+	if dl, ok := ctx.Deadline(); ok && dl.Before(connectDeadline) {
+		connectDeadline = dl
+	}
+	_ = conn.SetDeadline(connectDeadline)
 	if err := req.Write(conn); err != nil {
 		_ = conn.Close()
 		return nil, fmt.Errorf("代理 CONNECT 写入失败(%s): %w", pu.String(), err)

@@ -391,7 +391,6 @@ func ParseToc(ctx context.Context, firstURL, htmlStr string, pageRule *PageRule,
 	pagesUsed := 0
 
 	for p := 1; p <= maxPages && currentURL != ""; p++ {
-		pagesUsed = p
 		curPath := ""
 		if u, err := url.Parse(currentURL); err == nil {
 			curPath = strings.ToLower(u.Path)
@@ -480,6 +479,10 @@ func ParseToc(ctx context.Context, firstURL, htmlStr string, pageRule *PageRule,
 		if onProgress != nil {
 			onProgress(p, len(all))
 		}
+		// [R69-b] pagesUsed 在「本页实际完成解析」后落位: 修前在循环顶赋值,
+		// 同 path 防环熔断/文档解析失败等「本页未解析即 break」的路径会把未解析页
+		// 计入实际使用页数(返回值语义=实际使用页数, 引擎侧仅日志消费但口径应真)
+		pagesUsed = p
 
 		// 翻页
 		if p < maxPages && paginationEnabled {

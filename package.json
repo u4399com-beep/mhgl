@@ -1,15 +1,11 @@
 {
   "name": "mhgl",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "private": true,
   "scripts": {
     "dev": "bash scripts/dev-go.sh",
     "build": "go build -o .build/mhgl ./cmd/server",
     "start": ".build/mhgl",
-    "lint": "go vet ./...",
-    "bootstrap": "bun run scripts/bootstrap-db.ts"
-  },
-  "dependencies": {
-    "prisma": "^6.11.1"
+    "lint": "go vet ./..."
   }
 }

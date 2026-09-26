@@ -25,6 +25,7 @@ import (
 
 	"mhgl/internal/api"
 	"mhgl/internal/auth"
+	"mhgl/internal/bootstrap"
 	"mhgl/internal/config"
 	"mhgl/internal/crawl"
 	"mhgl/internal/store"
@@ -34,6 +35,15 @@ import (
 func main() {
 	cfg := config.Load()
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
+
+	// ---- [R69-a] bootstrap 子命令: `mhgl bootstrap` ----
+	// 幂等引导运行态数据(35 规则/16 分类/默认站点/三大部头任务), 不启动 HTTP。
+	// 与 TS 原件 scripts/bootstrap-db.ts 同语义, 但直连 store: 无需服务在线/密码/bun。
+	if len(os.Args) > 1 && os.Args[1] == "bootstrap" {
+		runBootstrap(cfg)
+		return
+	}
+
 	log.Printf("[mhgl] boot: port=%s db=%s prod=%v", cfg.Port, cfg.DBPath, cfg.IsProd)
 
 	// 内存软顶(GOMEMLIMIT 同源口径 600MB)
@@ -42,6 +52,11 @@ func main() {
 	// ---- 数据层 ----
 	if err := os.MkdirAll(filepath.Dir(cfg.DBPath), 0o755); err != nil {
 		log.Fatalf("[mhgl] mkdir db dir: %v", err)
+	}
+	// [R69-a] 原生自举: 缺表自动补全(IF NOT EXISTS, 既有库空转, 毫秒级)。
+	// 全新空库单二进制即可启动, 彻底移除 `bunx prisma db push` 外部依赖。
+	if err := bootstrap.EnsureSchema(cfg.DBPath); err != nil {
+		log.Fatalf("[mhgl] ensure schema: %v", err)
 	}
 	db, err := store.Open(cfg.DBPath)
 	if err != nil {
@@ -99,6 +114,13 @@ func main() {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
+	// [R69-a] 空库自动引导(后台执行不阻塞启动): 规则数为 0 视为全新部署,
+	// 幂等补齐 35 规则/16 分类/默认站点/三大部头任务(不自动开采集)。
+	// 设 MHGL_AUTO_SEED=0 可关闭(纯手动运维)。
+	if os.Getenv("MHGL_AUTO_SEED") != "0" {
+		go autoSeed(db)
+	}
+
 	go func() {
 		log.Printf("[mhgl] listening on :%s", cfg.Port)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -118,6 +140,54 @@ func main() {
 	close(stopCh)
 	_ = db.Close()
 	log.Printf("[mhgl] bye")
+}
+
+// runBootstrap `mhgl bootstrap` 子命令: EnsureSchema + Seed + 报告。
+// 幂等引导运行态数据(35 规则/16 分类/默认站点/三大部头任务, 不自动开采集)。
+func runBootstrap(cfg *config.Config) {
+	if err := os.MkdirAll(filepath.Dir(cfg.DBPath), 0o755); err != nil {
+		log.Fatalf("[bootstrap] mkdir db dir: %v", err)
+	}
+	if err := bootstrap.EnsureSchema(cfg.DBPath); err != nil {
+		log.Fatalf("[bootstrap] ensure schema: %v", err)
+	}
+	db, err := store.Open(cfg.DBPath)
+	if err != nil {
+		log.Fatalf("[bootstrap] store open: %v", err)
+	}
+	rep, err := bootstrap.Seed(db)
+	if err != nil {
+		_ = db.Close()
+		log.Fatalf("[bootstrap] seed: %v", err)
+	}
+	log.Printf("[bootstrap] done: rules +%d/upd%d(err=%d) categories +%d site=%v tasks +%d",
+		rep.RulesCreated, rep.RulesUpdated, len(rep.RuleErrors), rep.CategoriesCreated, rep.SiteCreated, len(rep.TasksCreated))
+	for _, e := range rep.RuleErrors {
+		log.Printf("[bootstrap] rule error: %s", e)
+	}
+	if err := db.Close(); err != nil {
+		log.Printf("[bootstrap] close: %v", err)
+	}
+}
+
+// autoSeed 空库自动引导(服务启动后台执行; 幂等, 失败仅告警不阻断服务)。
+func autoSeed(db *store.DB) {
+	empty, err := bootstrap.IsEmpty(db)
+	if err != nil {
+		log.Printf("[mhgl] auto-seed check: %v", err)
+		return
+	}
+	if !empty {
+		return
+	}
+	log.Printf("[mhgl] 空库(规则 0 条) → 自动引导运行态(关闭: MHGL_AUTO_SEED=0)")
+	rep, err := bootstrap.Seed(db)
+	if err != nil {
+		log.Printf("[mhgl] auto-seed: %v", err)
+		return
+	}
+	log.Printf("[mhgl] auto-seed done: rules +%d/upd%d(err=%d) categories +%d site=%v tasks +%d",
+		rep.RulesCreated, rep.RulesUpdated, len(rep.RuleErrors), rep.CategoriesCreated, rep.SiteCreated, len(rep.TasksCreated))
 }
 
 // recoverOnBoot running → paused(带 TaskLog 留痕; 任务可由控制面 resume)。

@@ -5,6 +5,7 @@
 package web
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -67,7 +68,7 @@ func serveWebStatic(name, ctype string, maxAge int) http.HandlerFunc {
 			return
 		}
 		if maxAge > 0 {
-			w.Header().Set("Cache-Control", "public, max-age=3600")
+			w.Header().Set("Cache-Control", fmt.Sprintf("public, max-age=%d", maxAge)) // [R69-c] 修前硬编码 3600 无视 maxAge 参数(manifest 300 形同虚设)
 		} else {
 			w.Header().Set("Cache-Control", "no-cache")
 		}

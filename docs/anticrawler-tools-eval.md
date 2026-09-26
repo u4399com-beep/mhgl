@@ -1,5 +1,8 @@
 # 反反爬 10 工具探讨与择优评估（R27-1）
 
+> ⚠️ **历史文档注（R69）**：本文撰写于 TS 时代，文中提及的 `mini-services/*`（scrapling-bridge、cloak-browser、fetch-relay 等）与 `src/lib/crawl/obscura.ts` 均已随 R69 纯 Go 化退役/删除，现役反反爬能力以 `internal/crawl/fetch`（utls 指纹/挑战退避/代理池）为准。本文仅作工具选型历史留档。
+>
+
 - Task ID: R27-1 · 日期: 2026-09-15 · 性质: 纯研究，零 src/ 代码改动
 - 对象: Scrapling / CloakBrowser / BrowserAct / invisible_playwright / MediaCrawler / curl-impersonate / aiohttp / Dokobot / Trafilatura / Obscura
 - 依据: web 搜索实证（2025~2026 资讯）+ 本机只读探测 + `src/lib/crawl/fetcher.ts` 引擎链现场比对

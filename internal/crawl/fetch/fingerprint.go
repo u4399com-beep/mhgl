@@ -133,6 +133,24 @@ func acceptEncodingFor(family string) string {
 	}
 }
 
+// imageAcceptFor 图片子资源 Accept 家族化([R69-a] FetchBinary 封面抓取消费):
+// 真实浏览器 <img> 加载不发 HTML Accept — Chrome/Edge/Firefox/Safari 各按真实
+// 图片 Accept 值广告; unknown 家族保守 "*/*"
+func imageAcceptFor(family string) string {
+	switch family {
+	case "chromium":
+		// Chrome 140+ 图片请求 Accept(含 apng/svg+xml; 与导航 Accept 的差异面)
+		return "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8"
+	case "firefox":
+		return "image/avif,image/webp,*/*"
+	case "safari":
+		// Safari 17+ 图片请求 Accept(heic 为 WebKit 家族特征位)
+		return "image/avif,image/webp,image/heic,*/*"
+	default:
+		return "*/*"
+	}
+}
+
 // acceptLanguageFor Accept-Language 按 UA locale 段推导(TS 非池化分支同口径):
 // zh-cn → zh-CN,zh;q=0.9,en;q=0.8; ja → ja,en-US;q=0.9,en;q=0.8;
 // en-US → en-US,en;q=0.9; 缺省 → zh-CN,zh;q=0.9,en;q=0.6

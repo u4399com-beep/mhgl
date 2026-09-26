@@ -269,15 +269,13 @@ func (g *hostGate) noteSuccess() {
 func (g *hostGate) noteChallenge() {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	if g.baseGap > 0 {
-		g.minGap = time.Duration(float64(g.minGap) * 1.5)
-		if g.minGap > gateGapCap {
-			g.minGap = gateGapCap
-		}
-	}
+	g.widenPacingLocked()
 }
 
-// setRateLimited 限流冷却窗(Retry-After): 仅当新窗更晚才推进(避免旧值回拨)
+// setRateLimited 限流冷却窗(Retry-After): 仅当新窗更晚才推进(避免旧值回拨)。
+// [R69-a] 冷却伴随节奏放宽(×1.5 钳 gateGapCap, 与挑战证据同款曲线): 目标站明示限流
+// 后冷却窗一过即恢复全速, 大概率立刻再触发下一轮限流(「冷却-全速-再限流」锯齿);
+// 放宽准入节奏使恢复期以降速试探, 成功请求(noteSuccess)仍会把 minGap 归位基准
 func (g *hostGate) setRateLimited(d time.Duration) {
 	if d <= 0 {
 		return
@@ -287,7 +285,19 @@ func (g *hostGate) setRateLimited(d time.Duration) {
 	if until.After(g.rateLimitedUntil) {
 		g.rateLimitedUntil = until
 	}
+	g.widenPacingLocked()
 	g.mu.Unlock()
+}
+
+// widenPacingLocked 准入节奏放宽(×1.5 钳 gateGapCap; 挑战证据/限流冷却共用曲线)。
+// 调用方须持 g.mu
+func (g *hostGate) widenPacingLocked() {
+	if g.baseGap > 0 {
+		g.minGap = time.Duration(float64(g.minGap) * 1.5)
+		if g.minGap > gateGapCap {
+			g.minGap = gateGapCap
+		}
+	}
 }
 
 // ---------------- SSRF 守卫 ----------------
@@ -1017,13 +1027,42 @@ func (c *Client) Fetch(ctx context.Context, rawURL, refererURL string) (Result, 
 	return c.fetch(ctx, rawURL, refererURL, false)
 }
 
-// FetchBinary 二进制抓取(封面图): 不做 charset 解码/不走 contentProxy
+// FetchBinary 二进制抓取(封面图): 不做 charset 解码/不走 contentProxy。
+// [R69-a] 子资源指纹形态(真实浏览器 <img> 加载: Sec-Fetch-Dest=image/Mode=no-cors/
+// 无 Sec-Fetch-User/图片 Accept — 修前发 document 导航头组, 子资源上的 Sec-Fetch-User
+// 本身即非浏览器指纹); [R69-a] HTML 壳守卫: 拦截页/错误页(200+text/html)不得当图片
+// 入库(修前挑战壳 HTML 被 base64 成 corrupt 封面)
 func (c *Client) FetchBinary(ctx context.Context, rawURL string) ([]byte, string, error) {
-	res, err := c.rawFetch(ctx, rawURL, "", false, false)
+	res, err := c.rawFetch(ctx, rawURL, "", false, false, true)
 	if err != nil {
 		return nil, "", err
 	}
+	// [R69-a] HTML 壳守卫: 200 拦截壳/错误页经 mirror 切换或挑战链仍可能以 200+HTML
+	// 穿出, base64 后即 corrupt 封面。仅拒「Content-Type 声明 HTML 且非位图魔数」形态
+	// (滑头源站以 text/html 送真图的形态经魔数豁免放行, 零误伤位图)
+	ct := strings.ToLower(res.contentType)
+	if strings.Contains(ct, "text/html") && !isImageMagic(res.body) {
+		return nil, "", fmt.Errorf("封面地址返回 HTML 壳(拦截/错误页), 不作为图片入库(%s)", util.Truncate(res.contentType, 60))
+	}
 	return res.body, res.contentType, nil
+}
+
+// isImageMagic 常见位图魔数判定(jpeg/png/gif/webp/bmp; svg 经 content-type 白名单,
+// 不做文本嗅探)
+func isImageMagic(b []byte) bool {
+	switch {
+	case len(b) >= 3 && b[0] == 0xFF && b[1] == 0xD8 && b[2] == 0xFF: // jpeg
+		return true
+	case len(b) >= 4 && b[0] == 0x89 && b[1] == 'P' && b[2] == 'N' && b[3] == 'G': // png
+		return true
+	case len(b) >= 3 && b[0] == 'G' && b[1] == 'I' && b[2] == 'F': // gif
+		return true
+	case len(b) >= 12 && string(b[0:4]) == "RIFF" && string(b[8:12]) == "WEBP": // webp
+		return true
+	case len(b) >= 2 && b[0] == 'B' && b[1] == 'M': // bmp
+		return true
+	}
+	return false
 }
 
 // [R67/R68 死代码清退] FetchContent 删除(无 Referer 包装壳零生产消费者;
@@ -1056,7 +1095,7 @@ func (c *Client) FetchContentRef(ctx context.Context, rawURL, refererURL string)
 // fetchViaContentProxy 经转换代理取正文: JSON {ok,content} 或纯文本行 → <p> wrap
 func (c *Client) fetchViaContentProxy(ctx context.Context, proxyURL string) (string, error) {
 	// 转换代理为 loopback 服务: 剥离出口代理直连(R8-16 同口径)
-	res, err := c.rawFetch(ctx, proxyURL, "", true, true)
+	res, err := c.rawFetch(ctx, proxyURL, "", true, true, false)
 	if err != nil {
 		return "", err
 	}
@@ -1092,8 +1131,10 @@ func wrapLinesToParagraphs(text string) string {
 
 // rawFetch 单次传输(含 mirror 组轮换 + retries; 带 SSRF/闸门/UA/Cookie/Referer)。
 // loopbackExempt: 内部通道(token 预取/contentProxy)的回环豁免 —— URL 校验层与拨号
-// 级复检层(ssrfCheck + safeDialContext)两处均按豁免口径放行, 仅限 directOnly 直连
-func (c *Client) rawFetch(ctx context.Context, rawURL, refererURL string, directOnly, loopbackExempt bool) (rawResult, error) {
+// 级复检层(ssrfCheck + safeDialContext)两处均按豁免口径放行, 仅限 directOnly 直连。
+// binary: 二进制子资源抓取(FetchBinary 封面) — 头组按 <img> 子资源指纹形态发出
+// [R69-a](修前封面请求发 document 导航头组, Sec-Fetch-User 上子资源即非浏览器指纹)
+func (c *Client) rawFetch(ctx context.Context, rawURL, refererURL string, directOnly, loopbackExempt, binary bool) (rawResult, error) {
 	if err := ssrfCheck(rawURL, c.cfg.AllowLoopback || loopbackExempt); err != nil {
 		return rawResult{}, fmt.Errorf("SSRF blocked: %v", err)
 	}
@@ -1195,7 +1236,7 @@ func (c *Client) rawFetch(ctx context.Context, rawURL, refererURL string, direct
 			if err := ctx.Err(); err != nil {
 				return rawResult{}, err
 			}
-			res, err := c.doOnce(ctx, cand, refererURL, extraHeaders, directOnly, gate, loopbackExempt)
+			res, err := c.doOnce(ctx, cand, refererURL, extraHeaders, directOnly, gate, loopbackExempt, binary)
 			if err == nil {
 				gate.noteSuccess()
 				if len(group) > 1 {
@@ -1306,7 +1347,9 @@ func (e *proxyChannelError) Error() string { return "代理通道失败: " + e.e
 func (e *proxyChannelError) Unwrap() error { return e.err }
 
 // parseRetryAfter 解析 Retry-After(整数秒与 HTTP 日期双形态; 对齐 TS parseRetryAfterHeaderMs)
-// ok=false = 缺失/非法(调用方兜底 30s); HTTP 日期已过期返回 0(<1s 噪声底 → 兜底 30s)
+// ok=false = 缺失/非法(调用方兜底 30s); HTTP 日期已过期返回 0(<1s 噪声底 → 兜底 30s)。
+// [R69-a] 纯数字但超出 int64 表示域(如 20 位九): 仍是「显式合法秒数」语义(TS parseInt
+// 后钳 120s 上限), 修前误判非法 → 兜底 30s, 对持续限流主机过早重撞; 修后按上限采纳
 func parseRetryAfter(raw string, now time.Time) (time.Duration, bool) {
 	s := strings.TrimSpace(raw)
 	if s == "" {
@@ -1314,7 +1357,10 @@ func parseRetryAfter(raw string, now time.Time) (time.Duration, bool) {
 	}
 	if isPlainDigits(s) {
 		n, err := strconv.Atoi(s)
-		if err != nil || n <= 0 {
+		if err != nil {
+			return retryAfterMax, true // 超出 int64: 显式超大值, 按钳制上限 120s 采纳
+		}
+		if n <= 0 {
 			return 0, false
 		}
 		return time.Duration(n) * time.Second, true
@@ -1356,8 +1402,9 @@ func isPlainDigits(s string) bool {
 
 // doOnce 单次 HTTP 请求(ua+头组仿真/headers/cookies(Jar)/referer/代理/超时/Retry-After)
 // gate: 归属的 host 闸(限流冷却窗写入; token 直连等无闸调用传 nil);
-// loopbackExempt: 强制走 hcLocal 回环豁免直连(跳过代理池)
-func (c *Client) doOnce(ctx context.Context, rawURL, refererURL string, extraHeaders map[string]string, directOnly bool, gate *hostGate, loopbackExempt bool) (rawResult, error) {
+// loopbackExempt: 强制走 hcLocal 回环豁免直连(跳过代理池);
+// binary: 二进制子资源形态(<img> 指纹组: image Accept + Dest=image/Mode=no-cors/无 User)
+func (c *Client) doOnce(ctx context.Context, rawURL, refererURL string, extraHeaders map[string]string, directOnly bool, gate *hostGate, loopbackExempt, binary bool) (rawResult, error) {
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return rawResult{}, fmt.Errorf("URL 解析失败: %v", err)
@@ -1376,7 +1423,12 @@ func (c *Client) doOnce(ctx context.Context, rawURL, refererURL string, extraHea
 	ua := c.pickUA(strings.ToLower(u.Host))
 	family := uaFamily(ua)
 	req.Header.Set("User-Agent", ua)
-	req.Header.Set("Accept", acceptForFamily(family)) // 家族化 Accept(Safari 不发 avif/apng)
+	// [R69-a] 二进制子资源(<img>)Accept 家族化 — 真实浏览器图片请求不发 HTML Accept
+	if binary {
+		req.Header.Set("Accept", imageAcceptFor(family))
+	} else {
+		req.Header.Set("Accept", acceptForFamily(family)) // 家族化 Accept(Safari 不发 avif/apng)
+	}
 	req.Header.Set("Accept-Language", acceptLanguageFor(ua))
 	// 显式家族化 Accept-Encoding([R67-a] 头集完整性: 真实浏览器全家族广告 br,
 	// Chrome/Firefox 额外 zstd — 与响应解压能力成对, 见 readBodyDecompressed);
@@ -1391,7 +1443,17 @@ func (c *Client) doOnce(ctx context.Context, rawURL, refererURL string, extraHea
 		effReferer = u.Scheme + "://" + u.Host + "/"
 	}
 	// 指纹头组(sec-ch-ua*/Sec-Fetch-* 按 UA 家族; 先于规则头 — cfg.headers 可覆盖单项)
-	for k, v := range fingerprintHeaders(ua, effReferer, rawURL) {
+	fpHeaders := fingerprintHeaders(ua, effReferer, rawURL)
+	// [R69-a] 二进制子资源形态覆写: 真实浏览器 <img> 请求 Sec-Fetch-Dest=image/
+	// Mode=no-cors 且从不携带 Sec-Fetch-User(该头仅用户激活的导航请求上线)
+	if binary {
+		if _, has := fpHeaders["Sec-Fetch-Dest"]; has {
+			fpHeaders["Sec-Fetch-Dest"] = "image"
+			fpHeaders["Sec-Fetch-Mode"] = "no-cors"
+			delete(fpHeaders, "Sec-Fetch-User")
+		}
+	}
+	for k, v := range fpHeaders {
 		req.Header.Set(k, v)
 	}
 	// 附加规则头
@@ -1601,7 +1663,7 @@ func parseCookieHeader(s string) []*http.Cookie {
 // 准入节奏(noteChallengePacing), 挑战计数照旧逐次累加(blockedCount 可观测口径不变)
 func (c *Client) fetch(ctx context.Context, rawURL, refererURL string, directOnly bool) (Result, error) {
 	for attempt := 0; ; attempt++ {
-		res, err := c.rawFetch(ctx, rawURL, refererURL, directOnly, false)
+		res, err := c.rawFetch(ctx, rawURL, refererURL, directOnly, false, false)
 		if err != nil {
 			// 404 与其余错误统一失败语义(与 TS !res.ok 口径一致)
 			return Result{}, err
@@ -1684,7 +1746,7 @@ func (c *Client) fetchTokenDirect(ctx context.Context, tu string) string {
 		fmt.Printf("[fetcher] token 预取 SSRF 拒绝: %v (tokenUrl=%s)\n", err, util.Truncate(tu, 120))
 		return ""
 	}
-	res, err := c.doOnce(ctx, tu, "", nil, true, nil, true)
+	res, err := c.doOnce(ctx, tu, "", nil, true, nil, true, false)
 	if err != nil {
 		fmt.Printf("[fetcher] token 预取失败: %v (tokenUrl=%s)\n", err, util.Truncate(tu, 120))
 		return ""

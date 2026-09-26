@@ -40,7 +40,7 @@ func TestParseRetryAfterTable(t *testing.T) {
 		{"零秒兜底", "0", 0, false},
 		{"负数", "-5", 0, false},
 		{"加号形态非法", "+30", 0, false},
-		{"超大值溢出 Atoi", "99999999999999999999", 0, false},
+		{"超大值溢出 Atoi 按上限采纳[R69-a]", "99999999999999999999", 120 * time.Second, true},
 		{"正常秒数", "5", 5 * time.Second, true},
 		{"带空白秒数", " 8 ", 8 * time.Second, true},
 		{"大但不溢出", "120", 120 * time.Second, true},

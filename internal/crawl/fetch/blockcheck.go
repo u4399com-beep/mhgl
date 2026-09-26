@@ -40,6 +40,15 @@ var strongBlockMarkers = []string{
 	// [R68-a] CF 挑战/Turnstile 脚本域(challenges.cloudflare.com): Turnstile 组件与
 	// 托管挑战页的脚本宿主, 2022+ 新形态; 正文页不会引用该域, 命中即挑战组件在页
 	"challenges.cloudflare.com",
+	// [R69-a] CF 2021+ 挑战内联配置对象名(window._cf_chl_opt): 现代托管挑战页
+	// 必含, 正常业务页不引用
+	"_cf_chl_opt",
+	// [R69-a] CF 错误/拦截页容器标记(cf-error-details): 5xx/1020/1015 拦截页模板
+	// 必含 class/id, 正文页不引用
+	"cf-error-details",
+	// [R69-a] CF 硬限流/防火墙拦截页字面文案(纯文本 body 无模板标记的形态:
+	// 1015 = rate-limited / 1020 = access-rule blocked)
+	"error code: 1015", "error code: 1020",
 }
 
 // weakBlockMarkers 弱标记(TS BLOCK_MARKERS): 无正常标题豁免时仅扫前 4000 字符
@@ -51,6 +60,8 @@ var weakBlockMarkers = []string{
 	// [R68-a] 中文站(杰奇 WAP 系常见)拦截/限频文案, 与既有词条同族补全:
 	// 仅在无正常标题豁免时扫前 4000 字符, 长页+正常标题(正文/导航提及)不误伤
 	"访问过于频繁", "请开启浏览器javascript", "启用javascript",
+	// [R69-a] 限频文案同族变体(短壳拦截页高频用语; 长页+正常标题豁免不误伤)
+	"请求过于频繁", "操作过于频繁", "访问频率过高",
 }
 
 var (

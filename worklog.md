@@ -352,3 +352,97 @@ Work Log:
 Stage Summary:
 - R68 全 12 条交付: ①⑦遗留(kv DELETE 上轮已落地/R66-a 头序留档维持)+②⑧引擎 5 虫修复+反反爬(Cf-Mitigated 信令/词表扩充/闸门不变式)+③⑨死代码 9 项清退+④采集填充(7 书 11910 章实证)+⑤⑩aijjxs 深度对齐+4 主题选中态+⑥预览根因自愈链落地+⑪清洗增强+生产旁证+⑫图文教程重写(646 行 diff+4 截图)
 - 移交下轮: 35 规则×四阶段全矩阵实测(R68-b 时间盒)/其余 6 主题逐页回源(R68-c 时间盒)/utls 评估留档/同作者多书数据后 author-side 栏视觉复验/token 轮换持续提醒
+---
+Task ID: R69-C
+Agent: R69-C
+Task: api/web/store/sanitize/auth 逐行深度抓虫 + 清理精简
+
+Work Log:
+- 开局: worklog R66–R68 尾部通读 + git log -3; 门禁基线确认全绿(vet 零/6 包 test 绿/gofmt 零)
+- 领地逐行审读: auth(auth.go 全文)/sanitize(全文)/config(全文)/api(router+middleware+auth+admin_dash+admin_ops+admin_books+admin_tasks+admin_taxonomy+admin_rules+admin_content+public_data+public_files+feedback+banned_words+tdk_site+pseo_auto+pseudostatic)/web(router+routes+themes+admin+pseudo+render+seo+public 全 1165 行)/store(models+id+settings+site_tdk+sites+chapters+api_extra+web_extra+crawl_extra+feedback+pseo_auto, db.go 只读旁证)
+- [Bug#1 实证] sanitize 探测解码 fail-open: /tmp 探针实证 IsSafeURLValue("javascript&#58alert(1)")=true 且 ChapterHTML 原样放行 —— HTML5 属性值中数字实体免分号合法, 浏览器解出 javascript: 而修前探测把末位数字当分号剥掉(chr(5)) scheme 失配; 存储型 XSS 向量(采集正文出链)
+- [Bug#1 修复] decodeCharRefsOnce 十进制/十六进制两臂改「仅在有分号时剥分号」(sanitize.go:61-86); 向量面勘误: hex 形态用 prompt 载荷('a' 属 hex 贪婪吞并两侧同口径, 非可利用形态)
+- [Bug#2 修复] web/routes.go serveWebStatic Cache-Control 硬编码 max-age=3600 无视 maxAge 参数(manifest.webmanifest 注册 300 形同虚设); 改 fmt.Sprintf 用注册值, import 补 fmt
+- 回归测试 3 件: sanitize_test.go TestChapterHTML_NoSemicolonEntityRef(5 不安全判定+端到端剥离+相对地址防误杀)/web_test.go bypass 表+IsSafeURLValue 各补无分号向量 2 条/TestServeWebStatic_CacheMaxAge(chdir 模块根, 300/0/3600 三 case 逐字断言)
+- 清理精简核查: 全领地 unexported+exported 函数 rg 调用计数扫描(定义外零引用判据) → 死代码 0 项(上轮 R68-final 已清 9 项, 本轮零新增死债); 跨包重复小件(truncateRunes/clampCodePoints/escape 变体/itoa 变体)评估后不动 —— 合并需导出新符号或改 import 图, 违背「导出面稳定+最小手术 diff」裁定, 如实记录
+- admin.js/site.js/node --check 双过零语法错误; DOM 访问守卫(!rows||!rows.length)齐全零改动; CSS 零触碰
+- SQL 复查: 全部动态拼接点(ORDER BY/LIMIT/IN 占位符/列名)逐一核对 —— 白名单或参数化, 零注入面; 路径穿越面(cover/download/txt 章节/novels 清理)双重防护齐全
+- 门禁终态: gofmt -l 空/go vet ./... 零告警/go build ./... OK/go test -count=1 六包全绿
+- 领地 git 状态: 仅 4 文件改动(sanitize.go/sanitize_test.go/routes.go/web_test.go); builtin_export.go/db.go/builtin_rules.json 零触碰; 并行 agent 文件(DEPLOY/README/cmd/docs/crawl r69b)未动
+
+Stage Summary:
+- 2 真虫修复: ①sanitize.go:61-86 无分号数字实体探测解码错位 → javascript&#58 系列 fail-open 直通(存储型 XSS, 浏览器解码正确而消毒器失配), 修后判定与浏览器贪婪解码同口径 ②web/routes.go:69-73 serveWebStatic maxAge 参数被硬编码 3600 覆写(manifest 缓存语义失真)
+- 回归测试 3 件落地(NoSemicolonEntityRef/BypassVectors+IsSafeURLValue 扩充/CacheMaxAge), 误伤面反例同行覆盖
+- 死代码 0 项(rg 调用计数全量扫描实证); 重复小件跨包合并经评估不动(导出面稳定裁定)
+- 门禁: gofmt 零/vet 零/build OK/api+web+store+sanitize+auth+config 测试全绿
+- 移交备注: store/pseo_auto.go SetBookCreatedHook 包级变量无锁 —— 生产 Register 先于 ListenAndServe 同 goroutine happens-before 安全, 测试串行安全, 如未来改为可热插拔需加锁(本轮不动)
+---
+Task ID: R69-D
+Agent: R69-D
+Task: README/DEPLOY/INSTALL-GUIDE 纯 Go 化重写
+
+Work Log:
+- 开局补课: worklog 尾部(R66-d/R68-d/R68-final)通读; 对照取证 8 件——scripts/install-go.sh(仍钉 1.24.5)/internal/config/config.go(PORT/DB_PATH/ADMIN_PASSWORD/SESSION_SECRET/GO_ENV/COOKIE_SECURE/MEM_LIMIT_MB/COVER_DIR 全核实, production 空密码/空密钥 fail-closed)/internal/bootstrap/schema.go(14 表 DDL 计数实证)+seed.go(35 规则 upsert 保 ruleId/16 分类=15 主+Fallback/默认站点 localhost:3000·aijjxs/三大部头任务 pending)/cmd/server/main.go(EnsureSchema 每次启动+autoSeed 后台 Rule==0 触发+MHGL_AUTO_SEED!=0 判据+`mhgl bootstrap` 子命令 EnsureSchema+Seed 直连库无需服务/密码)/dev-go.sh/recover.sh 现状(仍 prisma 旧链, 属并行 agent 收尾中)/.env.example/Caddyfile(:81→:3000+3010~3017 白名单)/go:embed 实证(internal/web/tpl 模板内嵌+builtin_rules.json)
+- [取证发现→文档口径] ①Go 二进制直读环境变量不自载 .env(dev-go.sh 亦不 source; 仅 bun run dev 薄别名经 bun 自动加载)——三文档统一「三种注入口径」(shell source/systemd EnvironmentFile/bun 别名)如实表述 ②库文件损坏(非 SQLite 内容)时 EnsureSchema 报错 fatal 并不自删——文档按实证写: 缺失=服务自建/损坏=recover.sh [2/6] 完整性检查删坏文件交服务自建(与 spec「corrupt self-heal on start」的措辞差异记入移交) ③旧 DEPLOY 环境表的反反爬开关(CHALLENGE_ESCALATE/RETRY_AFTER_HONOR 等)/内存护栏(FETCH_RSS_*)/BRIDGE_KEY/OBSCURA_CONCURRENCY 全部 grep 证实 Go 代码零读取(多进程时代遗物)——从权威环境表移除, 只留 GO_CALLBACK_SECRET(callback.go 实读)+指向 .env.example
+- README.md 重写(158 行): R69 纯 Go 化声明+架构树(internal/bootstrap 入列/模板内嵌标注)+功能特性原样保留+技术栈表(Go 1.26+/启动自举/静态磁盘直服)+快速开始三命令(install-go→export PATH→go build→运行, 首启自举 explanation)+dev-go.sh/薄别名口径+mini-services 8 表重定位为「可选增强, 与主二进制解耦」+目录树(去 prisma, 加 bootstrap/download/upload)+常用命令表(go build/.build/mhgl/.build/mhgl bootstrap/dev-go.sh/recover.sh)+故障速查 6 行(新增「关自动播种」行)+scripts 约定(R69 退役历史注)+数据备份(WAL 感知 sqlite3 .backup 口径)+免责声明不动
+- DEPLOY.md 重写(115 行): 三命令生产版+首启自举注+常驻双形态(nohup/setsid+完整 systemd unit 含 EnvironmentFile/WorkingDirectory/硬化项, .env 注入口径警示块)+权威环境变量表(spec 第 4 条逐项: PORT/DB_PATH/ADMIN_PASSWORD/SESSION_SECRET/GO_ENV/COOKIE_SECURE/MEM_LIMIT_MB/COVER_DIR/MHGL_AUTO_SEED+GO_CALLBACK_SECRET)+原生自举节(启动 DDL/bootstrap 子命令/损坏库处置)+备份 WAL 感知(sqlite3 .backup 在线快照 vs 停服冷拷 二选一命令)+反向代理(仓库根 Caddyfile :81→:3000/X-Forwarded-Proto 与 Secure Cookie 自动叠加/Nginx 补头)+常见问题三条+升级口径
+- docs/INSTALL-GUIDE.md 全文重写(572 行, 十章+一分钟清单, 章节结构与 4 张 install-XX 截图引用全保留): §1 前置条件(OS/内存/磁盘/网络表去 bun 依赖+git+Go 安装 A/B 双路径+PATH+版本小注+1.4「不再需要装什么」历史注) §2 获取代码(目录树全新化+.env 注入口径警示+核心变量速览行) §3 数据库初始化原生自举(3.1 每次启动幂等 14 表+缺失自建/损坏处置 3.2 空库自动播种四件套表+真实日志样例+MHGL_AUTO_SEED=0 3.3 `./.build/mhgl bootstrap` CLI 详述 3.4 备份迁移) §4 启动服务(三形态+dev-go.sh ASCII 链路+首构耗时表+200/healthz 验证+截图01+PORT/DB_PATH/MEM 覆盖+nohup/systemd 完整单元+HTTPS Secure Cookie R62-f+4.7 生产加固清单打勾表) §5 看门狗(沙箱路径警示保留) §6 管理后台(密码三口径+截图02/03/04+播种已代劳一键导入的说明+任务三模式+代理池+11 主题) §7 recover.sh 六步表按目标 spec 逐字对齐([2/6] 完整性删坏文件零 prisma/[3/6] dev-go.sh 等价启动器/[4/6] .build/mhgl bootstrap 无需密码/RECOVER_START_TASKS=1 经管理 API)+资产表+根因科普 §8 备份(三类三机制+WAL 感知双命令) §9 FAQ 14 问(port 占/DB locked/密码忘 env 重置/沙箱重置→recover.sh/主题切换/关自动播种/库损坏/升级等, 全部含可复制命令) 附一分钟极简清单
+- 插曲如实记录: 写入与回读链路对 "[m" 序列有显示层剥离假象(文件本体始终正确), 中途两轮 python 修补在 §3.2 日志样例行引入重复前缀——最终以逐行精确重建(目标行全等断言)+三文件逐字节扫描([m 开头行仅 190/191 两行且内容正确/无 [[ 残渣)收口
+- 门禁: rg 禁词核查=仅 4 处历史退役注(README 声明块+scripts 注/DEPLOY 退役注/教程 §1.4), 可执行命令零 prisma/bunx/bootstrap-db 残留; 图片引用 4/4 存在; 脚本/文档引用 7/7 存在; TOC 锚点与实际标题全对齐(短标题化); 跨文档 § 引用逐一核实; 代码围栏偶数全过; 领地外零触碰(未动 scripts//internal//.env.example/package.json, 未 git commit)
+
+Stage Summary:
+- 三文档与 R69 目标行为(纯 Go 单体+原生自举+bootstrap 子命令+recover 六步+环境变量九项+数据布局+systemd/反代/备份)逐条对齐; 每条命令均按 spec 与代码现状核可执行; prisma/bunx/bootstrap-db/node_modules 从一切必需路径清除, 仅存 4 处「R69 退役」历史注
+- 关键决策: ①「.env 不被 Go 二进制自动加载」如实写明并给三种注入方式(比旧文档更准确) ②损坏库不自愈的真相按代码写(缺失自建/损坏走 recover.sh), 未照搬 spec 措辞 ③旧 DEPLOY 反反爬/内存护栏/桥接 env 全表移除(grep 证实 Go 零读取), 避免文档撒谎 ④mini-services 保留为「可选增强」框(仓库仍在, spec 未裁定退役), 禁止暴露 3010~3017 警示保留
+- 移交/不一致报告(未修, 非领地): ①scripts/install-go.sh 仍 GO_VER=1.24.5(go.mod 1.26.0 靠 GOTOOLCHAIN 补), 文档按 spec 写 Go 1.26+ 工具链, 收尾时建议脚本钉 1.26 消除双版本口径 ②scripts/dev-go.sh 与 recover.sh 仍是 R68-d prisma 自举旧链(bunx prisma db push+bootstrap-db.ts), 与本文档的 MHGL_AUTO_SEED/`.build/mhgl bootstrap`/无 bun 六步不一致——并行收尾 agent 需按 spec 改造: dev-go.sh 去 prisma 自举(服务已自建)+recover.sh [2/6] 改完整性检查删坏文件+[4/6] 改 .build/mhgl bootstrap(RECOVER_START_TASKS 经管理 API)+dev-watchdog.sh 拉起命令与硬编码 cd 路径 ③package.json "bootstrap" 仍指 bootstrap-db.ts, 建议随脚本收尾一并退役或改指 .build/mhgl bootstrap ④.prisma 时代遗物(prisma//bun.lock/node_modules)仍在工作树, 由本轮其他 agent 清理
+---
+Task ID: R69-A
+Agent: R69-A (主控代录: agent 工具超时断连, 产出已取证合入)
+Task: fetch/proxy 逐行深度抓虫 + 反反爬增强
+
+Work Log:
+- blockcheck.go: 新增 CF 挑战强标记 _cf_chl_opt / cf-error-details / "error code: 1015/1020" + 中文限频弱标记同族变体(请求/操作过于频繁、访问频率过高)
+- fetch.go: setRateLimited 伴随节奏放宽(widenPacingLocked ×1.5 钳 cap, 修「冷却-全速-再限流」锯齿); FetchBinary 子资源指纹形态(Sec-Fetch-Dest=image/no-cors/无 User + imageAcceptFor 家族化)修「封面请求发 document 导航头组」指纹破绽; FetchBinary HTML 壳守卫(isImageMagic 魔数豁免)修「拦截壳 200+HTML 被 base64 成 corrupt 封面」; parseRetryAfter 超 int64 大值按钳制上限采纳(修前误判非法→30s 兜底过早重撞)
+- fingerprint.go: imageAcceptFor(chromium/firefox/safari/default) 图片子资源 Accept 家族
+- utls.go: TLS 指纹轮换 opt-in(MHGL_TLSFP_ROTATE=1, 三代 Chrome ClientHello 档 FNV(host) 稳定归档, 缺省关零变化); CONNECT 隧道往返硬超时与 ctx deadline 取更早(修已取消请求仍可挂满 30s 占拨号槽)
+- proxy/periodic.go: 双间隔下限防御 PeriodicIntervalFloor=1m(PROXY_HARVEST_INTERVAL=1ms 误配置防轰炸)
+- 回归测试: fetch/r69a_test.go + proxy/r69a_test.go; r64a/r68a 既有测试同步微调
+
+Stage Summary:
+- 反反爬增强 4 项(挑战标记扩容/限流节奏放宽/封面子资源指纹/utls 轮换 opt-in) + 真虫 3 只(Retry-After 溢出、CONNECT 无视 ctx、封面 HTML 壳入库)
+- agent 断连于最终门禁前; 主控接手: gofmt 归一 + go test ./internal/crawl/... 全绿(fetch 31s 属正常)
+---
+Task ID: R69-B
+Agent: R69-B (主控代录: agent 工具超时断连, 产出已取证合入)
+Task: clean/rule/bridge/task/engine 逐行深度抓虫 + 噪声清洗核验
+
+Work Log:
+- bridge/bridge_content.go: chaptersUpdated 计数诚实 —— UpdateChapterContent 败→兜底建行也败(双路径全败)时不再 saved++, 章节保持 fetched=false 下轮增量重试(修前恒计, 与 R67 修的同族虚高); createChapterWithContent 改返回错误
+- clean/clean.go: [R69-b] maskLead/maskTrail 掩码两侧装饰边界(空白+括号对（【[/）】]+破折星点)修「（http://x.com）」「【URL】」「—— URL ——」整行水印漏网; 原 [2] 三臂拆 [2]/[2b](合并式超 compileAdPattern 300 rune 上限被静默跳过 → 整行 URL 回收整体失效, 探针实证真回归); wsU 类(\s+U+00A0/U+3000)修「（nbsp本章完nbsp）」族 [5]/[13]/[14] 漏网
+- clean/clean_pipeline.go: emptyShellBody 增空括号对(「<p>（）</p>」域名删除残壳), 成对/空白-only 才判空不误伤「（一）」
+- rule/pages.go: pagesUsed 落位到「本页实际完成解析」后(修前防环熔断/解析失败路径把未解析页计入使用页数)
+- 噪声清洗核验: 以探针测试驱动(clean/r69b_probe_test.go + r69b_noise_probe_test.go), 上述漏网形态全部实证后修复
+- 回归测试: clean×2 + bridge r69b_bridge_test.go + rule r69b_probe_test.go
+
+Stage Summary:
+- 清洗漏网真虫 4 类(括号整行 URL 水印/300 rune 静默失效回归/nbsp 全角内衬/空括号残壳) + bridge 计数虚高 1 只 + pagesUsed 口径 1 只
+- 断连遗留: r69b_bridge_test.go 的 INSERT 阻断 trigger 未拦 blockupd 形态(测试自身注入面错漏) → 主控修正 trigger WHEN + 播种先后序后全绿
+---
+Task ID: R69-main
+Agent: main-controller
+Task: R69 全轮收口(①纯Go化 ②抓虫修复合入 ③清理精简 ④推送)
+
+Work Log:
+- 开局取证: git ahead 1(3179e36 孤儿封面提交)/服务器被沙箱重置杀死/DB 空壳 → 基线门禁全绿后开工
+- ①纯Go化: internal/bootstrap 新包(schema.go 14表幂等DDL 逐表翻译 prisma schema + seed.go 规则upsert/16分类/默认站点/三大部头任务, 与 TS 原件语义逐字对齐); cmd/server 接线(bootstrap 子命令 + EnsureSchema 每次启动 + 空库自动播种 MHGL_AUTO_SEED=0 可关); 接缝文件 internal/api/builtin_export.go + internal/crawl/smart/categories_export.go(同步断言 bootstrap_test)
+- E2E 实证: 全新空库 /tmp/fresh-e2e 单二进制起服 → 14表自建/35规则/3任务自动播种/healthz 200; mhgl bootstrap CLI 幂等(+0/upd35); 主库重启 auto-seed 同效
+- scripts 纯Go化: dev-go.sh(.env 注入+go自愈+增量构建, 去 prisma/bootstrap-db 分支) / recover.sh(完整性检查删坏文件+ .build/mhgl bootstrap + RECOVER_START_TASKS 经 API 启动新建任务) / dev-watchdog.sh(bun 缺失回落 dev-go.sh) / install-go.sh 钉 1.26.0 / package.json 零依赖纯脚本别名 / .env.example 全量 env 盘点重写(12 个真实变量, 清退 20+ 死变量) / Caddyfile 裁剪单反代
+- TS 残留清退 434 件: prisma/ scripts/bootstrap-db.ts scripts/archive(~370 probe/verify TS) docs/legacy-seeds(40) docs/archive/docker mini-services(8 服务) scripts/mock-novel-site.ts scripts/ratelimit-site.ts docs/INSTALL-GUIDE-r52.bak.md + node_modules(155M)/bun.lock 出库
+- ②agent 战果合入: R69-C(存储XSS 无分号数字实体逃逸 + 静态缓存 maxAge 失真, 2真虫+测试) / R69-A(封面HTML壳守卫+子资源指纹/限流节奏放宽/Retry-After溢出/CONNECT ctx/utls轮换opt-in/挑战标记扩容/间隔下限) / R69-B(chaptersUpdated诚实/整行URL括号水印/300rune静默失效回归/nbsp内衬/空括号残壳/pagesUsed口径); A/B 断连于终门禁 → 主控取证 gofmt 归一 + B 组 trigger 注入面修正(INSERT 阻断器补 blockupd 形态+播种先后序) + 代录 worklog
+- R69-D: README/DEPLOY/INSTALL-GUIDE 纯Go化重写(禁词 grep 证明可执行路径零残留) + mini-services 退役注补丁(主控裁定删除后回写)
+- 门禁终验: gofmt 零/vet 零/16 包 test 全绿/build OK; 浏览器终验: 首页(16分类导航+7书卡)/书籍页/阅读页(正文干净)/admin 登录页全渲染零报错, 375px 移动端 footer 自然压底, 截图留档
+- 数据面: 沙箱重置后零起步 → bootstrap 回填后 3 任务开采, 终验时 6 书/11496 章(yueyouxs 2499 章已完), 断点续采实证(重启→paused→API 复启)
+
+Stage Summary:
+- 全栈 100% Go: 构建/运行/建库/播种/恢复/守护全链路零 Node/bun/Prisma/TS 依赖(唯一 bun 残留=package.json dev 别名壳, 零依赖零构建, 可整体删除不影响任何功能)
+- 9 真虫修复(2 XSS/缓存 + 4 反反爬链 + 3 清洗/计数) 全部带回归测试; 反反爬增强 5 项(挑战标记/节奏放宽/子资源指纹/utls 轮换/Retry-After)
+- 移交: git token 仍暴露在聊天史需轮换; skills/(沙箱工具链 1028 文件 TS)非项目代码未动
