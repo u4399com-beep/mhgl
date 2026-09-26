@@ -27,7 +27,11 @@ import (
 
 // ---------------- 站点尾巴剥离(R25-2-1/2-2 逐条移植) ----------------
 
-const fieldSiteDomain = `(?:www\.)?[a-z0-9-]{2,}\.(?:com|net|cc|org|info|top|xyz|vip|site|la|mobi|tv)`
+// fieldSiteDomain 域名主体: 末级标签 {1,} —— [R71-b] 修前 {2,} 把单字符末级标签的
+// 真实短域("www.t.cn" 短链 / "x.com" 类水印站)排除在站点尾巴判定外,
+// "第12章 风起 www.x.com" 类空格分隔尾巴整段漏剥(探针实证)。
+// 误伤面: 仍受 TLD 白名单+「分隔符×域名」共现锚双重约束, 单字符非域名段无法命中。
+const fieldSiteDomain = `(?:www\.)?[a-z0-9-]{1,}\.(?:com|net|cc|org|info|top|xyz|vip|site|la|mobi|tv)`
 const fieldSiteBrands = `笔趣阁|笔趣网|笔趣吧|小说网|文学网|中文网|阅读网`
 const fieldSiteMarketing = `首发|无弹窗|全文阅读|在线阅读|最新章节|手打|txt下载|敬请期待|免费阅读|全本阅读`
 
@@ -116,6 +120,15 @@ func CleanIntro(raw string, maxLength int) string {
 // "龙争-虎斗 www.y.com"→"龙争-虎斗", "转折_www.x.com首发"→"转折")
 var chapterTitleJunkRe = regexp.MustCompile(`(?i)[_\-–—|]\s*[^_\-–—|]*?((?:www\.|[a-z0-9-]+\.(?:com|net|cc|org|info|top|xyz|vip)|中文网|文学网|小说网|首发|无弹窗|全文阅读|在线阅读|最新章节|手打|txt下载|敬请期待))`)
 
+// titleURLTailRe [R71-b] 章节标题 URL 尾巴回收(与 chapterTitleJunkRe 互补):
+// junk 切割只认 [_-–—|] 分隔符锚, scheme 形态尾巴(空格/括号/无分隔符:
+// "风起 http://x.com" / "风起（https://x.com）" / "风起https://x.com/a?b=1")与切割
+// 后的悬空残尾("风起_https://" —— 切割公式只回退到域名起点)全部漏网(探针实证)。
+// 本正则要求 scheme/www 强信号才动手: URL 主体走 ASCII 字符类(遇 CJK 即止,
+// "https://x.com，好看" 类 URL 后接真文本不误杀), 全角闭括号单独消费,
+// 全剥后为空则保留原标题(与 junk 切割「剥后为空保留」同守卫)。
+var titleURLTailRe = regexp.MustCompile(`(?i)[\s_\-–—|（(【\[]*(?:https?:/+|www\.)[a-zA-Z0-9./:?&=%_#~+,@!;\-_]*(?:[）)】\]])?$`)
+
 // CleanChapterTitle 清洗章节标题(对齐 cleaner.ts cleanChapterTitle):
 // cleanTextField 基础面 + 书名前缀剥离 + 站点尾巴切割(剥后为空保留原标题) + 码点截断 120。
 func CleanChapterTitle(raw, bookName string) string {
@@ -124,7 +137,10 @@ func CleanChapterTitle(raw, bookName string) string {
 	}
 	t := CleanTextField(raw, 0)
 	if bookName != "" && t != "" {
-		re, err := regexp.Compile(`^` + regexp.QuoteMeta(bookName) + `\s*`)
+		// [R71-b] 前缀剥离补「书名后分隔符」消费: 修前仅 \s* —— "万古神帝_第100章_首发"
+		// 剥书名后残留 "_第100章"(下划线非 \s), 后续垃圾切割 TrimRight 只剥尾侧,
+		// 行首分隔符永久残留。分隔符集与 chapterTitleJunkRe 锚/TrimRight 同族。
+		re, err := regexp.Compile(`^` + regexp.QuoteMeta(bookName) + `[\s_\-–—|]*`)
 		if err == nil {
 			// TS replace(…, 'g') 全局剥; Go 等价: 循环剥至不再命中(有界防意外)
 			for i := 0; i < 5; i++ {
@@ -145,6 +161,9 @@ func CleanChapterTitle(raw, bookName string) string {
 				t = cut
 			}
 		}
+	}
+	if nt := titleURLTailRe.ReplaceAllString(t, ""); strings.TrimSpace(nt) != "" {
+		t = nt
 	}
 	return truncateRunes(t, 120)
 }

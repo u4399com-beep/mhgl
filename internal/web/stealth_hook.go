@@ -38,24 +38,40 @@ func stealthSetting(key string) string {
 // stealthTTL 配置微缓存窗口(管理端保存后最多 5s 全站生效, 与违禁词 60s 同口径的轻量版)。
 const stealthTTL = 5 * time.Second
 
+// stealthSnapshot 单个 TTL 窗口内的配置快照: 伪装管线 Config + 分卷显示开关
+// ([R71-c] 修前 book.volume.show 走 stealthSetting 直读 —— 每次 toc 渲染一次
+// settings 查询, 即便伪装全关也逃不掉, 与「TTL 微缓存省 DB 读」的设计面相悖;
+// 修后并入同一快照, 变更生效延迟与四个伪装键对齐 ≤5s)。
+type stealthSnapshot struct {
+	cfg        stealth.Config
+	volumeShow bool
+}
+
 var (
 	stealthMu     sync.Mutex
-	stealthCached stealth.Config
+	stealthCached stealthSnapshot
 	stealthExpire time.Time
 )
 
-// stealthConfigOf 当前生效伪装配置(5s TTL; 钩子未注册 → 全关)。
-func stealthConfigOf() stealth.Config {
+// stealthSnapshotOf 当前生效配置快照(5s TTL; 钩子未注册 → 全关+分卷关)。
+func stealthSnapshotOf() stealthSnapshot {
 	stealthMu.Lock()
 	defer stealthMu.Unlock()
 	now := time.Now()
 	if now.Before(stealthExpire) {
 		return stealthCached
 	}
-	cfg := stealth.ConfigFromSettings(stealthSetting)
-	stealthCached = cfg
+	stealthCached = stealthSnapshot{
+		cfg:        stealth.ConfigFromSettings(stealthSetting),
+		volumeShow: stealth.BoolSetting(stealthSetting, "book.volume.show"),
+	}
 	stealthExpire = now.Add(stealthTTL)
-	return cfg
+	return stealthCached
+}
+
+// stealthConfigOf 当前生效伪装配置(5s TTL)。
+func stealthConfigOf() stealth.Config {
+	return stealthSnapshotOf().cfg
 }
 
 // pageCtxOf 从页面数据提取伪装上下文(Book/Chapter 键在 read/book/toc 页由
@@ -86,12 +102,12 @@ type VolumeGroupView struct {
 }
 
 // volumeGroupsFor 目录页分卷分组。
-//   - book.volume.show != "1" → nil(平面渲染不变式);
+//   - book.volume.show != "1" → nil(平面渲染不变式); 开关读走 TTL 快照(见 stealthSnapshot);
 //   - 卷名取 Chapter.volume 库值(采集侧回填后即生效), 空值回退标题前缀
 //     stealth.SplitVolume(现网 volume 列全空, 回退为主路径);
 //   - 开头无卷前缀归「正文」组; 相邻同名归并; 仅 1 组 → nil(单卷分列无意义)。
 func volumeGroupsFor(chapters []map[string]any) []VolumeGroupView {
-	if !stealth.BoolSetting(stealthSetting, "book.volume.show") {
+	if !stealthSnapshotOf().volumeShow {
 		return nil
 	}
 	groups := make([]VolumeGroupView, 0, 4)

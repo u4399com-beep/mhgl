@@ -1,145 +1,46 @@
-#!/bin/sh
+#!/bin/bash
 
-set -e
+# [R71] 平台启动脚本纯 Go 化 —— 原 Next.js 部署链启动器(next-service-dist/server.js
+# + 打包 DB + mini-services + Caddy 前台进程)已随 R66-d/R69 退役。
+# 现行职责与 package.json "start" 同口径: 确保 .build/mhgl 存在(缺则构建)后前台运行。
+# 用法: bash .zscripts/start.sh   (或打包/部署场景 cwd 无关 —— 自动定位项目根)
 
-# 获取脚本所在目录
+exec 2>&1
+set -eu
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-BUILD_DIR="$SCRIPT_DIR"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$PROJECT_DIR"
 
-# 存储所有子进程的 PID
-pids=""
-
-# 清理函数：优雅关闭所有服务
-cleanup() {
-    echo ""
-    echo "🛑 正在关闭所有服务..."
-    
-    # 发送 SIGTERM 信号给所有子进程
-    for pid in $pids; do
-        if kill -0 "$pid" 2>/dev/null; then
-            service_name=$(ps -p "$pid" -o comm= 2>/dev/null || echo "unknown")
-            echo "   关闭进程 $pid ($service_name)..."
-            kill -TERM "$pid" 2>/dev/null
-        fi
-    done
-    
-    # 等待所有进程退出（最多等待 5 秒）
-    sleep 1
-    for pid in $pids; do
-        if kill -0 "$pid" 2>/dev/null; then
-            # 如果还在运行，等待最多 4 秒
-            timeout=4
-            while [ $timeout -gt 0 ] && kill -0 "$pid" 2>/dev/null; do
-                sleep 1
-                timeout=$((timeout - 1))
-            done
-            # 如果仍然在运行，强制关闭
-            if kill -0 "$pid" 2>/dev/null; then
-                echo "   强制关闭进程 $pid..."
-                kill -KILL "$pid" 2>/dev/null
-            fi
-        fi
-    done
-    
-    echo "✅ 所有服务已关闭"
-    exit 0
-}
-
-echo "🚀 开始启动所有服务..."
-echo ""
-
-# 切换到构建目录
-cd "$BUILD_DIR" || exit 1
-
-ls -lah
-
-DEFAULT_PACKAGED_DB_PATH="/app/db/custom.db"
-DEFAULT_PACKAGED_DATABASE_URL="file:$DEFAULT_PACKAGED_DB_PATH"
-
-# Python 依赖在构建阶段安装进部署产物，不复用 Sandbox 的 /home/z/.venv。
-# Next.js 及其启动的子进程都会继承这组路径。
-if [ -d "/app/python-runtime/site-packages" ]; then
-    export PYTHONPATH="/app/python-runtime/site-packages:/app/next-service-dist${PYTHONPATH:+:$PYTHONPATH}"
-    export PATH="/app/python-runtime/site-packages/bin:$PATH"
-    export PYTHONDONTWRITEBYTECODE=1
-    export PYTHONUNBUFFERED=1
-    echo "🐍 已启用部署包内 Python runtime: $(python --version 2>&1)"
+# .env 注入(仅简单 KEY=VALUE 行; Go 二进制不自载 .env)
+if [ -f .env ]; then
+    set -a
+    # shellcheck disable=SC1091
+    . ./.env 2>/dev/null || true
+    set +a
 fi
 
-# 启动 Next.js 服务器
-if [ -f "./next-service-dist/server.js" ]; then
-    echo "🚀 启动 Next.js 服务器..."
-    cd next-service-dist/ || exit 1
-    
-    # 设置环境变量
-    export NODE_ENV=production
-    export PORT="${PORT:-3000}"
-    export HOSTNAME="${HOSTNAME:-0.0.0.0}"
-    export DATABASE_URL="${DATABASE_URL:-$DEFAULT_PACKAGED_DATABASE_URL}"
-
-    if [ "$DATABASE_URL" = "$DEFAULT_PACKAGED_DATABASE_URL" ]; then
-        if [ ! -f "$DEFAULT_PACKAGED_DB_PATH" ]; then
-            echo "❌ 未找到打包后的数据库文件 $DEFAULT_PACKAGED_DB_PATH"
-            echo "   为避免生产环境启动到空数据库，启动已终止"
-            exit 1
-        fi
-
-        echo "🗄️  当前使用打包数据库: $DEFAULT_PACKAGED_DB_PATH"
-    else
-        echo "🗄️  当前使用外部指定数据库: $DATABASE_URL"
-    fi
-    
-    # 后台启动 Next.js
-    bun server.js &
-    NEXT_PID=$!
-    pids="$NEXT_PID"
-    
-    # 等待一小段时间检查进程是否成功启动
-    sleep 1
-    if ! kill -0 "$NEXT_PID" 2>/dev/null; then
-        echo "❌ Next.js 服务器启动失败"
-        exit 1
-    else
-        echo "✅ Next.js 服务器已启动 (PID: $NEXT_PID, Port: $PORT)"
-    fi
-    
-    cd ../
-else
-    echo "⚠️  未找到 Next.js 服务器文件: ./next-service-dist/server.js"
+# go 工具链自愈(与 scripts/dev-go.sh 同口径): PATH 补 ~/go-sdk → 仍缺则 install-go.sh
+if ! command -v go >/dev/null 2>&1; then
+    export PATH="$HOME/go-sdk/go/bin:$PATH"
+fi
+if ! command -v go >/dev/null 2>&1; then
+    echo "[start] go not found - auto install: bash scripts/install-go.sh (自愈)"
+    bash scripts/install-go.sh
+    export PATH="$HOME/go-sdk/go/bin:$PATH"
+fi
+if ! command -v go >/dev/null 2>&1; then
+    echo "❌ go 工具链不可用 —— 手动执行 bash scripts/install-go.sh 后重试"
+    exit 1
 fi
 
-# 启动 mini-services
-if [ -f "./mini-services-start.sh" ]; then
-    echo "🚀 启动 mini-services..."
-    
-    # 运行启动脚本（从根目录运行，脚本内部会处理 mini-services-dist 目录）
-    sh ./mini-services-start.sh &
-    MINI_PID=$!
-    pids="$pids $MINI_PID"
-    
-    # 等待一小段时间检查进程是否成功启动
-    sleep 1
-    if ! kill -0 "$MINI_PID" 2>/dev/null; then
-        echo "⚠️  mini-services 可能启动失败，但继续运行..."
-    else
-        echo "✅ mini-services 已启动 (PID: $MINI_PID)"
-    fi
-elif [ -d "./mini-services-dist" ]; then
-    echo "⚠️  未找到 mini-services 启动脚本，但目录存在"
-else
-    echo "ℹ️  mini-services 目录不存在，跳过"
+# 构建幂等: 二进制已存在则跳过(增量重建请用 bash scripts/dev-go.sh)
+if [ ! -x .build/mhgl ]; then
+    echo "[start] building .build/mhgl ..."
+    mkdir -p .build
+    go build -o .build/mhgl ./cmd/server
 fi
 
-# 启动 Caddy（如果存在 Caddyfile）
-echo "🚀 启动 Caddy..."
-
-# Caddy 作为前台进程运行（主进程）
-echo "✅ Caddy 已启动（前台运行）"
-echo ""
-echo "🎉 所有服务已启动！"
-echo ""
-echo "💡 按 Ctrl+C 停止所有服务"
-echo ""
-
-# Caddy 作为主进程运行
-exec caddy run --config Caddyfile --adapter caddyfile
+# 前台运行(启动自举建表 + 空库自动播种; PORT 缺省 3000)
+echo "[start] launching .build/mhgl on :${PORT:-3000} ..."
+exec ./.build/mhgl

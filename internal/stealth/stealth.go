@@ -113,10 +113,16 @@ func ConfigFromSettings(get func(key string) string) Config {
 	}
 }
 
+// maxDocBytes 超长文档跳过阈值(512KB; R70-plan 契约「>512KB 跳过」,
+// INSTALL-GUIDE §6.6 对用户承诺)。超限页 tokenize/改写/重组的 CPU 与内存
+// 放大不可控(每请求一次), 伪装收益对超长页无意义 —— 直接原样返回。
+const maxDocBytes = 512 << 10
+
 // Apply 伪装管线入口。cfg 全关 → 原样返回(同一底层数据)。
 // 管线顺序(契约固定): interfere → pseudo → transcode → obfuscate。
+// 超过 maxDocBytes(512KB) 的大页整体跳过(逐字节零变化)。
 func Apply(src []byte, cfg Config, pc PageCtx) []byte {
-	if cfg.AllOff() {
+	if cfg.AllOff() || len(src) > maxDocBytes {
 		return src
 	}
 	s := string(src)

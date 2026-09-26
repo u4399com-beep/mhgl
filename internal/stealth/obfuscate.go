@@ -114,6 +114,11 @@ func wsChar(r *rand.Rand) string {
 // [R70-c 真虫修复] 既有字符引用整体保真跳过: transcode 先行时文本节点已含
 // &#x4E0A; 形态引用, 修前会把引用内部的 x/4/E/0/A 当普通 ASCII 再实体化,
 // 破坏引用结构 → 浏览器渲染出字面乱码(外观破坏级 bug)。
+// [R71-c 真虫修复] 同类残余: HTML5 legacy 无分号命名引用(&amp/&nbsp/&copy 等
+// 在文本上下文同样被浏览器解码)修前不被 entityRefLen 认领, 引用内部字母被二次
+// 实体化(&amp → &&#97;mp)→ 引用失配 → 浏览器渲染字面 "amp"(可见文本漂移,
+// 探针实证 600 轮 139 漂移)。修后 '&' 后跟 '#' 或字母数字时整段引用形参照抄
+// (编码更少 = 保守方向, 浏览器解码语义逐字节不变)。
 func asciiEntityText(s string, r *rand.Rand) string {
 	var b strings.Builder
 	changed := false
@@ -124,6 +129,23 @@ func asciiEntityText(s string, r *rand.Rand) string {
 			if n := entityRefLen(s[i:]); n > 0 {
 				b.WriteString(s[i : i+n])
 				i += n
+				continue
+			}
+			// 不完整/legacy 引用形: '&' 起的潜在引用前缀(&#x…/#…/字母段)整段照抄,
+			// 内部字母绝不实体化(修前 &amp 的 a/m/p 各 2% 被编码, 破坏浏览器解码)。
+			if i+1 < len(s) && (s[i+1] == '#' || isASCIILetterDigit(rune(s[i+1]))) {
+				j := i + 1
+				if s[j] == '#' {
+					j++
+					if j < len(s) && (s[j] == 'x' || s[j] == 'X') {
+						j++
+					}
+				}
+				for j < len(s) && isASCIILetterDigit(rune(s[j])) {
+					j++
+				}
+				b.WriteString(s[i:j])
+				i = j
 				continue
 			}
 		}
@@ -308,6 +330,7 @@ func scanAttrSpans(data string, from int) (spans [][2]int, names []string, selfC
 		for i < n && !isWsByte(data[i]) && data[i] != '=' && data[i] != '>' && data[i] != '/' {
 			i++
 		}
+		nameEnd := i // [R71-c] 重名检测按属性名本体(修前整片段含值, 同名异值漏判)
 		if i < n && data[i] == '=' {
 			i++
 			for i < n && isWsByte(data[i]) {
@@ -327,7 +350,7 @@ func scanAttrSpans(data string, from int) (spans [][2]int, names []string, selfC
 			}
 		}
 		spans = append(spans, [2]int{start, i})
-		names = append(names, strings.ToLower(data[start:i]))
+		names = append(names, strings.ToLower(data[start:nameEnd]))
 	}
 	return nil, nil, false, false // '>' 缺失(理论不该发生) → 畸形
 }

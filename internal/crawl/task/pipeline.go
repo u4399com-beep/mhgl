@@ -594,7 +594,10 @@ func (t *Task) downloadCover(bookURL, coverURL, bookID string) {
 	if strings.TrimSpace(coverURL) == "" {
 		return
 	}
-	data, contentType, err := t.fetcher.FetchBinary(t.ctx, coverURL)
+	// [R71-a] 封面请求携带嵌入页 Referer(书籍页) — 真实浏览器 <img> 的 Referer 是
+	// 嵌入页而非图片自身源(refererChain 关闭/Referer=false 时 fetch 层回落自源口径
+	// 与既往一致); CDN 封面(异 host)修前「自指 Referer+same-origin」为不可能指纹
+	data, contentType, err := t.fetcher.FetchBinary(t.ctx, coverURL, bookURL)
 	if err != nil {
 		t.logf("warn", "封面下载失败(跳过): %s: %v", util.TruncateLog(coverURL, 120), err)
 		return

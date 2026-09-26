@@ -84,7 +84,7 @@ func TestR69aBinaryFetchSubresourceFingerprint(t *testing.T) {
 	defer c.Close()
 
 	ctx := context.Background()
-	if _, _, err := c.FetchBinary(ctx, srv.URL+"/cover.jpg"); err != nil {
+	if _, _, err := c.FetchBinary(ctx, srv.URL+"/cover.jpg", ""); err != nil {
 		t.Fatalf("二进制抓取: %v", err)
 	}
 	h := snapshot()
@@ -147,14 +147,14 @@ func TestR69aFetchBinaryHTMLShellGuard(t *testing.T) {
 	defer c.Close()
 	ctx := context.Background()
 
-	if _, _, err := c.FetchBinary(ctx, srv.URL+"/shell"); err == nil {
+	if _, _, err := c.FetchBinary(ctx, srv.URL+"/shell", ""); err == nil {
 		t.Fatal("200 HTML 拦截壳应报错, 不得当图片返回(修前被 base64 成 corrupt 封面)")
 	}
-	data, ct, err := c.FetchBinary(ctx, srv.URL+"/real")
+	data, ct, err := c.FetchBinary(ctx, srv.URL+"/real", "")
 	if err != nil || len(data) == 0 || !strings.Contains(ct, "image/jpeg") {
 		t.Fatalf("正常图片抓取应成功: data=%d ct=%q err=%v", len(data), ct, err)
 	}
-	data2, _, err := c.FetchBinary(ctx, srv.URL+"/jpeg-as-html")
+	data2, _, err := c.FetchBinary(ctx, srv.URL+"/jpeg-as-html", "")
 	if err != nil || len(data2) == 0 {
 		t.Fatalf("text/html 头+位图魔数应经魔数豁免放行(零误伤): %v", err)
 	}

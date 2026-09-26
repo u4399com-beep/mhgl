@@ -58,7 +58,8 @@ systemctl enable --now mhgl
 
 > ⚠️ **环境变量注入口径**：Go 二进制直读进程环境变量，**不会自己读 `.env` 文件**——
 > systemd 用 `EnvironmentFile=` 注入；shell 用 `set -a; source .env; set +a` 后再启动；
-> 仅当经 `bun run dev`（薄别名）启动时 bun 会自动加载 `.env`。`WorkingDirectory` 必须是项目根
+> 开发启动链（`bash scripts/dev-go.sh`，含平台引导链 `bun run dev` 别名与 `.zscripts/dev.sh`）
+> 会自动 source `.env`（R71 起全链纯 Go 化，bun 不再是任何一环）。`WorkingDirectory` 必须是项目根
 > （相对路径 `db/`、`web/static`、`web/covers` 均以 cwd 为项目根解析）。
 
 ## ③ 环境变量表（权威清单；`.env.example` 附注释样例）

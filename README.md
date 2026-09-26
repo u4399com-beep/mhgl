@@ -57,7 +57,7 @@ go build -o .build/mhgl ./cmd/server                              # ② 构建�
 
 **首次启动自动完成数据库初始化，零外部工具**：幂等建表（14 张，毫秒级）→ 空库后台自动播种（**35 条**内置采集规则 / **16** 分类 / 默认站点 `localhost:3000`·aijjxs 主题 / **3** 条大部头采集任务——任务仅创建不启动）。`MHGL_AUTO_SEED=0` 可关闭自动播种；`./.build/mhgl bootstrap` 可随时显式幂等引导（不起服务）。
 
-开发/懒人启动：`bash scripts/dev-go.sh`——go 缺失自动安装（自愈）+ 源码/内嵌模板变更增量重建 + exec 二进制。沙箱平台的启动钩子是 `bun run dev` → **package.json "dev"** → 本脚本 → Go 二进制：package.json 是**零依赖纯别名壳，平台启动接口而非 JS 依赖**（仓库无任何 Node/TS 源码，"dev" 脚本只是一条 `bash scripts/dev-go.sh`）。
+开发/懒人启动：`bash scripts/dev-go.sh`——go 缺失自动安装（自愈）+ 源码/内嵌模板变更增量重建 + exec 二进制。沙箱平台的两条引导链最终都汇到本脚本：`bun run dev` → **package.json "dev"**（零依赖纯别名壳，平台启动接口而非 JS 依赖）；`.zscripts/dev.sh`（平台引导钩子，R71 纯 Go 化：.env 注入 → 未监听才拉起 dev-go.sh → 探活 → `.build/mhgl bootstrap` 幂等引导 → 健康检查，逐件说明见 [.zscripts/README.md](./.zscripts/README.md)）。仓库无任何 Node/TS 源码。
 
 > 常驻用 systemd（`Restart=on-failure`，单元样例见 [DEPLOY.md](./DEPLOY.md)）；全流程图文见 [docs/INSTALL-GUIDE.md](./docs/INSTALL-GUIDE.md)。
 
@@ -89,7 +89,7 @@ db/                         # SQLite 运行时数据 custom.db(+ -wal/-shm, 不�
 download/  upload/          # TXT 下载产物 / 上传暂存
 scripts/                    # install-go.sh 装 Go / dev-go.sh 启动(自愈) / dev-watchdog.sh 守护 / recover.sh 一键恢复
 docs/                       # INSTALL-GUIDE.md 小白教程 / rule-limits.md 规则手册 / images/ 截图
-.zscripts/                  # 平台启动/守护脚本与运行日志
+.zscripts/                  # 沙箱平台引导/部署脚本族(R71 纯 Go 化对齐; 逐件处置见 .zscripts/README.md)
 ```
 
 ### 常用命令
@@ -99,7 +99,7 @@ docs/                       # INSTALL-GUIDE.md 小白教程 / rule-limits.md 规
 | `go build -o .build/mhgl ./cmd/server` | 构建单二进制 |
 | `./.build/mhgl` | 运行（:3000；每次启动幂等建表+空库自动播种） |
 | `./.build/mhgl bootstrap` | 显式幂等引导：建表 + 35 规则/16 分类/默认站点/3 任务，随即退出（不起服务、不需要密码） |
-| `bash scripts/dev-go.sh`（平台钩子 `bun run dev` → package.json "dev" 别名同款） | 开发启动：go 缺失自装 + 增量构建 + exec 二进制 |
+| `bash scripts/dev-go.sh`（平台钩子 `bun run dev` 别名 / `.zscripts/dev.sh` 同链） | 开发启动：go 缺失自装 + 增量构建 + exec 二进制 |
 | `bash scripts/recover.sh` | 沙箱/环境重置一键恢复（装 Go→DB 完整性→启动→引导→看门狗→报告；`RECOVER_START_TASKS=1` 顺带启动本次新建任务） |
 
 Go 质量门全量：`gofmt -l internal/ && go vet ./... && go test -count=1 ./internal/... && go build -o .build/mhgl ./cmd/server`。
@@ -120,7 +120,8 @@ Go 质量门全量：`gofmt -l internal/ && go vet ./... && go test -count=1 ./i
 - `install-go.sh`：Go 1.26+ 工具链一键安装到 `~/go-sdk`（幂等；go.dev 不可达自动回退 golang.google.cn 镜像）。
 - `dev-go.sh`：单体启动器（PATH/GOMEMLIMIT 装配 → go 缺失自愈安装 → 源码变更增量构建 → `exec .build/mhgl`）。
 - `dev-watchdog.sh`：端口 3000 死亡 15s 自动拉起（OOM 兜底），纯 bash 永远直拉 dev-go.sh；`recover.sh`：环境重置六步一键恢复（见教程 §7）。
-- 历史注（R69/R70）：原 TS/Prisma 引导链（建库脚本 + 空库引导 TS 脚本）已退役——职责内化进 `internal/bootstrap`（启动自举 + `mhgl bootstrap` 子命令）；TS 残件（`scripts/*.ts`、`scripts/archive/`、`docs/legacy-seeds/`、`docs/archive/docker/` 等 434 件）已随 R69 清退出库（git 历史可考），`prisma/`、`node_modules/` 不再是任何必需路径的一环。仓库内现存的 JS/TS 仅剩：package.json（零依赖平台启动别名壳）、`web/static/js`（站点浏览器端资产）与 `skills/`（沙箱平台工具链，非项目代码）。
+- 历史注（R69/R70）：原 TS/Prisma 引导链（建库脚本 + 空库引导 TS 脚本）已退役——职责内化进 `internal/bootstrap`（启动自举 + `mhgl bootstrap` 子命令）；TS 残件（`scripts/*.ts`、`scripts/archive/`、`docs/legacy-seeds/`、`docs/archive/docker/` 等 434 件）已随 R69 清退出库（git 历史可考），`prisma/`、`node_modules/` 不再是任何必需路径的一环。仓库内现存的 JS/TS/JSON 仅剩三类合法项（R71 终扫复核）：package.json（零依赖平台启动别名壳）、`web/static/js`（站点浏览器端资产）与 `skills/`（沙箱平台工具链，非项目代码）。
+- 平台脚本族（R71）：`.zscripts/` 12 件已全面纯 Go 化对齐（dev.sh 断链修复 / watchdog 委托 / start·build 重写 / mini-services 与 runtime-build 五件退役 no-op / db-backup 修复），全程零 bun/Node/Prisma 可执行路径，逐件处置表见 [.zscripts/README.md](./.zscripts/README.md)。
 
 ## 数据备份
 

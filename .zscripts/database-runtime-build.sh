@@ -1,33 +1,13 @@
 #!/bin/bash
 
+# [R71] 退役安全 no-op —— 原「把 Preview DB 打进部署产物 + `bun run db:push` 同步
+# schema」的构建期子流程。其依赖的 package.json "db:push" 别名(R63-c 消失)与
+# Next.js 部署打包链(build.sh 旧形态)均已退役; 原唯一调用方 build.sh 已于 R71
+# 纯 Go 化, 现无任何调用方。
+# 现行口径: SQLite 建表由 Go 服务每次启动原生幂等自举(internal/bootstrap
+# EnsureSchema, 14 表); 空库自动播种; 显式引导 = `.build/mhgl bootstrap`(幂等)。
+
 set -euo pipefail
-
-PROJECT_DIR="${PROJECT_DIR:-/home/z/my-project}"
-BUILD_DIR="${BUILD_DIR:?BUILD_DIR is required}"
-SOURCE_DB_DIR="$PROJECT_DIR/db"
-SOURCE_DB_PATH="$SOURCE_DB_DIR/custom.db"
-TARGET_DB_DIR="$BUILD_DIR/db"
-TARGET_DB_PATH="$TARGET_DB_DIR/custom.db"
-
-mkdir -p "$TARGET_DB_DIR"
-
-if [ -f "$SOURCE_DB_PATH" ]; then
-    echo "🗄️  复制 Preview 数据库到构建产物..."
-    cp -a "$SOURCE_DB_DIR/." "$TARGET_DB_DIR/"
-else
-    echo "ℹ️  未找到 Preview 数据库 db/custom.db，将初始化空的生产数据库"
-fi
-
-echo "🗄️  同步构建产物中的数据库结构..."
-(
-    cd "$PROJECT_DIR"
-    DATABASE_URL="file:$TARGET_DB_PATH" bun run db:push
-)
-
-if [ ! -f "$TARGET_DB_PATH" ]; then
-    echo "❌ 数据库初始化命令执行成功，但未生成 $TARGET_DB_PATH"
-    exit 1
-fi
-
-echo "✅ 构建产物数据库已准备完成"
-ls -lah "$TARGET_DB_DIR"
+echo "[retired] database-runtime-build.sh 已退役(R71): 建库建表由 Go 服务启动自举"
+echo "          / '.build/mhgl bootstrap' 承担, 部署打包链已废 —— 安全跳过(退出 0)"
+exit 0

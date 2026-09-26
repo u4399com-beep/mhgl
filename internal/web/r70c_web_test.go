@@ -6,11 +6,11 @@ package web
 
 import (
 	"testing"
-	"time"
 )
 
 func TestVolumeGroupsFor_OffAlwaysNil(t *testing.T) {
 	registerStealthSettings(func(string) string { return "" })
+	resetStealthCacheForTest()
 	chs := []map[string]any{
 		{"id": "a", "title": "第一卷 起"},
 		{"id": "b", "title": "第二卷 承"},
@@ -25,6 +25,7 @@ func TestVolumeGroupsFor_OffAlwaysNil(t *testing.T) {
 		}
 		return ""
 	})
+	resetStealthCacheForTest()
 	if got := volumeGroupsFor(chs); got != nil {
 		t.Fatalf(`引号 "0" 应判关, got %+v`, got)
 	}
@@ -37,6 +38,7 @@ func TestVolumeGroupsFor_TitleFallbackGrouping(t *testing.T) {
 		}
 		return ""
 	})
+	resetStealthCacheForTest()
 	chs := []map[string]any{
 		{"id": "1", "title": "第一卷 起"},
 		{"id": "2", "title": "第一卷 承"},
@@ -62,6 +64,7 @@ func TestVolumeGroupsFor_SingleGroupCollapses(t *testing.T) {
 		}
 		return ""
 	})
+	resetStealthCacheForTest()
 	chs := []map[string]any{
 		{"id": "1", "title": "第一章 起"},
 		{"id": "2", "title": "第二章 承"},
@@ -78,6 +81,7 @@ func TestVolumeGroupsFor_VolumeColumnPreferred(t *testing.T) {
 		}
 		return ""
 	})
+	resetStealthCacheForTest()
 	chs := []map[string]any{
 		{"id": "1", "volume": "卷A", "title": "第一卷 别名干扰"},
 		{"id": "2", "volume": "卷A", "title": "第二章"},
@@ -110,9 +114,7 @@ func TestStealthConfigOf_HookUnregisteredAllOff(t *testing.T) {
 	stealthSettingGet = nil
 	defer func() { stealthSettingGet = saved }()
 	// 强制过期绕过 TTL 缓存。
-	stealthMu.Lock()
-	stealthExpire = time.Time{}
-	stealthMu.Unlock()
+	resetStealthCacheForTest()
 	if cfg := stealthConfigOf(); !cfg.AllOff() {
 		t.Fatalf("钩子未注册应全关: %+v", cfg)
 	}

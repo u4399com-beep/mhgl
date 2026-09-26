@@ -36,8 +36,8 @@ type candPos struct {
 }
 
 type paraInfo struct {
-	openIdx, closeIdx int // token 区间(开区间, 插入只落在两者之间)
-	cands             []candPos
+	openIdx int // <p> 开标签 token 下标(cands 为空时插到其 data 之后)
+	cands   []candPos
 }
 
 type insRec struct {
@@ -62,9 +62,9 @@ func interfereTokens(toks []token, cfg Config, r *rand.Rand) []token {
 	paraOpenIdx := -1
 	var cands []candPos
 	var paras []paraInfo
-	closePara := func(endIdx int) {
+	closePara := func() { // [R71-c] closeIdx 死字段清退后参数一并收掉(原 endIdx 无消费点)
 		if inPara {
-			paras = append(paras, paraInfo{openIdx: paraOpenIdx, closeIdx: endIdx, cands: cands})
+			paras = append(paras, paraInfo{openIdx: paraOpenIdx, cands: cands})
 			inPara = false
 			cands = nil
 		}
@@ -84,7 +84,7 @@ func interfereTokens(toks []token, cfg Config, r *rand.Rand) []token {
 					skipDepth--
 				}
 				if tk.name == "p" {
-					closePara(idx)
+					closePara()
 				}
 				continue
 			}
@@ -92,7 +92,7 @@ func interfereTokens(toks []token, cfg Config, r *rand.Rand) []token {
 				skipDepth++
 			}
 			if inPara && paraEnders[tk.name] {
-				closePara(idx)
+				closePara()
 			}
 			if !tk.isVoid && !tk.self {
 				stack = append(stack, tk.name)
@@ -108,7 +108,7 @@ func interfereTokens(toks []token, cfg Config, r *rand.Rand) []token {
 		}
 	}
 	if inPara {
-		closePara(len(toks))
+		closePara()
 	}
 
 	var ins []insRec

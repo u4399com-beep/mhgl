@@ -1,6 +1,6 @@
 # mhgl 小说聚合站 · 安装部署图文教程（纯 Go 单体版 · R69 全重写）
 
-> 适用版本：R69 起（纯 Go 单体）· 本版更新：**R69**（面向从零部署者逐细节重写；建库/引导全面 Go 原生化）· **R70 增补**：§6.6 内容伪装 / 反搜索与分卷显示设置
+> 适用版本：R69 起（纯 Go 单体）· 本版更新：**R69**（面向从零部署者逐细节重写；建库/引导全面 Go 原生化）· **R70 增补**：§6.6 内容伪装 / 反搜索与分卷显示设置 · **R71 增补**：§1.4/§2.2/§2.3/§4.1/§5 沙箱平台引导链 `.zscripts` 纯 Go 化收尾口径
 > 架构一句话：**一个 Go 二进制**（`.build/mhgl`）承载 Web 前台 / 管理后台 / REST API / 采集引擎 / 调度器，监听 `:3000`，数据落 SQLite 单文件 `db/custom.db`。数据库建表与运营数据播种由服务**原生自举**（启动幂等建表 + 空库自动播种），Node.js / Next.js / Prisma / Docker / MySQL / Redis 全部不需要。
 >
 > 全程约 10~20 分钟（大头是首次构建与模块下载，取决于网络）。每步都给出「预期结果」，与预期不符直接跳 **§9 常见问题排查**；**部署完成站点「预览挂掉」时直接跳 §7 一键恢复**。
@@ -97,7 +97,7 @@ go version
 
 ### 1.4 不再需要安装的东西（历史注）
 
-- **bun / Node.js / Prisma CLI**：❌ 不需要。原 TS/Prisma 引导链（`bunx prisma db push` 建表 + TS 空库引导脚本 `bootstrap-db.ts`）已于 **R69 全量退役**——建库建表与运营数据播种全部内化进 Go 二进制（§3）。仅当你想用 `bun run dev` 薄别名（等价 `bash scripts/dev-go.sh`）时才需要 bun，非必需路径。
+- **bun / Node.js / Prisma CLI**：❌ 不需要。原 TS/Prisma 引导链（`bunx prisma db push` 建表 + TS 空库引导脚本 `bootstrap-db.ts`）已于 **R69 全量退役**——建库建表与运营数据播种全部内化进 Go 二进制（§3）。`bun run dev` 只是 package.json 的零依赖别名壳（等价 `bash scripts/dev-go.sh`），即使装了 bun 它也不会执行任何 JS；沙箱平台引导链 `.zscripts/dev.sh` 亦已于 **R71 纯 Go 化**（去 bun 依赖，逐件说明见 `.zscripts/README.md`）。
 - **Docker / MySQL / Redis / Nginx（可选）**：❌ 都不需要。数据库就是仓库内 SQLite 文件；Docker 链已归档 `docs/archive/docker/`。
 
 ---
@@ -136,6 +136,7 @@ mhgl/
 ├── db/                    # SQLite 运行时数据(custom.db + -wal/-shm, 不入库, ★备份它; 缺失服务自建)
 ├── download/  upload/     # TXT 下载产物 / 上传暂存
 ├── scripts/               # 运维脚本: install-go.sh / dev-go.sh / dev-watchdog.sh / recover.sh
+├── .zscripts/             # 沙箱平台引导/部署脚本族(R71 纯 Go 化对齐: dev.sh/start.sh/build.sh 等, 逐件说明见其 README.md)
 ├── docs/                  # 本教程 / 规则手册 / 历史归档
 ├── package.json           # 零依赖纯别名壳(平台启动接口而非 JS 依赖): "dev"=bash scripts/dev-go.sh, 另有 build/start/lint; 仓库无任何 Node/TS 源码
 └── .env.example           # 环境变量样例(注释齐全, 复制为 .env 使用)
@@ -157,7 +158,7 @@ ADMIN_PASSWORD=audit-fix-2025     # 生产环境务必改成强密码!(改完重
 > ⚠️ **注入口径（重要）**：Go 二进制**直读进程环境变量，不会自己解析 `.env` 文件**。三种注入方式任选：
 > ① **shell**：`set -a; source .env; set +a` 后再启动；
 > ② **systemd**：`EnvironmentFile=/opt/mhgl/.env`（§4.5，生产推荐）；
-> ③ 经 `bun run dev`（薄别名）启动时 bun 会自动加载 `.env`（保留行为）。
+> ③ **开发启动链自动注入**：`bash scripts/dev-go.sh`（含平台引导链 `bun run dev` 别名 / `.zscripts/dev.sh` / `.zscripts/start.sh`）会自动 source `.env`（R71 起全链纯 Go 化，不再依赖 bun 的自动加载）。
 > 不注入也能跑：全部变量有缺省值（`PORT=3000`、`DB_PATH=db/custom.db`、dev 密码 `audit-fix-2025`）。
 
 其余项用默认值即可。核心变量速览（权威全表见 [DEPLOY.md](../DEPLOY.md) §③，`.env.example` 逐项注释）：`PORT`(3000) / `DB_PATH`(db/custom.db) / `ADMIN_PASSWORD` / `SESSION_SECRET` / `GO_ENV=production` / `COOKIE_SECURE` / `MEM_LIMIT_MB`(600) / `COVER_DIR`(web/covers) / `MHGL_AUTO_SEED`(=0 关播种)。
@@ -233,7 +234,9 @@ MHGL_AUTO_SEED=0 ./.build/mhgl
 bash scripts/dev-go.sh
 
 # 形态三: 平台启动钩子(沙箱平台即用此链拉起项目):
-#         bun run dev → package.json "dev"(零依赖纯别名壳) → 形态二
+#         .zscripts/dev.sh(R71 纯 Go 化: .env 注入 → 未监听才拉起 dev-go.sh →
+#         探活 → .build/mhgl bootstrap 幂等引导 → 健康检查, 见 .zscripts/README.md);
+#         `bun run dev` 亦可达同链(package.json "dev" 零依赖别名壳 → 形态二)
 bun run dev
 ```
 
@@ -345,7 +348,7 @@ systemctl enable --now mhgl && systemctl status mhgl
 
 ## 5. 看门狗
 
-`scripts/dev-watchdog.sh`：每 **15s** 探测一次 3000 端口，**死了就自动拉起**（5s 冷却），日志追加到拉起方指定的文件。它解决的是 **OOM** 类死亡——宿主内存被打爆杀掉服务进程（数据不丢，重启安全，启动恢复机制会把中断任务收编为 paused）。
+`scripts/dev-watchdog.sh`：每 **15s** 探测一次 3000 端口，**死了就自动拉起**（5s 冷却），日志追加到拉起方指定的文件。它解决的是 **OOM** 类死亡——宿主内存被打爆杀掉服务进程（数据不丢，重启安全，启动恢复机制会把中断任务收编为 paused）。沙箱平台目录的同名件 `.zscripts/dev-watchdog.sh` 已于 R71 改为直接委托本脚本（旧分叉版含 `bun run dev` 依赖，随 R71 去 bun 化退役）。
 
 ```bash
 # 手动拉起(recover.sh 第 5 步就是这条):

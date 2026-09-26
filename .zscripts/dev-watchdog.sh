@@ -1,13 +1,9 @@
 #!/bin/bash
-# dev server 自愈守护 — [R21-tl-2]
-# 背景: 本沙箱 watchman 会在 Bash 调用结束后 1~2 分钟回收 next-server 进程(已知运维行为,
-# 见 worklog R21-b 排障注记), 导致用户侧预览间歇性 502。
-# 策略: 每 30s 探测 3000 端口, 仅当不可达时才拉起新实例 —— 绝不 kill/重启健康实例,
-# 因此用户采集任务运行期间本守护不会造成任何中断(任务运行中服务必然在线, 守护空转)。
-while true; do
-  if ! curl -s --max-time 5 -o /dev/null http://127.0.0.1:3000/; then
-    cd /home/z/my-project || exit 1
-    setsid bun run dev >/dev/null 2>&1 &
-  fi
-  sleep 30
-done
+# [R71] 与 scripts/dev-watchdog.sh 现役实现对齐 —— 直接委托 exec。
+# 背景: 本目录旧版为 R21-tl-2 历史分叉(30s 轮询 + `setsid bun run dev` 硬依赖),
+# bun 已不再是启动链一环(R69/R70), 旧版若被调用只会成为断链源。
+# 现役语义(scripts/ 版): 15s 轮询 3000 端口, 仅当未监听才拉起 dev-go.sh
+# (5s 冷却), 绝不动健康实例 —— 采集任务运行期间零中断。
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+exec bash "$PROJECT_DIR/scripts/dev-watchdog.sh"

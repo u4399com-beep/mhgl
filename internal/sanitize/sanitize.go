@@ -41,11 +41,12 @@ func StripBlocks(s string) string {
 }
 
 var (
-	selfCloseRe   = regexp.MustCompile(`(?is)<(script|style|noscript|iframe|object|embed|template|form|input|button|base|area|link|meta)\b[^>]*/?>`)
-	closeTagRe    = regexp.MustCompile(`(?is)</(script|style|noscript|iframe|object|embed|template|form|input|button|base|area|link|meta)\s*>`)
-	tagSpanRe     = regexp.MustCompile(`<[a-zA-Z](?:"[^"]*"|'[^']*'|` + "`" + `[^` + "`" + `]*` + "`" + `|[^>])*>`)
-	onAttrRe      = regexp.MustCompile(`(?i)[\s/]+on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|` + "`" + `[^` + "`" + `]*` + "`" + `|[^\s>]+)`)
-	urlAttrRe     = regexp.MustCompile(`(?i)[\s/]+(?:href|src|action|formaction|xlink:href|poster|background|data|dynsrc|lowsrc)\s*=\s*(?:"[^"]*"|'[^']*'|` + "`" + `[^` + "`" + `]*` + "`" + `|[^\s>]+)`)
+	selfCloseRe = regexp.MustCompile(`(?is)<(script|style|noscript|iframe|object|embed|template|form|input|button|base|area|link|meta)\b[^>]*/?>`)
+	closeTagRe  = regexp.MustCompile(`(?is)</(script|style|noscript|iframe|object|embed|template|form|input|button|base|area|link|meta)\s*>`)
+	tagSpanRe   = regexp.MustCompile(`<[a-zA-Z](?:"[^"]*"|'[^']*'|` + "`" + `[^` + "`" + `]*` + "`" + `|[^>])*>`)
+	onAttrRe    = regexp.MustCompile(`(?i)[\s/]+on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|` + "`" + `[^` + "`" + `]*` + "`" + `|[^\s>]+)`)
+	// [R71-b] 属性面扩容: +srcset/cite/ping —— 修前 srcset 完全穿透消毒面(<img srcset="javascript:..."> 原样保留, 探针实证; 浏览器虽不执行 srcset 中的 js: URL, 属性值整段入库属纵深防御缺口)。
+	urlAttrRe     = regexp.MustCompile(`(?i)[\s/]+(?:href|src|srcset|cite|ping|action|xlink:href|poster|background|data|dynsrc|lowsrc)\s*=\s*(?:"[^"]*"|'[^']*'|` + "`" + `[^` + "`" + `]*` + "`" + `|[^\s>]+)`)
 	decHexRe      = regexp.MustCompile(`(?i)&#x([0-9a-f]+);?`)
 	decDecRe      = regexp.MustCompile(`&#([0-9]+);?`)
 	decNamedRe    = regexp.MustCompile(`(?i)&(tab|newline|colon|sol|semi);`)
@@ -103,6 +104,10 @@ func decodeCharRefsOnce(s string) string {
 
 // IsSafeURLValue URL 属性值 scheme 白名单判定(TS isSafeUrlValue 同口径):
 // 探测串剥 \t\n\r + 剥首尾 [\x00-\x20] 后, 无 scheme(相对/锚点)或 http/https 放行, 其余拦截。
+// [R71-b] 修前 scheme 按原样与 "http"/"https" 精确比较 —— 大写形态("HTTP://X.COM",
+// 浏览器合法 scheme, 写侧 clean.isHTTPURL 亦 ToLower 放行)被误判 unsafe 整属性剥离,
+// 出链 href 丢失; 修后 scheme 小写归一后比对(白名单语义不变, javascript: 等
+// 大小写走私本就落在 else 拦截臂)。
 func IsSafeURLValue(raw string) bool {
 	probe := decodeCharRefsOnce(raw)
 	probe = strings.ReplaceAll(probe, "\t", "")
@@ -113,7 +118,11 @@ func IsSafeURLValue(raw string) bool {
 	if m == nil {
 		return true // 无 scheme → 相对地址/锚点
 	}
-	return m[1] == "http" || m[1] == "https"
+	switch strings.ToLower(m[1]) {
+	case "http", "https":
+		return true
+	}
+	return false
 }
 
 // sanitizeTagAttrs 字面标签 span 内属性消毒: 剥 on* 事件属性; 出链属性值 scheme 白名单外整属性剥离。
@@ -130,6 +139,20 @@ func sanitizeTagAttrs(tag string) string {
 			}
 		}
 		if IsSafeURLValue(raw) {
+			// [R71-b] srcset 多候选形态: 逗号分段后逐段首 token 复验(单段 scheme
+			// 检查只看整体起点, "a.jpg 1x, javascript:x 2x" 类混合候选漏判)。
+			// 任一段不安全 → 整属性剥离(与白名单外整属性剥离同口径)。
+			if strings.EqualFold(strings.TrimSpace(m[:eq]), "srcset") {
+				for _, seg := range strings.Split(raw, ",") {
+					tok := strings.TrimSpace(seg)
+					if i := strings.IndexAny(tok, " \t\n\r"); i >= 0 {
+						tok = tok[:i]
+					}
+					if tok != "" && !IsSafeURLValue(tok) {
+						return ""
+					}
+				}
+			}
 			return m
 		}
 		return ""

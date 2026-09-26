@@ -564,3 +564,104 @@ Stage Summary:
 - R70 六条全交付: ①混淆(每页唯一/外观不变) ②转码(源码无明文关键词) ③干扰+伪原创(开关+密度+种子) ④分卷设置+卷分组渲染+乱序重排千位真虫修复 ⑤纯 Go 化深化收尾(watchdog 纯 bash+文档补录) ⑥采集/反反爬(国产 WAF 全家桶+传输表有界化)
 - 真虫 5: 千位章号截断错序/实体引用二次编码外观破坏/传输表无界增长/Retry-After 溢出分桶/停机竞态微窗 — 全部带回归测试
 - 移交 R71: 9 主题回源 1:1 逐页审计表(70-e 断连未完成, 与 R68-c 遗留 6 主题合并)/git token 轮换持续提醒/skills/ 平台工具链维持不动
+---
+Task ID: R71-d
+Agent: R71-d
+Task: JS/TS 全库终扫 + .zscripts 平台脚本族(12 件)纯 Go 化改造 + 文档同步(R70-D 移交的 dev.sh 断链修复)
+
+Work Log:
+- 开局: worklog 尾部(R70-D/R70-main)通读 + .zscripts 12 件逐行取证 + scripts/ 四件/package.json 复核; 关键实证: .zscripts/dev.log(2026-09-26 09:25 沙箱重置引导)记录 `error: Script not found "bootstrap"` —— 证实平台引导链确会实跑 .zscripts/dev.sh(非闲置), 且 dev.sh:134 `bun run bootstrap` 引用的别名自 R69 起已不存在, 平台 boot 在 set -e 下中断(:3000 无人监听与该断链直接相关); 主服务全程零 kill/零重启/零构建写 .build(mhgl), scripts/ 四件逐字未动(git diff 实证 0 行), package.json 未触碰("dev" 别名与 scripts 原样)
+- [A 终扫·文件面] find 全库(排除 node_modules[已空壳]/skills/.git/tool-results): *.ts/tsx/mts/cts/mjs/cjs/jsx/vue/prisma/lock 家族仅 1 件项目级残迹 = agent-ctx/go-engine/fixture-site.ts(R50-1 Bun.serve E2E 假站, R69 后 Go httptest 测试族全覆盖, 全库零调用方, 用法行本身写着 `bun run`); 处置 = 删除(git 历史可考), 空壳 node_modules/ 目录(0 文件)一并 rmdir; package.json 全库仅根 1 件; .js 仅 web/static 4 件
+- [A 终扫·内容面] rg 关键词面(bun/prisma/next/bootstrap-db/node_modules/typescript/.ts): Go 源码命中全部为 R69 迁移历史注释(抽样核对语义正确, 零可执行路径); web/static css/js 命中为溯源注释(如 "Ggd66Home.tsx 同源" 头注)与 site.js 的 pos.ts 时间戳字段(非 TS); 复扫证据: 去注释可执行行 bun/node/prisma/npm 零命中(.zscripts 12 件逐一过滤); 分类结论 = 项目级 JS/TS 残迹 0, 三类合法项(package.json 零依赖平台别名壳/web/static 浏览器资产/skills/ 平台工具链 ~1028 件不动)保留理由已写入 README scripts 约定节
+- [B dev.sh 主修] 重写为纯 Go 引导链: 删 `command -v bun` 硬依赖 + `bun install`(零依赖壳空转还删空 lockfile)+ `bun run bootstrap` 断链段; 新链 = ①.env 注入(对齐 dev-go.sh ①步, Go 二进制不自载 .env)→②3000 未监听才 `bash scripts/dev-go.sh &`(ss 探测, 已监听跳过=幂等, 不与 recover.sh 抢端口)→③探活等待 180s(原 60s 会被沙箱重置后首次构建误判失败并触发 cleanup 杀进程, 对齐 recover.sh [3/6] 窗口)→④`.build/mhgl bootstrap` 幂等引导(失败 WARN 不阻断, 服务端空库自动播种兜底; 二进制缺失同样 WARN 跳过)→⑤健康检查(/ 必过 + /healthz 容错)→mini-services 段改一行退役说明; log_step/wait_for_service/cleanup trap/disown 框架与原行为保持
+- [B dev.sh 验证] bash -n 过; /tmp 桩件干跑 4 场景全 EXIT=0: T1 端口未监听全链(fake curl/ss + stub dev-go.sh + stub .build/mhgl → 完整走 start→wait→bootstrap→health→disown)/T2 端口已监听幂等跳过(启动段 skip + "already running" 收尾)/T3 .build/mhgl 缺失 WARN 跳过 bootstrap 不炸/T4 bootstrap 退出码 3 → WARN 不阻断继续健康检查; 桩件已清理
+- [B dev-watchdog.sh] 原 R21-tl-2 历史分叉(30s 轮询 + `setsid bun run dev` 硬依赖, bun 退役后反成断链源)退役 → 改 3 行委托 `exec bash "$PROJECT_DIR/scripts/dev-watchdog.sh"`(路径随脚本定位非硬编码; 现役语义 15s 轮询/5s 冷却/只拉死端口)
+- [B start.sh/build.sh 纯 Go 化重写] start.sh: 原 FC 部署链启动器(next-service-dist/server.js+打包 DB+mini-services+Caddy 前台)退役 → 现行 = package.json "start" 同口径(.env 注入 → go 自愈: PATH 补 ~/go-sdk→install-go.sh → .build/mhgl 缺则 `go build -o .build/mhgl ./cmd/server` → exec 前台运行); build.sh: 原 Next.js 打包链(bun install→next build→standalone 自愈注入→产物收集→mini/python/DB 子流程→tar.gz, 176 行)退役 → 现行 = package.json "build" 同口径(go 自愈 → go build → 产物校验报大小, 63 行); 两件均 /tmp tiny Go module 真跑验证(build.sh 实编译 1.8M 二进制 + start.sh exec 输出 + 二进制缺失自动构建 + go 缺失场景友好报错 exit 1)
+- [B mini-services 三件退役 no-op] install/build/start 均改为 set -euo 安全的退役提示件: mini-services/ 目录存在与否二分支提示(提及 R69 退役/git 历史考古), 恒 exit 0; 修掉旧 build.sh `DIST_DIR="/tmp/build_fullstack_$BUILD_ID/..."` 在 set -u 下未定义变量即炸的隐患; 实跑 3 件 exit=0
+- [B runtime-build 两件退役 no-op] database-runtime-build.sh(原打包 Preview DB + `bun run db:push`, 依赖别名与调用方均已消失)/python-runtime-build.sh(原 uv 固化 Python 依赖, 项目零 .py/零清单)均改为退役提示 + exit 0; 调用方取证: 全库 rg 仅 docs/archive/worklog-2026-09.md 历史档与旧 build.sh(本轮已重写), 重写后零调用方, 恒退出 0 不会在任何 set -e 调用链炸出
+- [B db-backup.sh 修复+保留] 在线备份语义原样保留(python3 sqlite3 mode=ro + backup API, WAL 一致性快照, 保 7 份轮转); 修复 5 点: ①项目根随脚本定位(原硬编码 cd /home/z/my-project)②源库缺失/0 字节(沙箱重置后 db/ 尚未由服务自建)友好跳过 exit 0, 原 python traceback + 非零退出③首跑 backups/ 无历史文件时 `ls backups/db-*.db` 退出码非零会在备份成功后触发 set -e 误报失败(真 bug)→兜底 || true④STAMP 尊重调用方(loop 传入)并 export, 原 shell 重赋值未 export 致 python os.environ 与 echo 各取各的时间戳⑤DB_PATH 可覆盖(相对路径按项目根解析), 与现行 db/custom.db 口径一致; db-backup-loop.sh 逐字未动仅补注释; /tmp 副本库真跑验证: 全新备份成功/轮转 9→7/0 字节库跳过/DB_PATH 绝对路径覆盖四路径全过, 备份产物 python 复读验证
+- [B .zscripts/README.md 重写] R63-c 留档版 → R71 处置表: 12 件逐件"处置(R71)+说明", 顶部断链实证引言(dev.log Script not found), 结论段写明平台三条入口(bun run dev 别名/dev.sh/start.sh+build.sh)全部收敛到 `go build -o .build/mhgl ./cmd/server` + 运行 .build/mhgl 单链
+- [C 文档同步] README: 快速开始段补 .zscripts/dev.sh 平台引导钩子口径+链接 .zscripts/README.md/目录树 .zscripts 行刷新/scripts 约定新增"平台脚本族(R71)"条+常用命令表 dev-go.sh 行补 ".zscripts/dev.sh 同链"; DEPLOY.md: §② 环境变量注入口径修正(原"仅当经 bun run dev 启动时 bun 会自动加载 .env"陈旧表述 → dev-go.sh/平台引导链自动 source, R71 起 bun 不再是任何一环); docs/INSTALL-GUIDE.md: 版本行补 R71 增补/§1.4 bun 条目刷新(装了 bun 它也不会执行任何 JS)/§2.2 目录树补 .zscripts 行/§2.3 注入口径 ③ 改为启动链自动注入/§4.1 形态三补 .zscripts/dev.sh 链路注释/§5 看门狗补平台同名件已委托说明
+- [门禁] bash -n 15/15 过(.zscripts 11 件 sh + scripts 4 件); .zscripts 可执行行(去注释) bun/node/prisma/npm 零命中; markdown 围栏配对 README 6/DEPLOY 10/GUIDE 54/.zscripts README 0 全偶数; git diff 限定领地 15 文件(.zscripts 12 + README/DEPLOY/GUIDE + fixture-site.ts 删除), package.json/scripts//internal//web//cmd//go.mod 零触碰; Go SDK 就绪后未做 go build(本轮零 Go 改动; .build/mhgl 禁写); 临时桩件已清理
+- [环境观察·移交] 本轮作业期间 :3000 持续 HTTP 000 且 pgrep 无 recover.sh —— briefing 称 recover.sh 重建中, 未干预; 平台下次引导(重跑 .zscripts/dev.sh)即会走修好的纯 Go 链自愈服务; dev.log/dev.pid 为运行时产物原样保留(dev.log 即断链实证)
+
+Stage Summary:
+- .zscripts 12 件全面纯 Go 化收尾: dev.sh 断链修复(bun run bootstrap → .build/mhgl bootstrap + 幂等启动守卫 + 180s 探活窗)/watchdog 委托现役/start·build 对齐 package.json build·start 口径/mini-services×3 与 runtime-build×2 退役安全 no-op/db-backup 修 5 点保 WAL 快照语义/README 处置表 R71 化; 全目录零 bun/Node/Prisma 可执行路径, 全件 bash -n 过, 幂等可重入, 平台真调用不炸(set -e 安全验证 4 场景)
+- JS/TS 全库终扫: 项目级残迹清零(fixture-site.ts 删除 + 空壳 node_modules/ 移除), 文件面+可执行行内容面双重复扫证据留存; 三类合法项(package.json 壳/web/static 浏览器资产/skills/ 平台工具链)理由化保留
+- 文档三处口径刷新(README/DEPLOY/INSTALL-GUIDE)无断链引用, 围栏配对全过; R70-D 移交观察项(dev.sh:134 断链)正式闭环
+- 移交: ①:3000 当前未监听, 待平台引导或 recover.sh 重建(修复后的 dev.sh 即平台自愈路径) ②.zscripts/dev.log 为修前断链实证, 平台若轮转清理无需保留 ③agent-ctx/ 其余 .md 历史契约档案未动
+---
+Task ID: R71-a(代录)
+Agent: R71-a(断连, 产出经主控逐hunk甄别合入)
+Task: 采集引擎+反反爬领地逐行抓虫与增强(fetch/engine/proxy/task/pipeline)
+
+Work Log:
+- agent 断连于收尾前, 全部代码改动留存工作树; 主控 gofmt 归一后逐 hunk 甄别, go vet/全量测试验证后采认
+- [反反爬增强①] hostGate.rlStrikes 兜底限流自适应升级: 无 Retry-After 的连续 429/503 兜底冷却窗 30s→60s→120s 阶梯(×2^(n-1) 钳 retryAfterMax, 移位封顶防回绕); 显式 Retry-After(clearRateLimitStrikes)或请求成功(noteSuccess)归零 — 消灭「30s-重撞-30s」固定节拍指纹
+- [反反爬增强②] backoffJitter 统一实现: 重试退避/pathJitter/challengeBackoff 三处抖动源从 time.Now().UnixNano() 墙钟取模改 crypto/rand 比例窗(+0~50%), 高档位退避抖动占比不再趋零, 多请求退避波峰不再与墙钟相关
+- [增强③] pruneProxyStateLocked: proxyFailedUntil/proxyFailCount/proxySuccCount 三表随传输表重置点同步修剪(冷却过期键清除, 活跃冷却与 succCount>0 权重记忆保留), 万级免费池地址常驻键值泄漏收口
+- [真虫修复] FetchBinary 子资源 Referer 真实化(嵌入页=书籍页; 修前封面请求自指 Referer+same-origin 不可能指纹), pipeline.downloadCover 调用方同步
+- [真虫修复] cfg.headers 显式 UA 覆写时指纹头组(sec-ch-ua/Accept 族)以线上实际 UA 为基(修前 Safari/Firefox UA 携 Chrome 品牌表自相矛盾)
+- [真虫修复] 二进制子资源不再携带 Upgrade-Insecure-Requests(导航专属头与 Sec-Fetch-Dest:image 同现即识破)
+- [真虫修复] 首跳请求 Referer 按 strict-origin-when-cross-origin 改写(R67-a 只补了重定向链逐跳, 首跳跨源仍全 URL 泄漏)
+- [增强④] strongBlockMarkers 扩容 DataDome(captcha-delivery.com/captcha)/PerimeterX(px-captcha)/阿里云 WAF(acw_sc__v2/errors.aliyun.com) — 仅挑战页专属形态零误伤
+- 回归: r71a_test.go 9 测试(491 行); 主控修复 TestR71aInitialRefererCrossOriginRewrite 路由缺口(只注册 /chapter/1 而断言 /chapter/2 → 改子树 pattern)
+
+Stage Summary:
+- 4 真虫修复+4 项反反爬增强全部带回归合入; fetch 包测试全绿(31s); 门禁四件套全绿
+---
+Task ID: R71-b(代录)
+Agent: R71-b(断连, 产出经主控甄别+主控补刀2虫)
+Task: 清洗/规则/桥接/sanitize 领地逐行抓虫
+
+Work Log:
+- agent 断连于草稿探针阶段(留 zz_scratch 文件 3 件); 主控甄别采认其代码修复, 草稿探针转正为断言回归
+- [采认] parseHex/parseIntDec 溢出防护: 超长数字实体 int64 回绕伪装合法码点(2^64+65→'A')拒收回 -1, fromCodePointSafe 空串与浏览器拒收对齐
+- [采认] fieldSiteDomain 末级标签 {2,}→{1,}: 单字符短域(t.cn/x.com)站点尾巴漏剥(探针实证)
+- [采认] CleanChapterTitle 书名前缀剥离补分隔符消费: "万古神帝_第100章" 修前残留 "_第100章"
+- [采认] IsSafeURLValue scheme 大小写归一: "HTTP://X.COM" 修前被误判 unsafe 整属性剥离丢出链
+- [主控补刀①] titleURLTailRe: 标题 scheme/www 尾巴全形态回收(空格/括号/无分隔符/切割后悬空残尾"风起_https://" — junk 切割公式只回退到域名起点, TrimRight 字符集不含 :/ ), CJK 止步防误杀 URL 后接真文本, 剥后为空保留原标题守卫; 13 形态探针全过
+- [主控补刀②] sanitize urlAttrRe 扩容 srcset/cite/ping + srcset 逗号分段逐段首 token 复验(修前 <img srcset="javascript:..."> 完全穿透消毒面, 探针实证)
+- 草稿扶正: clean/r71b_test.go(5 测试含噪声电池13例)+sanitize/r71b_test.go(3 测试含 XSS 变体电池11例), zz_scratch 3 件删除
+- builtin_rules.json 本轮零改动(体检无数据级真虫)
+
+Stage Summary:
+- 4 虫采认+2 虫主控补刀全部带回归; clean/sanitize/fetch 全绿; 门禁全绿
+---
+Task ID: R71-c(代录)
+Agent: R71-c(断连, 产出经主控逐hunk甄别合入)
+Task: api/web/store/auth/stealth 集成面抓虫+精简
+
+Work Log:
+- agent 断连于收尾前; 主控甄别采认全部改动, go vet/全量测试验证
+- [真虫] stealth obfuscate: HTML5 legacy 无分号命名引用(&amp/&nbsp/&copy 文本上下文被浏览器解码)不被 entityRefLen 认领, 引用内部字母被二次实体化(&amp→&&#97;mp→浏览器渲染字面"amp"可见文本漂移, 探针实证 600 轮 139 漂移); 修后 '&' 起的潜在引用前缀整段照抄(编码更少=保守方向)
+- [真虫] obfuscate scanAttrSpans 重名检测按属性名本体(nameEnd 截断): 修前整片段含值, 同名异值漏判
+- [真虫] pseudo synonymPairs 退化配对清理: "具备|具备"/"等候|等侯"(错别字)/"东西向|东西向"/"继而|继而" 自映射对删除(替换恒无效果或引入错字)
+- [真虫] stealth.Apply 512KB 超长文档跳过落地: INSTALL-GUIDE §6.6 与 R70-plan 契约承诺但代码从未实现(文档-代码脱节), 补 maxDocBytes 常量+Apply 短路
+- [精简] interfere.go closeIdx 死字段清退(closePara 参数收拢)
+- [性能] web stealthSnapshot 快照合并: book.volume.show 并入 5s TTL 快照(修前每次 toc 渲染直读 settings, 伪装全关也逃不掉 DB 查询)
+- [测试基建] resetStealthCacheForTest 统一缓存复位(r70c 测试 4 处时间 hack 收拢), r71c_test.go 7 测试+r71c_web_test.go 3 测试
+
+Stage Summary:
+- 4 真虫+1 性能+1 精简全部带回归合入; stealth/web 包全绿
+---
+Task ID: R71-main
+Agent: main-controller
+Task: R71 全轮收口(沙箱重置恢复+断连agent产出甄别合入+主控补刀2虫+门禁+E2E+推送)
+
+Work Log:
+- 开局取证: R70 已推送(e5a897b); 沙箱重置实锤(.build/db/go-sdk 全清, git 仓库完好) → recover.sh 六步链恢复服务(幂等重跑三次: Go 自装/DB 自举/bootstrap 播种 35 规则 16 分类/看门狗拉起)
+- 部署 R71-a/b/c/d 四领地 agent: d 完整返回(.zscripts 12 件纯 Go 化: dev.sh 断链 `bun run bootstrap` 实证为平台引导链一环且是 :3000 挂掉元凶之一; mini-services 族退役安全 no-op; db-backup 4 bug 修复; start/build 对齐纯 Go; JS/TS 项目级残迹=0 取证: 删 agent-ctx/go-engine/fixture-site.ts 末件); a/b/c 断连但改动留存工作树
+- 断连产出甄别: gofmt 整文件缩进噪声归一后 git diff -w 逐 hunk 审查, go vet/全量测试验证; a=4真虫+4增强(FetchBinary Referer/UA覆写指纹一致性/UIR子资源/首跳Referer语义 + rlStrikes限流升级/统一抖动源/代理状态表修剪/WAF标记扩容), b=4虫(实体溢出/短域尾巴/书名分隔符/scheme大小写), c=4虫+1性能+1精简(legacy实体二次实体化/属性重名/伪原创退化对/512KB跳过落地 + TTL快照合并 + closeIdx死字段)
+- 主控补刀 2 真虫: ①clean titleURLTailRe 标题 scheme/www 尾巴全形态回收(b 的 {1,} 修复探针暴露残余: "风起_https://" 悬空残尾/无分隔符裸URL/括号形态全漏; CJK 止步+剥空守卫, 13 形态探针全过) ②sanitize urlAttrRe 扩容 srcset/cite/ping+srcset 逗号分段逐段复验(探针实证 <img srcset="javascript:..."> 完全穿透)
+- 断连测试收尾: a 的 TestR71aInitialRefererCrossOriginRewrite 路由缺口修复; b 的 zz_scratch 3 件扶正为 clean/r71b_test.go+sanitize/r71b_test.go 正式断言回归
+- 门禁: gofmt 零/vet 零/17 包 test 全绿/build OK; 二进制原子换装(.build/mhgl mv)+优雅重启, 看门狗链路自愈验证
+- 实战采集: 三任务启动(yueyouxs/xyetianlian/xbqg777), 新代码全链路实战(清洗管线含本轮全部修复), 进度 498/494/76 章持续推进
+- E2E(agent-browser): 首页渲染+51 链接零错误; 书籍页/阅读页 120 段落零 console 错误; R67-fix 回归线 .ajx-view-content.is-pagebg=true 在位; 375px scrollW=375 零溢出; footer 在位
+- 伪装开关闭环(curl 字节级): 开→两次抓取字节不同+20 混淆注释+可见字符 5559=5559 全等; 关→字节稳定+零残留; 插曲: 首验 PUT 误用嵌套形状创建垃圾键"settings"已 DELETE 清理(正确形状=扁平 map)
+- 推送: 单提交推送 origin/main + update-ref 对齐
+
+Stage Summary:
+- 四条指令全交付: ①纯 Go 化终局(平台脚本族 .zscripts 12 件现代化+项目级 JS/TS 残迹=0 取证) ②采集/反反爬 10 虫修复+8 增强(全带回归) ③死代码/草稿清理+.zscripts 退役件安全化 ④推送 origin/main
+- 服务恢复链实证三次幂等重跑; 沙箱重置应对闭环持续有效
+- 移交 R72: git token 轮换持续提醒(ghp_SYO... 已暴露); 无分隔符裸域标题形态(风起http://www.x.com)已由 titleURLTailRe scheme 臂覆盖但纯www无scheme形态(风起www.x.com)走 junk 切割需分隔符锚 — 现实标题样本未见漏网案例, 维持保守

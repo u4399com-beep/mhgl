@@ -1,17 +1,26 @@
-# .zscripts/ — 平台引导目录(R63-c 留档)
+# .zscripts/ — 平台引导/部署脚本族(R71 纯 Go 化收尾)
 
-本目录为平台侧(sandbox/宿主引导链)使用的脚本目录, 与 `scripts/`(项目现役脚本)并行存在。
-R62-a 曾提请主控评估, R63-c 完成核查与小修。逐文件处置如下:
+本目录为平台侧(sandbox/宿主引导链)使用的脚本目录, 与 `scripts/`(项目现役运维脚本)并行存在。
+R63-c 曾修过一轮 TS→Go 引导断链; **R71 完成 12 件全面纯 Go 化改造**: 全目录零 bun/Node/Prisma
+可执行路径, `bash -n` 全过, 幂等可重入, 平台真调用也不会在 `set -e` 下炸出。
 
-| 文件 | 处置 | 说明 |
+> 断链实证: `dev.log`(2026-09-26 沙箱重置引导)记录 `error: Script not found "bootstrap"` ——
+> 平台引导链确会执行本目录 `dev.sh`, 且原 `bun run bootstrap` 引用的别名自 R69 起已不存在。
+
+| 文件 | 处置(R71) | 说明 |
 | --- | --- | --- |
-| `dev.sh` | **已修(R63-c)** | 平台自动引导入口。原实现 `bun run db:push` 引用已消失的 package.json 脚本(`dev.log` 实证 `error: Script not found "db:push"` 后 `set -e` 中断, 引导链断裂), 且后续步骤仍按 Next.js 时代写 `bun run dev`。已改为: `bun run bootstrap`(现行幂等引导 scripts/bootstrap-db.ts)+ `bash scripts/dev-go.sh`(Go 单体构建+启动)。mini-services 启动段保留(5 个签名代理仍由 builtin 规则引用) |
-| `dev-watchdog.sh` | 不动, 留档说明 | 与 `scripts/dev-watchdog.sh` 分叉; **`scripts/` 版为现役**(Go 进程看门狗), 本目录版本为历史分叉, 平台如引用将得到旧语义(仅杀 Next.js 进程), 无破坏性 |
-| `start.sh` / `build.sh` | 留档, 不动 | 平台历史构建/启动链(TS 时代形态), 项目现行入口 = `scripts/dev-go.sh` / `scripts/recover.sh`; 平台脚本保持原样以便平台侧回滚兼容 |
-| `database-runtime-build.sh` | 留档, 不动 | 内部引用 `bun run db:push`(已消失脚本), 但仅在其本地子流程使用且无平台调用证据; 如被触发会失败于 db:push 步骤(与 dev.sh 修前同病), 修复需平台侧确认其用途后再做 |
-| `mini-services-*.sh` | 保留 | 5 个签名代理(qimao/deqixs/bqg713/xjp/qidian)被 `internal/api/builtin_rules.json` 规则描述引用, 装配/启动脚本仍有效 |
-| `db-backup.sh` / `db-backup-loop.sh` | 保留 | DB 备份小工具, 与运行时无关 |
-| `dev.log` / `dev.pid` | 运行时产物 | `dev.log` 留存了修前 `db:push` 断链的实证(2026-09-24 引导失败记录), 供追溯 |
+| `dev.sh` | **已修(R71)** | 平台自动引导入口。删 `command -v bun` 硬依赖 + `bun install`(零依赖壳空转)+ `bun run bootstrap` 断链段; 改为: .env 注入 → 3000 未监听时 `bash scripts/dev-go.sh &`(go 自愈/增量构建/exec 二进制, 已监听则跳过=幂等) → 探活等待 180s(对齐 recover.sh [3/6], 原 60s 会被首次构建误判) → `.build/mhgl bootstrap` 幂等引导(失败不阻断, 服务端空库自动播种兜底) → 健康检查(/ 与 /healthz)。mini-services 启动段删除(该目录 R69 退役)。log_step/等待/健康检查框架与 cleanup trap、disown 行为保持原样 |
+| `dev-watchdog.sh` | **已改(R71)** | 原 R21-tl-2 历史分叉(30s 轮询 + `setsid bun run dev` 硬依赖)退役, 改为 `exec bash scripts/dev-watchdog.sh` 直接委托现役实现(15s 轮询/5s 冷却/只拉死端口, 纯 bash) |
+| `start.sh` | **已重写(R71)** | 原 FC 部署链启动器(next-service-dist/server.js + 打包 DB + mini-services + Caddy 前台)随部署模型退役; 现行 = package.json "start" 同口径: .env 注入 → go 自愈 → 二进制缺失则 `go build -o .build/mhgl ./cmd/server` → `exec .build/mhgl` 前台运行 |
+| `build.sh` | **已重写(R71)** | 原 Next.js 打包链(bun install → next build → standalone 自愈注入 → 产物收集 → mini-services/python/DB 子流程 → tar.gz)退役; 现行 = package.json "build" 同口径: go 自愈 → `go build -o .build/mhgl ./cmd/server` → 校验产物并报大小 |
+| `mini-services-install.sh` / `mini-services-build.sh` / `mini-services-start.sh` | **退役 no-op(R71)** | mini-services/ 目录(原 8 个 TS/Python 外置代理, 端口 3010~3017)已随 R69 整体退役。三脚本改为明确退役提示并恒退出 0(set -euo 安全), 保留占位防旧调用链报「文件不存在」 |
+| `database-runtime-build.sh` | **退役 no-op(R71)** | 原职责(打包 Preview DB + `bun run db:push` 同 schema)依赖的别名与部署链均已退役; 建表现在由 Go 服务启动自举 / `.build/mhgl bootstrap` 承担。恒退出 0 |
+| `python-runtime-build.sh` | **退役 no-op(R71)** | 项目为纯 Go 单体, 零 Python 源码/依赖清单; 原 uv 固化流程随部署链退役。恒退出 0 |
+| `db-backup.sh` | **保留+修复(R71)** | SQLite 在线备份小工具(python3 sqlite3 mode=ro + backup API, WAL 一致性快照), 路径与现行 `db/custom.db` 一致。修复: 项目根随脚本定位 / 源库缺失友好跳过 / 首跑轮转 `ls` 退出码误炸兜底 / STAMP 调用方传入与 python 侧统一 / `DB_PATH` 可覆盖 |
+| `db-backup-loop.sh` | 保留(R71 注) | 每日备份守护(24h 一备), 逐字未动; 仅补注释说明下游 db-backup.sh 的 R71 修复口径 |
+| `dev.log` / `dev.pid` | 运行时产物 | `dev.log` 留存了 R71 修前 `bun run bootstrap` 断链的实证(2026-09-26 引导失败记录), 供追溯 |
 
-结论: 平台引导断链根因 = Go 化后 `db:push` 脚本移除而平台目录未同步。`dev.sh` 已修为
-Go 链路; 其余分叉/陈旧脚本以留档方式声明, 不做破坏性变更(平台目录归属主控)。
+结论: R71 起本目录 12 件与 `scripts/` 现役四件(install-go/dev-go/dev-watchdog/recover)同一纯 Go
+口径 —— 平台无论走 `bun run dev`(package.json 零依赖别名壳, 平台启动接口)、本目录 `dev.sh` 还是
+`start.sh`/`build.sh`, 最终都收敛到 `go build -o .build/mhgl ./cmd/server` + 运行 `.build/mhgl`
+这一条链, 全程零 bun/Node/Prisma 依赖。

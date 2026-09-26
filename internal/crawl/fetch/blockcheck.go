@@ -62,6 +62,15 @@ var strongBlockMarkers = []string{
 	"getwafjs", "bt-waf", "宝塔网站防火墙",
 	"safedog", "yunsuo_session", "safeline", "请求被waf拦截",
 	"__jsluid", "yunjiasu", "wzws_cid", "创宇盾",
+	// [R71-a] 国际 WAF + 阿里云 WAF 挑战/拦截页技术指纹扩容(仅挑挑战页专属形态,
+	// 商业页嵌入面零误伤 —— DataDome/PerimeterX 的站点级 tag 脚本会出现在受保护站
+	// 的每个正常页上, 不可作强标记; 下列词条只出现在挑战/拦截响应内):
+	//   DataDome: captcha-delivery.com/captcha(挑战 iframe/脚本专属路径)
+	//   PerimeterX: px-captcha(挑战页专属元素 id)
+	//   阿里云 WAF: acw_sc__v2(JS 挑战 cookie/内联脚本专属名, 挑战页内联下发) /
+	//               errors.aliyun.com(拦截跳转宿主)
+	"captcha-delivery.com/captcha", "px-captcha",
+	"acw_sc__v2", "errors.aliyun.com",
 }
 
 // weakBlockMarkers 弱标记(TS BLOCK_MARKERS): 无正常标题豁免时仅扫前 4000 字符

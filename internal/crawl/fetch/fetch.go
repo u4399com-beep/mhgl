@@ -168,6 +168,10 @@ type hostGate struct {
 	baseGap          time.Duration // 基准准入间隔(pipeline 缺省 max(200ms, interval/threads))
 	lastAdmit        time.Time     // 上次放行时刻(minGap 节奏锚点)
 	rateLimitedUntil time.Time     // 限流冷却窗(429/503 Retry-After)
+	// rlStrikes 连续兜底限流计数([R71-a] 自适应退避升级): 服务端未发 Retry-After 的
+	// 连续 429/503 → 兜底冷却窗 30s→60s→120s 阶梯升级钳 retryAfterMax; 显式
+	// Retry-After(服务端在主动调速, 如实采纳)或请求成功(noteSuccess)即归零
+	rlStrikes int
 }
 
 func newHostGate(base int, gap time.Duration) *hostGate {
@@ -266,6 +270,7 @@ func (g *hostGate) noteSuccess() {
 	defer g.mu.Unlock()
 	g.fails = 0
 	g.oks++
+	g.rlStrikes = 0 // [R71-a] 请求成功 → 兜底限流升级计数归零(恢复期结束)
 	if g.oks >= gateOkRecover && g.limit < g.base {
 		g.limit++ // 连续成功回升(不超过基准)
 		g.oks = 0
@@ -309,6 +314,40 @@ func (g *hostGate) widenPacingLocked() {
 			g.minGap = gateGapCap
 		}
 	}
+}
+
+// noteRateLimitedFallback 兜底冷却窗登记 + 连续限流自适应升级([R71-a] 反反爬增强):
+// 服务端未发 Retry-After 的 429/503 走兜底 30s —— 修前对不发 Retry-After 的持续压速
+// 站点形成「30s-重撞-30s」固定节拍(节拍本身即可被服务端统计识别); 修后第 n 次连续
+// 兜底限流按 fallback×2^(n-1) 升级钳 retryAfterMax(30s→60s→120s→恒 120s), 显式
+// Retry-After(信任服务端调速)或请求成功即归零(noteSuccess/clearRateLimitStrikes)。
+// 冷却窗推进语义与 setRateLimited 同口径(仅当新窗更晚才推进)并伴随节奏放宽
+func (g *hostGate) noteRateLimitedFallback(cd time.Duration) {
+	g.mu.Lock()
+	g.rlStrikes++
+	shift := g.rlStrikes - 1
+	if shift > 8 { // 30s<<8=2h14m 已远超上限, 封顶语义(防大计数移位回绕)
+		shift = 8
+	}
+	if esc := retryAfterFallback << uint(shift); esc > cd {
+		if esc > retryAfterMax || esc <= 0 {
+			esc = retryAfterMax
+		}
+		cd = esc
+	}
+	if until := time.Now().Add(cd); until.After(g.rateLimitedUntil) {
+		g.rateLimitedUntil = until
+	}
+	g.widenPacingLocked()
+	g.mu.Unlock()
+}
+
+// clearRateLimitStrikes 兜底限流升级计数归零(显式 Retry-After 臂: 服务端在主动
+// 调速, 升级历史不再适用)
+func (g *hostGate) clearRateLimitStrikes() {
+	g.mu.Lock()
+	g.rlStrikes = 0
+	g.mu.Unlock()
 }
 
 // ---------------- SSRF 守卫 ----------------
@@ -802,7 +841,24 @@ func challengeBackoff(attempt int) time.Duration {
 	if d > challengeBackoffMax || d <= 0 {
 		d = challengeBackoffMax
 	}
-	return d + time.Duration(randomIndex()%uint64(d/2+1))
+	return d + backoffJitter(d)
+}
+
+// backoffJitter 退避抖动: d 的 +0~d/2 随机附加量(crypto/rand 源, 与墙钟解耦; d<=0 恒 0)。
+// [R71-a] 从 rawFetch 重试链 time.Now().UnixNano()%200ms 固定窗收敛到统一实现,
+// 高档位退避(钳 8s)的抖动占比不再趋零(修前 8s 退避仅 +0~199ms, 多请求退避波峰
+// 近乎同步且与墙钟相关 — 等间隔/同步重试簇本身即机器指纹)
+func backoffJitter(d time.Duration) time.Duration {
+	if d <= 0 {
+		return 0
+	}
+	return time.Duration(randomIndex() % uint64(d/2+1))
+}
+
+// pathJitterDelay 跨 path 切换延迟(100~499ms, 契约 §4 pathJitter):
+// [R71-a] 随机源由 time.Now().UnixNano()%400 改 crypto/rand(与墙钟解耦, 窗口不变)
+func pathJitterDelay() time.Duration {
+	return time.Duration(100+randomIndex()%400) * time.Millisecond
 }
 
 // proxyLoopbackExempt 回环目标直连豁免开关(缺省 true = 生产口径: 本地 mock/token
@@ -870,6 +926,28 @@ func (c *Client) weightedProxyPick(alive []*url.URL) *url.URL {
 		r -= w
 	}
 	return alive[len(alive)-1] // 不可达防御(浮点/整除误差兜底)
+}
+
+// pruneProxyStateLocked per-proxy 状态表修剪([R71-a] 内存有界化, 与 proxyTans 整表
+// 重置同点触发): proxyFailedUntil/proxyFailCount/proxySuccCount 三表此前随动态池
+// 只增不减 —— 免费池高死亡率使每个曾被取用过的失败地址各留一组常驻键值(约百字节),
+// 万级地址长任务即恒定 MB 级驻留。修剪口径: 冷却已过期的键(实际不可再命中, 既有
+// pickProxy 冷却过滤语义)清除 failedUntil/failCount; succCount 为零值者一并清除,
+// 仍有权重贡献(succCount>0)的键保留 —— 加权随机的健康记忆不因表重置而失真。
+// 活跃冷却窗内的键原样保留(剔除语义不变: 冷却中的代理不会因修剪提前复活)。
+// 调用方须持 c.mu
+func (c *Client) pruneProxyStateLocked() {
+	now := time.Now()
+	for key, until := range c.proxyFailedUntil {
+		if now.Before(until) {
+			continue // 冷却未到期: 保留(剔除语义不变)
+		}
+		delete(c.proxyFailedUntil, key)
+		delete(c.proxyFailCount, key)
+		if c.proxySuccCount[key] <= 0 {
+			delete(c.proxySuccCount, key)
+		}
+	}
 }
 
 // markProxyFailed 代理失败冷却: 30s×2^n 指数, 钳 10min; [R58-2a] 成功计数减半衰减
@@ -943,6 +1021,10 @@ func (c *Client) transportFor(pu *url.URL, httpsTarget bool) *http.Transport {
 			old.CloseIdleConnections()
 		}
 		c.proxyTans = map[string]*http.Transport{}
+		// [R71-a] per-proxy 状态表同步修剪(修前 proxyFailedUntil/proxyFailCount/
+		// proxySuccCount 三表随动态池只增不减, 键集无界增长 — 与传输表同类泄漏,
+		// 池翻转越限即键集已深度换血, 见 pruneProxyStateLocked)
+		c.pruneProxyStateLocked()
 	}
 	tr := &http.Transport{
 		MaxConnsPerHost:     8,
@@ -1048,12 +1130,16 @@ func (c *Client) Fetch(ctx context.Context, rawURL, refererURL string) (Result, 
 }
 
 // FetchBinary 二进制抓取(封面图): 不做 charset 解码/不走 contentProxy。
+// refererURL: 嵌入页地址(调用方传书籍页 URL) —— [R71-a] 子资源 Referer 真实化:
+// 真实浏览器 <img> 的 Referer 是嵌入页(refererChain 开启时生效, 修前恒空回落目标
+// 自源 Referer, 对 CDN 封面产生「自指 Referer+same-origin」的不可能指纹); 关闭或
+// Referer=false 时与既往一致(自源 Referer/不发)。Host 相同(封面同站)时两者等价。
 // [R69-a] 子资源指纹形态(真实浏览器 <img> 加载: Sec-Fetch-Dest=image/Mode=no-cors/
 // 无 Sec-Fetch-User/图片 Accept — 修前发 document 导航头组, 子资源上的 Sec-Fetch-User
 // 本身即非浏览器指纹); [R69-a] HTML 壳守卫: 拦截页/错误页(200+text/html)不得当图片
 // 入库(修前挑战壳 HTML 被 base64 成 corrupt 封面)
-func (c *Client) FetchBinary(ctx context.Context, rawURL string) ([]byte, string, error) {
-	res, err := c.rawFetch(ctx, rawURL, "", false, false, true)
+func (c *Client) FetchBinary(ctx context.Context, rawURL, refererURL string) ([]byte, string, error) {
+	res, err := c.rawFetch(ctx, rawURL, refererURL, false, false, true)
 	if err != nil {
 		return nil, "", err
 	}
@@ -1166,7 +1252,8 @@ func (c *Client) rawFetch(ctx context.Context, rawURL, refererURL string, direct
 			c.lastPath = u.Path
 			c.mu.Unlock()
 			if changed {
-				_ = util.SleepCtx(ctx, time.Duration(100+int64(time.Now().UnixNano()%400))*time.Millisecond)
+				// [R71-a] 抖动源同上改 crypto/rand(100~499ms 窗不变, 与墙钟解耦)
+				_ = util.SleepCtx(ctx, pathJitterDelay())
 			}
 		}
 	}
@@ -1293,7 +1380,10 @@ func (c *Client) rawFetch(ctx context.Context, rawURL, refererURL string, direct
 					failNoMirror = true
 				}
 			}
-			// 退避: 400ms×2^a 指数, 钳 8s, 保留抖动
+			// 退避: 400ms×2^a 指数, 钳 8s, 保留抖动([R71-a] 抖动改 crypto/rand
+			// 源 +0~50% 量值 — 修前 time.Now().UnixNano()%200ms 固定窗, 高档位退避
+			// 时抖动占比趋零(8s 退避仅 0~199ms), 多请求退避波峰近乎同步且与墙钟
+			// 相关; 随机源+比例窗打散重试簇, 下界不变恒 ≥ boff)
 			boff := backoffBase << uint(a)
 			if boff > backoffMax || boff <= 0 {
 				boff = backoffMax
@@ -1309,7 +1399,7 @@ func (c *Client) rawFetch(ctx context.Context, rawURL, refererURL string, direct
 			if a == attempts-1 {
 				break
 			}
-			_ = util.SleepCtx(ctx, boff+time.Duration(time.Now().UnixNano()%200)*time.Millisecond)
+			_ = util.SleepCtx(ctx, boff+backoffJitter(boff))
 			// 醒后重过闸(R51-3-a ⑥ 语义合并于此): acquire 内单 timer 阻塞等待, 尊重
 			// Retry-After 冷却窗与 minGap 节奏 —— 429 后立刻重发只会再次撞限流
 			if err := gate.acquire(ctx); err != nil {
@@ -1448,6 +1538,14 @@ func (c *Client) doOnce(ctx context.Context, rawURL, refererURL string, extraHea
 		return rawResult{}, err
 	}
 	ua := c.pickUA(strings.ToLower(u.Host))
+	// [R71-a](指纹一致性) cfg.headers 显式 User-Agent 覆盖时, 指纹头组以「线上实际
+	// 发送的 UA」为基 —— 修前 sec-ch-ua/Accept/Accept-Encoding 家族化恒按池内 UA 派生,
+	// 与覆写后的 UA 自相矛盾(如覆写 Safari/Firefox UA 却携带 Chrome 专属 sec-ch-ua
+	// 品牌表与 signed-exchange Accept, 服务端按头组交叉比对即识破)。cfg.headers 为
+	// 契约声明的「可覆盖单项」层(与 Referer 同权), 未配置时本臂不触发零变化
+	if v, ok := headersValue(c.cfg.Headers, "User-Agent"); ok && strings.TrimSpace(v) != "" {
+		ua = strings.TrimSpace(v)
+	}
 	family := uaFamily(ua)
 	req.Header.Set("User-Agent", ua)
 	// [R69-a] 二进制子资源(<img>)Accept 家族化 — 真实浏览器图片请求不发 HTML Accept
@@ -1461,13 +1559,34 @@ func (c *Client) doOnce(ctx context.Context, rawURL, refererURL string, extraHea
 	// Chrome/Firefox 额外 zstd — 与响应解压能力成对, 见 readBodyDecompressed);
 	// 声明后 Transport 不再自动解压, 由 readBody 按响应 Content-Encoding 手动解压
 	req.Header.Set("Accept-Encoding", acceptEncodingFor(family))
-	req.Header.Set("Upgrade-Insecure-Requests", "1")
+	// [R71-a](子资源指纹) Upgrade-Insecure-Requests 是导航请求专属的 https 升级信号
+	// —— 真实浏览器 <img> 子资源请求从不携带(修前封面请求上 UIR 与 Sec-Fetch-Dest:image
+	// 同现, 服务端按头组交叉比对即识破非浏览器流量; 文档导航路径零变化)
+	if !binary {
+		req.Header.Set("Upgrade-Insecure-Requests", "1")
+	}
 	// Referer 解析提前(指纹 Sec-Fetch-Site 依赖生效 Referer)
 	effReferer := ""
 	if refererURL != "" && c.cfg.RefererChain != nil && *c.cfg.RefererChain {
 		effReferer = refererURL
 	} else if c.cfg.Referer == nil || *c.cfg.Referer {
 		effReferer = u.Scheme + "://" + u.Host + "/"
+	}
+	// [R71-a](R67-a 补全) 初始请求同样按浏览器 strict-origin-when-cross-origin
+	// 语义改写 Referer —— 修前逐跳改写只覆盖重定向链(CheckRedirect), 首跳的显式
+	// Referer(refererChain 配置的目录页/书籍页全 URL)在跨源目标(镜像域候选/
+	// CDN 封面/异域正文段)上原样全量透传, 泄漏来源页路径且本身即非浏览器指纹。
+	// 语义: ①https→http 降级不发 ②跨源仅发来源 origin ③同源(含缺省同源 Referer)
+	// 全 URL 原样 —— 绝大多数同源请求路径零变化
+	if effReferer != "" {
+		if ru, rerr := url.Parse(effReferer); rerr == nil && ru.Host != "" {
+			switch {
+			case ru.Scheme == "https" && u.Scheme == "http":
+				effReferer = ""
+			case ru.Host != u.Host:
+				effReferer = ru.Scheme + "://" + ru.Host + "/"
+			}
+		}
 	}
 	// 指纹头组(sec-ch-ua*/Sec-Fetch-* 按 UA 家族; 先于规则头 — cfg.headers 可覆盖单项)
 	fpHeaders := fingerprintHeaders(ua, effReferer, rawURL)
@@ -1536,7 +1655,17 @@ func (c *Client) doOnce(ctx context.Context, rawURL, refererURL string, extraHea
 		c.rateLimitedCount.Add(1)
 		if gate != nil {
 			d, ok := parseRetryAfter(resp.Header.Get("Retry-After"), time.Now())
-			gate.setRateLimited(retryAfterCooldown(d, ok))
+			cd := retryAfterCooldown(d, ok)
+			if ok && d >= time.Second {
+				// 显式 Retry-After: 如实采纳(既有口径), 升级计数归零(服务端在
+				// 主动调速, 连败升级历史不再适用)
+				gate.setRateLimited(cd)
+				gate.clearRateLimitStrikes()
+			} else {
+				// [R71-a] 兜底窗(缺失/非法/<1s): 连续兜底限流自适应升级
+				// 30s→60s→120s 钳 retryAfterMax(成功即归零, 见 noteRateLimitedFallback)
+				gate.noteRateLimitedFallback(cd)
+			}
 		}
 	}
 	body, readErr := readBodyDecompressed(resp)
@@ -1853,14 +1982,20 @@ func injectToken(reqURL, token string, cfg *rule.FetchConfig) (string, map[strin
 	return reqURL + sep + "token=" + rule.EncodeURIComponent(token), nil
 }
 
-// headersHaveKey 头组键存在性判定(大小写不敏感; nil/空表恒 false)
-func headersHaveKey(h map[string]string, key string) bool {
-	for k := range h {
+// headersValue 头组键取值(大小写不敏感; nil/空表恒 false)
+func headersValue(h map[string]string, key string) (string, bool) {
+	for k, v := range h {
 		if strings.EqualFold(k, key) {
-			return true
+			return v, true
 		}
 	}
-	return false
+	return "", false
+}
+
+// headersHaveKey 头组键存在性判定(大小写不敏感; nil/空表恒 false)
+func headersHaveKey(h map[string]string, key string) bool {
+	_, ok := headersValue(h, key)
+	return ok
 }
 
 // matchesTemplateOrigin 目标 URL host:port 与模板一致(自指防护, R30-3-1 同口径)

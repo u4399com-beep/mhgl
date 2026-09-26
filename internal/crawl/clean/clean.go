@@ -501,7 +501,13 @@ func decodeEntitiesOnce(s string) string {
 	})
 }
 
+// parseHex/parseIntDec [R71-b] 溢出防护: 修前超长数字段在 int64 上回绕, 回绕值可
+// 落进合法码点区(如 2^64+65 → 'A') —— 浏览器对越界实体给 U+FFFD/拒收, 两侧分叉。
+// 修后溢出预判回 -1(fromCodePointSafe 拒收), 与 R60-2c parseBookIDNum 同族口径;
+// 返回 -1 亦使 removeAdLines 掩码还原臂(v<1)按垃圾 token 丢弃, 语义安全。
+// 注: 掩码 token 数值域(≤千章 URL 量级)远低于阈值, 不受影响。
 func parseHex(s string) int {
+	const overflowGuard = (1 << 62) / 16
 	n := 0
 	for _, c := range s {
 		var d int
@@ -515,16 +521,23 @@ func parseHex(s string) int {
 		default:
 			return 0
 		}
+		if n > overflowGuard {
+			return -1
+		}
 		n = n*16 + d
 	}
 	return n
 }
 
 func parseIntDec(s string) int {
+	const overflowGuard = (1 << 62) / 10
 	n := 0
 	for _, c := range s {
 		if c < '0' || c > '9' {
 			return 0
+		}
+		if n > overflowGuard {
+			return -1
 		}
 		n = n*10 + int(c-'0')
 	}

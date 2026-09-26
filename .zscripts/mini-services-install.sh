@@ -1,65 +1,21 @@
 #!/bin/bash
 
-# 配置项
-ROOT_DIR="/home/z/my-project/mini-services"
+# [R71] 退役安全 no-op —— 原 mini-services 依赖批量安装器(bun install)。
+# mini-services/ 目录(原 8 个 TS/Python 外置签名/解密代理, 端口 3010~3017)已随
+# R69 纯 Go 化整体退役: 现役采集引擎直连采集, 外置签名/解密由对应规则自身的
+# fetch 配置(代理池/curl 指纹/token 预取)承担, 不再需要任何伴生进程(可考古
+# git 历史 mini-services/)。本脚本保留占位防旧调用链报「文件不存在」, 恒退出 0。
 
-main() {
-    echo "🚀 开始批量安装依赖..."
-    
-    # 检查 rootdir 是否存在
-    if [ ! -d "$ROOT_DIR" ]; then
-        echo "ℹ️  目录 $ROOT_DIR 不存在，跳过安装"
-        return
-    fi
-    
-    # 统计变量
-    success_count=0
-    fail_count=0
-    failed_projects=""
-    
-    # 遍历 mini-services 目录下的所有文件夹
-    for dir in "$ROOT_DIR"/*; do
-        # 检查是否是目录且包含 package.json
-        if [ -d "$dir" ] && [ -f "$dir/package.json" ]; then
-            project_name=$(basename "$dir")
-            echo ""
-            echo "📦 正在安装依赖: $project_name..."
-            
-            # 进入项目目录并执行 bun install
-            if (cd "$dir" && bun install); then
-                echo "✅ $project_name 依赖安装成功"
-                success_count=$((success_count + 1))
-            else
-                echo "❌ $project_name 依赖安装失败"
-                fail_count=$((fail_count + 1))
-                if [ -z "$failed_projects" ]; then
-                    failed_projects="$project_name"
-                else
-                    failed_projects="$failed_projects $project_name"
-                fi
-            fi
-        fi
-    done
-    
-    # 汇总结果
-    echo ""
-    echo "=================================================="
-    if [ $success_count -gt 0 ] || [ $fail_count -gt 0 ]; then
-        echo "🎉 安装完成！"
-        echo "✅ 成功: $success_count 个"
-        if [ $fail_count -gt 0 ]; then
-            echo "❌ 失败: $fail_count 个"
-            echo ""
-            echo "失败的项目:"
-            for project in $failed_projects; do
-                echo "  - $project"
-            done
-        fi
-    else
-        echo "ℹ️  未找到任何包含 package.json 的项目"
-    fi
-    echo "=================================================="
-}
+set -euo pipefail
 
-main
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)/mini-services"
 
+if [ -d "$ROOT_DIR" ]; then
+    echo "[retired] mini-services/ 目录存在, 但已随 R69 纯 Go 化退役 ——"
+    echo "          本脚本不再对其做任何安装/构建/启动动作(如需考古: git 历史 mini-services/)"
+else
+    echo "[retired] mini-services 已随 R69 纯 Go 化退役(目录不存在) ——"
+    echo "          无需安装任何子服务依赖, 安全跳过(退出 0)"
+fi
+exit 0
