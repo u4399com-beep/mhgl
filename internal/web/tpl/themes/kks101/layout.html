@@ -16,7 +16,7 @@
 <meta name="theme-color" content="#1f6cb2">
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" type="image/png" href="/static/icons/icon-192.png">
-<link rel="stylesheet" href="/static/css/kks101.css?v=r68-c">
+<link rel="stylesheet" href="/static/css/kks101.css?v=r70-e">
 </head>
 <body class="clone-kks101">
 <header class="kks-header">
@@ -32,7 +32,7 @@
       <a href="{{.HomeHref}}">首頁</a>
       <a href="{{.RankingHref}}">排行</a>
       <a href="{{.FulltextHref}}">完本</a>
-      {{range firstN 4 .NavCats}}<a href="{{catHref . $.SiteID}}">{{.}}</a>{{end}}
+      {{range $i, $cat := .NavCats}}{{if lt $i 4}}<a href="{{catHref $cat $.SiteID}}">{{$cat}}</a>{{end}}{{end}}{{/* [R70-e] firstN 仅收 []map, NavCats 为 []string 修前静默吞分类导航 */}}
       <a href="{{.HistoryHref}}">書架</a>
     </nav>
   </div>
@@ -50,7 +50,7 @@
   <p>Copyright 2023 · Powered by © {{siteTitle .Site}}</p>
   <div class="kks-foot-note">本站所有小說均由網友上傳, 如有侵權請聯繫刪除</div>
 </footer>
-<script src="/static/js/site.js?v=r57-2c" defer></script>
-<script src="/static/js/pwa.js?v=r57-2c" defer></script>
+<script src="/static/js/site.js?v=r70-e" defer></script>
+<script src="/static/js/pwa.js?v=r70-e" defer></script>
 </body>
 </html>{{end}}

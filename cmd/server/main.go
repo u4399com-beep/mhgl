@@ -38,7 +38,8 @@ func main() {
 
 	// ---- [R69-a] bootstrap 子命令: `mhgl bootstrap` ----
 	// 幂等引导运行态数据(35 规则/16 分类/默认站点/三大部头任务), 不启动 HTTP。
-	// 与 TS 原件 scripts/bootstrap-db.ts 同语义, 但直连 store: 无需服务在线/密码/bun。
+	// 与 TS 原件 scripts/bootstrap-db.ts 同语义(该件已随 R69 退役), 但直连 store:
+	// 无需服务在线/密码/bun。
 	if len(os.Args) > 1 && os.Args[1] == "bootstrap" {
 		runBootstrap(cfg)
 		return

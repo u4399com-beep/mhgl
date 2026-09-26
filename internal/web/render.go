@@ -10,6 +10,7 @@
 package web
 
 import (
+	"bytes"
 	"embed"
 	"encoding/json"
 	"fmt"
@@ -19,9 +20,12 @@ import (
 	"net/http"
 	"path"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"mhgl/internal/stealth"
 )
 
 //go:embed tpl
@@ -186,9 +190,18 @@ func render(w http.ResponseWriter, name string, data any) {
 			return
 		}
 	}
-	if err := t.ExecuteTemplate(w, "layout.html", data); err != nil {
+	// [R70-c] 公共页伪装出口: 缓冲渲染 → 四开关管线(全关=纯直通) → 写出。
+	// 管线全关(缺省)时输出与修前流式写入逐字节一致; admin/login 不入此路径。
+	var buf bytes.Buffer
+	if err := t.ExecuteTemplate(&buf, "layout.html", data); err != nil {
 		log.Printf("[web] render %s: %v", name, err)
 	}
+	out := buf.Bytes()
+	if cfg := stealthConfigOf(); !cfg.AllOff() {
+		out = stealth.Apply(out, cfg, pageCtxOf(name, data))
+	}
+	w.Header().Set("Content-Length", strconv.Itoa(len(out)))
+	_, _ = w.Write(out)
 }
 
 // render404 美观 404(带返回首页链接; 站点缺行时以空表渲染, 防模板 nil 类型错)。

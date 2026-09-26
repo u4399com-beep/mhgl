@@ -1454,9 +1454,18 @@
   var SETTING_LINKED = {
     bannedWords: '与本页「违禁词过滤」卡片联动',
     proxyPool: '与「代理池」分区联动',
-    feedback: '与「用户反馈」分区的反馈开关联动'
+    feedback: '与「用户反馈」分区的反馈开关联动',
+    'stealth.obfuscate': '与本页「内容伪装 / 反搜索」卡片联动',
+    'stealth.transcode': '与本页「内容伪装 / 反搜索」卡片联动',
+    'stealth.transcode.mode': '与本页「内容伪装 / 反搜索」卡片联动',
+    'stealth.interfere': '与本页「内容伪装 / 反搜索」卡片联动',
+    'stealth.interfere.mode': '与本页「内容伪装 / 反搜索」卡片联动',
+    'stealth.interfere.density': '与本页「内容伪装 / 反搜索」卡片联动',
+    'stealth.pseudo': '与本页「内容伪装 / 反搜索」卡片联动',
+    'stealth.pseudo.seed': '与本页「内容伪装 / 反搜索」卡片联动',
+    'book.volume.show': '与本页「内容伪装 / 反搜索」卡片联动'
   };
-  var SETTING_PROTECTED = ['bannedWords', 'seoTemplates', 'theme_overrides', 'linkwheel', 'feedback', 'pseoAutoGenerate', 'proxyPool', 'download', 'pseudostatic'];
+  var SETTING_PROTECTED = ['bannedWords', 'seoTemplates', 'theme_overrides', 'linkwheel', 'feedback', 'pseoAutoGenerate', 'proxyPool', 'download', 'pseudostatic', 'stealth.obfuscate', 'stealth.transcode', 'stealth.transcode.mode', 'stealth.interfere', 'stealth.interfere.mode', 'stealth.interfere.density', 'stealth.pseudo', 'stealth.pseudo.seed', 'book.volume.show'];
   function isProtectedKey(k) { return SETTING_PROTECTED.indexOf(k) >= 0; }
   function renderSettings(obj) {
     var el = $('set-list');
@@ -1482,8 +1491,10 @@
   function initSettings() {
     loadBannedWords();
     loadSettings();
+    loadStealth();
     $('set-reload').addEventListener('click', loadSettings);
     $('bw-save').addEventListener('click', saveBannedWords);
+    $('st-save').addEventListener('click', saveStealth);
     // [R67-c] 设置键删除(非核心键; 后端核心键白名单兜底)
     $('set-list').addEventListener('click', function (ev) {
       var btn = ev.target.closest('button[data-delkey]');
@@ -1521,6 +1532,57 @@
       });
       seq.then(function () { toast('设置已保存'); loadSettings(); }).catch(function (e) { toast(errText(e), true); });
     });
+  }
+
+  /* ---------------- 内容伪装 / 反搜索(Setting stealth.* 结构化编辑; [R70-c]) ---------------- */
+  function stealthTruthy(v) { return ['1', 'true', 'on', 'yes'].indexOf(String(v == null ? '' : v).trim().toLowerCase()) >= 0; }
+  function stealthUnquote(raw) {
+    var v = String(raw == null ? '' : raw).trim();
+    if (v.length >= 2 && v.charAt(0) === '"' && v.charAt(v.length - 1) === '"') v = v.slice(1, -1);
+    return v;
+  }
+  function onoff(b) { return b ? '开' : '关'; }
+  function loadStealth() {
+    stateMsg('st-state', '加载中…');
+    GET('/api/admin/settings').then(function (d) {
+      var s = d.settings || d || {};
+      var val = function (k) { return stealthUnquote(s[k]); };
+      $('st-obfuscate').checked = stealthTruthy(val('stealth.obfuscate'));
+      $('st-transcode').checked = stealthTruthy(val('stealth.transcode'));
+      $('st-transcode-mode').value = val('stealth.transcode.mode') === 'zwsp' ? 'zwsp' : 'entity';
+      $('st-interfere').checked = stealthTruthy(val('stealth.interfere'));
+      $('st-interfere-mode').value = val('stealth.interfere.mode') === 'offscreen' ? 'offscreen' : 'hidden';
+      var den = parseInt(val('stealth.interfere.density'), 10);
+      if (!(den >= 2 && den <= 8)) den = 4;
+      $('st-density').value = String(den);
+      $('st-pseudo').checked = stealthTruthy(val('stealth.pseudo'));
+      var seed = val('stealth.pseudo.seed');
+      $('st-pseudo-seed').value = ['daily', 'stable'].indexOf(seed) >= 0 ? seed : 'request';
+      $('st-volume').checked = stealthTruthy(val('book.volume.show'));
+      var el = $('st-state');
+      el.className = '';
+      el.innerHTML = '<span class="adm-muted">当前: 混淆 ' + onoff($('st-obfuscate').checked) + ' / 转码 ' + onoff($('st-transcode').checked) + ' / 干扰 ' + onoff($('st-interfere').checked) + ' / 伪原创 ' + onoff($('st-pseudo').checked) + ' / 分卷显示 ' + onoff($('st-volume').checked) + '(缺省全关)</span>';
+    }).catch(function (e) { stateMsg('st-state', '加载失败: ' + errText(e), true); });
+  }
+  function saveStealth() {
+    var den = parseInt($('st-density').value, 10);
+    if (!(den >= 2 && den <= 8)) { toast('干扰密度需在 2-8 之间', true); return; }
+    var b = function (id) { return $(id).checked ? '1' : '0'; };
+    var body = {};
+    body['stealth.obfuscate'] = b('st-obfuscate');
+    body['stealth.transcode'] = b('st-transcode');
+    body['stealth.transcode.mode'] = $('st-transcode-mode').value;
+    body['stealth.interfere'] = b('st-interfere');
+    body['stealth.interfere.mode'] = $('st-interfere-mode').value;
+    body['stealth.interfere.density'] = String(den);
+    body['stealth.pseudo'] = b('st-pseudo');
+    body['stealth.pseudo.seed'] = $('st-pseudo-seed').value;
+    body['book.volume.show'] = b('st-volume');
+    PUT('/api/admin/settings', body).then(function () {
+      toast('伪装设置已保存, 约 5 秒内全站生效');
+      loadStealth();
+      loadSettings();
+    }).catch(function (e) { toast(errText(e), true); });
   }
 
   /* ---------------- 违禁词过滤(Setting bannedWords 结构化编辑; API: GET/PUT /api/admin/banned-words) ---------------- */

@@ -156,7 +156,10 @@
 .clone-pili .pli-tab-group li a{color:#999;text-decoration:none}
 .clone-pili .pli-tab-group li a:hover{color:#fa8729}
 .clone-pili .pli-toc-head{text-align:left;margin-bottom:6px}
-.clone-pili .pli-chgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:2px 14px}
+.clone-pili .pli-chgrid{display:grid;
+
+/* [R70-e] 目录页卷分组标题(pili 作用域) */
+.clone-pili .pli-vol{margin:16px 0 6px;padding:8px 12px;border-left:4px solid #f65400;background:#fff3e6;border-radius:3px;font-size:15px;font-weight:700;color:#b23a00}grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:2px 14px}
 .clone-pili .pli-chgrid a{font-size:13.5px;color:#333;padding:7px 8px;border-radius:3px;text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .clone-pili .pli-chgrid a:visited{color:#a75646}
 .clone-pili .pli-chgrid a:hover{background:#fff3e6;color:#f65400}

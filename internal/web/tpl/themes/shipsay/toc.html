@@ -3,7 +3,16 @@
   <section class="ss-card">
     <p class="ss-title">📑 {{.Book.name}} 目录 <small>共 {{.Total}} 章</small></p>
     <p class="ss-toc-meta">{{.Book.author}} · {{or .Book.category "小说"}} · {{statusLabel (str .Book.status)}} · <a href="{{.BookHref}}">书籍页</a></p>
-    {{if .Chapters}}
+    {{if .VolumeGroups}}{{/* [R70-e] 卷分组(主题既有标题层级); 空值走下方平面渲染零变化 */}}
+    {{range .VolumeGroups}}
+    <p class="ss-vol">{{.Name}}</p>
+    <ul class="ss-chlist ss-3col">
+      {{range .Chapters}}
+      <li><a href="{{chapterHref (str .id) (num $.Book.num) (num .idx) $.SiteID}}" title="{{.title}}">{{.title}}</a></li>
+      {{end}}
+    </ul>
+    {{end}}
+    {{else if .Chapters}}
     <ul class="ss-chlist ss-3col">
       {{range .Chapters}}
       <li><a href="{{chapterHref (str .id) (num $.Book.num) (num .idx) $.SiteID}}" title="{{.title}}">{{.title}}</a></li>

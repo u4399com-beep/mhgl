@@ -33,6 +33,7 @@
   <div class="kks-pager">
     {{if .PrevHref}}<a class="kks-btn-primary" id="ajx-prev" href="{{.PrevHref}}" rel="prev">上一章</a>{{else}}<span class="kks-btn-primary is-disabled" id="ajx-prev" aria-disabled="true">上一章</span>{{end}}
     <a class="kks-btn" href="{{.BookHref}}">書頁</a>
+    <a class="kks-btn" href="{{.TocHref}}">目錄</a>{{/* [R70-e] 源站 page1 四钮形态: 上一章/書籤/目錄/下一章(書籤为 JS 功能, 以書頁补位) */}}
     {{if .NextHref}}<a class="kks-btn-primary" id="ajx-next" href="{{.NextHref}}" rel="next">下一章</a>{{else}}<span class="kks-btn-primary is-disabled" id="ajx-next" aria-disabled="true">下一章</span>{{end}}
   </div>
 </div>

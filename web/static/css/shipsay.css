@@ -28,7 +28,10 @@
 
 /* 白卡面板 */
 .clone-shipsay .ss-card{background:#fff;padding:0 0 6px;margin-bottom:10px}
-.clone-shipsay .ss-title{margin:0;border-bottom:1px solid #e3e3e3;padding:10px 12px;font-size:16px;font-weight:700;color:#555}
+.clone-shipsay .ss-title{margin:0;
+
+/* [R70-e] 目录页卷分组标题(shipsay 作用域, ss-title 同族) */
+.clone-shipsay .ss-vol{margin:0;border-bottom:1px solid #e3e3e3;padding:10px 12px 8px;font-size:14px;font-weight:700;color:#bf2c24}border-bottom:1px solid #e3e3e3;padding:10px 12px;font-size:16px;font-weight:700;color:#555}
 .clone-shipsay .ss-title small{font-size:12px;color:#999;font-weight:400;margin-left:8px}
 .clone-shipsay .ss-row{display:flex;gap:10px;align-items:stretch}
 .clone-shipsay .ss-grow{flex:1;min-width:0}

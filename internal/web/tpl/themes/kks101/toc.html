@@ -1,7 +1,14 @@
 {{define "content"}}
 <div class="kks-toc">
   <h3 class="kks-mytitle">《{{.Book.name}}》完整目錄<small>（共 {{.Total}} 章 · 第 {{.Pager.Page}} / {{.Pager.TotalPages}} 頁）</small></h3>
-  {{if .Chapters}}
+  {{if .VolumeGroups}}{{/* [R70-e] 卷分组(主题既有 mytitle 层级); 空值走下方平面渲染零变化 */}}
+  {{range .VolumeGroups}}
+  <h3 class="kks-mytitle kks-voltitle">{{.Name}}</h3>
+  <div class="kks-chgrid kks-catalog">
+    {{range .Chapters}}<a href="{{chapterHref (str .id) (num $.Book.num) (num .idx) $.SiteID}}" title="{{.title}}">{{.title}}</a>{{end}}
+  </div>
+  {{end}}
+  {{else if .Chapters}}
   <div class="kks-chgrid kks-catalog">
     {{range .Chapters}}<a href="{{chapterHref (str .id) (num $.Book.num) (num .idx) $.SiteID}}" title="{{.title}}">{{.title}}</a>{{end}}
   </div>

@@ -277,6 +277,8 @@ body.clone-ddyueshu .ddy-ch-content { padding: 0 14px; }
 body.clone-ddyueshu .ddy-read-txt { font-size: 17px; line-height: 1.9; color: #333; }
 body.clone-ddyueshu .ddy-read-txt p { margin: 0 0 12px; }
 body.clone-ddyueshu .ddy-page-nav { padding: 18px 14px 0; text-align: center; }
+/* [R70-e] 源站 bottem1: 标题下导航行(正文前), 间距收紧 */
+body.clone-ddyueshu .ddy-page-nav-top { padding: 8px 14px 0; }
 body.clone-ddyueshu .ddy-page-nav a, body.clone-ddyueshu .ddy-page-nav span {
   display: inline-block; padding: 6px 18px; margin: 0 4px;
   border: 1px solid #ddd; background: #f8f8f8; color: #333; font-size: 14px; text-decoration: none;

@@ -30,7 +30,10 @@
 .clone-kks101 .kks-container{max-width:1000px;margin:0 auto;padding:10px 12px 24px;box-sizing:border-box;overflow-x:hidden}
 
 /* 板块标题(mytitle: 16px + 底线) */
-.clone-kks101 .kks-mytitle{margin:14px 0 10px;border-bottom:1px solid rgba(150,150,150,.2);padding-bottom:5px;font-size:16px;font-weight:700;color:#333}
+.clone-kks101 .kks-mytitle{margin:14px 0 10px;
+
+/* [R70-e] 目录页卷分组标题(kks 作用域, mytitle 同族小号) */
+.clone-kks101 .kks-voltitle{margin:16px 0 8px;font-size:14px;color:#1f6cb2}border-bottom:1px solid rgba(150,150,150,.2);padding-bottom:5px;font-size:16px;font-weight:700;color:#333}
 .clone-kks101 .kks-mytitle small{font-size:12px;color:#818a91;font-weight:400;margin-left:6px}
 .clone-kks101 .kks-mytitle2{margin:23px 10px 10px}
 

@@ -129,6 +129,13 @@ func (a *managerAdapter) Start(taskID string) error {
 			return fmt.Errorf("任务已在运行中")
 		}
 		if _, rerr := a.mgr.Control(taskID, "resume"); rerr == nil {
+			// [R70-a] 停机竞态收口(resume 臂): scheduleAutoRefresh 醒后 stopping 复查与
+			// resume 落地之间仍存在微窗, 落地于 StopAll 之后的恢复会在停机窗口内无人监管
+			// 运行 —— 落地后复查, 命中即回收再报错(与 Start 臂同口径)
+			if a.stopping.Load() {
+				_, _ = a.mgr.Control(taskID, "stop")
+				return fmt.Errorf("引擎停机中: 任务 %s 恢复落地于 StopAll 之后, 已即时回收", taskID)
+			}
 			_ = a.db.CrawlMarkTaskStarted(taskID)
 			_ = a.db.AppendTaskLog(taskID, "success", "▶ 任务已恢复运行(Go 引擎, 断点续采)")
 			return nil
@@ -144,6 +151,14 @@ func (a *managerAdapter) Start(taskID string) error {
 			return fmt.Errorf("任务已在运行中")
 		}
 		return err
+	}
+	// [R70-a] 停机竞态收口: scheduleAutoRefresh 醒后「见 stopping=true 即弃」只封了前置
+	// 面, 醒后复查与 Start 落地之间仍存在微窗 —— 落地于 StopAll 之后的任务会在停机窗口
+	// 内无人监管运行(R66-a 修复面的残余)。启动落地后复查 stopping, 命中即回收刚启动的
+	// 任务再报错, 不留下监管空洞
+	if a.stopping.Load() {
+		_, _ = a.mgr.Control(taskID, "stop")
+		return fmt.Errorf("引擎停机中: 任务 %s 启动落地于 StopAll 之后, 已即时回收", taskID)
 	}
 	_ = a.db.CrawlMarkTaskStarted(taskID)
 	_ = a.db.AppendTaskLog(taskID, "success", fmt.Sprintf(

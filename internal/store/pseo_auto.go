@@ -7,20 +7,31 @@
 // ============================================================
 package store
 
-import "log"
+import (
+	"log"
+	"sync"
+)
 
 // bookCreatedHook 包级钩子(单进程一装; 重复注入后者覆盖)。
-var bookCreatedHook func(db *DB, bookID string)
+// [R70-c] R69-C 移交收口: 包级变量加读写锁(生产时序本安全, 加锁防未来热插拔面)。
+var (
+	bookCreatedHookMu sync.RWMutex
+	bookCreatedHook   func(db *DB, bookID string)
+)
 
-// SetBookCreatedHook 注入书籍入库钩子(nil = 卸载)。必须并发安全 closure 自理。
+// SetBookCreatedHook 注入书籍入库钩子(nil = 卸载)。并发安全; 回调闭包并发自理。
 func SetBookCreatedHook(fn func(db *DB, bookID string)) {
+	bookCreatedHookMu.Lock()
 	bookCreatedHook = fn
+	bookCreatedHookMu.Unlock()
 }
 
 // notifyBookCreated 入库成功后触发(异步 goroutine + recover 兜底:
 // 采集热路径不受钩子 panic 拖累; 书入库低频, 每书一 goroutine 成本可忽略)。
 func (d *DB) notifyBookCreated(bookID string) {
+	bookCreatedHookMu.RLock()
 	fn := bookCreatedHook
+	bookCreatedHookMu.RUnlock()
 	if fn == nil || bookID == "" {
 		return
 	}

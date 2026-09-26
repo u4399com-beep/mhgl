@@ -27,6 +27,65 @@
 </section>
 <section class="adm-card" style="margin-top:16px">
   <div class="adm-card-head">
+    <h2>内容伪装 / 反搜索</h2>
+    <div class="adm-toolbar">
+      <button class="adm-btn is-primary is-tiny" id="st-save" type="button">保存伪装设置</button>
+    </div>
+  </div>
+  <p class="adm-muted" style="margin:0 0 12px">面向搜索引擎与采集器的输出伪装: 页面外观不变、每次抓取源码结构不同、源码无明文关键词。
+    默认全部关闭; 保存后约 5 秒内全站生效(进程内缓存)。⚠ 隐藏文字/伪原创属于灰色手段, 可能被搜索引擎判定作弊降权, 请自行评估后启用。</p>
+  <div class="adm-toolbar" style="flex-wrap:wrap;gap:10px 18px;align-items:center">
+    <label style="display:inline-flex;align-items:center;gap:8px;font-size:14px">
+      <input type="checkbox" id="st-obfuscate" aria-label="启用结构混淆">
+      <span>结构混淆(每页源码唯一)</span>
+    </label>
+    <label style="display:inline-flex;align-items:center;gap:8px;font-size:14px">
+      <input type="checkbox" id="st-transcode" aria-label="启用关键词转码">
+      <span>关键词转码(源码无明文)</span>
+    </label>
+    <label style="display:inline-flex;align-items:center;gap:8px;font-size:14px">转码方式
+      <select class="adm-input is-select" id="st-transcode-mode" aria-label="转码方式">
+        <option value="entity">HTML 实体(渲染一致, 推荐)</option>
+        <option value="zwsp">零宽字符(影响页内搜索)</option>
+      </select>
+    </label>
+  </div>
+  <div class="adm-toolbar" style="flex-wrap:wrap;gap:10px 18px;align-items:center;margin-top:8px">
+    <label style="display:inline-flex;align-items:center;gap:8px;font-size:14px">
+      <input type="checkbox" id="st-interfere" aria-label="启用句子干扰">
+      <span>句子干扰(正文隐藏白噪声句)</span>
+    </label>
+    <label style="display:inline-flex;align-items:center;gap:8px;font-size:14px">干扰形态
+      <select class="adm-input is-select" id="st-interfere-mode" aria-label="干扰形态">
+        <option value="hidden">display:none 隐藏</option>
+        <option value="offscreen">移出屏幕外</option>
+      </select>
+    </label>
+    <label style="display:inline-flex;align-items:center;gap:8px;font-size:14px">密度(每 N 段 1 句, 2-8)
+      <input class="adm-input" type="number" id="st-density" min="2" max="8" value="4" style="width:64px" aria-label="干扰密度">
+    </label>
+  </div>
+  <div class="adm-toolbar" style="flex-wrap:wrap;gap:10px 18px;align-items:center;margin-top:8px">
+    <label style="display:inline-flex;align-items:center;gap:8px;font-size:14px">
+      <input type="checkbox" id="st-pseudo" aria-label="启用句子伪原创">
+      <span>句子伪原创(同义替换, 不回写数据库)</span>
+    </label>
+    <label style="display:inline-flex;align-items:center;gap:8px;font-size:14px">变化节奏
+      <select class="adm-input is-select" id="st-pseudo-seed" aria-label="伪原创节奏">
+        <option value="request">每次请求变化</option>
+        <option value="daily">每天一换</option>
+        <option value="stable">固定(同章恒定)</option>
+      </select>
+    </label>
+    <label style="display:inline-flex;align-items:center;gap:8px;font-size:14px">
+      <input type="checkbox" id="st-volume" aria-label="目录分卷分组显示">
+      <span>目录分卷分组显示</span>
+    </label>
+  </div>
+  <div id="st-state" class="adm-state" aria-live="polite">加载中…</div>
+</section>
+<section class="adm-card" style="margin-top:16px">
+  <div class="adm-card-head">
     <h2>系统设置(Setting KV)</h2>
     <div class="adm-toolbar">
       <button class="adm-btn is-tiny" id="set-reload" type="button">重新加载</button>

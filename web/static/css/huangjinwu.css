@@ -101,7 +101,10 @@ body.clone-huangjinwu ul,body.clone-huangjinwu ol{list-style:none}
 
 /* ---------- 章节网格 ---------- */
 .hjw-chgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px}
-.hjw-chitem{display:block;overflow:hidden;padding:10px 14px;border:1px solid #dbe4f0;border-radius:10px;font-size:14px;color:#1e293b;white-space:nowrap;text-overflow:ellipsis}
+.hjw-chitem{
+
+/* [R70-e] 目录页卷分组标题(hjw page-title 同族小号) */
+.hjw-vol{margin:14px 0 10px;padding-left:12px;border-left:4px solid #2563eb;border-radius:2px 0 0 2px;font-size:16px;font-weight:600;color:#1e293b}display:block;overflow:hidden;padding:10px 14px;border:1px solid #dbe4f0;border-radius:10px;font-size:14px;color:#1e293b;white-space:nowrap;text-overflow:ellipsis}
 .hjw-chitem:hover{border-color:#2563eb;background:#e8f1ff;color:#2563eb}
 
 /* ---------- 阅读卡 ---------- */

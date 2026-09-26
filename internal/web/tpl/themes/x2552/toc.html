@@ -10,7 +10,14 @@
       <dd><h1 class="x2-toc-h1">{{.Book.name}}最新章节</h1></dd>
       <dd><h3 class="x2-toc-author">作者：{{.Book.author}}</h3></dd>
       <dd>
-        {{if .Chapters}}
+        {{if .VolumeGroups}}{{/* [R70-e] 卷分组(主题既有标题层级); 空值走下方平面渲染零变化 */}}
+        {{range .VolumeGroups}}
+        <h3 class="x2-vol">{{.Name}}</h3>
+        <div class="x2-chgrid">
+          {{range .Chapters}}<a class="x2-a" href="{{chapterHref (str .id) (num $.Book.num) (num .idx) $.SiteID}}" title="{{.title}}">{{.title}}</a>{{end}}
+        </div>
+        {{end}}
+        {{else if .Chapters}}
         <div class="x2-chgrid">
           {{range .Chapters}}<a class="x2-a" href="{{chapterHref (str .id) (num $.Book.num) (num .idx) $.SiteID}}" title="{{.title}}">{{.title}}</a>{{end}}
         </div>

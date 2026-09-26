@@ -13,6 +13,15 @@ import (
 )
 
 func registerRoutes(mux *http.ServeMux, d Deps) {
+	// [R70-c] 内容伪装配置读取钩子(启动期单次注入; DB 缺键/读错 → 空串走默认)
+	registerStealthSettings(func(key string) string {
+		v, ok, err := d.DB.GetSetting(key)
+		if err != nil || !ok {
+			return ""
+		}
+		return v
+	})
+
 	// ---- 前台(查询串路由 + /{$}) ----
 	mux.HandleFunc("GET /{$}", d.handleRoot)
 

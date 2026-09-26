@@ -8,7 +8,16 @@
         <a href="{{.BookHref}}">书籍页</a>
       </div>
       {{if .Book.intro}}<div class="ajx-read-intro">内容提要：{{excerpt .Book.intro 120}}…</div>{{end}}
-      {{if .Chapters}}
+      {{if .VolumeGroups}}{{/* [R70-e] 卷分组(book.volume.show=1 且库内有卷前缀时才有值); 空值走下方平面渲染零变化 */}}
+      {{range .VolumeGroups}}
+      <div class="ajx-vol" style="margin:18px 0 0;padding:10px 12px;border-left:4px solid #0f766e;background:#eef9f7;border-radius:8px;font-weight:700;color:#115e59;font-size:15px">{{.Name}}</div>{{/* [R70-e] 卷头内联样式: site.css 归 70-c, 主题 css 无 aijjxs 独立文件 */}}
+      <ul class="ajx-chapter-list">
+        {{range .Chapters}}
+        <li><a href="{{chapterHref (str .id) (num $.Book.num) (num .idx) $.SiteID}}" title="{{.title}}">{{.title}}</a></li>
+        {{end}}
+      </ul>
+      {{end}}
+      {{else if .Chapters}}
       <ul class="ajx-chapter-list">
         {{range .Chapters}}
         <li><a href="{{chapterHref (str .id) (num $.Book.num) (num .idx) $.SiteID}}" title="{{.title}}">{{.title}}</a></li>

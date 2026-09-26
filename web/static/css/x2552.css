@@ -147,7 +147,10 @@
 
 /* 目录页(4 列章节格) */
 .clone-x2552 .x2-toc-h1{font-size:18px;line-height:30px;color:#666;font-weight:bold;margin:4px 0}
-.clone-x2552 .x2-toc-author{font-size:13px;font-weight:normal;color:#666;margin:2px 0 8px}
+.clone-x2552 .x2-toc-author{
+
+/* [R70-e] 目录页卷分组标题(x2552 黑冰 h3 同族) */
+.clone-x2552 .x2-vol{font-size:13px;font-weight:bold;color:#2f468f;margin:10px 0 4px;padding-left:6px;border-left:3px solid #33ccff;line-height:1.6}font-size:13px;font-weight:normal;color:#666;margin:2px 0 8px}
 .clone-x2552 .x2-chgrid{display:grid;grid-template-columns:repeat(4,1fr);overflow:hidden}
 .clone-x2552 .x2-chgrid a{padding:4px 6px;width:100%;box-sizing:border-box;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 

@@ -49,6 +49,19 @@ var strongBlockMarkers = []string{
 	// [R69-a] CF 硬限流/防火墙拦截页字面文案(纯文本 body 无模板标记的形态:
 	// 1015 = rate-limited / 1020 = access-rule blocked)
 	"error code: 1015", "error code: 1020",
+	// [R70-a] 国产 WAF/CDN 拦截页识别扩容(合成 fixture 单测 r70a_test.go 驱动)。
+	// 强标记只收「技术指纹」: cookie 名/脚本路径/JS 加载器/产品 ASCII 标识 ——
+	// 正文零碰撞, 长页+正常标题豁免不适用(命中即拦):
+	//   宝塔: getWafJs 挑战加载器 / /bt-waf 拦截资源路径 / 宝塔网站防火墙(产品全称)
+	//   安全狗: safedog(cookie safedog-flow-item/脚本域)
+	//   云锁: yunsuo_session(cookie 族 yunsuo_session_verify 等)
+	//   雷池 SafeLine: safeline(ASCII 标识) / 请求被waf拦截(拦截文案, haystack 已小写化)
+	//   加速乐: __jsluid(cookie 族, 补既有 __jsl_clearance 之外的 uid 面)
+	//   百度云加速: yunjiasu(脚本域 static.yunjiasu.com/cookie)
+	//   知道创宇: 创宇盾(产品名) / wzws_cid(网站卫士 cookie)
+	"getwafjs", "bt-waf", "宝塔网站防火墙",
+	"safedog", "yunsuo_session", "safeline", "请求被waf拦截",
+	"__jsluid", "yunjiasu", "wzws_cid", "创宇盾",
 }
 
 // weakBlockMarkers 弱标记(TS BLOCK_MARKERS): 无正常标题豁免时仅扫前 4000 字符
@@ -62,6 +75,10 @@ var weakBlockMarkers = []string{
 	"访问过于频繁", "请开启浏览器javascript", "启用javascript",
 	// [R69-a] 限频文案同族变体(短壳拦截页高频用语; 长页+正常标题豁免不误伤)
 	"请求过于频繁", "操作过于频繁", "访问频率过高",
+	// [R70-a] 国产 WAF 中文产品名(弱标记: 正文/页脚提及不误伤 — 中文产品名存在
+	// 正文碰撞可能, 如武侠文本「云锁」「雷池」「安全狗」均可入文, 仅无正常标题
+	// 豁免时扫前 4000 字符判拦; 技术指纹已由强标记覆盖)
+	"安全狗", "云锁", "雷池waf", "百度云加速", "网站卫士",
 }
 
 var (
@@ -74,7 +91,16 @@ var (
 	scriptRe         = regexp.MustCompile(`(?is)<script[\s\S]*?</script>`)
 	styleRe          = regexp.MustCompile(`(?is)<style[\s\S]*?</style>`)
 	htmlTagRe        = regexp.MustCompile(`<[^>]+>`)
-	wafServerRe      = regexp.MustCompile(`(?i)cloudflare|akamai|incapsula|sucuri`)
+	// [R70-a] Server 头 WAF 指纹补国产面(仅 403/429/503 联合判定消费, 误报面限缩)
+	wafServerRe = regexp.MustCompile(`(?i)cloudflare|akamai|incapsula|sucuri|safedog|yunsuo|safeline|yunjiasu`)
+
+	// [R70-a] meta-refresh 跳转型挑战(属性序无关: 仅要求同一标签内 http-equiv 后随
+	// refresh 值 — 前后两种属性序均命中)与 iframe 嵌套挑战标签
+	metaRefreshTagRe = regexp.MustCompile(`(?is)<meta\b[^>]*http-equiv[^>]*\brefresh\b[^>]*>`)
+	iframeTagRe      = regexp.MustCompile(`(?is)<iframe\b[^>]*>`)
+	// 跳转目标/源指向 WAF/挑战端点的技术关键词(裸 refresh/iframe 业务形态不命中;
+	// 刻意不含 verify 等宽泛词 — 本判定对长页+正常标题页生效, 关键词必须零正文碰撞)
+	jumpWafTargetRe = regexp.MustCompile(`(?i)(waf|challenge|captcha|jsl|safedog|yunsuo|safeline|yunjiasu)`)
 )
 
 // isPlainJSONBody 合法 JSON 响应体整体豁免(TS isPlainJsonBody 同口径): JSON API 站的
@@ -136,6 +162,48 @@ func visibleText(h string) string {
 	return strings.TrimSpace(s)
 }
 
+// runeHead 前 n 码点截断(按 rune 边界, 不斩多字节字符; 总码点 ≤n 时原样返回)。
+// 字节切片守卫式(零大额分配, [R64-a] 同款), 供弱标记前 4000 扫描与 [R70-a]
+// 挑战跳转扫描共用
+func runeHead(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
+	cut, seen := len(s), 0
+	for idx := range s {
+		if seen == n {
+			cut = idx
+			break
+		}
+		seen++
+	}
+	if seen == n {
+		return s[:cut]
+	}
+	return s
+}
+
+// isWafJumpChallenge [R70-a] meta-refresh/iframe 嵌套挑战跳转识别(国产 WAF 二跳
+// 形态: <meta http-equiv="refresh" content="0;url=/bt-waf/verify..."> 或
+// <iframe src="/waf/captcha...">)。仅当跳转目标/源含 WAF/挑战技术关键词才判拦
+// —— 裸 meta refresh(分页跳转)与业务 iframe 不误伤。极短跳壳本就由 isJsChallenge
+// (<1200 码点含 refresh 即拦)覆盖, 本判定补足「长页/正常标题」形态; 扫描范围限
+// 前 4000 码点(meta 标签语义上位于 head, 挑战壳恒短, 成本有界)
+func isWafJumpChallenge(lower string) bool {
+	head := runeHead(lower, 4000)
+	for _, tag := range metaRefreshTagRe.FindAllString(head, 16) {
+		if jumpWafTargetRe.MatchString(tag) {
+			return true
+		}
+	}
+	for _, tag := range iframeTagRe.FindAllString(head, 16) {
+		if jumpWafTargetRe.MatchString(tag) {
+			return true
+		}
+	}
+	return false
+}
+
 // looksBlocked 拦截页/挑战壳判定(出口判定: charset 解码后的 HTML + 状态 + Server 头)。
 // blocked=true 时编排层按等价 httpStatusError{403} 计失败路径, 内容不入库不回调
 func looksBlocked(h string, status int, serverHeader string) bool {
@@ -175,6 +243,11 @@ func looksBlocked(h string, status int, serverHeader string) bool {
 			}
 		}
 	}
+	// [R70-a] meta-refresh/iframe 嵌套挑战跳转(国产 WAF 二跳形态, 目标含
+	// WAF/挑战技术关键词才判拦)
+	if isWafJumpChallenge(lower) {
+		return true
+	}
 	// 极短内容视为被拦(<200B)
 	if n < 200 {
 		return true
@@ -193,21 +266,9 @@ func looksBlocked(h string, status int, serverHeader string) bool {
 	// 弱标记: 无正常标题豁免时仅扫前 4000 字符(TS lower.slice(0, 4000) 同口径)。
 	// [R64-a] 修前 string([]rune(head)[:4000]) 全量码点转换 —— 10MB 响应体每次到达
 	// 本分支即 ~40MB 临时分配(无正常标题的站点每个内容页都付一次); 改为按 rune
-	// 边界的字节切片, 语义不变(仍取前 4000 码点, 不会斩断多字节字符)且零大额分配
-	head := lower
-	{
-		cut, seen := len(head), 0
-		for idx := range head {
-			if seen == 4000 {
-				cut = idx
-				break
-			}
-			seen++
-		}
-		if seen == 4000 {
-			head = head[:cut]
-		}
-	}
+	// 边界的字节切片, 语义不变(仍取前 4000 码点, 不会斩断多字节字符)且零大额分配。
+	// [R70-a] 截断逻辑收敛到 runeHead 单一实现(与挑战跳转扫描共用)
+	head := runeHead(lower, 4000)
 	for _, k := range weakBlockMarkers {
 		if strings.Contains(head, k) {
 			return true

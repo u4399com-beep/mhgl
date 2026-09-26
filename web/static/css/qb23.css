@@ -47,7 +47,10 @@ body.clone-qb23 ul,body.clone-qb23 ol{list-style:none}
 .qb-content{max-width:1150px;margin:0 auto;padding:14px 16px 40px}
 .qb-list{max-width:100%}
 .qb-box{background:#fff;border-radius:18px;padding:18px;box-shadow:0 7px 21px rgba(149,157,165,.22);margin-bottom:14px}
-.qb-blocktitle{margin:4px 0 14px;font-size:19px;font-weight:600;color:rgba(7,7,10,.92)}
+.qb-blocktitle{margin:4px 0 14px;
+
+/* [R70-e] 目录页卷分组标题(qb23 源站 module-title type 同族) */
+.qb-voltitle{margin-top:18px;padding:8px 14px;border-left:4px solid #ff2a14;background:#f3f5f7;border-radius:5px;font-size:16px}font-size:19px;font-weight:600;color:rgba(7,7,10,.92)}
 .qb-blocktitle small{margin-left:8px;font-size:13px;font-weight:400;color:rgba(0,0,0,.4)}
 .qb-none{padding:18px 0;text-align:center;font-size:14px;color:rgba(0,0,0,.4)}
 .qb-desc{padding:2px 0 8px;font-size:14px;line-height:1.8;color:rgba(0,0,0,.62)}

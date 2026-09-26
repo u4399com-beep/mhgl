@@ -7,14 +7,24 @@
   </ol>
   <div class="ggd-box ggd-toc-body">
     <h2>{{.Book.name}} 完整目录</h2>
+    {{if .VolumeGroups}}{{/* [R70-e] 卷分组(源站无卷形态, 用主题既有标题层级); 空值走下方平面渲染零变化 */}}
+    {{range .VolumeGroups}}
+    <h3 class="ggd-vol">{{.Name}}</h3>
     <div class="ggd-chlist ggd-toc-chlist">
-      {{if .Chapters}}
       <ul>
         {{range .Chapters}}<li><a href="{{chapterHref (str .id) (num $.Book.num) (num .idx) $.SiteID}}" title="{{.title}}">{{.title}}</a></li>{{end}}
       </ul>
-      {{else}}<p class="ggd-none">目录暂未收录, 请稍后再来</p>{{end}}
       <div class="ggd-clear"></div>
     </div>
+    {{end}}
+    {{else if .Chapters}}
+    <div class="ggd-chlist ggd-toc-chlist">
+      <ul>
+        {{range .Chapters}}<li><a href="{{chapterHref (str .id) (num $.Book.num) (num .idx) $.SiteID}}" title="{{.title}}">{{.title}}</a></li>{{end}}
+      </ul>
+      <div class="ggd-clear"></div>
+    </div>
+    {{else}}<p class="ggd-none">目录暂未收录, 请稍后再来</p>{{end}}
     <div class="ggd-pages">
       {{with .Pager}}
       {{if .PrevURL}}<a href="{{.PrevURL}}" rel="prev">上一页</a>{{end}}

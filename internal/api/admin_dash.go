@@ -249,6 +249,11 @@ var protectedSettingKeys = map[string]bool{
 	"bannedWords": true, "seoTemplates": true, "theme_overrides": true,
 	"linkwheel": true, "feedback": true, "pseoAutoGenerate": true,
 	"proxyPool": true, "download": true, "pseudostatic": true,
+	// [R70-c] 内容伪装/分卷显示键(代码内读点: internal/web 伪装出口+目录分卷分组;
+	// 删除即功能退回默认关, 与核心键同一防护口径)
+	"stealth.obfuscate": true, "stealth.transcode": true, "stealth.transcode.mode": true,
+	"stealth.interfere": true, "stealth.interfere.mode": true, "stealth.interfere.density": true,
+	"stealth.pseudo": true, "stealth.pseudo.seed": true, "book.volume.show": true,
 }
 
 // (d Deps) adminSettingDelete DELETE /api/admin/settings/{key} — [R67-c] R66-c 审查发现⑤。

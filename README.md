@@ -17,6 +17,7 @@
 ├── internal/crawl        采集引擎(反反爬/解析/清洗/编排 + bridge 直连持久化 + 调度)
 ├── internal/api          /api/admin/** + /api/public/** JSON 面
 ├── internal/web          前台 SSR(11 主题, 模板 go:embed 内嵌二进制) + 后台管理(html/template + 原生 JS/CSS)
+├── internal/stealth      内容伪装渲染管线(R70: 混淆/转码/干扰句/伪原创, 挂公共 HTML 出口, 默认全关)
 └── internal/auth         HMAC Cookie 鉴权
 ```
 
@@ -27,6 +28,8 @@
 - **站级签名/解密代理**：对 token/签名/AES 类站点以外置 mini-service 承载（见下表），引擎 `tokenUrl` 钩子对接。
 - **管理端**：站点规则 CRUD + 在线测试、**内置规则库一键导入**（**35 条**实测站点规则，幂等覆盖可恢复出厂）、任务（单书/批量/实时采集/定时增量 autoRefresh）、书籍/章节管理（批量删除等不可恢复操作带输入确认门槛）、TXT 下载、站群与 SEO（伪静态 6 预设、站点级「自动生成 TDK」一键铺底）、统计看板（仪表盘卡片可开关显示）、**违禁词过滤**（对采集入库内容做屏蔽词/敏感词过滤，mask/remove 双模式）、**规则极限校准**（对模拟源站实测安全并发与速率，一键写回推荐参数）。
 - **前台**：多主题站群（**8 配色 × 8 风格 × 8 布局 = 512 套组合主题 + 9 套精选**，含笔趣阁经典、霹雳书屋仿站、久久小说 aijjxs 复刻；非法主题 ID 自动回退默认主题）、阅读页、搜索、sitemap、**6 预设伪静态 URL**（纯数字/字母数字/目录式/无后缀/紧凑双段/动态查询，宽容解析永不断链）、**全链自动 TDK**（标题/描述/关键词 + canonical + JSON-LD 逐页生成，伪静态直达页 SSR 直出）。
+- **内容伪装 / 反搜索**（R70，四开关**默认全关**）：页面结构混淆（每页唯一、外观不变）/ 关键词句子实体转码（entity/zwsp 双模式）/ 隐藏干扰句（hidden/offscreen，密度可调）/ 句子伪原创（request/daily/stable 三档种子）——后台「系统设置 → 内容伪装 / 反搜索」设置卡逐项开关。⚠️ 隐藏文字/伪原创可能被搜索引擎判作弊，默认关闭、风险自负。
+- **目录分卷分组显示**（R70，`book.volume.show`，默认关）：书籍目录按卷分组渲染（卷名 + 卷内章节两级结构）；关闭时目录平铺展示，与既往完全一致。
 - **任务可靠性**：任务状态机（pending/running/paused/stopped/done/error）、暂停续采、服务重启自动回收 running → paused 不丢进度、增量重采跳过已采、dev 模式 OOM 自愈守护（`scripts/dev-watchdog.sh`）。
 
 ## 技术栈
@@ -54,7 +57,7 @@ go build -o .build/mhgl ./cmd/server                              # ② 构建�
 
 **首次启动自动完成数据库初始化，零外部工具**：幂等建表（14 张，毫秒级）→ 空库后台自动播种（**35 条**内置采集规则 / **16** 分类 / 默认站点 `localhost:3000`·aijjxs 主题 / **3** 条大部头采集任务——任务仅创建不启动）。`MHGL_AUTO_SEED=0` 可关闭自动播种；`./.build/mhgl bootstrap` 可随时显式幂等引导（不起服务）。
 
-开发/懒人启动：`bash scripts/dev-go.sh`（`bun run dev` 仍作为薄别名可用）——go 缺失自动安装（自愈）+ 源码变更增量重建 + exec 二进制。
+开发/懒人启动：`bash scripts/dev-go.sh`——go 缺失自动安装（自愈）+ 源码/内嵌模板变更增量重建 + exec 二进制。沙箱平台的启动钩子是 `bun run dev` → **package.json "dev"** → 本脚本 → Go 二进制：package.json 是**零依赖纯别名壳，平台启动接口而非 JS 依赖**（仓库无任何 Node/TS 源码，"dev" 脚本只是一条 `bash scripts/dev-go.sh`）。
 
 > 常驻用 systemd（`Restart=on-failure`，单元样例见 [DEPLOY.md](./DEPLOY.md)）；全流程图文见 [docs/INSTALL-GUIDE.md](./docs/INSTALL-GUIDE.md)。
 
@@ -96,7 +99,7 @@ docs/                       # INSTALL-GUIDE.md 小白教程 / rule-limits.md 规
 | `go build -o .build/mhgl ./cmd/server` | 构建单二进制 |
 | `./.build/mhgl` | 运行（:3000；每次启动幂等建表+空库自动播种） |
 | `./.build/mhgl bootstrap` | 显式幂等引导：建表 + 35 规则/16 分类/默认站点/3 任务，随即退出（不起服务、不需要密码） |
-| `bash scripts/dev-go.sh`（`bun run dev` 薄别名等价） | 开发启动：go 缺失自装 + 增量构建 + exec 二进制 |
+| `bash scripts/dev-go.sh`（平台钩子 `bun run dev` → package.json "dev" 别名同款） | 开发启动：go 缺失自装 + 增量构建 + exec 二进制 |
 | `bash scripts/recover.sh` | 沙箱/环境重置一键恢复（装 Go→DB 完整性→启动→引导→看门狗→报告；`RECOVER_START_TASKS=1` 顺带启动本次新建任务） |
 
 Go 质量门全量：`gofmt -l internal/ && go vet ./... && go test -count=1 ./internal/... && go build -o .build/mhgl ./cmd/server`。
@@ -116,11 +119,8 @@ Go 质量门全量：`gofmt -l internal/ && go vet ./... && go test -count=1 ./i
 
 - `install-go.sh`：Go 1.26+ 工具链一键安装到 `~/go-sdk`（幂等；go.dev 不可达自动回退 golang.google.cn 镜像）。
 - `dev-go.sh`：单体启动器（PATH/GOMEMLIMIT 装配 → go 缺失自愈安装 → 源码变更增量构建 → `exec .build/mhgl`）。
-- `dev-watchdog.sh`：端口 3000 死亡 15s 自动拉起（OOM 兜底）；`recover.sh`：环境重置六步一键恢复（见教程 §7）。
-- 历史注（R69）：原 TS/Prisma 引导链（建库脚本 + 空库引导 TS 脚本）已退役——职责内化进 `internal/bootstrap`（启动自举 + `mhgl bootstrap` 子命令），`prisma/`、`node_modules/` 不再是任何必需路径的一环。
-- `mock-novel-site.ts` / `ratelimit-site.ts`：本地模拟源站（规则测试与极限校准的探测目标，可选）。
-- `docs/legacy-seeds/`：TS 时代规则种子归档（35 站语义已全量固化进 `internal/api/builtin_rules.json`）。
-- `docs/archive/docker/`：Docker 部署链退役归档（R66-d）；`archive/`：历史轮次验证脚本归档（见各自 README）。
+- `dev-watchdog.sh`：端口 3000 死亡 15s 自动拉起（OOM 兜底），纯 bash 永远直拉 dev-go.sh；`recover.sh`：环境重置六步一键恢复（见教程 §7）。
+- 历史注（R69/R70）：原 TS/Prisma 引导链（建库脚本 + 空库引导 TS 脚本）已退役——职责内化进 `internal/bootstrap`（启动自举 + `mhgl bootstrap` 子命令）；TS 残件（`scripts/*.ts`、`scripts/archive/`、`docs/legacy-seeds/`、`docs/archive/docker/` 等 434 件）已随 R69 清退出库（git 历史可考），`prisma/`、`node_modules/` 不再是任何必需路径的一环。仓库内现存的 JS/TS 仅剩：package.json（零依赖平台启动别名壳）、`web/static/js`（站点浏览器端资产）与 `skills/`（沙箱平台工具链，非项目代码）。
 
 ## 数据备份
 

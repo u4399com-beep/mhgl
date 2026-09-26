@@ -3,7 +3,14 @@
   <section class="hjw-section">
     <h2 class="hjw-page-title"><span class="hjw-ico" aria-hidden="true">📖</span>{{.Book.name}} 完整目录<small class="hjw-title-sub">（共 {{.Total}} 章）</small></h2>
     <div class="hjw-card">
-      {{if .Chapters}}
+      {{if .VolumeGroups}}{{/* [R70-e] 卷分组(主题既有标题层级); 空值走下方平面渲染零变化 */}}
+      {{range .VolumeGroups}}
+      <h3 class="hjw-vol">{{.Name}}</h3>
+      <div class="hjw-chgrid">
+        {{range .Chapters}}<a class="hjw-chitem" href="{{chapterHref (str .id) (num $.Book.num) (num .idx) $.SiteID}}" title="{{.title}}">{{.title}}</a>{{end}}
+      </div>
+      {{end}}
+      {{else if .Chapters}}
       <div class="hjw-chgrid">
         {{range .Chapters}}<a class="hjw-chitem" href="{{chapterHref (str .id) (num $.Book.num) (num .idx) $.SiteID}}" title="{{.title}}">{{.title}}</a>{{end}}
       </div>

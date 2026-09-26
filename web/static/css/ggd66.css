@@ -21,18 +21,13 @@ body.clone-ggd66 ul,body.clone-ggd66 ol{list-style:none}
 .ggd-header-nav{display:inline-block;margin-left:24px;vertical-align:middle}
 .ggd-header-nav a{display:inline-block;color:rgba(255,255,255,.92);font-size:15px;line-height:34px;padding:0 12px}
 .ggd-header-nav a:hover{color:#fff;background:rgba(255,255,255,.16)}
+/* [R70-e] 源站 header-right 为「阅读历史」文字链(无搜索框; 搜索在首页 #fengyou 与 /search/ 页) */
 .ggd-header-right{float:right}
-.ggd-header-right form{display:flex;height:34px;margin-top:1px}
-.ggd-header-right input{width:170px;border:none;outline:none;border-radius:3px 0 0 3px;padding:0 10px;font-size:14px;color:#00886d;background:#f9f9f9}
-.ggd-header-right button{border:none;cursor:pointer;border-radius:0 3px 3px 0;padding:0 14px;font-size:14px;color:#fff;background:#56ccb5}
-.ggd-header-right button:hover{background:#f50}
+.ggd-header-right a{display:inline-block;color:rgba(255,255,255,.92);font-size:15px;line-height:34px;padding:0 4px}
+.ggd-header-right a:hover{color:#fff}
 
-/* ---------- 4 字分类导航条(.class 白盒横条形态) ---------- */
-.ggd-classbar{background:#fff;border-bottom:1px solid #ccc}
-.ggd-classbar-in{width:92%;max-width:1200px;margin:0 auto;display:flex;flex-wrap:wrap}
-.ggd-classbar-in a{display:block;padding:9px 12px;font-size:15px;color:#00886d}
-.ggd-classbar-in a:hover{color:#f50}
-.ggd-classbar-in a.is-active{color:#f50;font-weight:700}
+/* [R70-e] 全局分类条已移除(源站 .class 条仅存在于分类/书库页, 由 category 模板 .ggd-class 自绘);
+   残留 .ggd-classbar 样式随之清退, 版心内 .ggd-class 样式同源站 .class 保留 */
 
 /* ---------- 版心与白盒 ---------- */
 .ggd-main{width:92%;max-width:1200px;margin:0 auto 16px}
@@ -40,7 +35,10 @@ body.clone-ggd66 ul,body.clone-ggd66 ol{list-style:none}
 .ggd-box h2{color:#333;font-size:18px;font-weight:500;padding:0 4px 10px;border-bottom:1px solid #ccc;margin:10px 0}
 .ggd-box h2 small{margin-left:8px;font-size:13px;font-weight:400;color:#888}
 .ggd-h2-c{text-align:center}
-.ggd-none{padding:18px 0;text-align:center;font-size:14px;color:#888}
+.ggd-none{padding:18px 0;
+
+/* [R70-e] 目录页卷分组标题(ggd66 标题层级) */
+.ggd-vol{clear:both;margin:14px 0 4px;padding:0 4px;font-size:15px;font-weight:700;color:#00886d;border-bottom:1px dashed #ccc;padding-bottom:6px}text-align:center;font-size:14px;color:#888}
 
 /* ---------- 首页双行布局(73%/25%) ---------- */
 .ggd-row{margin:10px 0}

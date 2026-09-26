@@ -325,7 +325,10 @@ func extractChapterNo(title string) float64 {
 }
 
 // replaceThousand 千位分隔符折叠(TS: (\d)[,，](\d{3})(?!\d) → '$1$2'):
-// 逐匹配检查后随字符非数字(RE2 无负 lookahead, 手工判定等价)
+// 逐匹配检查后随字符非数字(RE2 无负 lookahead, 手工判定等价)。
+// [R70-b] 修前写 s[last:loc[2]] —— loc[2] 是组 1 的起点而非终点, 组 1 数字被整段丢弃:
+// "第1,234章" → "第234章"(序号 234, 应 1234), 千位分隔符章号整体错序; 修后 prefix+
+// 组1+组2 与 TS '$1$2' 同口径。
 func replaceThousand(s string) string {
 	locs := reThousand.FindAllStringSubmatchIndex(s, -1)
 	if len(locs) == 0 {
@@ -339,7 +342,7 @@ func replaceThousand(s string) string {
 		if matchEnd < len(s) && isDigitByte(s[matchEnd]) {
 			continue
 		}
-		b.WriteString(s[last:loc[2]])
+		b.WriteString(s[last:loc[3]]) // 前缀+组1(R70-b 修前止于组1起点 loc[2], 组1数字被吞)
 		b.WriteString(s[loc[4]:loc[5]])
 		last = matchEnd
 	}

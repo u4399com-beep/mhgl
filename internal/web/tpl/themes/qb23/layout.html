@@ -19,7 +19,7 @@
 <meta name="theme-color" content="#282828">
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" type="image/png" href="/static/icons/icon-192.png">
-<link rel="stylesheet" href="/static/css/qb23.css?v=r60-2a">
+<link rel="stylesheet" href="/static/css/qb23.css?v=r70-e">
 </head>
 <body class="clone-qb23">
 <header class="qb-header" role="banner">
@@ -37,7 +37,7 @@
     <nav class="qb-nav" aria-label="主导航">
       <ul class="qb-nav-items">
         <li class="qb-nav-item{{if eqStr .Head.OgType "website"}} qb-selected{{end}}"><a href="{{.HomeHref}}"><span>首页</span></a></li>
-        {{range firstN 9 .NavCats}}<li class="qb-nav-item"><a href="{{catHref . $.SiteID}}"><span>{{.}}</span></a></li>{{end}}
+        {{range $i, $cat := .NavCats}}{{if lt $i 9}}<li class="qb-nav-item"><a href="{{catHref $cat $.SiteID}}"><span>{{$cat}}</span></a></li>{{end}}{{end}}{{/* [R70-e] firstN 仅收 []map, NavCats 为 []string 修前静默吞分类导航 */}}
         <li class="qb-nav-item"><a href="{{.RankingHref}}"><span>排行榜</span></a></li>
         <li class="qb-nav-item"><a href="{{.HistoryHref}}"><span>书架</span></a></li>
       </ul>
@@ -56,7 +56,7 @@
   <p>本站所有小说均由网友上传, 如有侵权请联系删除</p>
   <p>Copyright © {{siteTitle .Site}}</p>
 </footer>
-<script src="/static/js/site.js?v=r56-2c" defer></script>
-<script src="/static/js/pwa.js?v=r56-2c" defer></script>
+<script src="/static/js/site.js?v=r70-e" defer></script>
+<script src="/static/js/pwa.js?v=r70-e" defer></script>
 </body>
 </html>{{end}}

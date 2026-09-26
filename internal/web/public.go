@@ -668,6 +668,9 @@ func (d Deps) renderToc(w http.ResponseWriter, r *http.Request, sp map[string][]
 	data := d.baseData(r, site, head)
 	data["Book"] = book
 	data["Chapters"] = chapters
+	// [R70-c] 分卷分组(book.volume.show=1 时生效; 70-e 主题模板 {{if .VolumeGroups}}
+	// 契约消费, 其余恒 nil → 平面渲染逐字节不变)
+	data["VolumeGroups"] = volumeGroupsFor(chapters)
 	data["Total"] = int64(total)
 	data["Pager"] = makePager(page, int64(total), size, func(p int) string {
 		return appendQueryParam(joinSite(base, sid), "page", strconv.Itoa(p))

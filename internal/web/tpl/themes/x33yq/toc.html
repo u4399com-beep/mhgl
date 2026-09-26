@@ -32,7 +32,14 @@
   </div>
   <div class="xq-box-con">
     <div id="xq-list">
-      {{if .Chapters}}
+      {{if .VolumeGroups}}{{/* [R70-e] 卷分组(源站 dt 卷头形态); 空值走下方平面渲染零变化 */}}
+      <dl>
+        {{range .VolumeGroups}}<dt>{{.Name}}</dt>
+        {{range .Chapters}}<dd><a href="{{chapterHref (str .id) (num $.Book.num) (num .idx) $.SiteID}}" title="{{.title}}">{{.title}}</a></dd>{{end}}
+        {{end}}
+        <div class="xq-clear"></div>
+      </dl>
+      {{else if .Chapters}}
       <dl>
         <dt>《{{.Book.name}}》正文{{with .Pager}} · 第 {{.Page}} / {{.TotalPages}} 页{{end}}</dt>
         {{range .Chapters}}<dd><a href="{{chapterHref (str .id) (num $.Book.num) (num .idx) $.SiteID}}" title="{{.title}}">{{.title}}</a></dd>{{end}}

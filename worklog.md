@@ -446,3 +446,121 @@ Stage Summary:
 - 全栈 100% Go: 构建/运行/建库/播种/恢复/守护全链路零 Node/bun/Prisma/TS 依赖(唯一 bun 残留=package.json dev 别名壳, 零依赖零构建, 可整体删除不影响任何功能)
 - 9 真虫修复(2 XSS/缓存 + 4 反反爬链 + 3 清洗/计数) 全部带回归测试; 反反爬增强 5 项(挑战标记/节奏放宽/子资源指纹/utls 轮换/Retry-After)
 - 移交: git token 仍暴露在聊天史需轮换; skills/(沙箱工具链 1028 文件 TS)非项目代码未动
+---
+Task ID: R70-plan
+Agent: main-controller
+Task: R70 开局取证 + 六条指令设计定版 + 领地分工
+
+Work Log:
+- 取证: HEAD=origin/main=2a97884(R69 已推送对齐); 工作树仅 4 张未跟踪新封面(web/covers); 进程链=bun run dev(平台引导壳, package.json dev→dev-go.sh)→.build/mhgl, watchdog 未在跑; API 实查三任务全 done(仙侠天恋 6 书 3456 章/新笔趣阁 2 书 456/神马 2 书 2499), engineRssMB=34, DB 静止窗口
+- R70 六条定版: ①混淆代码模式(每页唯一/外观不变) ②关键词句子转码模式 ③句子干扰+伪原创开关 ④9 主题回源 1:1 ⑤纯 Go 化深化收尾 ⑥分卷设置+乱序重排核验
+- 领地互斥分工(并行 5 agent):
+  - 70-a: internal/crawl/{fetch,proxy,task,callback,util}+engine.go+proxyfeedback.go — 逐行抓虫+反反爬增强(国产 WAF 拦截页标记扩容/RSS 有界化)
+  - 70-b: internal/crawl/{clean,rule,bridge,sorter}+builtin_rules.json(只读) — 乱序重排性质测试+卷信息解析核验+存量噪声抽查+逐行抓虫
+  - 70-c: internal/stealth(新包)+internal/{web,api,store,auth,sanitize,config}+.go+tpl/admin+web/static/{js,site.css,admin.css} — 四大伪装开关+渲染出口管线+分卷数据层+admin 设置卡
+  - 70-d: scripts/cmd/package.json/Caddyfile/README/DEPLOY/docs/.env.example — watchdog 去 bun 分支+根目录清点+文档补录
+  - 70-e: internal/web/tpl/themes/**+web/static/css/11 主题 css — 9 主题回源 1:1+分卷展示+缓存戳 bump
+- 关键契约(跨 agent):
+  - VolumeGroups: c 在 toc/read 数据结构恒定提供 []VolumeGroupView{Name string; Chapters []<同 .Chapters 元素类型>}(book.volume.show=1 时分组, 否则空); e 用 {{if .VolumeGroups}} 渲染卷分组, else 分支保持现状零变化
+  - stealth 渲染管线: interfere→pseudo→transcode→obfuscate 顺序; 只挂公共 HTML 出口(admin/api/sitemap/robots/txt 下载豁免); 默认全关=输出字节零变化(回归硬不变式); 零新依赖(手写 HTML tokenizer); >512KB 跳过
+  - 设置键: stealth.obfuscate / stealth.transcode(.mode=entity|zwsp) / stealth.interfere(.mode=hidden|offscreen,.density=2-8) / stealth.pseudo(.seed=request|daily|stable) / book.volume.show —— 全部默认 0
+  - 主库只读纪律: 测试一律 python3 shutil.copy 三件套(custom.db/-wal/-shm)到 /tmp 后读写副本; 测试实例 PORT=3040; 任何人不得重启 :3000(主控统一)
+Stage Summary:
+- 分工与契约落定, 5 agent 并行点火; R66-R69 战果列为回归红线; token 轮换提醒持续
+---
+Task ID: R70-A
+Agent: R70-A/A2 (断连, 产出经主控甄别合入代录)
+Task: fetch/proxy/task/callback 逐行抓虫 + 反反爬增强(国产 WAF 扩容)
+
+Work Log:
+- blockcheck.go(+93): 国产 WAF/CDN 拦截页强标记(getwafjs/bt-waf/宝塔网站防火墙/safedog/yunsuo_session/safeline/请求被waf拦截/__jsluid/yunjiasu/wzws_cid/创宇盾 — 仅技术指纹零正文碰撞); 中文产品名弱标记(安全狗/云锁/雷池waf/百度云加速/网站卫士 — 仅无正常标题豁免时扫前 4000 码点, 武侠词碰撞防误伤); wafServerRe 补 safedog/yunsuo/safeline/yunjiasu(仅 403/429/503 联合判定消费); meta-refresh/iframe 嵌套挑战跳转识别(属性序无关+WAF 目标关键词零正文碰撞门限); runeHead 码点截断(rune 边界守卫, R64-a 同款)
+- fetch.go: proxyTransportCap=1024 传输表有界化(动态代理池万级地址→万级常驻 Transport 的 RSS 面, 超限整表重置 CloseIdleConnections+重建, 与 resolveHost DNS 缓存同款守卫式); maxRetryAfterSeconds 修 Retry-After ×1e9 纳秒溢出 int64 分桶不一致(9999999999s 修前乘出负 Duration 误走 30s 兜底, 与 R69-a Atoi 溢出臂口径自相矛盾)
+- engine.go(+15): 停机竞态收口 — Start/resume 落地后复查 stopping, 命中即回收刚启动任务再报错(修 scheduleAutoRefresh 醒后复查与落地间微窗, R66-a 修复面残余)
+- 回归测试: fetch/r70a_test.go(transport 复用/有界性/重置终态 + Retry-After 溢出分桶 + WAF 标记 fixture)
+
+Stage Summary:
+- 反反爬增强: 国产 WAF 全家桶识别(宝塔/安全狗/云锁/雷池/加速乐/百度云加速/知道创宇) + 跳转型挑战; 真虫 3(传输表无界增长/Retry-After 溢出分桶/停机微窗)
+- 主控甄别: 全文空格重写噪声 gofmt 归一(真实改动 29+93+15 行全保留); 测试终态断言修正(重置语义=清空续填, 终态 64 非 cap); go test ./internal/crawl/... 全绿
+---
+Task ID: R70-B
+Agent: R70-B/B2 (断连, 产出经主控甄别合入代录)
+Task: clean/rule/bridge/sorter 逐行抓虫 + 乱序重排核验 + 千位虫修复
+
+Work Log:
+- sorter/sorter.go 真虫: replaceThousand 写 s[last:loc[2]] —— loc[2] 是组 1 起点而非终点, "第1,234章" 序号被整段截成 234(千位分隔符章号书整体错序); 修后 s[last:loc[3]] prefix+组1+组2 与 TS '$1$2' 同口径; 主控补正式回归 sorter/r70b_test.go(8 断言 replaceThousand + ReorderToc 端到端排序)
+- 分卷链路核验: Chapter 表 volume 列存在(NOT NULL DEFAULT '')但 bridge/规则侧从未回填, 现网 13279 章全空 → R70-c 分卷分组以标题前缀 SplitVolume 为主路径、volume 列优先(采集侧未来回填即生效)
+- 存量噪声探针(zz_scratch)为 /tmp 依赖诊断件, 主控裁定删除; 清洗侧本轮无新漏网实证(R69-b 战果覆盖面延续)
+- 甄别: sorter 全文 gofmt 噪声归一(真实改动 7 行全保留)
+
+Stage Summary:
+- 千位章号真虫 1 只(修复+回归测试); 乱序重排既有面经 R68-b 回归锚+本轮端到端测试双保险; 分卷链路结论: 解析/存储/清洗三段均不吞卷前缀, 分卷显示由渲染层分组实现
+---
+Task ID: R70-C
+Agent: R70-C/C2 (断连接力, 管线完整+主控完成接线) + main-controller
+Task: internal/stealth 四大伪装管线 + 渲染出口接线 + 设置卡 + 分卷数据契约
+
+Work Log:
+- internal/stealth 新包(10 文件 ~2.5K 行, 零新依赖): 手写 HTML tokenizer(comment/doctype/raw 区(script/style/textarea/pre)/svg+math 整区/引号属性/自闭合, 怪输入不 panic + tokenize/renderTokens 自反性测试); Apply 管线 interfere→pseudo→transcode→obfuscate, 全关恒等(同一底层数据)
+- interfere(仅 read 页): 段落句界插入 <span class="sj-i" style="display:none|offscreen"> 白噪声句(65 句库+25 尾缀+随机 hex), 密度 2-8, 上限 40, nav/header/footer/aside 豁免; pseudo(仅 read 页): 300+ 同义词典 longest-match-first, 替换率钳 5-25%, 种子 request/daily/stable; transcode: CJK 实体化(hex/dec 混用)或 U+200B 零宽; obfuscate: 注释/幽灵元素/空白抖动/属性重排+引号风格/标签大小写/ASCII 低频实体化
+- [R70-c 真虫修复(主控诊断实证)] asciiEntityText 破坏既有字符引用: transcode 先行后文本含 &#x4E0A;, 修前把引用内部 x/4/E/0/A 再实体化 → 浏览器渲染字面乱码(外观破坏级); 修后 entityRefLen 感知跳过(&#xHEX;/&#DEC;/&NAME; 带分号+无分号数字引用, 与 sanitize/R69-C 浏览器贪婪解码口径对齐); 240 轮 nonce 迭代零漂移实证
+- 渲染接线(主控): render.go render() 公共页缓冲渲染→Apply→写出(admin/login 流式路径不变); 全关纯直通; routes.go registerStealthSettings 启动期单次注入; stealth_hook.go: 5s TTL 配置微缓存(互斥锁)+pageCtxOf(Book/Chapter 提取)+volumeGroupsFor+VolumeGroupView 契约类型
+- 分卷契约落地: renderToc data["VolumeGroups"]=volumeGroupsFor(chapters)(book.volume.show=1 时相邻同卷归并, 开头无前缀归正文, 单组归空); e-领地 11 主题 toc.html {{if .VolumeGroups}} 消费实证: 合成卷数据 /read/6/ 渲染 100 组卷头+组内章节列表全 200
+- 设置面: 9 键(stealth.obfuscate/.transcode(.mode)/.interfere(.mode,.density)/.pseudo(.seed)/book.volume.show); api protectedSettingKeys 纳入(不可删); admin settings.html 新卡「内容伪装 / 反搜索」(SEO 风险提示); admin.js loadStealth/saveStealth(9 键单 PUT)+SETTING_LINKED/PROTECTED 同步; pseo_auto.go bookCreatedHook 补读写锁(R69-C 移交)
+- 测试: stealth 包 10 文件全绿(全关恒等/可见文本不变式(剥隐藏 span 语义修正)/raw 区逐字节/nonce 扰动/伪原创种子+替换率/SplitVolume 表格含"第 12 卷"空格形态修复); web 层 r70c_web_test.go(分组契约 6 测试)
+
+Stage Summary:
+- 四大伪装开关全链路交付(设置卡→TTL 缓存→渲染出口管线→浏览器实证); 真虫 1(实体引用二次编码)修复 240 轮实证; 分卷数据契约履行+11 主题消费实证; 本地 e2e(:3040 副本): 开→两次抓取字节不同+可见文本全等+sj-i 落位, 关→零残留
+---
+Task ID: R70-E
+Agent: R70-E (断连, 产出经主控甄别合入代录)
+Task: 主题模板分卷展示 + 缓存戳 + 回源核验(部分)
+
+Work Log:
+- 11 主题 toc.html 全部落位 {{if .VolumeGroups}} 卷分组渲染(卷头样式贴各主题色系, else 平面分支保持现状零变化); aijjxs 卷头内联样式(主题 css 无独立文件的兜底)
+- layout.html 缓存戳 11 主题统一 bump ?v=r70-e; ddyueshu/kks101/x2552 read.html 与 8 主题 css 增量修复(70-e 断连前完成面, 逐主题渲染 200 实证)
+- 主控机械核验: 11 主题×4 页面(home/toc/read/book)经 ?site= 切主题全 200 零模板错误; aijjxs 阅读页底色 R67-fix 回归线未触碰(site.css 零改动)
+- [如实] 回源 1:1 逐页对比(trxsw/x33yq/kks101/ddyueshu/x2552/huangjinwu/ggd66/qb23/shipsay 9 主题审计表)因 agent 断连未完成 —— 本轮交付为「分卷展示+缓存戳+增量修复+渲染核验」, 全量回源审计留 R71(与 R68-c 遗留 6 主题合并推进)
+
+Stage Summary:
+- VolumeGroups 契约 11 主题消费端全部落位且空值零变化; 全主题渲染核验 44/44 通过; 回源审计表缺口如实移交
+---
+Task ID: R70-D
+Agent: R70-D
+Task: 纯 Go 化深化收尾(watchdog 去 bun 分支) + 根目录清点证明 + 文档 R70 补录
+
+Work Log:
+- 开局: worklog 尾部(R69-D/R69-main/R70-plan)通读 + 领地四脚本/package.json/README/DEPLOY/.env.example/cmd 逐行取证; 主服务 :3000 healthz=200 全程未动(零 kill/零重启/零构建写 .build)
+- [watchdog 去 bun 化] scripts/dev-watchdog.sh: start_dev() 删 `command -v bun && setsid bun run dev` 分支, 永远 `setsid bash scripts/dev-go.sh >> /tmp/main-dev-restart.log 2>&1 &`(15s 轮询/5s 冷却原样); 头部注释 R55/R69 "bun 薄别名"口径刷新为 R70: 启动链=平台钩子 `bun run dev`→package.json "dev"(零依赖纯别名壳, 平台启动接口而非 JS 依赖)→dev-go.sh→Go 二进制, 看门狗纯 bash 直拉 dev-go.sh(bun 时代 .env 自动加载已由 dev-go.sh ①步内化, 行为等价)
+- [dev-go.sh 小步修正] 增量构建探测漏 go:embed 资产: 修前 `find cmd internal go.mod -name '*.go'` 不盯 internal/web/tpl(11 主题模板)与 internal/api/builtin_rules.json——两者均 go:embed 进二进制(rg 实证 render.go:27/admin_rules.go:29), 改模板/规则不触发重建=热更新跑到旧壳; 修后 find 表达式补 `-path 'internal/web/tpl/*' -o -name 'builtin_rules.json'`, find 实跑验证表达式合法
+- [recover.sh/install-go.sh 逐行复读] recover.sh 六步(完整性检查删坏文件/dev-go.sh 等价拉起/.build/mhgl bootstrap/RECOVER_START_TASKS 经管理 API)与 R70 现状一致零改动; install-go.sh GO_VER=1.26.0 与 go.mod 对齐零改动; dev-watchdog `cd /home/z/my-project` 沙箱硬编码为历史已知项(文档 §5 已有自建部署提示), 不动
+- [scripts 门禁] bash -n scripts/*.sh 四件全过(dev-watchdog/dev-go/recover/install-go); `rg "bunx|prisma|bootstrap-db|next dev" scripts/` 仅 1 处=dev-go.sh:9 R69 退役历史注, 语义仍正确(零可执行路径残留); `rg -i bun` 7 处全为历史/启动链注释, 逐一核对语义无误
+- [根目录清点证明] ls -A 全量盘点: 根层 *.ts/*.tsx/*.mjs/*.cjs 计数=0; Glob {tsconfig*,next.config*,src/**,bun.lock,package-lock.json,node_modules/**,*.config.{js,mjs,ts}} 零命中; prisma//mini-services//scripts/*.ts/docs/legacy-seeds//docs/archive/docker/ 均确认已不在工作树(R69 清退 434 件); 现存 JS/JSON 族仅三类合法项: ①package.json(零依赖纯别名壳, 平台启动接口, 保留)②web/static/{js,sw.js}(站点浏览器端资产, 保留)③skills/(沙箱平台工具链 ~1028 文件 TS, 非项目代码, 不动不提删); 项目级残迹=0, 无需删/归档
+- [README 补录] 功能特性 +2 条: 「内容伪装 / 反搜索(R70, 四开关默认全关: 页面结构混淆每页唯一/关键词句子实体转码 entity·zwsp/隐藏干扰句 hidden·offscreen 密度可调/句子伪原创 request·daily·stable, 后台『系统设置 → 内容伪装 / 反搜索』设置卡, ⚠️隐藏文字/伪原创可能被搜索引擎判作弊默认关闭风险自负)」「目录分卷分组显示(book.volume.show 默认关, 卷名+卷内章节两级, 关闭时平铺与既往一致)」; 架构树补 internal/stealth 行; JS 时代描述校正: 「bun run dev 薄别名」口径(2 处)改为平台钩子→package.json 别名壳链路并写明"平台启动接口而非 JS 依赖"; scripts/ 约定节 mock-novel-site.ts/ratelimit-site.ts/docs/legacy-seeds//docs/archive/docker/ 残引清退改 R69/R70 历史注+现存 JS/TS 三类清单; 故障速查 6 行逐行核对仍准确零改动
+- [INSTALL-GUIDE 补录] §6 加 6.6「内容伪装 / 反搜索 + 分卷显示」: 设置卡路径(后台→系统设置)+管线顺序(干扰句→伪原创→转码→混淆)+出口豁免(admin/api/sitemap/robots/txt)+512KB 跳过+默认全关=字节零变化; 设置键全表 9 行(stealth.obfuscate/stealth.transcode(.mode=entity|zwsp)/stealth.interfere(.mode=hidden|offscreen,.density=2-8)/stealth.pseudo(.seed=request|daily|stable)/book.volume.show)每键人话解释+默认值; 醒目澄清"运行时设置 KV 非 env 变量(.env/.env.example/EnvironmentFile 零改动零重启)"; ⚠️SEO 风险提示置顶; TOC §6 标题补"内容伪装"; 版本行补"R70 增补"; §2.2 目录树补 internal/stealth+package.json 平台壳口径; §4.1 形态三注释刷新为平台钩子链+③增量构建描述同步 dev-go.sh 新探测面
+- [DEPLOY.md/.env.example] 零改动(env 变量面无变化, 按任务预期执行; stealth 全为运行时 KV)
+- [cmd/ 只读复核] cmd/server/main.go 全文复读: bootstrap 子命令/EnsureSchema/autoSeed/recoverOnBoot 接线与 R69 一致, 逻辑零改动; 仅注释小修 1 处(bootstrap-db.ts 注明"该件已随 R69 退役"); 插曲: 编辑工具整文件缩进空格化致 gofmt -l 告警, gofmt -w 归一后 git diff 实证仅注释 1→2 行变更; vet OK + go build(临时输出 /tmp, 不碰 .build/mhgl) OK
+- [平台面观察(非领地, 移交)] .zscripts/dev.sh:134 仍调 `bun run bootstrap`——package.json 自 R69 已无 bootstrap 别名, 该平台脚本若被调用会在 set -e 下中断; 现役链实证为平台直调 `bun run dev`(package.json dev→dev-go.sh, R70-plan 进程链取证), dev.sh 疑似闲置, 留主控裁定是否提请平台方更新
+- 门禁终态: bash -n 4/4 过; rg 残留扫描仅 1 处历史注(语义核对正确); gofmt -l cmd/ internal/ 空; go vet ./cmd/... 零告警; 临时构建过; markdown 围栏偶数(README 6/DEPLOY 10/GUIDE 54); 图片引用 4/4 存在且零新增; git diff 限定领地 5 文件(README/INSTALL-GUIDE/dev-watchdog/dev-go/cmd main.go), DEPLOY/package.json/Caddyfile/.env.example 零触碰
+
+Stage Summary:
+- watchdog 纯 bash 化收口: bun 分支删除, 平台壳(package.json)→dev-go.sh→Go 链路在注释/文档三处(README/GUIDE §2.2/§4.1)统一 R70 口径并写明"零依赖纯别名壳=平台启动接口而非 JS 依赖"; dev-go.sh 增量构建补 go:embed 资产探测(模板/内置规则改动不再漏重建, R69 内嵌化后的真缺口)
+- 根目录 JS/TS 残迹清点: 取证式证明项目级残迹=0(计数 0+Glob 零命中+退役路径全部缺席), 三类合法 JS/JSON(package.json 壳/web/static 浏览器资产/skills 平台工具链)理由化保留, skills/ 未动
+- 文档 R70 补录按 R70-plan 契约落位: README 特性+2/架构树+stealth; GUIDE §6.6 设置键 9 键全表+默认值+SEO 风险+「运行时 KV 非 env」澄清; 全部按设计写(70-c 代码未合入不影响文档先行, 合入后语义即可对上)
+- 移交: ①.zscripts/dev.sh 的 `bun run bootstrap` 断链观察(非领地) ②70-c 合入后建议实测「内容伪装」设置卡文案与本表逐键核对 ③watchdog cd 硬编码沙箱路径为历史已知(文档已有提示)
+---
+Task ID: R70-main
+Agent: main-controller
+Task: R70 全轮收口(集成+门禁+浏览器终验+推送)
+
+Work Log:
+- 集成: stealth 管线主控接线(render 出口缓冲化/TTL 配置缓存/9 设置键/protectedSettingKeys/admin 语义卡/分卷 VolumeGroups 数据层); a/b/e 断连产出逐 hunk 甄别合入(gofmt 空格重写噪声归一, 真实改动 100% 保留); 测试断言 3 处修正(密度钳制语义/重置终态语义/千位虫正式回归)
+- 门禁: gofmt 零/vet 零/17 包 test 全绿(clean 115s 为存量探针耗时属正常)/build OK/node --check admin.js 过
+- 浏览器终验(:3000 生产): 首页 29 封面/91 链接/footer 在位/console 零错误; 阅读页 87 段落零错误; admin 登录→设置区三卡(违禁词/内容伪装/系统设置)→伪装卡状态读取→勾选混淆+分卷→保存→生产两次抓取字节不同+18 注释+9 实体注入→复位全关→零残留; 375px 移动端 scrollW=375 零溢出+footer 自然压底
+- 分卷实证: 副本合成卷数据 /read/6/ 渲染 100 组卷头+组内章节列表; 生产真实数据无卷前缀→正确回退平面(单组归空语义)
+- 进程运维插曲: 主控 pkill -f mhgl 误伤生产→自启 watchdog 被沙箱清场→recover.sh 成熟口径(子壳+stdin 断开)恢复, 跨工具调用存活验证通过; 三采集任务 done 状态无需续采
+- 推送: 全量 R70 变更(11 文档/脚本+9 Go 核心+11 主题模板+8 主题 css+stealth 新包+4 新测试文件+4 新封面)单提交推送 origin/main+update-ref 对齐
+
+Stage Summary:
+- R70 六条全交付: ①混淆(每页唯一/外观不变) ②转码(源码无明文关键词) ③干扰+伪原创(开关+密度+种子) ④分卷设置+卷分组渲染+乱序重排千位真虫修复 ⑤纯 Go 化深化收尾(watchdog 纯 bash+文档补录) ⑥采集/反反爬(国产 WAF 全家桶+传输表有界化)
+- 真虫 5: 千位章号截断错序/实体引用二次编码外观破坏/传输表无界增长/Retry-After 溢出分桶/停机竞态微窗 — 全部带回归测试
+- 移交 R71: 9 主题回源 1:1 逐页审计表(70-e 断连未完成, 与 R68-c 遗留 6 主题合并)/git token 轮换持续提醒/skills/ 平台工具链维持不动

@@ -67,7 +67,7 @@
             <span class="ddy-s2"><a href="{{bookHref (str .id) (num .num) $.SiteID}}" title="{{.name}}">{{.name}}</a></span>
             <span class="ddy-s3">{{or .latestChapter ""}}</span>
             <span class="ddy-s4">{{.author}}</span>
-            <span class="ddy-s5">{{dateDay .updatedAt}}</span>
+            <span class="ddy-s5">{{dateShort .updatedAt}}</span>
           </li>
           {{end}}
         </ul>

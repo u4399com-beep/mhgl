@@ -3,7 +3,14 @@
   <div class="qb-list">
     <div class="qb-box">
       <div class="qb-blocktitle">{{.Book.name}} 完整目录<small>（共 {{.Total}} 章）</small></div>
-      {{if .Chapters}}
+      {{if .VolumeGroups}}{{/* [R70-e] 卷分组(源站 module-title 卷头形态); 空值走下方平面渲染零变化 */}}
+      {{range .VolumeGroups}}
+      <div class="qb-blocktitle qb-voltitle">{{.Name}}</div>
+      <div class="qb-chgrid">
+        {{range .Chapters}}<a class="qb-chitem" href="{{chapterHref (str .id) (num $.Book.num) (num .idx) $.SiteID}}" title="{{.title}}">{{.title}}</a>{{end}}
+      </div>
+      {{end}}
+      {{else if .Chapters}}
       <div class="qb-chgrid">
         {{range .Chapters}}<a class="qb-chitem" href="{{chapterHref (str .id) (num $.Book.num) (num .idx) $.SiteID}}" title="{{.title}}">{{.title}}</a>{{end}}
       </div>

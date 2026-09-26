@@ -44,7 +44,7 @@
     <div class="ggd-content-side">
       <h2>最新小说</h2>
       <ul class="ggd-catlist">
-        {{range firstN 24 .Books}}
+        {{range firstN 30 .Books}}
         <li>
           <span class="ggd-cat-tag">[{{or .category "小说"}}]</span>
           <a href="{{bookHref (str .id) (num .num) $.SiteID}}" title="{{.name}}">{{.name}}</a>
@@ -56,7 +56,7 @@
     <div class="ggd-content-wide">
       <h2>最近更新</h2>
       <ul class="ggd-catlist">
-        {{range firstN 24 .Books}}
+        {{range firstN 30 .Books}}
         <li class="ggd-gx-li">
           <span class="ggd-s1">[{{or .category "小说"}}]</span>
           <span class="ggd-s2"><a href="{{bookHref (str .id) (num .num) $.SiteID}}" title="{{.name}}">{{.name}}</a></span>

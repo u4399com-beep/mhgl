@@ -39,6 +39,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"net/http"
 	"net/http/cookiejar"
@@ -63,10 +64,20 @@ const maxBodyBytes = 10 << 20
 // token 预取缓存 TTL(按 host; 模板含 {url} 的逐请求签名形态按完整 tokenUrl 键)
 const tokenCacheTTL = 5 * time.Minute
 
+// proxyTransportCap proxyTans 代理传输缓存上限([R70-a] 内存有界化): 动态代理池
+// 只增不减(R57-2a 防抖不变式)且长任务逐条取用, 每个被取用的代理地址各建一个
+// Transport(连接池+互斥+读缓冲, 常驻对象); 免费池健康分洗牌使异地址随运行时长
+// 无界流入 —— 万级代理即万级常驻 Transport。超上限整表重置(与 resolveHost DNS
+// 缓存同款守卫式), 见 transportFor
+const proxyTransportCap = 1024
+
 // Retry-After 冷却参数(契约: 显式合法值钳 120s 上限; 缺失/非法/<1s 兜底 30s)
 const (
 	retryAfterMax      = 120 * time.Second
 	retryAfterFallback = 30 * time.Second
+	// maxRetryAfterSeconds 秒数上限([R70-a]): ×1e9 纳秒换算不溢出 int64 的最大秒值,
+	// 超过者与 Atoi 溢出臂同归 retryAfterMax(见 parseRetryAfter 注)
+	maxRetryAfterSeconds = int64(math.MaxInt64 / int64(time.Second))
 )
 
 // 重试退避(400ms×2^a 指数, 钳 8s, 保留抖动)
@@ -924,6 +935,15 @@ func (c *Client) transportFor(pu *url.URL, httpsTarget bool) *http.Transport {
 	if tr, ok := c.proxyTans[key]; ok {
 		return tr
 	}
+	// [R70-a] 传输表有界化(超 proxyTransportCap 整表重置, resolveHost DNS 缓存
+	// 同款守卫式): 在飞请求持有自身 Transport 引用不受影响(CloseIdleConnections
+	// 只闭空闲连接, 活跃连接不动), 代价=重置后首批请求重建连接, 换取键集硬上界
+	if len(c.proxyTans) >= proxyTransportCap {
+		for _, old := range c.proxyTans {
+			old.CloseIdleConnections()
+		}
+		c.proxyTans = map[string]*http.Transport{}
+	}
 	tr := &http.Transport{
 		MaxConnsPerHost:     8,
 		MaxIdleConnsPerHost: 8, // [R59-2c-batch2] 缺省 2 < MaxConnsPerHost=8: 批内 8 线程下每请求冷启拨号+代理隧道重握手, 连接churn放大时延与指纹异常; 与直连传输(hc)同口径对齐
@@ -1349,7 +1369,11 @@ func (e *proxyChannelError) Unwrap() error { return e.err }
 // parseRetryAfter 解析 Retry-After(整数秒与 HTTP 日期双形态; 对齐 TS parseRetryAfterHeaderMs)
 // ok=false = 缺失/非法(调用方兜底 30s); HTTP 日期已过期返回 0(<1s 噪声底 → 兜底 30s)。
 // [R69-a] 纯数字但超出 int64 表示域(如 20 位九): 仍是「显式合法秒数」语义(TS parseInt
-// 后钳 120s 上限), 修前误判非法 → 兜底 30s, 对持续限流主机过早重撞; 修后按上限采纳
+// 后钳 120s 上限), 修前误判非法 → 兜底 30s, 对持续限流主机过早重撞; 修后按上限采纳。
+// [R70-a] 乘法溢出分桶不一致修复: 能被 Atoi 容纳但 ×1e9 纳秒换算越过 int64 的秒数
+// (如 10 位九 "9999999999")修前乘出负 Duration → retryAfterCooldown 误判 d<1s 走
+// 30s 兜底 —— 同一「显式超大秒数」语义因数值位数落入两个分桶两种结果, 与 [R69-a]
+// 口径自相矛盾; 修后乘法前按 maxRetryAfterSeconds 预判, 与 Atoi 溢出臂同归钳制上限
 func parseRetryAfter(raw string, now time.Time) (time.Duration, bool) {
 	s := strings.TrimSpace(raw)
 	if s == "" {
@@ -1362,6 +1386,9 @@ func parseRetryAfter(raw string, now time.Time) (time.Duration, bool) {
 		}
 		if n <= 0 {
 			return 0, false
+		}
+		if int64(n) > maxRetryAfterSeconds {
+			return retryAfterMax, true // [R70-a] ×1e9 会溢出的显式超大秒数, 同归钳制上限
 		}
 		return time.Duration(n) * time.Second, true
 	}

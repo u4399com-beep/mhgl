@@ -16,7 +16,7 @@
 <meta name="theme-color" content="#1f5fa9">
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" type="image/png" href="/static/icons/icon-192.png">
-<link rel="stylesheet" href="/static/css/trxsw.css?v=r68-c">
+<link rel="stylesheet" href="/static/css/trxsw.css?v=r70-e">
 </head>
 <body class="clone-trxsw">
 <div class="trx-ywtop">
@@ -39,7 +39,7 @@
     <li><a href="{{.HomeHref}}">首页</a></li>
     <li><a href="{{.RankingHref}}">排行榜单</a></li>
     <li><a href="{{.FulltextHref}}">最近更新</a></li>
-    {{range firstN 7 .NavCats}}<li><a href="{{catHref . $.SiteID}}">{{.}}</a></li>{{end}}
+    {{range $i, $cat := .NavCats}}{{if lt $i 7}}<li><a href="{{catHref $cat $.SiteID}}">{{$cat}}</a></li>{{end}}{{end}}{{/* [R70-e] firstN 仅收 []map, NavCats 为 []string 修前静默吞分类导航 */}}
     <li><a href="{{.FulltextHref}}">全本小说</a></li>
     <li><a href="{{.HistoryHref}}">我的书架</a></li>
   </ul>
@@ -52,7 +52,7 @@
     <p>Copyright © {{siteTitle .Site}} All Rights Reserved</p>
   </div>
 </footer>
-<script src="/static/js/site.js?v=r56-2c" defer></script>
-<script src="/static/js/pwa.js?v=r56-2c" defer></script>
+<script src="/static/js/site.js?v=r70-e" defer></script>
+<script src="/static/js/pwa.js?v=r70-e" defer></script>
 </body>
 </html>{{end}}

@@ -1,6 +1,6 @@
 # mhgl 小说聚合站 · 安装部署图文教程（纯 Go 单体版 · R69 全重写）
 
-> 适用版本：R69 起（纯 Go 单体）· 本版更新：**R69**（面向从零部署者逐细节重写；建库/引导全面 Go 原生化）
+> 适用版本：R69 起（纯 Go 单体）· 本版更新：**R69**（面向从零部署者逐细节重写；建库/引导全面 Go 原生化）· **R70 增补**：§6.6 内容伪装 / 反搜索与分卷显示设置
 > 架构一句话：**一个 Go 二进制**（`.build/mhgl`）承载 Web 前台 / 管理后台 / REST API / 采集引擎 / 调度器，监听 `:3000`，数据落 SQLite 单文件 `db/custom.db`。数据库建表与运营数据播种由服务**原生自举**（启动幂等建表 + 空库自动播种），Node.js / Next.js / Prisma / Docker / MySQL / Redis 全部不需要。
 >
 > 全程约 10~20 分钟（大头是首次构建与模块下载，取决于网络）。每步都给出「预期结果」，与预期不符直接跳 **§9 常见问题排查**；**部署完成站点「预览挂掉」时直接跳 §7 一键恢复**。
@@ -14,7 +14,7 @@
 3. [数据库初始化（原生自举：自动建表 + 自动播种）](#3-数据库初始化)
 4. [启动服务（三种形态 + 生产常驻 + 加固清单）](#4-启动服务)
 5. [看门狗（进程死了 15 秒自动拉起）](#5-看门狗)
-6. [管理后台（登录 / 建任务 / 代理池 / 主题）](#6-管理后台)
+6. [管理后台（登录 / 建任务 / 代理池 / 主题 / 内容伪装）](#6-管理后台)
 7. [recover.sh 一键恢复（预览挂掉的工程化兜底）](#7-recover-sh-一键恢复)
 8. [数据备份（WAL 感知 + 三类三机制）](#8-数据备份)
 9. [常见问题排查 FAQ](#9-常见问题排查-faq)
@@ -126,6 +126,7 @@ mhgl/
 │   ├── api/               #   /api/admin/** + /api/public/** JSON 接口
 │   │   └── builtin_rules.json  # 内置规则库(35 条实测规则, go:embed, 播种与后台「一键导入」数据源)
 │   ├── web/               #   前台 SSR(11 套主题, 模板 go:embed 内嵌二进制) + 后台管理模板
+│   ├── stealth/           #   内容伪装渲染管线(R70: 混淆/转码/干扰句/伪原创, 公共 HTML 出口, 默认全关)
 │   ├── auth/              #   HMAC Cookie 鉴权
 │   ├── config/            #   环境变量配置
 │   └── sanitize/          #   展示级 HTML 消毒
@@ -136,7 +137,7 @@ mhgl/
 ├── download/  upload/     # TXT 下载产物 / 上传暂存
 ├── scripts/               # 运维脚本: install-go.sh / dev-go.sh / dev-watchdog.sh / recover.sh
 ├── docs/                  # 本教程 / 规则手册 / 历史归档
-├── package.json           # 薄别名入口(dev=dev-go.sh / build / start / lint; 可用可不用)
+├── package.json           # 零依赖纯别名壳(平台启动接口而非 JS 依赖): "dev"=bash scripts/dev-go.sh, 另有 build/start/lint; 仓库无任何 Node/TS 源码
 └── .env.example           # 环境变量样例(注释齐全, 复制为 .env 使用)
 ```
 
@@ -231,7 +232,8 @@ MHGL_AUTO_SEED=0 ./.build/mhgl
 # 形态二: 开发启动器(推荐日常用)——自愈 + 增量构建
 bash scripts/dev-go.sh
 
-# 形态三: bun 薄别名(与形态二等价, bun 自动加载 .env)
+# 形态三: 平台启动钩子(沙箱平台即用此链拉起项目):
+#         bun run dev → package.json "dev"(零依赖纯别名壳) → 形态二
 bun run dev
 ```
 
@@ -241,7 +243,8 @@ bun run dev
 bash scripts/dev-go.sh
   ├─ ① PATH 前插 ~/go-sdk/go/bin(GO_SDK_BIN 可覆盖), GOMEMLIMIT=${MEM_LIMIT_MB:-600}MiB
   ├─ ② [自愈] go 缺失? → 自动 bash scripts/install-go.sh 后重试
-  ├─ ③ 增量构建: cmd/internal/go.mod 的 .go 源或 web/ 任一文件比
+  ├─ ③ 增量构建: cmd/internal/go.mod 的 .go 源、internal/web/tpl 模板与
+  │      builtin_rules.json(go:embed 内嵌资产)、web/ 任一文件比
   │      .build/mhgl 新 → go build -o .build/mhgl ./cmd/server
   └─ ④ exec .build/mhgl  →  监听 :3000(启动自举建表; 空库后台自动播种)
 ```
@@ -416,6 +419,26 @@ pgrep -f dev-watchdog.sh    # 预期: 打印一个 pid
 ### 6.5 主题切换（可选）
 
 后台 → 站群系统 → 编辑站点 → `themeId` 填主题目录名。内置 11 套：`aijjxs`（缺省，久久小说复刻）/ `pili`（霹雳书屋米色纸感）/ `shipsay` / `x2552` / `kks101` / `trxsw` / `ddyueshu` / `ggd66` / `huangjinwu` / `qb23` / `x33yq`。非法主题 ID 自动回退默认主题。
+
+### 6.6 内容伪装 / 反搜索 + 分卷显示（R70，默认全关）
+
+路径：后台 → **系统设置** → 「**内容伪装 / 反搜索**」设置卡（分卷开关 `book.volume.show` 同在此卡配置）。四开关的渲染管线顺序为 **干扰句 → 伪原创 → 转码 → 混淆**，只挂**公共 HTML 渲染出口**（后台页 / API / sitemap / robots / TXT 下载等豁免；超过 512KB 的大页自动跳过）。**全部默认关闭 = 页面输出字节零变化**（回归硬不变式）。
+
+**⚠️ SEO 风险提示（先读再开）**：隐藏文字与伪原创属于搜索引擎明确反对的作弊手法，可能被判作弊导致降权/除名。四开关默认全关，按需单开、小密度试水，风险自负。
+
+> 重要澄清：以下是**运行时设置**（存 SQLite Settings KV，后台设置卡改完即对后续渲染生效），**不是环境变量**——`.env` / `.env.example` / systemd `EnvironmentFile` 无需任何改动，重启也不需要。
+
+| 设置键 | 默认 | 人话解释 |
+|---|---|---|
+| `stealth.obfuscate` | `0`（关） | **页面结构混淆**：给公共页 HTML 注入每页唯一、肉眼不可见的结构噪声（包裹层/属性形态逐页随机），页面外观与交互完全不变，但采集者每页拿到不同结构，规则复用失效 |
+| `stealth.transcode` | `0`（关） | **关键词句子实体转码**：把命中关键词的句子做字符级转码，浏览器渲染结果不变，采集端抓到的是转码后字节 |
+| `stealth.transcode.mode` | `entity` | 转码形态：`entity`=HTML 数字实体；`zwsp`=零宽字符插缝 |
+| `stealth.interfere` | `0`（关） | **隐藏干扰句**：在正文段落间注入随机生成的干扰句 |
+| `stealth.interfere.mode` | `hidden` | 干扰句形态：`hidden`=隐藏节点；`offscreen`=屏幕外定位（两者视觉均不可见） |
+| `stealth.interfere.density` | `2`~`8` | 每段注入干扰句的密度（引擎在该范围内取值） |
+| `stealth.pseudo` | `0`（关） | **句子伪原创**：对句子做同义词/语序级轻改写，肉眼阅读几乎无感，文本指纹改变 |
+| `stealth.pseudo.seed` | `request` | 伪原创随机种子口径：`request`=每次请求不同；`daily`=每天一换；`stable`=固定（同页面恒同输出） |
+| `book.volume.show` | `0`（关） | **目录分卷分组显示**：书籍目录按卷分组渲染（卷名 + 卷内章节两级结构）；关闭时目录平铺展示，与既往版本完全一致 |
 
 ---
 

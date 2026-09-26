@@ -5,7 +5,14 @@
       <div class="ddy-con-top">
         <a href="{{.HomeHref}}">{{siteTitle .Site}}</a> &gt; <a href="{{.BookHref}}">《{{.Book.name}}》</a> &gt; 完整目录
       </div>
-      {{if .Chapters}}
+      {{if .VolumeGroups}}{{/* [R70-e] 卷分组(源站 dt 卷头形态); 空值走下方平面渲染零变化 */}}
+      <dl class="ddy-list">
+        {{range .VolumeGroups}}<dt>{{.Name}}</dt>
+        {{range .Chapters}}<dd><a href="{{chapterHref (str .id) (num $.Book.num) (num .idx) $.SiteID}}" title="{{.title}}">{{.title}}</a></dd>{{end}}
+        {{end}}
+        <div class="ddy-clear"></div>
+      </dl>
+      {{else if .Chapters}}
       <dl class="ddy-list">
         <dt>《{{.Book.name}}》正文{{with .Pager}} · 第 {{.Page}} / {{.TotalPages}} 页{{end}}</dt>
         {{range .Chapters}}<dd><a href="{{chapterHref (str .id) (num $.Book.num) (num .idx) $.SiteID}}" title="{{.title}}">{{.title}}</a></dd>{{end}}

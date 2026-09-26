@@ -53,7 +53,9 @@ needs_build=0
 if [[ ! -x "$BUILD" ]]; then
   needs_build=1
 else
-  newer=$(find cmd internal go.mod -name '*.go' -newer "$BUILD" 2>/dev/null | head -1 || true)
+  # [R70] go:embed 资产也要盯: internal/web/tpl(全部主题模板)与
+  # internal/api/builtin_rules.json 已内嵌进二进制, 改动不触发重建=跑到旧壳。
+  newer=$(find cmd internal go.mod \( -name '*.go' -o -path 'internal/web/tpl/*' -o -name 'builtin_rules.json' \) -newer "$BUILD" 2>/dev/null | head -1 || true)
   newer_tpl=$(find web -newer "$BUILD" 2>/dev/null | head -1 || true)
   [[ -n "$newer" || -n "$newer_tpl" ]] && needs_build=1
 fi

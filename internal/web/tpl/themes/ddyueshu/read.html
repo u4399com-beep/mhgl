@@ -25,6 +25,14 @@
         <a href="{{.HomeHref}}">{{.Book.name}}</a> &gt; <a href="{{.BookHref}}">《{{.Book.name}}》</a> &gt; {{.Chapter.title}}
       </div>
       <h1 class="ddy-ch-title">{{.Chapter.title}}</h1>
+      <dl class="ddy-page-nav ddy-page-nav-top">{{/* [R70-e] 源站 bottem1: 标题下导航行(上一章/章节目录/返回书页/下一章), 正文前同样出现 */}}
+        <dd>
+          {{if .PrevHref}}<a href="{{.PrevHref}}" rel="prev">上一章</a>{{else}}<span class="ddy-nope" aria-disabled="true">上一章</span>{{end}}
+          <a href="{{.TocHref}}">章节目录</a>
+          <a href="{{.BookHref}}">返回书页</a>
+          {{if .NextHref}}<a href="{{.NextHref}}" rel="next">下一章</a>{{else}}<span class="ddy-nope" aria-disabled="true">下一章</span>{{end}}
+        </dd>
+      </dl>
       <div class="ddy-ch-content">
         {{if .Chapter.content}}
         <div id="view_content_txt" class="ddy-read-txt">{{readHTML (str .Chapter.content)}}</div>

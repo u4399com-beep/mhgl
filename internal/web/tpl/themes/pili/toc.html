@@ -9,7 +9,16 @@
       <h1 class="pli-read-title">{{.Book.name}} 目录 <small>共 {{.Total}} 章</small></h1>
       <p class="pli-read-info">{{.Book.author}} · {{or .Book.category "小说"}} · {{statusLabel (str .Book.status)}}</p>
     </div>
-    {{if .Chapters}}
+    {{if .VolumeGroups}}{{/* [R70-e] 卷分组(book.volume.show=1 且库内有卷前缀时才有值); 空值走下方平面渲染零变化 */}}
+    {{range .VolumeGroups}}
+    <div class="pli-vol">{{.Name}}</div>
+    <div class="pli-chgrid">
+      {{range .Chapters}}
+      <a href="{{chapterHref (str .id) (num $.Book.num) (num .idx) $.SiteID}}" title="{{.title}}">{{.title}}</a>
+      {{end}}
+    </div>
+    {{end}}
+    {{else if .Chapters}}
     <div class="pli-chgrid">
       {{range .Chapters}}
       <a href="{{chapterHref (str .id) (num $.Book.num) (num .idx) $.SiteID}}" title="{{.title}}">{{.title}}</a>
