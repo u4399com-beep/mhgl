@@ -119,6 +119,10 @@ func wsChar(r *rand.Rand) string {
 // 实体化(&amp → &&#97;mp)→ 引用失配 → 浏览器渲染字面 "amp"(可见文本漂移,
 // 探针实证 600 轮 139 漂移)。修后 '&' 后跟 '#' 或字母数字时整段引用形参照抄
 // (编码更少 = 保守方向, 浏览器解码语义逐字节不变)。
+// [R72-c 真虫修复] 透传分支 WriteRune(c) → 照抄原始字节切片: 非法 UTF-8 字节
+// (采集残留 GBK 碎片等)经 DecodeRune 得 RuneError, 修前被改写成 U+FFFD 三字节
+// 序列, 同节点任一 ASCII 字母被实体化时重建串即丢原始字节(浏览器对非法序列
+// 折叠渲染 1 个替换符, 修前展开多个 → 外观漂移); 修后非实体化字符恒原样照抄。
 func asciiEntityText(s string, r *rand.Rand) string {
 	var b strings.Builder
 	changed := false
@@ -162,7 +166,7 @@ func asciiEntityText(s string, r *rand.Rand) string {
 			i += sz
 			continue
 		}
-		b.WriteRune(c)
+		b.WriteString(s[i : i+sz]) // [R72-c] 原始字节照抄(非法 UTF-8 同样保真)
 		i += sz
 	}
 	if !changed {

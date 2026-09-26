@@ -71,6 +71,9 @@ var strongBlockMarkers = []string{
 	//               errors.aliyun.com(拦截跳转宿主)
 	"captcha-delivery.com/captcha", "px-captcha",
 	"acw_sc__v2", "errors.aliyun.com",
+	// [R72-a] Imperva Incapsula JS 挑战页内联脚本标记: 仅挑战/拦截响应出现,
+	// 业务页零引用(Server 头面 wafServerRe 已有 incapsula, 此补 200 壳形态)
+	"_incapsula_resource",
 }
 
 // weakBlockMarkers 弱标记(TS BLOCK_MARKERS): 无正常标题豁免时仅扫前 4000 字符
@@ -108,8 +111,11 @@ var (
 	metaRefreshTagRe = regexp.MustCompile(`(?is)<meta\b[^>]*http-equiv[^>]*\brefresh\b[^>]*>`)
 	iframeTagRe      = regexp.MustCompile(`(?is)<iframe\b[^>]*>`)
 	// 跳转目标/源指向 WAF/挑战端点的技术关键词(裸 refresh/iframe 业务形态不命中;
-	// 刻意不含 verify 等宽泛词 — 本判定对长页+正常标题页生效, 关键词必须零正文碰撞)
-	jumpWafTargetRe = regexp.MustCompile(`(?i)(waf|challenge|captcha|jsl|safedog|yunsuo|safeline|yunjiasu)`)
+	// 刻意不含 verify 等宽泛词 — 本判定对长页+正常标题页生效, 关键词必须零正文碰撞)。
+	// [R72-a] jsl 收紧为边界形态(__jsl* cookie 名 / jsl 后随路径·查询·赋值分隔符,
+	// 加速乐挑战资源真实形态 /jsl/?h=…): 裸 "jsl" 子串误伤业务路径 /jslib/*
+	// (iframe src="/jslib/jquery.min.js" 的长内容页被整页判拦丢章)
+	jumpWafTargetRe = regexp.MustCompile(`(?i)(waf|challenge|captcha|__jsl|jsl[/?=]|safedog|yunsuo|safeline|yunjiasu)`)
 )
 
 // isPlainJSONBody 合法 JSON 响应体整体豁免(TS isPlainJsonBody 同口径): JSON API 站的

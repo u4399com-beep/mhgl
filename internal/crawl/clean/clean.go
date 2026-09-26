@@ -92,6 +92,16 @@ func defaultAdPatterns() []string {
 		// 书名【】空壳推广行("【万相之王】\u00a0\u00a0【】" —— 杰奇WAP 模板水印;
 		// 空【】对为锚, 书名任意不可静态枚举; 【X】+空白+空【】组合正文不出现, 误伤面≈0)
 		`【[^】\n]{1,30}】[\x{00a0}\x{3000} ]{0,6}【】`,
+
+		// ---- R72-b DB 复采实证增强(xyetianlian「我有一剑」现役残留, 见
+		// clean/r72b_test.go 正例+防误伤反例) ----
+		// 章末翻页标记前缀变体("这章没有结束，请点击下一页继续阅读！" —— R68-b
+		// [13-扩展] 只认「本章未完」前缀; DB 实证「这章没有结束」变体漏网。
+		// 「(本章|这章)+(未完|没有结束)+点击…继续阅读」组合锚恒为翻页噪声)
+		`(?:本章|这章)(?:未完|没有结束)[，,]?请?点击[^\n<]{0,10}继续阅读[^\n<]{0,16}`,
+		// 双头推广行("最新首发《我有一剑》最新内容”" —— 水印插在引号对话内,
+		// 双端词组锚(最新首发…最新内容)正文不出现, 误伤面≈0)
+		`最新首发(?:《[^<>\n]{1,40}》?)?最新内容`,
 	}...)
 	return out
 }
@@ -187,10 +197,15 @@ var coreAdPatterns = []string{
 	`手机用户.{0,6}?浏览.{0,36}?更优质的阅读体验[。！!]?`,
 	// [7] 全角混淆域名("笔・趣・阁www.ｂｉｑｕｇｅ.ｉｎｆｏ" 的 URL 段; www 与 ｗｗｗ 双形态;
 	// R62-c3 增全角句号。混淆形态: DB 黄金瞳 114 章 "www。biquge。info")
-	`[wｗ]{3}[.．。][0-9A-Za-zａ-ｚＡ-Ｚ０-９.．。]{2,40}`,
+	// [R72-b] DB 复采实证混合大小写形态 "ｗWｗ。ｂiquge。ｉｎｆｏ"(xyetianlian 现役残留,
+	// 码点 0xFF57/0x57/0xFF57 混排) —— 修前 [wｗ]{3} 不含 ASCII 大写 W 与全角大写 Ｗ,
+	// 整条失配漏网; 补 w/W/ｗ/Ｗ 四形态
+	`[wWｗＷ]{3}[.．。][0-9A-Za-zａ-ｚＡ-Ｚ０-９.．。]{2,40}`,
 	// [8] 间隔号规避品牌("笔・趣・阁"; 直写"笔趣阁"归品牌词层; R62-c3 增 、＆ 隔符:
 	// DB 黄金瞳 114 章 "笔、趣、阁" / "笔＆趣＆阁" 变体)
-	`笔[・•·.．、＆]\s*趣[・•·.．、＆]\s*阁`,
+	// [R72-b] DB 复采实证问号隔符形态 "笔？趣？阁ｗWｗ。ｂiquge。ｉｎｆｏ"(同上现役残留)
+	// —— 隔符类补全/半角问号(品牌词三段锚不变, 正文 "笔？趣味盎然…" 无阁字收尾不命中)
+	`笔[・•·.．、＆？?]\s*趣[・•·.．、＆？?]\s*阁`,
 	// [9] 星号装饰手打行("★★手打★шшш..★"; 星饰+ш/w 混淆域, 整行回收;
 	// R63-d 行锚 lineWs 化同 [2] —— 行首 &nbsp; 卡死修复)
 	"(?m)^" + lineWs + "[★☆✦✧*＊\\s\u00a0]*手打\\s*[★☆✦✧*＊шωw3vvs\\s\u00a0.．。·_]*" + lineWs + "$" +
@@ -217,18 +232,26 @@ var coreAdPatterns = []string{
 		"|<p[^>]*>" + lineWs + leadPrefixAddr + "[：:]?" + lineWs + "</p>",
 }
 
-// withFloorPatterns 消费侧底线叠加: 规则自定义/缺省 AdPatterns 之外无条件并入
-// coreAdPatterns(按整串去重, 缺省表已含底线条目时为零开销等价)。恒返回新切片
-// (不触碰入参底层数组 —— cfg.AdPatterns 常为跨协程共享的任务级配置, 防 append
-// 别名写入竞态)。纯函数, 每次 CleanContentHTML 调用构建一次(千章量级 map 开销可忽略)。
+// withFloorPatterns 消费侧底线叠加: 规则自定义 AdPatterns 之外无条件并入缺省全集
+// defaultAdPatterns()(其首段即 coreAdPatterns, 底线子集随之包含; 按整串去重, 缺省配置
+// 路径 AdPatterns 已是同一张表 → 零开销等价)。
+// [R72-b] 修前底线只含 coreAdPatterns 子集 —— R59-2c DB 抽样增强与 R68-b 生产增强两轮
+// 条目(百度/必应搜索引导、一秒记住全角族、本章未完点击族、杰奇页脚族等)不在底线,
+// 而规则自定义 clean.adPatterns 为替换语义(35 规则中 31 条自定义) → 这些增强条目对
+// 自定义规则整体失效: DB 复采实证 "我有一剑"(xyetianlian, 自定义 6 条) R71-main 新采
+// 章节中 "最新章节百度搜索：" 残留 39/600。修后自定义清单与缺省清单为并集(替换语义
+// 保留给规则「按站追加定制」面, 通用高置信残留恒有缺省兜底)。
+// 恒返回新切片(不触碰入参底层数组 —— cfg.AdPatterns 常为跨协程共享的任务级配置, 防
+// append 别名写入竞态)。纯函数, 每次 CleanContentHTML 调用构建一次(千章量级 map 开销可忽略)。
 func withFloorPatterns(patterns []string) []string {
-	have := make(map[string]struct{}, len(patterns)+len(coreAdPatterns))
+	def := defaultAdPatterns()
+	have := make(map[string]struct{}, len(patterns)+len(def))
 	for _, p := range patterns {
 		have[p] = struct{}{}
 	}
-	out := make([]string, 0, len(patterns)+len(coreAdPatterns))
+	out := make([]string, 0, len(patterns)+len(def))
 	out = append(out, patterns...)
-	for _, p := range coreAdPatterns {
+	for _, p := range def {
 		if _, dup := have[p]; dup {
 			continue
 		}
@@ -482,6 +505,14 @@ func fromCodePointSafe(cp int) string {
 		return ""
 	}
 	return string(rune(cp))
+}
+
+// UnescapeEntitiesOnce 导出形态(跨包消费: rule 包 URL 绝对化/字段简版清洗, 对齐
+// TS parser.ts 借用 cleaner.decodeEntitiesOnce 的单一事实源口径): 白名单实体单遍
+// 解码, 命名实体全部分号必需 —— 无分号形态(&amp/&copy)原样保留, 与浏览器属性
+// 上下文解码(HTML5 属性例外)及 TS 权威实现一致。
+func UnescapeEntitiesOnce(s string) string {
+	return decodeEntitiesOnce(s)
 }
 
 // decodeEntitiesOnce 实体单遍解码(白名单实体; 不回扫替换产物防链式二次解码)

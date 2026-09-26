@@ -18,7 +18,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"html"
 	"math"
 	"net/url"
 	"regexp"
@@ -29,6 +28,8 @@ import (
 
 	"github.com/PuerkitoBio/goquery"
 	xhtml "golang.org/x/net/html"
+
+	"mhgl/internal/crawl/clean"
 )
 
 // ---------------- 后处理 ----------------
@@ -1096,6 +1097,14 @@ var httpSchemeRe = regexp.MustCompile(`(?i)^https?://`)
 // absolutize URL 绝对化 + 噪声剥离 + 协议过滤 + 自引用过滤(对齐 parser.ts absolutize):
 // ①不可见字符剥离(反采集零宽水印) ②实体单遍解码 ③相对地址按 base 解析
 // ④非 http(s) 过滤(javascript:/data:/mailto: 等) ⑤自引用(同 origin+path+search)返回空
+//
+// [R72-b] ②臂修前用 html.UnescapeString —— HTML5 文本上下文解码含「无分号 legacy 命名
+// 实体」, 与浏览器 href 属性上下文解码分叉(HTML5 属性例外: 无分号实体后随字母/= 不解码),
+// 也与 TS 权威实现(cleaner.decodeEntitiesOnce, 全部要求分号)分叉: css 路径 goquery 已按
+// 属性语义解码过一次, 本处二次解码遭遇 "?a=1&current=2" 时 &current 被解码成 ¤(¤t=2)、
+// &region→®、&copy→©、&note→¬ —— 查询参数名命中 legacy 实体名的真实章节/封面 URL
+// 全部损坏。修后改用 clean.UnescapeEntitiesOnce 白名单解码(仅 &xxx; 完整形态), 无分号
+// 形态原样保留, 三方(TS/浏览器/go)对齐。
 func absolutize(rawURL, baseURL string) string {
 	if rawURL == "" {
 		return ""
@@ -1103,7 +1112,7 @@ func absolutize(rawURL, baseURL string) string {
 	u := strings.TrimSpace(invisibleCharsRe.ReplaceAllString(rawURL, ""))
 	decoded := ""
 	if u != "" {
-		decoded = strings.TrimSpace(html.UnescapeString(u))
+		decoded = strings.TrimSpace(clean.UnescapeEntitiesOnce(u))
 	}
 	if decoded == "" {
 		return ""
@@ -1265,7 +1274,7 @@ func cleanTextFieldMinimal(raw string, maxLen int) string {
 		return ""
 	}
 	v := stripHtmlTagsQuoteAware(raw)
-	v = html.UnescapeString(v)
+	v = clean.UnescapeEntitiesOnce(v)
 	v = ctrlRe.ReplaceAllString(v, "")
 	v = invisibleCharsRe.ReplaceAllString(v, "")
 	// 空白折叠(→ ' ', 含全角空格族; 对齐 TS R22-b-1)。[R68-b] 修前裸 \s+ 不含

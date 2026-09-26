@@ -416,13 +416,22 @@ func TestObfuscate_ShapeChanges(t *testing.T) {
 		t.Fatal("应出现幽灵元素")
 	}
 	reordered, jittered := false, false
-	for i := 0; i+5 < len(out); i++ {
+	for i := 0; i+5 <= len(out); i++ {
 		if strings.HasPrefix(out[i:], "<div id=") || strings.HasPrefix(out[i:], "<div data-x=") {
 			reordered = true
 		}
-		if strings.HasPrefix(out[i:], "<DiV") || strings.HasPrefix(out[i:], "<dIv") ||
-			strings.HasPrefix(out[i:], "<DIV") {
-			jittered = true
+		// [R72] 识别面补全: jitterCase 逐字母独立翻转, "div" 共 8 种等概率形态,
+		// 修前只认 <DiV/<dIv/<DIV 三种(漏 <Div/<dIV/<DIv/<Di v… 5 种), 120 个
+		// div×1/12 触发下全 miss 概率 ~1%, 概率性 FAIL(实证复现一次)。
+		// 修后按 EqualFold 认全部大小写组合(原样 "div" 除外 = 确无抖动),
+		// 残余全 miss 概率 (11/12×7/8)^120 ≈ 1e-4 量级, 彻底消 flaky。
+		// 注释内容为 sj:<hex>、幽灵元素为 i/b/u/em/span, 均无伪 "<div" 报面。
+		if out[i] == '<' && strings.EqualFold(out[i+1:i+4], "div") {
+			if nxt := out[i+4]; nxt == ' ' || nxt == '>' || nxt == '/' {
+				if out[i+1:i+4] != "div" {
+					jittered = true
+				}
+			}
 		}
 	}
 	if !reordered {

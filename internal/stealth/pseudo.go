@@ -174,6 +174,11 @@ type pseudoMatch struct {
 }
 
 // pseudoTokens 对 read 页文本节点做同义词替换(精确率钳制)。
+// [R72-c 真虫修复] <title>(RCDATA) 内容豁免: title 是 TDK 引擎产出的 SEO 元数据,
+// 修前同样被同义词改写(bookname/章节名命中词典即随机换词, request 种子下每次请求
+// 标题不同)—— 搜索引擎侧标题不稳定 + 浏览器标签页标题漂移, 与 TDK/canonical 中的
+// 原书名自相矛盾。修后与 obfTextNoise 同款守卫: 紧跟 noInsert 开标签的文本 token
+// 不参与替换(title 无分节正文语境, 干扰句天然到不了)。
 func pseudoTokens(toks []token, cfg Config, pc PageCtx) []token {
 	synInit()
 	if synPairTotal == 0 {
@@ -192,6 +197,9 @@ func pseudoTokens(toks []token, cfg Config, pc PageCtx) []token {
 	for idx := range toks {
 		if toks[idx].kind != tokText || toks[idx].data == "" {
 			continue
+		}
+		if idx > 0 && toks[idx-1].noInsert {
+			continue // title(RCDATA) 内容逐字节不动
 		}
 		ms := pseudoFind(toks[idx].data)
 		if len(ms) > 0 {

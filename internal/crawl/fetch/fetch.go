@@ -1708,6 +1708,12 @@ func (e *bodyOverLimitError) Error() string {
 // [R52-5 P3] 修前 io.LimitReader(body, 10MB) 静默截断超限响应; 修后读 maxBodyBytes+1
 // 探测超限 → bodyOverLimitError 走上层既有重试/镜像切换/失败链(与 TS reject 口径一致)
 // [R67-a] 补 br(brotli)/zstd 解压(与 acceptEncodingFor 广告面成对; 均为既有间接依赖)
+// [R72-a] ①空载荷短路: 压缩编码对空载荷无意义 —— 空体限流页/无内容态(204/304)与
+// 回显 CE 头的反代形态到达此处为 0 字节, 走下方分支被 gzip.NewReader 报「解压失败:
+// EOF」硬错误(整次抓取计传输失败并烧重试/退避), 而空体本应原样上交既有语义链
+// (空 HTML → looksBlocked("") 挑战壳判定; 3xx/4xx → 状态错误链), 与浏览器「空载荷
+// 渲染为空」一致; ②x-gzip 别名收编(RFC 9110 §8.4.1-2 与 gzip 同义, 部分老源站仍在
+// 使用 —— 修前落 default 臂把压缩字节原样当正文, 解析层得到二进制乱码)
 func readBodyDecompressed(resp *http.Response) ([]byte, error) {
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes+1))
 	if err != nil {
@@ -1716,8 +1722,11 @@ func readBodyDecompressed(resp *http.Response) ([]byte, error) {
 	if len(raw) > maxBodyBytes {
 		return nil, &bodyOverLimitError{size: len(raw)}
 	}
+	if len(raw) == 0 {
+		return raw, nil
+	}
 	switch strings.ToLower(strings.TrimSpace(resp.Header.Get("Content-Encoding"))) {
-	case "gzip":
+	case "gzip", "x-gzip":
 		zr, zerr := gzip.NewReader(bytes.NewReader(raw))
 		if zerr != nil {
 			return nil, fmt.Errorf("gzip 解压失败: %v", zerr)

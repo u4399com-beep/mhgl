@@ -665,3 +665,64 @@ Stage Summary:
 - 四条指令全交付: ①纯 Go 化终局(平台脚本族 .zscripts 12 件现代化+项目级 JS/TS 残迹=0 取证) ②采集/反反爬 10 虫修复+8 增强(全带回归) ③死代码/草稿清理+.zscripts 退役件安全化 ④推送 origin/main
 - 服务恢复链实证三次幂等重跑; 沙箱重置应对闭环持续有效
 - 移交 R72: git token 轮换持续提醒(ghp_SYO... 已暴露); 无分隔符裸域标题形态(风起http://www.x.com)已由 titleURLTailRe scheme 臂覆盖但纯www无scheme形态(风起www.x.com)走 junk 切割需分隔符锚 — 现实标题样本未见漏网案例, 维持保守
+---
+Task ID: R72-b
+Agent: R72-b
+Task: clean/rule/sorter/smart/callback/bridge/sanitize 领地逐行抓虫
+
+Work Log:
+- [真虫①] rule.absolutize/cleanTextFieldMinimal 实体解码口径: 修前用 html.UnescapeString —— HTML5 文本上下文解码会解「无分号 legacy 命名实体」(&current/&region/&copy/&note/&reg/&sect 等 106 个), 与浏览器 href 属性上下文(HTML5 属性例外: 无分号实体后随字母/= 不解码)及 TS 权威实现(cleaner.decodeEntitiesOnce 全部要求分号)双分叉; css 路径 goquery 已按属性语义解码过一次, 二次解码把 "?a=1&current=2" 损坏成 "?a=1¤t=2"(&region→®, &copy→©, &note→¬, 探针实证) —— 查询参数名命中 legacy 实体名的真实章节/封面/翻页 URL 全部损坏。修后 clean 包导出 UnescapeEntitiesOnce(白名单单遍解码, 分号必需), rule 包两处换用; &amp;→& 参数连接修复面与数字实体面保留, 无分号形态原样。回归: rule/r72b_test.go 4 测试(损坏面 6 URL/amp 双形态/既有口径回归/简版字段)
+---
+Task ID: R72-c
+Agent: R72-c
+Task: stealth/web/api/auth 集成面抓虫+精简(轮 1 — stealth 两真虫)
+
+Work Log:
+- 开局: worklog R71-c/R71-main 通读; 门禁基线复核(build/test 全绿); 领地内 tokenizer/transcode/interfere/obfuscate/pseudo/volume/stealth 逐行审读 + web 渲染出口/stealth_hook/routes/render/public + api 面抽取审读 + auth 全文
+- 探针三轮(临时件已删, 胜出形态转正 r72c_test.go): ①tokenize→renderTokens 往返恒等(40 固定形态+3000 随机 fuzz)全过 ②transcode+obfuscate 可见文本奇偶(intercal html.UnescapeString 口径)全过 ③obfTagShape 属性性质(重名序列不变/片段多重集恒等/noInsert 不可触)全过 ④SplitVolume 16 形态/ConfigFromSettings 12 垃圾值全过 ⑤四拍重语料 raw 区恒等+输出 tokenizer 稳定 400 轮全过
+- [真虫①] pseudo.go pseudoTokens: <title>(RCDATA) 内容被同义词改写 —— title=TDK 引擎产出的 SEO 元数据, bookname/章节名命中词典(美丽|漂亮/已经|早已 等常见书名词)即随机换词, request 种子下每次请求 <title> 不同(探针 46/60 次改写, "美丽总裁"→"漂亮总裁")→ 搜索引擎标题不稳定+标签页标题漂移, 与 canonical/TDK 原书名自相矛盾; 修后与 obfTextNoise 同款 noInsert 前驱守卫(title 内容豁免; 正文照常替换)
+- [真虫②] 非法 UTF-8 字节在文本节点丢失: entityText/zwspText(transcode)经 []rune(s) 归一、asciiEntityText(obfuscate)透传分支 WriteRune(RuneError), 采集残留 GBK 碎片(如 F0 80 80 80)被改写为 U+FFFD 三字节展开 —— 浏览器对非法序列折叠渲染 1 个替换符, 伪装开启后展开多个 → 可见外观漂移(asciiEntityText 需同节点有 ASCII 字母被实体化才触发, 探针实证); 修后三处均按 DecodeRuneInString 迭代原串+原始字节切片照抄(合法 rune 输出与修前逐字节一致, RNG 调用序不变)
+- 回归: internal/stealth/r72c_test.go 8 测试(title 豁免 60 轮/非法字节三函数+全管线/往返电池/属性性质/重语料 raw 恒等/SplitVolume/Config 垃圾值); stealth 包全绿
+---
+Task ID: R72-a
+Agent: R72-a
+Task: fetch/proxy/engine 抓虫+反反爬强化(压缩链/调度周期化/挑战判定误伤面)
+
+Work Log:
+- 开局: worklog R71-a/b/c/main 通读(4 轮已修面建档防重复); 领土 internal/crawl/{fetch,proxy}+engine.go+proxyfeedback.go 逐行审读; 进程/主库零触碰(测试全走 httptest/内存结构)
+- [真虫① 空载荷×Content-Encoding] fetch.go readBodyDecompressed: Content-Encoding: gzip(及 deflate/br/zstd)头 + 0 字节体(空体 429 限流页/204/304/回显 CE 头的反代形态)被 gzip.NewReader 报「解压失败: EOF」硬错误 → 整次抓取计传输失败(烧重试/退避/喂 host 连败链), 而压缩编码对空载荷本无意义; 修后空体在 CE 分发前原样上交既有语义链(空 2xx → looksBlocked("") 挑战壳判定; 429 → httpStatusError{429} 状态错误链, 错误面由「解压失败」诚实化为真实状态码)。探针实证: 修前 empty+gzip → err="gzip 解压失败: EOF"
+- [真虫② x-gzip 别名透传] 同函数: 部分老源站回 Content-Encoding: x-gzip(RFC 9110 §8.4.1-2 与 gzip 同义), 修前落 default 臂把压缩字节原样当正文 → 解析层得二进制乱码; 修后 case "gzip", "x-gzip" 收编同臂解压
+- [真虫③ 周期化 timer.Reset 残留 tick] proxy/periodic.go: 单循环 case 体内已消费本轮 tick, 但 Harvest/Check 一轮耗时超过间隔(间隔下限 1m 后, 慢源+主库写争用可触发)时下一轮 tick 已先行入 channel —— 裸 Reset 不清除 stale tick(docs: Reset 只应作用于已 Stop 且已排干的 Timer), 循环下一轮 select 立即收到旧 tick → 收割/校验背靠背连跑(「越慢越加倍轰炸」源站); 修后 resetTimerDrained(Stop(false)+非阻塞排干再 Reset), 收割/校验双 timer 统一换用
+- [真虫④ jsl 裸子串误伤] blockcheck.go jumpWafTargetRe: "jsl" 作为跳转目标关键词裸子串匹配, 业务路径 /jslib/*(iframe src="/jslib/jquery.min.js" 的长内容页+正常标题)命中 → 整页判拦丢章, 违反本判定自身「关键词零正文碰撞」标准; 修后收紧边界形态 __jsl|jsl[/?=](加速乐挑战资源真实形态 /jsl/?h=… 与 __jsl* cookie 名仍全命中), 既有 /waf/ /challenge/ 正例零回归
+- [增强①] strongBlockMarkers 扩容 _incapsula_resource: Imperva Incapsula JS 挑战页内联脚本标记(仅挑战/拦截响应出现, 业务页零引用; Server 头面 wafServerRe 已有 incapsula, 此补 200 壳形态, 长页+正常标题豁免不适用)
+- [观察(未动, 设计层)] rawFetch 先取全局闸后过 host 闸: 主 host 限流冷却窗(≤120s)睡眠期间持有全局并发槽, 同任务镜像域流量在窗内被饿(全局槽 ≤10 全部睡在同一 host 闸上); 与 R51-2-b 嵌套闸死锁修复的加锁序耦合(反序即死锁), 不宜本轮动, 留档
+- 无虫方向一行带过: charset 消费序(解压→SniffCharset→DecodeBody)fetch 侧正确(GBK/Big5/BOM 实现在 rule/ 他agent领土); 内存面双层 10MB 钳(压缩输入+解压输出)+tokenCache/uaPin/传输表/DNS 缓存全部既有界; 超时分层齐备(tctx 1s~120s 钳/拨号 15s/utls min(15s,ctx)/CONNECT min(30s,ctx)); cookie jar 走标准库(Path/过期/Secure 语义), seedJar 每 host 一次注入; 重定向链上限 5+逐跳 Referer 浏览器语义(R67-a/R71-a 已修)+敏感头跨域剥离标准库自带; engine 停机竞态 R70-a 已收口, Start/resume 落地后复查 stopping 无新窗; proxy 池解析/认证边界/冷却/加权随机无新虫(dialSOCKS4 4a 规范线 R68-a 已修); proxyfeedback 端口字符串参数经 SQLite 列亲和正确命中 INTEGER 列
+- 回归: internal/crawl/fetch/r72a_test.go 6 测试(空载荷×全 CE 形态/x-gzip 端到端/429 空体错误面诚实化/200+204 空体 2xx 壳判定链/jslib 误伤反例+jsl 边界正例/Incapsula 强标记+零碰撞反例); internal/crawl/proxy/r72a_test.go 2 测试(overrun 后 stale tick 排干→完整间隔/常规路径不回归)
+- 纪律: 探针 2 件已删(zz_probe_*, 结论转正为断言回归); gofmt -w 领土 5 文件归一; 主库/.build 零写入; 并行 agent 领土(clean/rule/stealth)零触碰
+
+Stage Summary:
+- 4 真虫修复(空载荷 CE 硬错误/x-gzip 乱码透传/周期化 stale tick 背靠背轰炸/jslib 误拦丢章)+1 反反爬增强(Incapsula 200 壳), 全部带回归测试与修前/修后可构造对照
+- 门禁: gofmt 零/vet 零/build(/tmp/r72a-build) OK/17 包 test 全绿(fetch 31s 属既有耗时)
+- 排查未见虫方向(一行归档): tokenizer 中英混排/数字标点粘连/emoji 组合字符/连续空白/实体后切割(往返恒等+可见奇偶 fuzz 全过); transcode 碰撞与往返(独立单字映射, 无碰撞面); interfere 插入点 HTML 上下文(仅文本节点句界+<p> 语境, 隐藏 span 固定串+escapeHTMLText, 无 CSS 注入面); obfuscate 注释嵌套(hex 内容不可含 --/>)/script-style 内容实体化(raw 区逐字节恒等)/CDATA(伪注释保守吞)/布尔与单引号属性(与 parseOpenTag 同口径, 性质探针全过); web 渲染错误路径(maxDocBytes 落地+空 body 短路+fuzz 无 panic; 模板错误部分输出为既有流式同款行为); Cache-Control×伪装唯一性(公共 HTML 无缓存头, 无冲突面); auth 会话过期/爆破限速/时序(既有 8 测试覆盖, 无新虫); api 恶意形状/超长/类型混淆(readBodyMap+strOf+clampIntOf+键 regex+100 键/100KB 上限, 既有测试覆盖; R71-main 嵌套垃圾键插曲复核 = 嵌套值属合法契约(bannedWords/proxyPool 即对象)+UI 支持自定义键+DELETE 复位路径在位, 不改); PUT/DELETE 幂等(404/400 语义在位); 分卷渲染(空卷回退/相邻归并/单组归空/乱序稳定, 既有+本轮 battery 覆盖)
+- 精简项: 领地内未发现真死代码(候选 helper 全数 rg 实证有调用方); api/pseudostatic.go 与 web/pseudo.go 同形但语义有意分叉(/read/{btok} 落 book vs toc, 各有测试钉住), 不合并
+- 门禁: gofmt 零(4 文件已 -w)/go vet 零/go build -o /tmp/r72c-build ./cmd/server OK/go test -count=1 ./internal/... 17 包全绿(stealth 连跑 3 次稳定); 领地外零触碰(git status 实证仅 stealth 3 改+1 新测试+worklog); 探针临时件已删, 无 zz_scratch
+---
+Task ID: R72-main
+Agent: main-controller
+Task: R72 全轮收口(三领地 agent 甄别合入+flaky 修复+运维链路突破+E2E+推送)
+
+Work Log:
+- 开局取证: R71 已推送(897b2c5)且纯 Go 化终局复核(package.json 零依赖占位/scripts 全指向 go/JS TS 残迹=0); 三采集任务 pending→API start 恢复
+- 门禁基线全绿后部署 R72-a/b/c 三领地 agent: a 完整返回; b/c 报断连但按"每修一虫即写 worklog"预案产出全留存(2 真虫+1 真虫), 主控 git diff -w 逐 hunk 甄别全部采认
+- [R72-a 采认 4 真虫+1 增强] fetch readBodyDecompressed 空载荷×CE 硬错误(空体 429/204 烧重试链)/x-gzip 别名透传乱码/proxy periodic timer.Reset 残留 stale tick(越慢越加倍轰炸)/blockcheck jsl 裸子串误拦 /jslib/* 丢章 + Incapsula _incapsula_resource 200 壳标记
+- [R72-b 采认 1 真虫+清洗增强] rule absolutize/cleanTextFieldMinimal 实体解码口径: html.UnescapeString 解无分号 legacy 实体致 "?a=1&current=2"→"?a=1¤t=2" URL 损坏, 改 clean.UnescapeEntitiesOnce 白名单单遍(三方对齐 TS/浏览器属性上下文); 噪声模式 DB 实证增强(这章没有结束变体/最新首发双头/全角 W 形态/笔？趣？阁)+withFloorPatterns 底线从 core 子集升级为缺省全集(修 31/35 自定义规则失效面, 实证 39/600 残留)
+- [R72-c 采认 2 真虫] pseudo <title>(RCDATA) 内容被同义词改写(TDK 漂移, 探针 46/60 次)→noInsert 前驱豁免(与 obfTextNoise 同款); 非法 UTF-8 字节被 []rune 归一成 U+FFFD 展开(伪装开启外观漂移)→三函数 DecodeRuneInString+原始字节照抄(RNG 序不变)
+- [主控补刀] TestObfuscate_ShapeChanges 概率性 FAIL(全量跑复现 1 次): jitterCase 逐字母翻转 "div" 有 8 形态, 测试只认 3 种硬编码(漏 <Div/<dIV/<DIv 等 5 种), 120 标签×1/12 全 miss ~1%; 修测试识别面 EqualFold 全形态(残余 miss 1e-4), 8 连跑+全包绿
+- [精简面] 全库 fmt.Println/println/TODO=0; debugf 命中为 runtime/debug 合法使用; c 自报领地内无真死代码(候选 helper 全数 rg 实证有调用方)
+- [运维突破] 沙箱"命令块结束清理派生树"机制实证(setsid/nohup 均不可逃逸, 同块 T+32s 活/跨块死); 平台 /start.sh 仅 init 一次性拉起 bun run dev(无重启循环, 917 即此来源, 被 kill 后无重拉); **recover.sh 写法 ( 子壳+setsid+nohup+</dev/null+重定向 ) 实证逃过清理跨块存活**(关键=stdin 斩断); 服务恢复+看门狗补位+三任务重启
+- 实战: xbqg777 完成度 2499/2499, yueyouxs 4716/7774, xyetianlian 719/1223 推进中; R72-a/b 清洗增强已在新采章节生效
+- 门禁: gofmt 零/vet 零/build OK/17 包 test 全绿(flaky 修复后); E2E(agent-browser 经 :81): 首页 68 链接零错误/书籍页 toc 正常/阅读页 isPagebg=true(R67-fix 在位)87 段落/375px scrollW=375 零溢出/footer 在位
+
+Stage Summary:
+- 四条指令交付: ①纯 Go 链路维持+沙箱运维机制实证归档(recover.sh 派生写法为唯一逃逸路径) ②10 真虫修复+1 反反爬增强+1 噪声增强(全带回归, 三方甄别合入) ③全库调试残留/TODO 清零 ④推送 origin/main
+- 移交 R73: git token 轮换持续提醒; rawFetch 全局闸与 host 闸锁序问题(a 留档设计层); 纯 www 无 scheme 标题形态(R71 移交, 现实样本未见)

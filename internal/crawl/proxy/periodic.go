@@ -91,6 +91,22 @@ func resolvePeriodicOptions(opts PeriodicOptions) PeriodicOptions {
 	return opts
 }
 
+// resetTimerDrained 排干后重置([R72-a] timer.Reset 语义修复): 单循环在 case 体内
+// 消费了本轮 tick, 但若 case 体耗时超过间隔, 下一轮 tick 已先行入 channel —— 裸
+// Reset 不清除该 stale tick(docs: Reset 只应作用于已 Stop 且 channel 已排干的 Timer),
+// 循环下一轮 select 立即收到旧 tick → 收割/校验背靠背连跑(间隔下限 1m 后, 一轮耗时
+// 超 1m 的慢源/DB 争用场景即触发「越慢越加倍轰炸」)。修后 Stop(false=已触发)+非阻塞
+// 排干再 Reset, 下一轮恒按完整间隔等待
+func resetTimerDrained(t *time.Timer, d time.Duration) {
+	if !t.Stop() {
+		select {
+		case <-t.C:
+		default:
+		}
+	}
+	t.Reset(d)
+}
+
 // StartPeriodic 启动周期化循环(阻塞直至 ctx 取消; 装配点 go proxy.StartPeriodic(...))。
 // 返回 false = 已有实例在跑(防重入), 本次未启动; true = 本次循环已随 ctx 退出。
 // db 为 nil 时直接拒绝(防装配失误静默空转)
@@ -125,7 +141,7 @@ func StartPeriodic(ctx context.Context, db *sql.DB, opts PeriodicOptions) bool {
 			r := h.Harvest(ctx)
 			o.Logf("收割完成: 解析 %d / 新增 %d 条(耗时 %dms; %d 源)",
 				r.Parsed, r.Added, r.ElapsedMs, len(r.PerSource))
-			harvestT.Reset(o.HarvestInterval)
+			resetTimerDrained(harvestT, o.HarvestInterval)
 		case <-checkT.C:
 			cr, err := h.Check(ctx, CheckOptions{Mode: "stale", Limit: o.CheckLimit, Concurrency: CheckConcurrencyDefault})
 			if err != nil {
@@ -134,7 +150,7 @@ func StartPeriodic(ctx context.Context, db *sql.DB, opts PeriodicOptions) bool {
 				o.Logf("stale 校验完成: 验 %d / 活 %d / 死 %d(耗时 %dms)",
 					cr.Checked, cr.Alive, cr.Dead, cr.ElapsedMs)
 			}
-			checkT.Reset(o.CheckInterval)
+			resetTimerDrained(checkT, o.CheckInterval)
 		}
 	}
 }
