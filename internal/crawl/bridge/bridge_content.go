@@ -41,6 +41,13 @@ func (b *Bridge) Chapters(_ context.Context, p callback.ChaptersPayload) (callba
 	}
 	task := ctx.task
 
+	// [R73-1] 目录条目繁→简(章节标题/卷名): 就地转换, 全量/增量两分支共用 ——
+	// 排序/去重/建缺/重编号与渲染消费的全是转换后形态
+	for i := range p.Items {
+		p.Items[i].Title = b.t2sText(p.Items[i].Title)
+		p.Items[i].Volume = b.t2sText(p.Items[i].Volume)
+	}
+
 	// [R61-2c] 身份定位: BookID 直通优先(引擎回传 book 回调产出的书 id), 空则回落
 	// sourceUrl —— 修「同名同作者跨源合并」下 A 源建书后按 URL 重查 miss 的误暂停链
 	book := b.lookupBookForCallback(p.BookID, bookURL)
@@ -330,7 +337,7 @@ func (b *Bridge) Contents(_ context.Context, p callback.ContentsPayload) error {
 			continue
 		}
 		seenURLs[url] = struct{}{}
-		cleaned := clean.CleanContentHTML(rawHtml, ctx.clean)
+		cleaned := b.t2sText(clean.CleanContentHTML(rawHtml, ctx.clean)) // [R73-1] 正文繁→简
 		plainLen := stripTagsLen(cleaned)
 		if chID, ok := chapByUrl[url]; ok {
 			// oo-① 同款容错: 章节行被并发删除时降级建行兜底, 内容不丢失

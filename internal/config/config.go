@@ -42,7 +42,12 @@ func envBool(key string) bool {
 
 // Load 构建配置。cwd 即项目根(由启动脚本保证)。
 func Load() *Config {
-	isProd := envOr("GO_ENV", "") == "production"
+	// [R73-c] 生产判定大小写不敏感并收编 "prod" 别名: 修前恒等比较 "production"
+	// —— GO_ENV=Production/PRODUCTION/prod 的部署(大小写笔误/简写)被当 dev,
+	// ADMIN_PASSWORD/SESSION_SECRET 缺失时静默启用公开缺省密码(audit-fix-2025)
+	// 与固定会话密钥, fail-closed 承诺被绕过。
+	goEnv := strings.ToLower(strings.TrimSpace(os.Getenv("GO_ENV")))
+	isProd := goEnv == "production" || goEnv == "prod"
 	memMB := 600
 	if v, err := strconv.Atoi(envOr("MEM_LIMIT_MB", "600")); err == nil && v > 0 && v <= 4096 {
 		memMB = v

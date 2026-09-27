@@ -27,6 +27,23 @@
 </section>
 <section class="adm-card" style="margin-top:16px">
   <div class="adm-card-head">
+    <h2>采集入库 / 繁简转换</h2>
+    <div class="adm-toolbar">
+      <button class="adm-btn is-primary is-tiny" id="t2s-save" type="button">保存</button>
+    </div>
+  </div>
+  <p class="adm-muted" style="margin:0 0 12px">源站繁体文本入库自动转简体: 书名/作者/分类/简介/章节标题/卷名/正文全部字段。
+    词组保护(乾隆/乾坤/狼藉等专名不误转); 简体文本零变化。默认开启; 保存后约 60 秒内生效(进程内缓存)。</p>
+  <div class="adm-toolbar" style="flex-wrap:wrap;gap:10px 18px;align-items:center">
+    <label style="display:inline-flex;align-items:center;gap:8px;font-size:14px">
+      <input type="checkbox" id="t2s-on" aria-label="启用繁体转简体">
+      <span>繁体入库转简体</span>
+    </label>
+  </div>
+  <div id="t2s-state" class="adm-state" aria-live="polite">加载中…</div>
+</section>
+<section class="adm-card" style="margin-top:16px">
+  <div class="adm-card-head">
     <h2>内容伪装 / 反搜索</h2>
     <div class="adm-toolbar">
       <button class="adm-btn is-primary is-tiny" id="st-save" type="button">保存伪装设置</button>

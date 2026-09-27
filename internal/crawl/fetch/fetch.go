@@ -197,16 +197,31 @@ func admitJitter(d time.Duration) time.Duration {
 }
 
 // acquire 过闸: 限流冷却期内单 timer 阻塞等待(勿 20ms 轮询空转); minGap 未到点
-// 同样 timer 等待; 槽位满时保持既有短轮询(升档/释放的亚秒级事件)
-func (g *hostGate) acquire(ctx context.Context) error {
+// 同样 timer 等待; 槽位满时保持既有短轮询(升档/释放的亚秒级事件)。
+// slot: 调用方的全局槽所有权句柄([R73-a], 可 nil — 直构调用方/测试) —— 冷却窗睡眠
+// 属长睡眠(≤120s), 睡前 park 归还、醒后 resume 重取, 槽位不整批睡死在同一 host 闸;
+// minGap 节奏睡眠(≤gateGapCap 3s)与槽位满轮询(20ms)属短等待, 保持持槽既有口径
+// (在飞计量的组成部分, 逐请求 park/resume 徒增槽位churn 无饿死收益)
+func (g *hostGate) acquire(ctx context.Context, slot *globalSlot) error {
 	for {
 		g.mu.Lock()
 		now := time.Now()
 		if g.rateLimitedUntil.After(now) {
 			d := g.rateLimitedUntil.Sub(now)
 			g.mu.Unlock()
+			// [R73-a] 冷却窗睡眠前归还全局槽、醒后重取。ctx 取消发生于睡眠中:
+			// 以 parked 状态返回(held=false), 调用方 defer release() 幂等跳过,
+			// 不重复归还他人槽位
+			if slot != nil {
+				slot.park()
+			}
 			if err := util.SleepCtx(ctx, d); err != nil {
 				return err
+			}
+			if slot != nil {
+				if err := slot.resume(ctx); err != nil {
+					return err
+				}
 			}
 			continue
 		}
@@ -348,6 +363,58 @@ func (g *hostGate) clearRateLimitStrikes() {
 	g.mu.Lock()
 	g.rlStrikes = 0
 	g.mu.Unlock()
+}
+
+// ---------------- 全局在飞槽所有权(长睡眠期归还, [R73-a]) ----------------
+
+// globalSlot rawFetch 对全局并发槽的所有权句柄([R73-a] R72-a 留档设计层正面处理):
+// 修前 rawFetch 从 select 进槽到 defer 出槽全程持槽, host 闸限流冷却窗(≤120s)与
+// 重试退避(≤8s)的睡眠都在全局闸临界区内 —— 主 host 被限流时 GlobalConcurrency 个槽
+// 可全部睡在同一 host 闸上, 同任务镜像域/异 host 流量在窗内被饿(宿主怠工全队停摆)。
+// 修后长睡眠前 park 归还槽、醒来 resume 重取: 槽只在实际做 I/O 时被持有, 睡眠请求
+// 不占全局容量。所有权单线程: 句柄仅由发起 rawFetch 的 goroutine 触碰(acquire 的
+// 冷却分支/park/resume/release 全在同 goroutine 内联执行), held 无需同步原语。
+//
+// 死锁面评估(与 R51-2-b 嵌套闸死锁修复的加锁序耦合): ①park 是「已持令牌的即时
+// 接收」(缓冲信道收自有令牌, 永不等待); ②resume 是带 ctx 的发送, 等待对象为其他
+// 在飞请求完成释放槽位 —— 在飞请求均有超时上界(请求 timeout/拨号 15s/退避 ≤8s,
+// 冷却睡眠已 park 不占槽), 不构成等待环; ③本句柄不新增任何嵌套获取(R51-2-b 修复
+// 的「持闸抢闸」形态未出现: park/resume 期间不持有 host 闸票也不持有 g.mu), 与
+// 既有锁序(globalSem → g.mu 叶子锁)无交互。
+type globalSlot struct {
+	c    *Client
+	held bool
+}
+
+// park 归还全局槽(睡眠前调用; 未持槽时幂等)
+func (s *globalSlot) park() {
+	if s.held {
+		<-s.c.globalSem
+		s.held = false
+	}
+}
+
+// resume 重取全局槽(带 ctx; 已持槽时幂等)。ctx 取消时保持 parked 状态返回,
+// 调用方 defer release() 见 held=false 不重复归还(不超收他人槽位)
+func (s *globalSlot) resume(ctx context.Context) error {
+	if s.held {
+		return nil
+	}
+	select {
+	case s.c.globalSem <- struct{}{}:
+		s.held = true
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// release 终态归还(rawFetch defer 出口; 未持槽时幂等)
+func (s *globalSlot) release() {
+	if s.held {
+		<-s.c.globalSem
+		s.held = false
+	}
 }
 
 // ---------------- SSRF 守卫 ----------------
@@ -1146,9 +1213,16 @@ func (c *Client) FetchBinary(ctx context.Context, rawURL, refererURL string) ([]
 	// [R69-a] HTML 壳守卫: 200 拦截壳/错误页经 mirror 切换或挑战链仍可能以 200+HTML
 	// 穿出, base64 后即 corrupt 封面。仅拒「Content-Type 声明 HTML 且非位图魔数」形态
 	// (滑头源站以 text/html 送真图的形态经魔数豁免放行, 零误伤位图)
+	// [R73-a] 守卫面扩到全部非图片声明形态: text/*(html/plain 壳)与 application/*
+	// (JSON 壳挑战 application/json、octet-stream 壳)且无位图魔数 → 拒收 — WAF 对
+	// 图片路径同样回非图片拦截壳(JSON 错误信封/文本壳), 修前仅 text/html 被拒,
+	// application/json 拦截壳仍被 base64 成 corrupt 封面。位图魔数豁免保留: 真图
+	// 被任何声明形态(octet-stream/text)送出时放行; image/*(svg)与空 CT 既有口径不变
 	ct := strings.ToLower(res.contentType)
-	if strings.Contains(ct, "text/html") && !isImageMagic(res.body) {
-		return nil, "", fmt.Errorf("封面地址返回 HTML 壳(拦截/错误页), 不作为图片入库(%s)", util.Truncate(res.contentType, 60))
+	if !isImageMagic(res.body) &&
+		(strings.HasPrefix(ct, "text/") || strings.HasPrefix(ct, "application/")) {
+		return nil, "", fmt.Errorf("封面地址返回非图片拦截壳(%s), 不作为图片入库(%s)",
+			util.Truncate(res.contentType, 60), util.Truncate(string(res.body), 40))
 	}
 	return res.body, res.contentType, nil
 }
@@ -1269,12 +1343,16 @@ func (c *Client) rawFetch(ctx context.Context, rawURL, refererURL string, direct
 	}
 
 	// 全局在飞闸(契约 §4: globalConcurrency 缺省 10, 跨 host 共享总量上限)
+	// [R73-a] 槽所有权句柄化: 冷却窗/重试退避的长睡眠经 park/resume 归还与重取,
+	// 睡眠请求不占全局容量(R72-a 留档的镜像域饿死面)
+	slot := &globalSlot{c: c}
 	select {
 	case c.globalSem <- struct{}{}:
-		defer func() { <-c.globalSem }()
+		slot.held = true
 	case <-ctx.Done():
 		return rawResult{}, ctx.Err()
 	}
+	defer slot.release()
 	primaryHost := ""
 	primaryHostname := "" // [R53-2a] 剥端口 hostname(TS new URL(url).hostname 口径) — mirrorSticky 键基
 	if u, err := url.Parse(reqURL); err == nil {
@@ -1310,7 +1388,7 @@ func (c *Client) rawFetch(ctx context.Context, rawURL, refererURL string, direct
 	// 其他请求被无谓阻塞; defer 按 gateHeld 精确释放一次, 防 acquire 中断路径重复 release
 	gate := c.gateFor(primaryHost)
 	gateHost := primaryHost
-	if err := gate.acquire(ctx); err != nil {
+	if err := gate.acquire(ctx, slot); err != nil {
 		return rawResult{}, err
 	}
 	gateHeld := true
@@ -1334,7 +1412,7 @@ func (c *Client) rawFetch(ctx context.Context, rawURL, refererURL string, direct
 		// pacing 汇聚点, 错误路径的无条件 release 还会超发闸票(他人 acquire 的空位被
 		// 多放一票)。统一「进 attempt 前置闸」不变式, 换闸分支只负责切归属。
 		if !gateHeld {
-			if err := gate.acquire(ctx); err != nil {
+			if err := gate.acquire(ctx, slot); err != nil {
 				return rawResult{}, err
 			}
 			gateHeld = true
@@ -1368,8 +1446,9 @@ func (c *Client) rawFetch(ctx context.Context, rawURL, refererURL string, direct
 			lastErr = err
 			var httpErr *httpStatusError
 			if errors.As(err, &httpErr) {
-				if httpErr.code == 404 || httpErr.code < 400 {
-					// 404/3xx: 换镜像无意义, 直接返回错误(TS 镜像 404 不切换口径)
+				if httpErr.code == 404 || httpErr.code < 400 || deterministicClientError(httpErr.code) {
+					// 404/3xx 终态/确定性 4xx: 换镜像无意义且重试零胜率, 直接返回
+					// 错误(TS 镜像 404 不切换口径; [R73-a] 确定性 4xx 快速失败)
 					return rawResult{}, err
 				}
 				// [R53-2a](400 壳不喂降额链) 其余非 403/429 的 4xx: 同候选退避重试已按下方
@@ -1399,10 +1478,17 @@ func (c *Client) rawFetch(ctx context.Context, rawURL, refererURL string, direct
 			if a == attempts-1 {
 				break
 			}
+			// [R73-a] 退避睡眠期间归还全局槽(与冷却窗同口径: 睡眠不占全局并发容量
+			// —— 持续 429 场景「退避 ≤8s 持槽 + 冷却 ≤120s 停槽」, 长睡眠不再霸占
+			// 全局槽位)。醒后 resume 重取再过闸
+			slot.park()
 			_ = util.SleepCtx(ctx, boff+backoffJitter(boff))
+			if err := slot.resume(ctx); err != nil {
+				return rawResult{}, err
+			}
 			// 醒后重过闸(R51-3-a ⑥ 语义合并于此): acquire 内单 timer 阻塞等待, 尊重
 			// Retry-After 冷却窗与 minGap 节奏 —— 429 后立刻重发只会再次撞限流
-			if err := gate.acquire(ctx); err != nil {
+			if err := gate.acquire(ctx, slot); err != nil {
 				return rawResult{}, err
 			}
 			gateHeld = true
@@ -1443,6 +1529,20 @@ func (r rawResult) bodyText() string { return string(r.body) }
 type httpStatusError struct{ code int }
 
 func (e *httpStatusError) Error() string { return fmt.Sprintf("HTTP %d", e.code) }
+
+// deterministicClientError 确定性客户端错误([R73-a] 重试语义收敛): 与 cookie/token/
+// 挑战状态无关、由请求形态或资源自身决定的 4xx —— 同候选重试零胜率(退避不改变请求),
+// 修前烧满 1+Retries 次尝试与 400ms×2^a 退避链(Retries=5 即单 URL ~12.4s 纯等待+
+// 5 个必败请求打向源站, 恰是反反爬最忌讳的确定性失败重放); 修后与 404 同款快速失败
+// (镜像不切换, sticky 不清)。403/429(WAF/限流)/408(超时)/412/425(cookie·挑战面,
+// Set-Cookie 已入 jar 重试可过关)等状态保持既有重试语义零变化
+func deterministicClientError(code int) bool {
+	switch code {
+	case 400, 401, 405, 410, 414, 431, 451:
+		return true
+	}
+	return false
+}
 
 // proxyChannelError 代理通道层失败(经代理出口的拨号/连接未成功, 无 HTTP 状态):
 // [R53-2a](审计 R52-c「代理误责」) client.Do 失败且本次走了代理时打标 —— 代理通道故障
@@ -1562,7 +1662,12 @@ func (c *Client) doOnce(ctx context.Context, rawURL, refererURL string, extraHea
 	// [R71-a](子资源指纹) Upgrade-Insecure-Requests 是导航请求专属的 https 升级信号
 	// —— 真实浏览器 <img> 子资源请求从不携带(修前封面请求上 UIR 与 Sec-Fetch-Dest:image
 	// 同现, 服务端按头组交叉比对即识破非浏览器流量; 文档导航路径零变化)
-	if !binary {
+	// [R73-a](指纹一致性) UIR 同时是 Chromium/Firefox 系专属信号: WebKit/Safari 至今
+	// 不实现该头(caniuse 全系不支持, WebKit bug 173174 长期未决) —— Safari UA 的文档
+	// 导航携带 UIR 即「不可能指纹」(UA 池缺省模式含 3 条 Safari 条目, 逐请求交叉比对
+	// 可识破; 与 [R71-a] cfg.headers 覆写 UA 后按线上 UA 家族化头组的口径同理, 此处按
+	// 家族收敛)。chromium/firefox/unknown 家族保持既有口径零变化
+	if !binary && uaFamily(ua) != "safari" {
 		req.Header.Set("Upgrade-Insecure-Requests", "1")
 	}
 	// Referer 解析提前(指纹 Sec-Fetch-Site 依赖生效 Referer)

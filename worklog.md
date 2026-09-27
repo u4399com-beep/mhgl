@@ -727,3 +727,54 @@ Stage Summary:
 - 四条指令交付: ①纯 Go 链路维持+沙箱运维机制实证归档(recover.sh 派生写法为唯一逃逸路径) ②10 真虫修复+1 反反爬增强+1 噪声增强(全带回归, 三方甄别合入) ③全库调试残留/TODO 清零 ④推送 origin/main
 - 移交 R73: git token 轮换持续提醒; rawFetch 全局闸与 host 闸锁序问题(a 留档设计层); 纯 www 无 scheme 标题形态(R71 移交, 现实样本未见)
 - [推送插曲补录] R71 收尾存在伪对齐遗留: 远端实为 f4c352d(旧 R71), 本地 897b2c5(amend 加 3 covers)从未真正推上去而 update-ref 已对齐 → 本轮 R72 首推 non-fast-forward 被拒; 处置: fetch 验证两 R71 仅差 3 张 covers → rebase --onto f4c352d 897b2c5(R72 重放为 d7a55de) + checkout 补齐 3 covers(2f396db) → fast-forward 推送成功+fetch 反向校验严格对齐; 纪律升级: update-ref 前必须先 fetch 核对远端真实头, 禁在推送成功前 update-ref
+---
+Task ID: R73-c
+Agent: R73-c
+Work Log:
+- 开局: worklog R71/R72 六条目通读防重复; 门禁基线(gofmt/vet/build/17包 test)全绿; 领土 internal/{stealth,auth,store,bootstrap,config} 逐行审读
+- [真虫①] tokenizer raw text 元素集缺 xmp/noembed/noframes/iframe/plaintext: HTML5 "in body" 插入模式下这五个开标签同样触发 generic raw text 解析(浏览器对内容不做标记/实体解析), 修前其内容被当普通标记+文本 — 转码/低频实体化把 xmp/plaintext(渲染型 raw text, 内容按字面显示)内的 CJK/ASCII 改写成 &#x4f60; 形态 → 浏览器字面显示实体文本(可见漂移, 探针实证 changed=true 输出含 &#x4f60;好&#19990;); iframe/noembed/noframes(非渲染)同口径修复防 harvested 字节区错位。修法: rawElems 收编四元素(findRawEnd </name 扫描即规范 RAWTEXT 结束口径); plaintext 特判 — PLAINTEXT tokenizer 状态后到 EOF 全部 raw(规范无 </plaintext> 概念, findRawEnd 不适用), noInsert 同步覆盖。回归: r73c_test.go TestR73c_TokenizerRawTextElems_Passthrough(五容器内容区逐字节不变+往返恒等)
+---
+Task ID: R73-a
+Agent: R73-a
+Task: [虫①] R72-a 留档设计层正面处理 — rawFetch 全局槽在 host 闸冷却窗/重试退避长睡眠期间被整批睡死(镜像域饿死面)
+Work Log:
+- [R72-a 留档原文] rawFetch 先取全局并发闸后过 host 闸: 主 host 限流冷却窗(≤120s)睡眠期间持有全局槽, 同任务镜像域流量在窗内被饿(全局槽 ≤10 全睡在同一 host 闸); 修法须避开 R51-2-b 嵌套闸死锁的加锁序耦合
+- [修法: 槽所有权句柄化(park/resume), 非「闸外预检」亦非「先降级占位再睡」的混合体] fetch.go 新增 globalSlot{c,held} 句柄: rawFetch 进全局闸后 defer slot.release() 替代裸 defer <-globalSem; hostGate.acquire 增 slot 形参 — 冷却窗睡眠(≤120s 长睡眠)前 slot.park() 归还、醒后 slot.resume(ctx) 重取再 continue; rawFetch 重试退避睡眠(≤8s+抖动)同款 park/SleepCtx/resume(与 R52-5「退避前释放 host 闸」同点位)。minGap 节奏睡眠(≤3s)与槽位满 20ms 轮询保持持槽既有口径(短等待属在飞计量, 逐请求 park/resume 徒增 churn 无饿死收益)
+- [死锁面设计取舍] ①park=已持令牌的即时接收(缓冲信道收自有令牌, 永不等待, 不构成请求点); ②resume=带 ctx 的发送, 等待对象为其他在飞请求完成释放槽位 — 在飞请求均有超时上界(请求 timeout/拨号 15s/退避 ≤8s, 冷却睡眠已 park 不占槽), 不构成等待环; ③不新增嵌套获取: park/resume 期间不持有 host 闸票也不持有 g.mu(R51-2-b「持闸抢闸」形态未出现), 既有锁序 globalSem→g.mu(叶子)无交互; ④取消面: 冷却睡眠/退避睡眠中被 ctx 取消 → 以 parked 状态返回(held=false), defer release() 幂等跳过, 不重复归还他人槽位(测试②钉死); ⑤句柄单线程所有权: acquire/park/resume/release 全由发起 rawFetch 的 goroutine 内联执行, held 无需同步原语
+- [回归(修前/修后可构造对照)] r73a_test.go: TestR73aCooldownParkReleasesGlobalSlot(GlobalConcurrency=1, A 闸 600ms 冷却窗, B 异 host 在 A 睡眠期完成 — 探针实证修前 B 饿 452ms FAIL/修后 ms 级过) + TestR73aBackoffParkReleasesGlobalSlot(A 首击 500 进 400ms 退避, B 窗内完成 — 修前 335ms FAIL/修后过) + TestR73aCancelWhileParkedNoSlotLeak(parked 状态被 ctx 300ms 取消, 后续 GlobalConcurrency=1 请求 2s 内完成 — 槽位不丢失不超收); 全部 -race 通过; fetch 包全量 32.8s 绿
+- [真虫②] pseudoTokens 非法 UTF-8 字节保真缺口(R72-c 三函数修复的漏网第四处): 替换落地走整串 []rune 归一 + string() 重建 —— 同节点含非法 UTF-8 字节(采集残留 GBK 碎片/截断序列 F0 9F 41 等)且任一同义词命中时, 非法字节被逐字节展开为 U+FFFD 串(浏览器按 Unicode 最大子部分折叠渲染 1 个替换符, 修前展开多个 → 可见外观漂移; 探针 F0 9F 41 样本 500/500 轮复现: 浏览器 1 替换符+“A”, 修前 2 替换符+“A”)。修法: spliceRuneRanges 单遍 DecodeRuneInString 字节游走替换(命中区间换词、非命中区间原始字节照抄; 非法字节恒 1 字节 1 rune 与 []rune 匹配下标一一对应), 抽样/RNG 调用序不变。探针修后 0/500 腐蚀且 500/500 轮仍有替换(行为保真)
+---
+Task ID: R73-a
+Agent: R73-a
+Task: [虫②] Safari UA 文档导航携带 Upgrade-Insecure-Requests — WebKit 全系不实现 UIR 的「不可能指纹」
+Work Log:
+- [真虫] doOnce 文档导航路径对全家族恒发 Upgrade-Insecure-Requests: 1 — UIR 是 Chromium(43+)/Firefox(42+) 系导航专属 https 升级信号, WebKit/Safari 至今不实现(caniuse 全系不支持, WebKit bug 173174 长期未决), Safari UA 上携带即 UA×头组交叉比对的「不可能指纹」; UA 池缺省模式含 3 条 Safari 条目(iPhone 17.4/18.4 + iPad 17.4)且镜像 Safari 桌面 UA 同族, 命中面为全部 Safari-UA 请求。与 [R69-a](子资源不带 UIR)/[R71-a](cfg.headers 覆写 UA 后按线上 UA 家族化头组)同族口径收敛
+- [修法] fetch.go doOnce: `if !binary && uaFamily(ua) != "safari"` 才发 UIR; chromium/firefox/unknown 家族零变化(unknown=非三族 custom UA, 保守保持既有)
+- [回归] r73a_test.go TestR73aSafariUANoUpgradeInsecureRequests: Safari 18.4 UA 文档导航 UIR 缺席 + Sec-Fetch-Dest=document 保持(R67-a Safari≥16.4 发 Fetch Metadata 口径不误伤) + Chrome 143 UA UIR=1(R71-a 文档路径零变化回归); fetch 包全量绿
+---
+Task ID: R73-a
+Agent: R73-a
+Task: [虫③] 确定性 4xx(400/401/405/410/414/431/451) 烧满重试链 — 重试语义收敛(快速失败)
+Work Log:
+- [真虫] rawFetch 重试链对确定性客户端错误按既有路径重试: 与 cookie/token/挑战状态无关、由请求形态或资源自身决定的 4xx(400/401/405/410/414/431/451), 同候选退避重试零胜率(退避不改变请求, token 也按 rawFetch 粒度预取、重试间不刷新) — Retries=5 时单 URL ~12.4s 纯退避等待+5 个必败请求重放打向源站(恰是反反爬最忌讳的确定性失败重放), 全书级任务(URL scheme 变更→400/405、下架→410)即万次必败请求+小时级虚耗; 404 已有快速失败, 本族补齐
+- [修法] fetch.go rawFetch: httpStatusError 分支 `code==404 || code<400 || deterministicClientError(code)` 直接返回(与 404 同款: 镜像不切换、sticky 不清); deterministicClientError 白名单 {400,401,405,410,414,431,451}。403/429(WAF/限流面)/408(超时)/412/425(cookie·挑战面 — 首击 Set-Cookie 已入 jar, 重试带证可过关)及全部 5xx/网络层失败保持既有重试语义零变化; noteFailure 仍计一次(TS reportHostFailure 对非 2xx 全量口径不变)
+- [回归] r73a_test.go TestR73aDeterministic4xxFastFail(410 + Retries=3 + 镜像域: 恰好 1 次主 host 请求/0 次镜像请求/错误面 httpStatusError{410}/快速失败) + TestR73aRetryable412StillRetried(412 + Retries=1: 恰好 2 次尝试 — 可重试 4xx 不被快速失败误伤的边界钉子); fetch 包全量绿
+- [真虫③] config GO_ENV 生产判定大小写/别名绕过 fail-closed: 修前恒等比较 "production" —— GO_ENV=Production/PRODUCTION/prod 的部署(大小写笔误/简写)被当 dev, ADMIN_PASSWORD/SESSION_SECRET 缺失时静默启用公开缺省密码(audit-fix-2025)+固定会话密钥(heis-session-secret-fixed-2025), 与头注"生产缺失一律 fail-closed"承诺矛盾。修后 ToLower+收编 "prod" 别名。回归: config_test.go 3 测试(6 变体 fail-closed/dev 缺省/显式覆盖+MEM_LIMIT_MB 畸形数字+COOKIE_SECURE 布尔变体+PORT/路径缺省)
+---
+Task ID: R73-main
+Agent: main-controller
+Task: R73 五条收口(繁转简全链路+sitemap 三段分片+三 agent 甄别+门禁+E2E+推送)
+
+Work Log:
+- 开局: R72 已推送(2f396db)+平台快照提交 6868ba4(covers 4 张, 无害); 服务被平台 init 链拉起(PID 916, 上轮预览挂=沙箱重置空窗); 三任务 bootstrap 重播种 ID 全变(旧 ID start 返回"任务不存在"→ API 实查新 ID 启动)
+- [R73-1 繁转简主控亲做] internal/t2s 新包: 零依赖位置扫描转换器(词组臂最长优先+单字臂, 词组保护乾隆/乾坤/狼藉, 著zhe→着/瞭解/答覆 词级, 两岸词汇归一 軟體→软件等 45 词组); 字典内嵌 const ~960 单字对(原则"宁缺勿错" — 简体文本恒等零变化, 非法 UTF-8 字节保真); 覆盖探针两轮 530 高频繁体字实测 miss→0(瞭 按设计词组级); 字典解析 3 虫修复(CJK byte 长度误判 4→rune 口径/占位对 撤同晚同盛同混入/儂侂错映射)
+- 接入: bridge 三落库点(Book: 书名/作者/简介/分类/状态/最新章 — 清洗后转换保证智能分类/完结初判/同名合并全消费简体; Chapters: 就地转换 Items 标题/卷名两分支共用; Contents: 正文清洗后转换) + 开关 crawlT2S("1"/"0" 与 stealth 键家族同口径, 60s TTL 惰性刷新, 默认开) + protectedSettingKeys + admin 语义卡(HTML+JS 载入/保存) + 回归 4 测试(转换生效/开关直通复位/简体恒等/章节卷名正文)
+- [R73-3 sitemap 主控亲做] 审计发现既有 API 轨缺陷: 默认入口硬截断 5000 书+5000 章/?index 混排 books+chapters 且 lastmod=now() 伪值/空库也产空片; 升级: 默认入口 → <sitemapindex> 三段分片(type=static/books/chapters, 每段 ceil(count/5000) 自动切页, 空段不列) + 子片行级 lastmod(真实变更信号) + lastmod 空值省略(协议要求 W3C datetime 非空) + site 参数分隔符统一判定(修 & 裸露与双 ? 两轮畸形) + JOIN 下 ORDER BY updatedAt 歧义列名虫(c. 限定, 静默吞错致空片); 旧 ?page/?index 形态保持兼容; robots.txt Sitemap 行既有; 回归 5 测试+2 既有测试更新至新契约
+- [R73-0b] dev-watchdog.sh start_dev 升级逃逸写法(子壳+nohup+</dev/null, R72 实证唯一逃逸路径)
+- [R73-2 断连甄别] 三 agent 全断连但产出全留存: a=4 项(globalSlot 句柄化修 R72 留档全局闸饿死面 — park/resume 死锁面五点论证 -race 全过/Safari UIR 不可能指纹/确定性 4xx 快速失败 400/401/405/410/414/431/451/FetchBinary 守卫扩 text/*/application*/config GO_ENV fail-closed 大小写别名), c=2 项(tokenizer raw text 元素集补 xmp/noembed/noframes/iframe/plaintext 五元素+plaintext EOF 特判/pseudo 退化对 清 临时|且时 显然|明晰+spliceRuneRanges 非法字节第四处保真), b=草稿探针仅留 — 主控补刀 b 的 DB 复采缺口(样本 /tmp/r73b/ch296.txt): readx; 指纹段新模式/笔％趣％阁 全角％隔符/手打行段壳回归钉子, 探针转正 r73b_test.go 内联构造+防误伤反例; c 探针 B/C/D 转正 r73c2_test.go(hex/dec 分布/高密度纯插入性/raw text 全集)
+- 门禁: gofmt 零/vet 零/19 包 test 全绿(fetch 32.8s); 换装插曲: 首次重启旧进程占 :3000(新进程 bind 失败退出, curl 打到旧进程出旧形态输出) → kill 后逃逸重启 ✓
+- E2E: /sitemap.xml → sitemapindex(static+books1+chapters3, lastmod 真实, &amp; 转义, 空 lastmod 省略); 浏览器(:81): 首页 91 链接零错误/阅读页 isPagebg=true 87 段落(R67-fix 在位)/375px scrollW=375 零溢出; admin settings API crawlT2S 读写复位闭环; 三采集任务全部完成(9415+1365+2499=13279 章实战走 R73 代码含 t2s)
+
+Stage Summary:
+- 五条交付: ①预览恢复+纯 Go 维持+watchdog 逃逸化 ②繁转简全链路(t2s 包+三落库点+开关+admin 卡, 实战 13279 章验证) ③10 真虫修复+sitemap 审计 3 缺陷修复+清洗 3 缺口补刀(全带回归) ④sitemap 三段式分片 index 标准形态 ⑤精简(草稿探针转正/零残留)
+- 移交 R74: git token 轮换持续提醒(ghp_SYO... 暴露); t2s 字典可继续扩充(OpenCC TSCharacters 全量); 纯 www 无 scheme 标题形态(R71 移交维持保守); rawFetch 锁序已修(globalSlot)但需实战观察

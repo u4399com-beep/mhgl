@@ -254,6 +254,8 @@ var protectedSettingKeys = map[string]bool{
 	"stealth.obfuscate": true, "stealth.transcode": true, "stealth.transcode.mode": true,
 	"stealth.interfere": true, "stealth.interfere.mode": true, "stealth.interfere.density": true,
 	"stealth.pseudo": true, "stealth.pseudo.seed": true, "book.volume.show": true,
+	// [R73-1] 繁转简开关(代码内读点: internal/crawl/bridge t2sEnabled; 删除即回默认开)
+	"crawlT2S": true,
 }
 
 // (d Deps) adminSettingDelete DELETE /api/admin/settings/{key} — [R67-c] R66-c 审查发现⑤。

@@ -12,6 +12,7 @@
 package api
 
 import (
+	"database/sql"
 	"fmt"
 	"io"
 	"net/http"
@@ -274,6 +275,9 @@ func (d Deps) publicSitemap(w http.ResponseWriter, r *http.Request) {
 	// (合法取值 ≤4 位数字; 截断不改变 parsePositiveInt 的 1e9 钳制结果)。
 	pageParam := strOf(q.Get("page"), 12)
 	indexParam := strOf(q.Get("index"), 12)
+	// [R73-3] type 分片选择器: static/books/chapters(默认入口 sitemapindex 的子片;
+	// 每片 ≤5000 URL 符合协议单文件上限), 与旧 page/index 形态共存。
+	typeParam := strings.TrimSpace(strOf(q.Get("type"), 12))
 
 	scheme := "http"
 	if r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
@@ -296,7 +300,7 @@ func (d Deps) publicSitemap(w http.ResponseWriter, r *http.Request) {
 	preset := d.DB.APIPseudoPreset()
 	siteQ := d.siteQOf(siteID)
 
-	cacheKey := base + "|page=" + pageParam + "|index=" + indexParam + "|site=" + siteID + "|preset=" + preset
+	cacheKey := base + "|page=" + pageParam + "|index=" + indexParam + "|type=" + typeParam + "|site=" + siteID + "|preset=" + preset
 	now := store.NowMS()
 	sitemapCacheMu.Lock()
 	if cached, ok := sitemapCache[cacheKey]; ok && now-cached.ts < sitemapCacheTTL {
@@ -309,6 +313,60 @@ func (d Deps) publicSitemap(w http.ResponseWriter, r *http.Request) {
 
 	var xml string
 	switch {
+	case typeParam != "":
+		// [R73-3] 分片子片: ?type=static|books|chapters → urlset(默认入口 sitemapindex
+		// 的子片; ?page=N 覆写片内页码)。lastmod = 行级 updatedAt(真实变更信号)。
+		page := 1
+		if p, err := parsePositiveInt(pageParam); err == nil {
+			page = minInt(maxInt(1, p), sitemapMaxPages)
+		}
+		entries := []string{}
+		switch typeParam {
+		case "static":
+			entries = append(entries, sitemapURLEntry(appendSiteQ(base+"/", siteQ), 0, "daily", "1.0"))
+			entries = append(entries, d.sitemapStaticEntries(base, siteQ)...)
+			entries = append(entries, d.pseoSitemapEntries(base, siteQ)...)
+		case "books", "chapters":
+			skip := (page - 1) * sitemapPageSize
+			if skip < 0 {
+				skip = 0
+			}
+			freq, prio := "daily", "0.8"
+			table, cols, join, order := `"Book"`, `id,num,updatedAt`, "", ` ORDER BY updatedAt DESC`
+			if typeParam == "chapters" {
+				table, cols = `"Chapter" c`, `c.id,c.idx,c.updatedAt,b.num AS bNum`
+				join = ` LEFT JOIN "Book" b ON b.id=c.bookId`
+				// [R73-3] JOIN 下 updatedAt 两表同名 → 必须 c. 限定(歧义列名查询报错,
+				// 静默吞错后 entries 为空片)
+				order = ` ORDER BY c.updatedAt DESC`
+				freq, prio = "weekly", "0.6"
+			}
+			rows, _ := d.DB.QueryMaps(`SELECT `+cols+` FROM `+table+join+order+
+				` LIMIT ? OFFSET ?`, sitemapPageSize, skip)
+			for _, row := range rows {
+				if typeParam == "chapters" {
+					loc := d.chapterLoc(base, store.ToInt(row["bNum"]), store.ToInt(row["idx"]), store.ToStr(row["id"]), preset)
+					entries = append(entries, sitemapURLEntry(appendSiteQ(loc, siteQ), store.ToInt(row["updatedAt"]), freq, prio))
+					continue
+				}
+				loc := buildBookPath(store.ToInt(row["num"]), preset)
+				if loc == "" {
+					loc = "/?view=book&id=" + urlQueryEscape(store.ToStr(row["id"]))
+				}
+				entries = append(entries, sitemapURLEntry(appendSiteQ(base+loc, siteQ), store.ToInt(row["updatedAt"]), freq, prio))
+			}
+		default:
+			// 未知 type → 空集(合法空 urlset, 不 500 不缓存垃圾)
+			entries = nil
+		}
+		var sb strings.Builder
+		sb.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n")
+		sb.WriteString(`<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">` + "\n")
+		for _, e := range entries {
+			sb.WriteString(e + "\n")
+		}
+		sb.WriteString("</urlset>")
+		xml = sb.String()
 	case pageParam != "":
 		// ?page=N → 该页 <urlset>(take:5000, skip:(N-1)*5000, books+chapters 合并分页)
 		page := 1
@@ -342,38 +400,44 @@ func (d Deps) publicSitemap(w http.ResponseWriter, r *http.Request) {
 		sb.WriteString("</sitemapindex>")
 		xml = sb.String()
 	default:
-		// 无 ?page/无 ?index → 单页 urlset: 首页 + 视图页/分类 + PSEO + books 5000 + chapters 5000
-		// (books/chapters 独立查询, 互不挤占名额, 对齐 TS legacy 形态)
-		// [R67-c] 双轨统一(R66-c 审查发现): 补齐原 web /sitemap.xml 独有面
-		// (全站书库/排行榜/分类), 本轨成为唯一生成器(web 层 301 重定向至此)。
-		entries := []string{}
-		homeLoc := base + "/?view=home"
-		if siteQ != "" {
-			homeLoc = base + "/?" + siteQ
-		}
-		entries = append(entries, sitemapURLEntry(homeLoc, 0, "daily", "1.0"))
-		entries = append(entries, d.sitemapStaticEntries(base, siteQ)...)
-		entries = append(entries, d.pseoSitemapEntries(base, siteQ)...)
-		books, _ := d.DB.QueryMaps(`SELECT id,num,updatedAt FROM "Book" ORDER BY updatedAt DESC LIMIT ?`, sitemapPageSize)
-		for _, b := range books {
-			loc := buildBookPath(store.ToInt(b["num"]), preset)
-			if loc == "" {
-				loc = "/?view=book&id=" + urlQueryEscape(store.ToStr(b["id"]))
-			}
-			entries = append(entries, sitemapURLEntry(appendSiteQ(base+loc, siteQ), store.ToInt(b["updatedAt"]), "daily", "0.8"))
-		}
-		chs, _ := d.DB.QueryMaps(`SELECT c.id,c.idx,c.updatedAt,b.num AS bNum FROM "Chapter" c
-LEFT JOIN "Book" b ON b.id=c.bookId ORDER BY c.updatedAt DESC LIMIT ?`, sitemapPageSize)
-		for _, c := range chs {
-			entries = append(entries, sitemapURLEntry(appendSiteQ(d.chapterLoc(base, store.ToInt(c["bNum"]), store.ToInt(c["idx"]), store.ToStr(c["id"]), preset), siteQ), store.ToInt(c["updatedAt"]), "weekly", "0.6"))
-		}
+		// [R73-3] 无参 → <sitemapindex>: 三段分片(static/books/chapters, 每段按
+		// 5000/片自动切页)。修前默认单页 urlset 硬截断 5000 书+5000 章 —— 大库
+		// 大量 URL 对搜索引擎不可见; index+分片是 sitemap 协议的标准展开形态。
+		// 子片 lastmod 取全段 max(updatedAt)(真实内容变更信号, 非 now 伪值)。
+		// [R73-3] site 参数分隔符由 writeSitemap 统一判定(loc 含 ? 用 &, 否则用 ?;
+		// 修前固定 & 前缀产出裸 & 非法, 固定 ? 前缀产出双 ? 非法)
 		var sb strings.Builder
 		sb.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n")
-		sb.WriteString(`<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">` + "\n")
-		for _, e := range entries {
-			sb.WriteString(e + "\n")
+		sb.WriteString(`<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">` + "\n")
+		writeSitemap := func(loc string, lm string) {
+			if siteQ != "" {
+				sep := "?"
+				if strings.Contains(loc, "?") {
+					sep = "&"
+				}
+				loc += sep + siteQ
+			}
+			// lastmod 空值省略(sitemap 协议要求 W3C datetime 非空, 对齐
+			// sitemapURLEntry 的空值省略口径); loc 整体 xmlEscape(&amp;)
+			lmPart := ""
+			if lm != "" {
+				lmPart = "<lastmod>" + lm + "</lastmod>"
+			}
+			sb.WriteString("  <sitemap><loc>" + xmlEscape(loc) + "</loc>" + lmPart + "</sitemap>\n")
 		}
-		sb.WriteString("</urlset>")
+		writeSitemap(base+"/api/public/sitemap?type=static",
+			d.sitemapSegLastmod(`SELECT max(updatedAt) FROM "PseoPage" WHERE status='active'`))
+		bookPages := d.segPages(`SELECT count(*) FROM "Book"`)
+		bookLM := d.sitemapSegLastmod(`SELECT max(updatedAt) FROM "Book"`)
+		for i := 1; i <= bookPages; i++ {
+			writeSitemap(fmt.Sprintf("%s/api/public/sitemap?type=books&page=%d", base, i), bookLM)
+		}
+		chPages := d.segPages(`SELECT count(*) FROM "Chapter"`)
+		chLM := d.sitemapSegLastmod(`SELECT max(updatedAt) FROM "Chapter"`)
+		for i := 1; i <= chPages; i++ {
+			writeSitemap(fmt.Sprintf("%s/api/public/sitemap?type=chapters&page=%d", base, i), chLM)
+		}
+		sb.WriteString("</sitemapindex>")
 		xml = sb.String()
 	}
 
@@ -427,6 +491,27 @@ func (d Deps) sitemapTotalPages() int {
 		return 1
 	}
 	return minInt(sitemapMaxPages, lastPage(total, sitemapPageSize))
+}
+
+// segPages [R73-3] 段页数: ceil(count/5000), 钳 sitemapMaxPages; count=0 → 0 页
+// (index 不列空段 —— 修前 index 恒列 page=1..totalPages, 空库也产出一个空片)。
+func (d Deps) segPages(countQ string) int {
+	n, _ := d.DB.Count(countQ)
+	if n <= 0 {
+		return 0
+	}
+	return minInt(sitemapMaxPages, lastPage(n, sitemapPageSize))
+}
+
+// sitemapSegLastmod [R73-3] 段 lastmod: max(updatedAt) → W3C datetime; 空表/无行 → ""。
+// (index 层 lastmod 语义 = 该段内容最近变更时间; 修前 ?index 用 time.Now() 每次请求
+// 都变 —— 搜索引擎的 lastmod 信号完全失真。)
+func (d Deps) sitemapSegLastmod(maxQ string) string {
+	var ms sql.NullInt64
+	if err := d.DB.QueryRow(maxQ).Scan(&ms); err != nil || !ms.Valid || ms.Int64 <= 0 {
+		return ""
+	}
+	return time.UnixMilli(ms.Int64).UTC().Format("2006-01-02T15:04:05Z")
 }
 
 // pseoSitemapEntries PSEO 关键词页 URL 条目(R27-2-7: 仅 active, 上限 2000, loc 百分号编码)。

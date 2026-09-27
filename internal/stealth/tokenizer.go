@@ -5,8 +5,9 @@
 //  1. 可靠区分 文本节点 / 标记(标签/注释/DOCTYPE) / 逐字节透传区,
 //     为伪装管线提供最小充分的 token 视图;
 //  2. 怪数据不 panic: 任何截断/嵌套错误/非法字节都以"保守透传"收场;
-//  3. raw text 元素(script/style/textarea)与 pre 内容、svg/math 整区
-//     一律单 token 逐字节透传 —— 转码/伪原创/实体化绝不进入这些区域;
+//  3. raw text 元素(script/style/textarea + [R73-c] xmp/noembed/noframes/
+//     iframe/plaintext)与 pre 内容、svg/math 整区一律单 token 逐字节透传
+//     —— 转码/伪原创/实体化绝不进入这些区域;
 //  4. 与浏览器解析口径对齐的关键点: "<" 后非标签起始字符按字面文本处理、
 //     注释/伪注释吞到 EOF、属性值引号内的 ">" 不结束标签、非引号属性值
 //     中的 "/" 属于值本身(script/style 的自闭合写法按规范忽略)。
@@ -49,7 +50,12 @@ type token struct {
 
 // rawElems 内容按 raw text 逐字节透传的元素(script/style 为 HTML 规范
 // raw text, textarea 为 RCDATA, pre 按任务约定整块 passthrough)。
-var rawElems = map[string]bool{"script": true, "style": true, "textarea": true, "pre": true}
+// [R73-c] 补齐 HTML5 树构建器 raw text 全集: xmp/noembed/noframes/iframe 的
+// 开标签在 "in body" 插入模式同样触发 generic raw text 解析(浏览器对其中
+// 内容不做标记/实体解析) —— 修前这些容器内容被当普通标记/文本, 转码/实体化
+// 注入的 &#x…; 在 xmp/plaintext(渲染型 raw text)中按字面显示 → 可见漂移。
+var rawElems = map[string]bool{"script": true, "style": true, "textarea": true, "pre": true,
+	"xmp": true, "noembed": true, "noframes": true, "iframe": true}
 
 // rcdataOpen 内容仍是文本(可转码)但开标签后严禁插入字节的元素。
 var rcdataOpen = map[string]bool{"title": true}
@@ -185,13 +191,21 @@ func tokenize(src string) []token {
 			tk := token{kind: tokMarkup, data: src[i:j], name: name, self: self}
 			tk.known = knownTags[name]
 			tk.isVoid = voidElems[name]
-			tk.noInsert = rawElems[name] || rcdataOpen[name]
+			tk.noInsert = rawElems[name] || rcdataOpen[name] || name == "plaintext"
 			// HTML 规范: 自闭合标志仅 svg/math 外来元素生效; script/style/
 			// textarea 的 "/" 被浏览器忽略, 内容恒为 raw(防变换进脚本源)。
 			tk.isRawOpen = rawElems[name]
 			toks = append(toks, tk)
 			i = j
-			if tk.isRawOpen {
+			if name == "plaintext" {
+				// [R73-c] HTML5 PLAINTEXT tokenizer 状态: <plaintext> 之后到
+				// EOF 全部字节为 raw 文本(规范无 </plaintext> 结束概念, 浏览器
+				// 永不识别其闭标签; findRawEnd 的 </name 扫描在此不适用)。
+				if i < n {
+					toks = append(toks, token{kind: tokRaw, data: src[i:]})
+				}
+				i = n
+			} else if tk.isRawOpen {
 				endIdx := findRawEnd(src, i, name)
 				if endIdx > i {
 					toks = append(toks, token{kind: tokRaw, data: src[i:endIdx]})

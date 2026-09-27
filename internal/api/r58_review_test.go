@@ -240,7 +240,8 @@ func TestSitemapHugePageParamStillOK(t *testing.T) {
 	req = httptest.NewRequest("GET", "/api/public/sitemap", nil)
 	rec = httptest.NewRecorder()
 	d.publicSitemap(rec, req)
-	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "<urlset") {
-		t.Fatalf("default sitemap must 200 urlset, got %d", rec.Code)
+	// [R73-3] 默认入口升级为 sitemapindex(三段分片); urlset 语义移至 ?type= 子片
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "<sitemapindex") {
+		t.Fatalf("default sitemap must 200 sitemapindex, got %d", rec.Code)
 	}
 }

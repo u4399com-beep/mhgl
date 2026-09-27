@@ -134,7 +134,8 @@ func TestPublicSitemapIncludesViewsAndCategories(t *testing.T) {
 	must67(t)(d.DB.Exec(`INSERT INTO "Book" (id,num,name,updatedAt) VALUES ('bk1',1001,'书',1700000000000)`))
 	must67(t)(d.DB.Exec(`INSERT INTO "Chapter" (id,bookId,idx,title,content) VALUES ('ch1','bk1',1,'章','内容')`))
 
-	req := httptest.NewRequest("GET", "http://x.test/api/public/sitemap", nil)
+	// [R73-3] 默认入口 = sitemapindex; 视图/分类面移入 ?type=static 子片
+	req := httptest.NewRequest("GET", "http://x.test/api/public/sitemap?type=static", nil)
 	rec := httptest.NewRecorder()
 	d.publicSitemap(rec, req)
 	if rec.Code != http.StatusOK {
@@ -144,7 +145,6 @@ func TestPublicSitemapIncludesViewsAndCategories(t *testing.T) {
 	for _, want := range []string{
 		`/?view=fulltext`, `/?view=ranking`, `/?view=category&amp;cat=cat1`, // [R67-c] 并入面
 		`<loc>http://x.test/`, // 首页(loc 内容转义, 标签本身不转义)
-		`/book/1001.html`,     // 书籍面
 		`<changefreq>`,        // API 轨口径(changefreq 元素)
 	} {
 		if !strings.Contains(body, want) {

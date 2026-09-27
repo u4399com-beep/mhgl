@@ -33,6 +33,7 @@ import (
 	"mhgl/internal/crawl/smart"
 	"mhgl/internal/crawl/util"
 	"mhgl/internal/store"
+	"mhgl/internal/t2s"
 )
 
 // 常量(对齐 route.ts)
@@ -42,6 +43,7 @@ const (
 	bookNumRetryTimes  = 3                // withBookNumRetry P2002 重试
 	progressThrottle   = time.Second      // progress ≥1 次/秒
 	bannedWordsTTLSec  = 60 * time.Second // 违禁词配置 TTL
+	t2sTTLSec          = 60 * time.Second // [R73-1] 繁转简开关 TTL(同 bannedWords 口径)
 	defaultCoverSubdir = "covers"         // Book.cover 相对形态前缀
 )
 
@@ -137,6 +139,49 @@ func isUniqueErr(err error) bool {
 // ---------------- 违禁词配置提供方(60s TTL 快照, 对齐 cleaner.ts peekBannedWordsConfig) ----------------
 
 var bwOnce sync.Once
+
+// [R73-1] 繁转简开关快照: settings 键 crawlT2S(无行 = 默认开; {"enabled":false} = 关),
+// 60s TTL 惰性刷新(与 bannedWords 同口径: 管理端保存后最多 60s 生效)。
+var (
+	t2sMu sync.Mutex
+	t2sOn = true
+	t2sAt time.Time
+)
+
+// (b *Bridge) t2sEnabled 读开关(60s TTL 惰性刷新; db 为 nil 时返回当前快照)。
+func (b *Bridge) t2sEnabled() bool {
+	t2sMu.Lock()
+	defer t2sMu.Unlock()
+	if time.Since(t2sAt) < t2sTTLSec {
+		return t2sOn
+	}
+	if b.db != nil {
+		// 值口径与 stealth 键家族一致: "1"=开 / "0"=关 / 缺行或他值=保持缺省开
+		// (字符串容错: JSON 误写不致翻转行为)
+		if v, ok, _ := b.db.GetSetting("crawlT2S"); ok {
+			switch strings.TrimSpace(v) {
+			case "0":
+				t2sOn = false
+			case "1":
+				t2sOn = true
+			}
+		}
+	}
+	t2sAt = time.Now()
+	return t2sOn
+}
+
+// (b *Bridge) t2sText [R73-1] 文本字段繁→简转换(开关关闭或输入为空时零开销原样
+// 返回; 转换器无状态全局共享, 简体文本经 t2s.Simplify 恒等)。
+func (b *Bridge) t2sText(s string) string {
+	if s == "" {
+		return s
+	}
+	if !b.t2sEnabled() {
+		return s
+	}
+	return t2s.Simplify(s)
+}
 
 func installBannedWordsProvider(db *store.DB) {
 	bwOnce.Do(func() {
@@ -352,23 +397,25 @@ func (b *Bridge) Book(_ context.Context, p callback.BookPayload) (callback.BookD
 	task := ctx.task
 
 	// 字段兜底链对齐 runner ll-c2: detail 解析 → URL 片段 → 未知书名
+	// [R73-1] 全字段繁→简(书名/作者/简介/分类; 清洗后转换, 保证后续智能分类/
+	// 完结初判/同名合并定位全部消费简体形态 —— 跨源合并简简一致)
 	urlFragmentName := urlPathFragment(bookURL, 30)
-	bookName := clean.CleanTextField(asStr(p.Name, 300), 120)
+	bookName := b.t2sText(clean.CleanTextField(asStr(p.Name, 300), 120))
 	if bookName == "" {
-		bookName = urlFragmentName
+		bookName = b.t2sText(urlFragmentName)
 	}
 	if bookName == "" {
 		bookName = "未知书名"
 	}
-	author := clean.CleanTextField(asStr(p.Author, 200), 60)
+	author := b.t2sText(clean.CleanTextField(asStr(p.Author, 200), 60))
 	if author == "" {
 		author = "佚名"
 	}
-	intro := clean.CleanIntro(asStr(p.Intro, 8000), 2000)
+	intro := b.t2sText(clean.CleanIntro(asStr(p.Intro, 8000), 2000))
 	coverURL := asStr(p.CoverURL, 2000)
 
 	// 智能分类(runner 同款: task.smartCategory 开启时归一, 失败保留源站分类)
-	categoryName := clean.CleanTextField(asStr(p.Category, 100), 30)
+	categoryName := b.t2sText(clean.CleanTextField(asStr(p.Category, 100), 30))
 	if task.SmartCategory {
 		if names, e := b.listCategoryNames(); e == nil {
 			sm := smart.SmartCategory(bookName, intro, categoryName, names)
@@ -405,10 +452,10 @@ func (b *Bridge) Book(_ context.Context, p callback.BookPayload) (callback.BookD
 	detectedStatus := "unknown"
 	if task.SmartComplete {
 		det := smart.SmartCompleteDetect(smart.CompleteDetectInput{
-			StatusField:        asStr(p.Status, 100),
+			StatusField:        b.t2sText(asStr(p.Status, 100)),
 			Intro:              intro,
 			BookName:           bookName,
-			LatestChapterTitle: asStr(p.LatestChapter, 300),
+			LatestChapterTitle: b.t2sText(asStr(p.LatestChapter, 300)),
 		})
 		detectedStatus = det.Status
 		b.taskLog("info", fmt.Sprintf("智能完结初判: %s(%s)", det.Status, det.Reason))

@@ -1492,9 +1492,11 @@
     loadBannedWords();
     loadSettings();
     loadStealth();
+    loadT2S();
     $('set-reload').addEventListener('click', loadSettings);
     $('bw-save').addEventListener('click', saveBannedWords);
     $('st-save').addEventListener('click', saveStealth);
+    $('t2s-save').addEventListener('click', saveT2S);
     // [R67-c] 设置键删除(非核心键; 后端核心键白名单兜底)
     $('set-list').addEventListener('click', function (ev) {
       var btn = ev.target.closest('button[data-delkey]');
@@ -1581,6 +1583,29 @@
     PUT('/api/admin/settings', body).then(function () {
       toast('伪装设置已保存, 约 5 秒内全站生效');
       loadStealth();
+      loadT2S();
+      loadSettings();
+    }).catch(function (e) { toast(errText(e), true); });
+  }
+
+  /* ---------------- 繁简转换(Setting crawlT2S; [R73-1]) ---------------- */
+  function loadT2S() {
+    stateMsg('t2s-state', '加载中…');
+    GET('/api/admin/settings').then(function (d) {
+      var s = d.settings || d || {};
+      var v = String(s['crawlT2S'] == null ? '' : s['crawlT2S']).replace(/^"|"$/g, '');
+      $('t2s-on').checked = v !== '0'; // 缺行/他值 = 默认开
+      var el = $('t2s-state');
+      el.className = '';
+      el.innerHTML = '<span class="adm-muted">当前: 繁体转简体 ' + onoff($('t2s-on').checked) + '(缺省开)</span>';
+    }).catch(function (e) { stateMsg('t2s-state', '加载失败: ' + errText(e), true); });
+  }
+  function saveT2S() {
+    var body = {};
+    body['crawlT2S'] = $('t2s-on').checked ? '1' : '0';
+    PUT('/api/admin/settings', body).then(function () {
+      toast('繁简转换设置已保存, 约 60 秒内生效');
+      loadT2S();
       loadSettings();
     }).catch(function (e) { toast(errText(e), true); });
   }

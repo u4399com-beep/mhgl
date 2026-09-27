@@ -9,8 +9,10 @@
 # 本看门狗不再经 bun, 永远直拉 dev-go.sh(与 bun 分支行为等价——bun 时代的
 # 自动 .env 加载已在 dev-go.sh 内化, 见该脚本 ① 步)。
 cd /home/z/my-project
+# [R73] 逃逸写法(子壳+nohup+</dev/null 斩断 stdin): R72 实证沙箱在命令块结束
+# 清理派生进程树时, stdin 未重定向的 setsid 后台进程仍被清理; 此写法可逃逸。
 start_dev() {
-  setsid bash scripts/dev-go.sh >> /tmp/main-dev-restart.log 2>&1 &
+  ( setsid nohup bash scripts/dev-go.sh >> /tmp/main-dev-restart.log 2>&1 < /dev/null & )
 }
 while true; do
   if ! ss -ltn 2>/dev/null | grep -q ':3000 '; then

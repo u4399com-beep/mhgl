@@ -16,9 +16,13 @@ package stealth
 import (
 	"strings"
 	"sync"
+	"unicode/utf8"
 )
 
 // synonymPairs 同义词对(无向: A|B 双向可用)。
+// [R73-c] 退化对再清一轮: "临时|且时"(且时=生造非词, 临时→且时 产垃圾词)、
+// "显然|明晰"(副词vs形容词跨词性, 双向替换均不通顺, 显然→明晰 在
+// "他显然很生气"类副词位恒错) 删除 —— 与 R71-c 清退自映射/错别字对同标准。
 var synonymPairs = []string{
 	// —— 副词/时间 ——
 	"立刻|顿时", "顿时|霎时", "马上|立即", "立即|当即", "随即|旋即",
@@ -36,11 +40,11 @@ var synonymPairs = []string{
 	"恰恰|偏偏", "正好|恰好", "恰好|刚巧", "干脆|索性", "不禁|不由得",
 	"白白|徒然", "故意|特意", "特意|专程", "顺便|趁便", "从此|自此",
 	"预先|提前", "提前|提早", "按时|准时", "准时|依时", "暂时|临时",
-	"临时|且时", "永远|永久", "永久|恒久", "偶然|偶尔", "偶尔|间或",
+	"永远|永久", "永久|恒久", "偶然|偶尔", "偶尔|间或",
 	"经常|常常", "常常|每每", "通常|平常", "平常|一般", "反复|再三",
 	"再三|一再", "不断|不停", "不停|不休", "相继|接连", "接连|连续",
 	"陆续|接连", "随即|当即", "幸而|幸亏", "幸亏|好在", "毕竟|到底",
-	"究竟|到底", "明明|分明", "分明|显然", "显然|明晰",
+	"究竟|到底", "明明|分明", "分明|显然",
 	// —— 动词 ——
 	"询问|打听",
 	"回答|答道", "回应|应答", "看见|瞧见", "见到|看到", "寻找|寻觅",
@@ -179,6 +183,10 @@ type pseudoMatch struct {
 // 标题不同)—— 搜索引擎侧标题不稳定 + 浏览器标签页标题漂移, 与 TDK/canonical 中的
 // 原书名自相矛盾。修后与 obfTextNoise 同款守卫: 紧跟 noInsert 开标签的文本 token
 // 不参与替换(title 无分节正文语境, 干扰句天然到不了)。
+// [R73-c 真虫修复] 替换落地改 spliceRuneRanges 字节保真: 修前整串 []rune 归一后
+// string() 重建, 同节点含非法 UTF-8 字节(采集残留 GBK/截断序列)且任一同义词命中
+// 时, 非法字节被展开为 U+FFFD 串(浏览器按最大子部分折叠渲染 1 个替换符, 修前
+// 逐字节展开多个 → 可见外观漂移, 探针 500/500 轮复现)。
 func pseudoTokens(toks []token, cfg Config, pc PageCtx) []token {
 	synInit()
 	if synPairTotal == 0 {
@@ -223,7 +231,6 @@ func pseudoTokens(toks []token, cfg Config, pc PageCtx) []token {
 	seen := 0
 	for ti := range per {
 		tm := &per[ti]
-		data := []rune(toks[tm.idx].data)
 		var repl []pseudoMatch
 		for _, m := range tm.ms {
 			remain := k - selected
@@ -234,27 +241,44 @@ func pseudoTokens(toks []token, cfg Config, pc PageCtx) []token {
 			if remain > 0 && (remain == left || r.Float64() < float64(remain)/float64(left)) {
 				partners := synMap[m.word]
 				w := partners[r.Intn(len(partners))]
-				copyRunes := make([]rune, 0, m.end-m.start)
-				copyRunes = append(copyRunes, []rune(w)...)
-				repl = append(repl, pseudoMatch{start: m.start, end: m.end, word: string(copyRunes)})
+				repl = append(repl, pseudoMatch{start: m.start, end: m.end, word: w})
 				selected++
 			}
 			seen++
 		}
 		if len(repl) > 0 {
-			// 从后往前替换, 保持 rune 下标有效。
-			for i := len(repl) - 1; i >= 0; i-- {
-				m := repl[i]
-				out := make([]rune, 0, len(data))
-				out = append(out, data[:m.start]...)
-				out = append(out, []rune(m.word)...)
-				out = append(out, data[m.end:]...)
-				data = out
-			}
-			toks[tm.idx].data = string(data)
+			toks[tm.idx].data = spliceRuneRanges(toks[tm.idx].data, repl)
 		}
 	}
 	return toks
+}
+
+// spliceRuneRanges 按 rune 下标区间替换词(单遍字节游走)。
+// [R73-c] 字节保真: repl 按 start 升序且不重叠(pseudoFind 从左到右不重叠收集),
+// 非命中区间原始字节照抄 —— 非法 UTF-8 字节(DecodeRuneInString 恒 1 字节 1 rune)
+// 与 pseudoFind 的 []rune 下标一一对应, 替换前后原文字节零丢失。
+func spliceRuneRanges(s string, repl []pseudoMatch) string {
+	var b strings.Builder
+	b.Grow(len(s) + 16)
+	ri := 0 // 当前 rune 下标
+	mi := 0 // 下一个待替换命中
+	for i := 0; i < len(s); {
+		if mi < len(repl) && ri == repl[mi].start {
+			b.WriteString(repl[mi].word)
+			for n := repl[mi].end - repl[mi].start; n > 0; n-- {
+				_, sz := utf8.DecodeRuneInString(s[i:])
+				i += sz
+				ri++
+			}
+			mi++
+			continue
+		}
+		_, sz := utf8.DecodeRuneInString(s[i:])
+		b.WriteString(s[i : i+sz]) // 原始字节照抄(非法 UTF-8 同样保真)
+		i += sz
+		ri++
+	}
+	return b.String()
 }
 
 // pseudoFind 文本内 longest-match-first 命中收集(不重叠, 从左到右)。
