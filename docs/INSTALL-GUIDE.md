@@ -417,7 +417,7 @@ pgrep -f dev-watchdog.sh    # 预期: 打印一个 pid
 
 后台 → 代理池：收割（**17 个**公开源：TheSpeedX/monosans/proxyscrape/proxifly/mmpx12/roosterkid/geonode/proxyspace 家族，internal/crawl/proxy `PROXY_SOURCES`）/ 校验（并发探针）/ 周期化常驻（缺省 6h 收割 + 30min 校验）/ 消费（任务级动态注入：每 ~30min 按健康分降序拉 Top64 免费池合并进引擎代理池，只增不减防抖）。规则级出口代理在「采集规则 → fetch → 代理」配置（http/socks5h 逗号分隔轮换）。系统设置 → `proxyPool` 可开关自动喂给采集。
 
-> 历史注（R69）：原 mini-services 外置签名/解密代理（端口 3010~3017）已整体退役，采集引擎直连采集，无需任何伴生进程。
+> 历史注（R69/R76）：原 8 个 mini-services 外置签名/解密代理（端口 3010~3017）已随 R69 整体退役；**R76 起仅按需回归两件可选 Go 版伴生服务**（bqg-unlock :3010 / qimao-proxy :3013，启用对应规则才需启动，缺省不影响主服务，部署见 DEPLOY.md §⑦），其余站点仍由引擎直连采集。
 
 ### 6.5 主题切换（可选）
 

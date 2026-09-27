@@ -900,7 +900,8 @@
           412,
           429,
           503
-        ]
+        ],
+        "tlsFingerprint": "chrome"
       },
       "clean": {
         "removeSelectors": [
@@ -943,49 +944,92 @@
   {
     "key": "book4",
     "name": "AU文学 (book4.cc)",
-    "description": "book4.cc 聚合书库(AU文学站群, 页面品牌 AU文学/聚合书库), 全站统一 base64 渲染壳 —— 真实 DOM 内嵌 html_b 变量由 JS atob+document.write 输出, 响应无 Set-Cookie(壳化无条件, Cookie 两步法不可行), 且壳页 looksBlocked 不命中 → 必须 engine=browser 强制渲染, 禁用 auto(http 首选会拿壳返回空解析)。页面容器 class 带 6 位随机 hex 前缀逐页轮换, 选择器只认语义类名。列表=/AU文学/{分类}/{page}(无尾斜杠, {page} 从 1 起)的 li:has(div.book-info) 每页 20 本(书名/作者/简介/封面) / 书籍页 /AU文学/{分类}/{id}/ h2 书名+作者regex+div.intro 简介+封面(剥 .css 伪装后缀)+最新章regex, 站点无状态字段(isok 语义不明未采用)交 smartCompleteDetect / 目录=书籍页 AJAX 注入 #chapter_list li(996 章全量单页, (N字) 后缀由 replaceFrom 剥除, 依赖 obscura settle 等注入) / 正文=.entry-content 无章节内分页, 尾部推广行与\"正在阅读/当前章节\"行由 adPatterns 剥除。已知源数据瑕疵: 源站章节中部混入其他小说段落(反采集污染, 清洗不可修复)。",
+    "description": "AU文学(book4.cc) base64 软壳 SSR 站[R76 突破]: 源站 auwxw.com CF 521 直访不可达, 壳站 html_b/dstr 双壳为唯一通道且壳层是唯一反爬手段 —— fetch.decodeShell=true 引擎侧还原真实载荷后纯 HTTP 全链采集(list 分类页/book+toc 共用 show_jsload_book_info book.json 三层编码载荷/章节 file_name 唯一路由键)。R75 前 engine=browser fail-closed 误判 SPA, 实为软壳 SSR。",
     "enabled": true,
     "source": "scripts/seed-rule-book4.ts",
     "config": {
       "list": {
-        "enabled": true,
-        "urlTemplate": "https://book4.cc/AU%E6%96%87%E5%AD%A6/%E4%BB%99%E4%BE%A0/{page}",
+        "urlTemplate": "https://book4.cc/AU文学/玄幻/{page}/",
         "itemSelector": {
           "type": "css",
-          "expression": "li:has(div.book-info)"
+          "expression": "div[class$=section1] li"
         },
         "fields": {
           "name": {
             "type": "css",
             "expression": "h3 a",
-            "attr": "text",
-            "replaceFrom": "[《》]",
+            "replaceFrom": "《|》",
+            "replaceTo": ""
+          },
+          "author": {
+            "type": "css",
+            "expression": "p.author",
+            "replaceFrom": "^作者：",
+            "replaceTo": ""
+          },
+          "intro": {
+            "type": "css",
+            "expression": "p[style]",
+            "replaceFrom": "^简介：",
             "replaceTo": ""
           },
           "bookUrl": {
             "type": "css",
             "expression": "h3 a",
-            "attr": "href"
+            "attribute": "href"
+          },
+          "bookId": {
+            "type": "css",
+            "expression": "h3 a",
+            "attribute": "href",
+            "replaceFrom": "/(\\d+)/$",
+            "replaceTo": "$1"
+          }
+        }
+      },
+      "book": {
+        "urlTemplate": "",
+        "fields": {
+          "name": {
+            "type": "json",
+            "expression": "book_name"
           },
           "author": {
-            "type": "regex",
-            "expression": "作者[:：]\\s*([^<\\s<]{1,40})",
-            "attr": "1",
-            "flags": "gis"
+            "type": "json",
+            "expression": "author"
+          },
+          "category": {
+            "type": "json",
+            "expression": "type_name"
           },
           "intro": {
-            "type": "css",
-            "expression": "p:contains(\"简介\")",
-            "attr": "text",
-            "replaceFrom": "^简介[:：]\\s*",
-            "replaceTo": ""
+            "type": "json",
+            "expression": "intro"
           },
           "cover": {
-            "type": "css",
-            "expression": "div.book-img img",
-            "attr": "src",
-            "replaceFrom": "\\.css$",
-            "replaceTo": ""
+            "type": "json",
+            "expression": "url_cover"
+          }
+        }
+      },
+      "toc": {
+        "urlTemplate": "",
+        "itemSelector": {
+          "type": "json",
+          "expression": "chapter_list.*"
+        },
+        "fields": {
+          "title": {
+            "type": "json",
+            "expression": "name"
+          },
+          "itemId": {
+            "type": "json",
+            "expression": "file_name"
+          },
+          "url": {
+            "type": "const",
+            "expression": "https://book4.cc/AU文学/x/0/{itemId}"
           }
         },
         "pagination": {
@@ -993,81 +1037,11 @@
           "maxPages": 1
         }
       },
-      "book": {
-        "enabled": true,
-        "fields": {
-          "name": {
-            "type": "css",
-            "expression": ".book-detail-info h2",
-            "attr": "text",
-            "replaceFrom": "[《》]",
-            "replaceTo": ""
-          },
-          "author": {
-            "type": "regex",
-            "expression": "作者[:：]\\s*([^<\\s<]{1,40})",
-            "attr": "1",
-            "flags": "gis"
-          },
-          "intro": {
-            "type": "css",
-            "expression": "div.intro p",
-            "attr": "text",
-            "replaceFrom": "^简介[:：]\\s*",
-            "replaceTo": ""
-          },
-          "cover": {
-            "type": "css",
-            "expression": "div.book-img img",
-            "attr": "src",
-            "replaceFrom": "\\.css$",
-            "replaceTo": ""
-          },
-          "latestChapter": {
-            "type": "regex",
-            "expression": "最新：<a[^>]*>([^<]{1,120})</a>",
-            "attr": "1",
-            "flags": "gis"
-          },
-          "category": {
-            "type": "css",
-            "expression": ".tag-box a",
-            "attr": "text"
-          }
-        }
-      },
-      "toc": {
-        "enabled": true,
-        "itemSelector": {
-          "type": "css",
-          "expression": "#chapter_list li"
-        },
-        "fields": {
-          "title": {
-            "type": "css",
-            "expression": "a",
-            "attr": "text",
-            "replaceFrom": "\\(\\d+字\\)",
-            "replaceTo": ""
-          },
-          "url": {
-            "type": "css",
-            "expression": "a",
-            "attr": "href"
-          }
-        },
-        "pagination": {
-          "enabled": true,
-          "maxPages": 20
-        }
-      },
       "content": {
-        "enabled": true,
         "fields": {
           "content": {
             "type": "css",
-            "expression": ".entry-content",
-            "attr": "html"
+            "expression": "div.entry-content"
           }
         },
         "pagination": {
@@ -1076,19 +1050,21 @@
         }
       },
       "fetch": {
-        "engine": "browser",
-        "uaMode": "custom",
-        "customUa": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
-        "timeout": 60000,
-        "retries": 1,
-        "waitMs": 1500,
+        "engine": "http",
+        "decodeShell": true,
+        "uaMode": "rotate",
+        "autoCookie": true,
+        "referer": true,
+        "timeout": 25000,
+        "retries": 2,
+        "waitMs": 600,
+        "hostGateLimit": 2,
         "browserFallbackStatus": [
           403,
           412,
           429,
           503
-        ],
-        "hostGateLimit": 2
+        ]
       },
       "clean": {
         "removeSelectors": [
@@ -1096,33 +1072,11 @@
           "style",
           "iframe",
           "ins",
-          "noscript",
-          ".adsbygoogle"
+          "noscript"
         ],
         "adPatterns": [
-          "<!--[\\s\\S]{0,300}?-->",
-          "(www\\.)?book4\\.cc[^\\s<>]*",
-          "请各位大哥大姐帮忙推广[^<]{0,200}",
-          "正在阅读《[^<]{0,80}》?",
-          "当前章节[:：][^<]{0,120}",
-          "下一章节[:：][^<]{0,120}",
-          "本站长期运营[^<]{0,120}",
-          "(www\\.)?[a-z0-9-]+\\.(com|net|cc|org|info|top|xyz|vip|site)(\\/[^\\s<>]*)?"
-        ],
-        "whitelist": [
-          "p",
-          "br",
-          "b",
-          "strong",
-          "em",
-          "i",
-          "u",
-          "h1",
-          "h2",
-          "h3",
-          "h4",
-          "h5",
-          "h6"
+          "[^\\n]*auwxw\\.com[^\\n]*",
+          "[^\\n]*点击停止[^\\n]*"
         ],
         "normalize": true,
         "plainText": false
@@ -1135,163 +1089,7 @@
     "description": "www.bqg713.cc 纯JSON API站(SPA壳+hash路由无SSR; 已301迁域 www.bqg413.cc, 引擎跟随重定向)。列表 /api/index 并集路径(hotlist,sort1~6)/书籍 /api/book/目录 /api/booklist(纯章节名数组, chapterid=下标+1)。[R21-b] 诱饵正文根治: 章节镜像 apibi.cc 已死(恒403)/apiqu.cc 按章节粒度被投毒(成人诱饵文本, 水印 biquio点cc+srsp.cc), 旧 tokenUrl+txt 链路命中被毒镜像; 真实正文 = www.bqg413.cc / apige.cc 的明文 txt 字段(无 RC4, /api/hm 为纯遥测信标)。现正文走 mini-services/bqg713-proxy:3010 /unlock 端点(deqixs degrade-native 契约): fetch.contentProxyUrl 为 SSRF loopback 豁免键, 探测自指→404→引擎降级直连 toc 合成的 /unlock URL → 主机池(www.bqg413.cc→apige.cc+家族动态学习)逐台取章, 诱饵水印校验(长度下限+水印签名)剔除毒镜像后返回 {ok,content}。",
     "enabled": true,
     "source": "scripts/seed-rule-bqg713.ts",
-    "config": {
-      "list": {
-        "enabled": true,
-        "urlTemplate": "https://www.bqg713.cc/api/index?sort=all",
-        "itemSelector": {
-          "type": "json",
-          "expression": "hotlist,sort1,sort2,sort3,sort4,sort5,sort6"
-        },
-        "fields": {
-          "id": {
-            "type": "json",
-            "expression": "id"
-          },
-          "title": {
-            "type": "json",
-            "expression": "title"
-          },
-          "author": {
-            "type": "json",
-            "expression": "author"
-          },
-          "intro": {
-            "type": "json",
-            "expression": "intro"
-          },
-          "bookUrl": {
-            "type": "const",
-            "expression": "https://www.bqg713.cc/api/book?id={id}"
-          }
-        },
-        "pagination": {
-          "enabled": false,
-          "maxPages": 1
-        }
-      },
-      "book": {
-        "enabled": true,
-        "fields": {
-          "name": {
-            "type": "json",
-            "expression": "title"
-          },
-          "author": {
-            "type": "json",
-            "expression": "author"
-          },
-          "category": {
-            "type": "json",
-            "expression": "sortname"
-          },
-          "intro": {
-            "type": "json",
-            "expression": "intro"
-          },
-          "status": {
-            "type": "json",
-            "expression": "full"
-          },
-          "latestChapter": {
-            "type": "json",
-            "expression": "lastchapter"
-          }
-        }
-      },
-      "toc": {
-        "enabled": true,
-        "tocLink": {
-          "type": "const",
-          "expression": "https://www.bqg713.cc/api/booklist?id={q.id}"
-        },
-        "itemSelector": {
-          "type": "json",
-          "expression": "list"
-        },
-        "fields": {
-          "title": {
-            "type": "json",
-            "expression": "."
-          },
-          "url": {
-            "type": "const",
-            "expression": "https://apige.cc/api/chapter?id={q.id}&chapterid={index}"
-          }
-        },
-        "pagination": {
-          "enabled": false,
-          "maxPages": 1
-        }
-      },
-      "content": {
-        "enabled": true,
-        "fields": {
-          "title": {
-            "type": "json",
-            "expression": "chaptername"
-          },
-          "content": {
-            "type": "json",
-            "expression": "content"
-          }
-        },
-        "pagination": {
-          "enabled": false,
-          "maxPages": 1
-        }
-      },
-      "fetch": {
-        "engine": "http",
-        "uaMode": "rotate",
-        "autoCookie": true,
-        "referer": true,
-        "timeout": 20000,
-        "retries": 2,
-        "waitMs": 500,
-        "browserFallbackStatus": [
-          403,
-          412,
-          429,
-          503
-        ],
-        "contentProxyUrl": "http://127.0.0.1:3010/unlock?url={url}",
-        "mirrorDomains": "www.bqg413.cc,apige.cc",
-        "tlsFingerprint": "chrome"
-      },
-      "clean": {
-        "removeSelectors": [
-          "script",
-          "style",
-          "iframe",
-          "ins",
-          "noscript"
-        ],
-        "adPatterns": [
-          "(www\\.)?bqg7[0-9]{1,2}\\.(cc|com)[^\\s<>]*",
-          "(www\\.)?[a-z0-9-]+\\.(com|net|cc|org|info|top|xyz|vip|site)(\\/[^\\s<>]*)?",
-          "biquio[^\\s<>]*",
-          "srsp\\.cc[^\\s<>]*",
-          "请收藏本站.*?手机版",
-          "一秒记住.*?免费读",
-          "本站所有小说为转载作品.*?$"
-        ],
-        "whitelist": [
-          "p",
-          "br",
-          "b",
-          "strong",
-          "em",
-          "i",
-          "u",
-          "h1",
-          "h2",
-          "h3"
-        ],
-        "normalize": true,
-        "plainText": true
-      }
-    }
+    "config": "{\"list\": {\"enabled\": true, \"urlTemplate\": \"https://www.bqg713.cc/api/index?sort=all\", \"itemSelector\": {\"type\": \"json\", \"expression\": \"hotlist,sort1,sort2,sort3,sort4,sort5,sort6\"}, \"fields\": {\"id\": {\"type\": \"json\", \"expression\": \"id\"}, \"title\": {\"type\": \"json\", \"expression\": \"title\"}, \"author\": {\"type\": \"json\", \"expression\": \"author\"}, \"intro\": {\"type\": \"json\", \"expression\": \"intro\"}, \"bookUrl\": {\"type\": \"const\", \"expression\": \"https://www.bqg713.cc/api/book?id={id}\"}}, \"pagination\": {\"enabled\": false, \"maxPages\": 1}}, \"book\": {\"enabled\": true, \"fields\": {\"name\": {\"type\": \"json\", \"expression\": \"title\"}, \"author\": {\"type\": \"json\", \"expression\": \"author\"}, \"category\": {\"type\": \"json\", \"expression\": \"sortname\"}, \"intro\": {\"type\": \"json\", \"expression\": \"intro\"}, \"status\": {\"type\": \"json\", \"expression\": \"full\"}, \"latestChapter\": {\"type\": \"json\", \"expression\": \"lastchapter\"}}}, \"toc\": {\"enabled\": true, \"tocLink\": {\"type\": \"const\", \"expression\": \"https://www.bqg713.cc/api/booklist?id={q.id}\"}, \"itemSelector\": {\"type\": \"json\", \"expression\": \"list\"}, \"fields\": {\"title\": {\"type\": \"json\", \"expression\": \".\"}, \"url\": {\"type\": \"const\", \"expression\": \"https://apige.cc/api/chapter?id={q.id}&chapterid={index}\"}}, \"pagination\": {\"enabled\": false, \"maxPages\": 1}}, \"content\": {\"enabled\": true, \"fields\": {\"title\": {\"type\": \"json\", \"expression\": \"chaptername\"}, \"content\": {\"type\": \"css\", \"expression\": \"body\"}}, \"pagination\": {\"enabled\": false, \"maxPages\": 1}}, \"fetch\": {\"engine\": \"http\", \"uaMode\": \"rotate\", \"autoCookie\": true, \"referer\": true, \"timeout\": 20000, \"retries\": 2, \"waitMs\": 500, \"browserFallbackStatus\": [403, 412, 429, 503], \"contentProxyUrl\": \"http://127.0.0.1:3010/unlock?url={url}\", \"tlsFingerprint\": \"chrome\"}, \"clean\": {\"removeSelectors\": [\"script\", \"style\", \"iframe\", \"ins\", \"noscript\"], \"adPatterns\": [\"(www\\\\.)?bqg7[0-9]{1,2}\\\\.(cc|com)[^\\\\s<>]*\", \"(www\\\\.)?[a-z0-9-]+\\\\.(com|net|cc|org|info|top|xyz|vip|site)(\\\\/[^\\\\s<>]*)?\", \"biquio[^\\\\s<>]*\", \"srsp\\\\.cc[^\\\\s<>]*\", \"请收藏本站.*?手机版\", \"一秒记住.*?免费读\", \"本站所有小说为转载作品.*?$\"], \"whitelist\": [\"p\", \"br\", \"b\", \"strong\", \"em\", \"i\", \"u\", \"h1\", \"h2\", \"h3\"], \"normalize\": true, \"plainText\": true}}"
   },
   {
     "key": "cuoceng",
@@ -1450,7 +1248,7 @@
         "refererChain": true,
         "timeout": 20000,
         "retries": 2,
-        "waitMs": 500,
+        "waitMs": 1200,
         "browserFallbackStatus": [
           403,
           412,
@@ -1459,7 +1257,7 @@
         ],
         "hostGateLimit": 2,
         "hostGateConcurrency": 2,
-        "globalConcurrency": 6
+        "globalConcurrency": 3
       },
       "clean": {
         "removeSelectors": [
@@ -5221,7 +5019,6 @@
         "customUa": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
         "timeout": 30000,
         "retries": 2,
-        "proxyCountries": "CN",
         "hostGateLimit": 2
       },
       "clean": {

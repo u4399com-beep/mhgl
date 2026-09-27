@@ -24,13 +24,14 @@
 ## 功能特性
 
 - **采集引擎**（`internal/crawl/`）：规则四段（列表/详情/目录/正文）解析、CSS/正则/JSON 字段提取、`{page}`/`{offset:N}` 占位符翻页、编码识别（GBK 等）、正文清洗（广告模式/去壳页）、分卷排序、并发限速 + HostGate、**规则级出口代理池**（http/socks5h 逗号分隔多条轮换≤10，仅国内 IP 可达站点如 77shuku.info 必配）、封面本地化（webp）。
-- **反反爬体系**（`internal/crawl/fetch`）：native HTTP（curl 链）→ 出口代理轮换（规则级 http/socks5h 池 + 免费代理池按健康分消费）两级降级；UA 池 + 头组仿真、可选 utls ClientHello TLS 指纹轮换、Cookie/Referer 浏览器语义、指数退避 + `Retry-After` 尊重、HostGate 同站并发闸、WAF/挑战页判定（宝塔/安全狗/雷池/加速乐/CF/DataDome/Incapsula 等）与镜像域故障切换。
-- **站级签名/解密扩展点**：引擎内置 `tokenUrl`/`tokenPattern`（token 预取注入）与 `contentProxyUrl`（正文段经外部端点包裹抓取，失败降级直连）钩子，自备端点即可对接签名/解锁类服务——原 8 个外置 mini-service 已随 R69 退役（见下文）。
+- **反反爬体系**（`internal/crawl/fetch`）：native HTTP（curl 链）→ 出口代理轮换（规则级 http/socks5h 池 + 免费代理池按健康分消费）两级降级；UA 池 + 头组仿真、可选 utls ClientHello TLS 指纹轮换、Cookie/Referer 浏览器语义、指数退避 + `Retry-After` 尊重、HostGate 同站并发闸、WAF/挑战页判定（宝塔/安全狗/雷池/加速乐/CF/DataDome/Incapsula 等，R76 起 CF 探测脚本良性豁免扩展到 precursor 变体，真实内容页内嵌探测脚本不再误拦）与镜像域故障切换。**R76 代理语义分层**：显式代理意图（规则级 `proxyUrl` 静态池 / `proxyCountries` 国别声明）恒代理优先；无显式意图直连优先——免费动态池降为韧性兜底（重试链或直连网络层失败 10min 冷却窗内才走代理，失败时节流触发池即时刷新），直连健康站不再被劫持进低存活免费池；`proxyCountries` 国别过滤拉取端到端生效（空池保守直连+warn）。**R76 新增 `fetch.decodeShell` 旋钮**：base64 软壳站响应还原（`html_b=` HTML 壳 / `dstr=` JSON 壳双形态），壳层是唯一反爬手段的站纯 HTTP 即可采集（book4.cc/AU文学 型）。
+- **站级签名/解密扩展点**：引擎内置 `tokenUrl`/`tokenPattern`（token 预取注入）与 `contentProxyUrl`（正文段经外部端点包裹抓取，失败降级直连）钩子，自备端点即可对接签名/解锁类服务——原 8 个 TS/Python 外置 mini-service 已随 R69 退役（R76 起按需回归两件 Go 版，见「伴生 mini-services」节）。
 - **管理端**：站点规则 CRUD + 在线测试、**内置规则库一键导入**（**35 条**实测站点规则，幂等覆盖可恢复出厂）、任务（单书/书号批量/列表范围三种模式 + 完成后定时续采 autoRefresh；行内「日志」/「编辑」按钮——任务运行日志在线查看（R75 起可按级别 level 过滤）与任务参数在线编辑）、书籍/章节管理（批量删除等不可恢复操作带输入确认门槛）、TXT 下载、站群与 SEO（伪静态 6 预设、站点级「自动生成 TDK」一键铺底）、统计看板（计数聚合 + 7 日入库曲线 + 健康面板）、**违禁词过滤**（对采集入库内容做屏蔽词/敏感词过滤，mask/remove 双模式）。
 - **前台**：多主题站群（**11 套内置克隆主题**，含笔趣阁系/霹雳书屋/久久小说 aijjxs 复刻等，非法主题 ID 自动回退默认主题）、阅读页、搜索、sitemap（R73 三段式 `sitemapindex`：static/books/chapters 自动分片 + 行级真实 lastmod）、**6 预设伪静态 URL**（纯数字/字母数字/目录式/无后缀/紧凑双段/动态查询，宽容解析永不断链）、**全链自动 TDK**（标题/描述/关键词 + canonical + JSON-LD 逐页生成，伪静态直达页 SSR 直出）。
 - **内容伪装 / 反搜索**（R70，四开关**默认全关**）：页面结构混淆（每页唯一、外观不变）/ 关键词句子实体转码（entity/zwsp 双模式）/ 隐藏干扰句（hidden/offscreen，密度可调）/ 句子伪原创（request/daily/stable 三档种子）——后台「系统设置 → 内容伪装 / 反搜索」设置卡逐项开关。⚠️ 隐藏文字/伪原创可能被搜索引擎判作弊，默认关闭、风险自负。
 - **目录分卷分组显示**（R70，`book.volume.show`，默认关）：书籍目录按卷分组渲染（卷名 + 卷内章节两级结构）；关闭时目录平铺展示，与既往完全一致。
 - **采集繁转简**（R73，`crawlT2S`，默认开）：入库前对书名/作者/简介/分类/章节标题/卷名/正文做零依赖繁→简转换（词组最长优先 + 单字映射，词组保护防误转，简体文本零变化）；智能分类/完结初判/同名合并全消费简体化文本；后台「系统设置」语义卡可开关。
+- **伴生 mini-services（R76，可选组件）**：两件 stdlib 零依赖 Go 小服务，仅在启用对应规则时才需启动，缺省不影响主服务——`mini-services/bqg-unlock`（:3010，bqg713 家族正文 token 桥：AES-128-CBC+MD5 派生，`GET /unlock?url=`）与 `mini-services/qimao-proxy`（:3013，七猫官方 API 签名+AES 解密桥，/search /rank /detail /toc /content），部署详见 [DEPLOY.md](./DEPLOY.md) §⑦。
 - **任务可靠性**：任务状态机（pending/running/paused/stopped/done/error）、暂停续采、服务重启自动回收 running → paused 不丢进度、增量重采跳过已采、dev 模式 OOM 自愈守护（`scripts/dev-watchdog.sh`）。
 
 ## 技术栈
@@ -73,9 +74,16 @@ go build -o .build/mhgl ./cmd/server                              # ② 构建�
 > （装 Go → DB 完整性检查 → 启动 → 幂等引导 → 看门狗 → 报告，幂等可重跑；`scripts/dev-go.sh`
 > 也已自愈化——go 缺失自动装、库缺失自动自建，见教程 §4/§7）。
 
-## 外置代理小服务（已退役，R69）
+## 伴生 mini-services（R76 起两件 Go 版可选；R69 退役的 8 件 TS 件考古 git）
 
-原 8 个 TS/Python 外置代理小服务（`bqg713-proxy` / `fetch-relay` / `scrapling-bridge` / `qimao-proxy` / `deqixs-proxy` / `xjp-proxy` / `cloak-browser` / `qidian-proxy`，端口 3010~3017）已随 **R69 纯 Go 化**整体退役（可考古 git 历史 `mini-services/` 目录）。现役采集引擎直连采集，外置签名/解密站点由对应规则自身的 fetch 配置（代理池 / curl 指纹 / token 预取）承担，不再需要任何伴生进程。
+**现役（R76，均为可选伴生组件，缺省不启动不影响主服务）**：
+
+- `mini-services/bqg-unlock`（**:3010**）：bqg713 家族正文 token 桥（jsjiami v7 前端逆向：token=base64(AES-128-CBC(JSON))，key/iv 由 `MD5('book@token.html')` hex 前/后 16 字节派生），`GET /unlock?url=` + `/healthz`；启用「笔趣阁 bqg713」规则时必须启动。
+- `mini-services/qimao-proxy`（**:3013**）：七猫官方 API 签名+解密桥（MD5 双签名 params.sign/headers.sign + AES-128-CBC 正文解密，端点 /search /rank /detail /toc /content /health）；启用「七猫官方API」规则时必须启动。
+
+两者均为单文件 Go（stdlib 零依赖），`go build` 即成、仅绑 127.0.0.1，构建/启动/healthcheck 详见 [DEPLOY.md](./DEPLOY.md) §⑦。
+
+**历史注（R69）**：原 8 个 TS/Python 外置代理小服务（`bqg713-proxy` / `fetch-relay` / `scrapling-bridge` / `qimao-proxy` 旧 TS 版 / `deqixs-proxy` / `xjp-proxy` / `cloak-browser` / `qidian-proxy`，端口 3010~3017）已随 R69 纯 Go 化整体退役（可考古 git 历史 `mini-services/` 目录）。其余签名/解密类站点由对应规则自身的 fetch 配置（代理池 / TLS 指纹 / token 预取 / `contentProxyUrl` 自备端点）承担。
 
 ## 目录结构
 
@@ -89,6 +97,7 @@ web/static/                 # 前台/后台静态源文件(css/js, 磁盘直服,
 db/                         # SQLite 运行时数据 custom.db(+ -wal/-shm, 不入版本库, ★备份它)
 download/  upload/          # TXT 下载产物 / 上传暂存
 scripts/                    # install-go.sh 装 Go / dev-go.sh 启动(自愈) / dev-watchdog.sh 守护 / recover.sh 一键恢复
+mini-services/              # R76 两件可选伴生 Go 服务: bqg-unlock(:3010) / qimao-proxy(:3013) — 启用对应规则才需启动
 docs/                       # INSTALL-GUIDE.md 小白教程 / rule-limits.md 规则手册 / images/ 截图
 .zscripts/                  # 沙箱平台引导/部署脚本族(R71 纯 Go 化对齐; 逐件处置见 .zscripts/README.md)
 ```

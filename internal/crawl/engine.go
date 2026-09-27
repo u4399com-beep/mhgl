@@ -92,9 +92,11 @@ func NewManager(db *store.DB) (any, error) {
 	}
 	mgr.SetSinkFactory(bridge.NewFactory(db, coverDir, ad.scheduleAutoRefresh))
 	// [R57-2a] DB 代理池接线(消除「池有 3 万代理、采集不用」缺口):
-	// ① *store.DB 实现 fetch.ProxyAddrSource → 任务启动即拉 + 30min 周期刷新;
+	// ① 代理源注入 → 任务启动即拉 + 30min 周期刷新; [R76-a] countryAwareProxySource
+	//    适配器补齐 fetch.CountryFilteredProxySource 能力面(规则键 fetch.proxyCountries
+	//    活性化: 声明国别的任务按国别过滤拉取, 修前该键解析后零消费点=死键);
 	// ② 回写泵 → fetch 层代理成功/连败事实异步落库(lastUsedAt / alive=0)
-	mgr.SetProxySource(db)
+	mgr.SetProxySource(countryAwareProxySource{db: db})
 	mgr.SetProxyFeedback(newProxyFeedbackSink(db))
 	// ③ 收割周期化(R56 遗留): 后台收割+stale 校验循环, 进程级存活;
 	//    防重入由包内原子标志承担, 优雅退出随 StopAll 取消

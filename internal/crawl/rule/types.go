@@ -77,6 +77,10 @@ type FetchConfig struct {
 	TLSFingerprint    string            `json:"tlsFingerprint,omitempty"`  // ""|none(缺省关)|chrome(utls Chrome ClientHello 仿真, 仅 https 生效)
 	NeedsProxy        bool              `json:"needsProxy,omitempty"`      // 不支持(capability)
 	ProxyCountries    string            `json:"proxyCountries,omitempty"`
+	// [R76-b3] base64 软壳站响应还原(book4.cc/AU文学 实证): true 时对每响应体检
+	// html_b="<b64>"(HTML 壳)/dstr="<b64>"(JSON 壳) 双形态并还原真实载荷;
+	// 缺省 false 零变化。壳层是唯一反爬手段时纯 HTTP 引擎即可全量采集
+	DecodeShell bool `json:"decodeShell,omitempty"`
 }
 
 // CleanConfig 内容清洗配置 —— [R55 起单体化] Go 引擎已内置内容清洗(clean 包

@@ -19,8 +19,17 @@ package crawl
 
 import (
 	"net/url"
+	"strconv"
+	"strings"
 
+	"mhgl/internal/crawl/fetch"
 	"mhgl/internal/store"
+)
+
+// countryAwareProxySource 同时满足基础源与国别过滤能力接口(编译期断言)
+var (
+	_ fetch.ProxyAddrSource            = countryAwareProxySource{}
+	_ fetch.CountryFilteredProxySource = countryAwareProxySource{}
 )
 
 // proxyFeedbackQueueCap 回写队列容量(满即丢: 记账 best-effort, 宁丢不阻塞采集热路径)
@@ -86,4 +95,79 @@ func (s *proxyFeedbackSink) drain() {
 		}
 		_ = err // 失败静默(记账 best-effort; 下轮 stale 校验自愈)
 	}
+}
+
+// ---------------- [R76-a] 国别过滤代理源适配器 ----------------
+
+// countryAwareProxySource [R76-a] proxyCountries 活性化装配适配器: *store.DB 原生只
+// 暴露 AliveProxyAddrs(fetch.ProxyAddrSource), 规则键 fetch.proxyCountries 需要按
+// 国别过滤拉取 —— 本适配器经 store.QueryMaps(只读, 零 store 侧改动)补齐
+// fetch.CountryFilteredProxySource 能力面。FreeProxy.country 为校验器 ip-api 实测
+// 出口国别(收割源标国别仅在未校验行上作预填)。
+// 装配点: engine.NewManager → mgr.SetProxySource(countryAwareProxySource{db})
+type countryAwareProxySource struct {
+	db *store.DB
+}
+
+// AliveProxyAddrs 基础接口透传(全量健康分降序, 未声明 proxyCountries 的任务走此臂)
+func (s countryAwareProxySource) AliveProxyAddrs(limit int) ([]string, error) {
+	return s.db.AliveProxyAddrs(limit)
+}
+
+// AliveProxyAddrsForCountries 国别过滤拉取([R76-a]): alive=1 AND healthScore>0
+// (与 AliveProxyAddrs 同一存活门) AND country IN(...) 健康分降序。
+// 国别码白名单消毒(2 字母大写; 占位符查询防注入); 全非法/空输入返回空切片(不过滤
+// 语义由 task 侧 parseProxyCountries 保证不会走到这里)
+func (s countryAwareProxySource) AliveProxyAddrsForCountries(limit int, countries []string) ([]string, error) {
+	if limit <= 0 {
+		limit = 64
+	}
+	ccs := make([]string, 0, len(countries))
+	seen := map[string]struct{}{}
+	for _, c := range countries {
+		c = strings.ToUpper(strings.TrimSpace(c))
+		if len(c) != 2 {
+			continue
+		}
+		if _, dup := seen[c]; dup {
+			continue
+		}
+		seen[c] = struct{}{}
+		ccs = append(ccs, c)
+		if len(ccs) >= 16 { // 国别集合有界(规则消毒 100 字符本就装不下 16 个)
+			break
+		}
+	}
+	if len(ccs) == 0 {
+		return []string{}, nil
+	}
+	ph := strings.TrimSuffix(strings.Repeat("?,", len(ccs)), ",")
+	args := make([]interface{}, 0, len(ccs)+1)
+	for _, c := range ccs {
+		args = append(args, c)
+	}
+	args = append(args, limit)
+	maps, err := s.db.QueryMaps(`SELECT protocol, host, port FROM "FreeProxy"
+                WHERE alive=1 AND healthScore>0 AND country IN (`+ph+`)
+                ORDER BY healthScore DESC, lastCheckedAt DESC LIMIT ?`, args...)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(maps))
+	for _, m := range maps {
+		proto := store.ToStr(m["protocol"])
+		host := store.ToStr(m["host"])
+		port := store.ToInt(m["port"])
+		if proto == "" || host == "" || port <= 0 || port > 65535 {
+			continue
+		}
+		if proto == "socks5h" {
+			proto = "socks5" // fetch 层同口径归一
+		}
+		if proto != "http" && proto != "https" && proto != "socks4" && proto != "socks5" {
+			continue
+		}
+		out = append(out, proto+"://"+host+":"+strconv.FormatInt(int64(port), 10))
+	}
+	return out, nil
 }

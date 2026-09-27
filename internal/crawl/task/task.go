@@ -97,6 +97,10 @@ type Task struct {
 	// proxySource 动态代理源(R57-2a): newTask 时从 Manager 快照(Start 持锁内注册,
 	// 运行期无锁读取安全; SetProxySource 契约要求先于任何 Start)
 	proxySource fetch.ProxyAddrSource
+	// [R76-a] proxyCountries warn 限频标志(任务生命周期各一次; 原子位零锁竞争:
+	// dynamicProxyLoop 与 ProxyPoolExhausted 钩子可能并发拉取)
+	pcWarned      atomic.Bool
+	pcEmptyWarned atomic.Bool
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -181,6 +185,14 @@ func (m *Manager) SetProxySource(src fetch.ProxyAddrSource) {
 	m.mu.Lock()
 	m.proxySource = src
 	m.mu.Unlock()
+}
+
+// ProxySource 当前注入的动态代理源([R76-a] 观测缝: engine 装配断言消费 —
+// 装配形态回归钉住「countryAwareProxySource 适配器而非裸 DB」)
+func (m *Manager) ProxySource() fetch.ProxyAddrSource {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.proxySource
 }
 
 // SetProxyFeedback 注入代理结果回写钩子(R57-2a; 必须在任何 Start 之前调用)
@@ -319,11 +331,14 @@ func newTask(p rule.TaskStartPayload, m *Manager) *Task {
 	t.fetcher.SetHostGap(time.Duration(gapMs) * time.Millisecond)
 	// R57-2a DB 代理池接线: 回写钩子(set-once, 先于任何请求) + 动态代理刷新循环
 	// (启动即拉一次 + 每 30min 重拉; 任务 ctx 取消即退出, 见 dynamicProxyLoop)
+	// [R76-a] 失败降级接线: 直连网络层失败(fetch 侧 10s 节流) → pullDynamicProxies
+	// 即时重拉 DB 池注入, 重试链下一 attempt 经 pickProxy 切代理拨号
 	if m.proxyFeedback != nil {
 		t.fetcher.ProxyFeedback = m.proxyFeedback
 	}
 	t.proxySource = m.proxySource
 	if t.proxySource != nil {
+		t.fetcher.ProxyPoolExhausted = t.pullDynamicProxies
 		go t.dynamicProxyLoop()
 	}
 	t.pageFetch = func(pctx context.Context, u, referer string) (string, error) {

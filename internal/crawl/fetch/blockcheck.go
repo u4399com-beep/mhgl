@@ -267,12 +267,19 @@ func looksBlocked(h string, status int, serverHeader string) bool {
 		return true
 	}
 	lower := strings.ToLower(h)
-	// CF JS Detections 探测脚本良性豁免: 页面有正常标题且足够长时, 内嵌 jsd 不代表
-	// 当前是挑战页(真实内容页误拦防护, TS jsdBenign 同口径)
-	jsdBenign := strings.Contains(lower, "challenge-platform/scripts/jsd") &&
+	// CF challenge-platform 探测脚本良性豁免: 页面有正常标题且足够长时, 内嵌 CF
+	// 探测脚本不代表当前是挑战页(真实内容页误拦防护, TS jsdBenign 同口径)。
+	// [R76] precursor 变体并入: CF Bot Management 站点真实内容页(实证
+	// m.cuoceng.com)内嵌 challenge-platform/scripts/precursor/main.js, 修前仅
+	// jsd 前缀获豁免, precursor 变体落进强标记 "challenge-platform" 硬判拦 →
+	// 200 真内容页被误判挑战页(等价 403 计失败 → 整站不可采)。标题黑名单
+	// (盾页标题族: just a moment/attention required/验证 等)保证挑战壳无法借
+	// 豁免穿闸; 无正常标题或短页仍走强标记保守判拦
+	cfProbeBenign := (strings.Contains(lower, "challenge-platform/scripts/jsd") ||
+		strings.Contains(lower, "challenge-platform/scripts/precursor")) &&
 		n >= 1200 && hasNormalTitle(h)
 	// 强挑战特征(CF 等): 无论长短一律判拦
-	if !jsdBenign {
+	if !cfProbeBenign {
 		for _, k := range strongBlockMarkers {
 			if strings.Contains(lower, k) {
 				return true

@@ -26,3 +26,8 @@ backups/
 # (跨 agent 协作总线/任务上下文, 每轮收口随 commit 入库) —— .gitignore 对已追踪
 # 文件无效, 条目徒具误导, 已删(前后 git status 零变化实证); *.tmp.log 零历史/
 # 零磁盘/零引用三重证据一并删除
+# mini-services 构建产物(Go 二进制不入库, 源码+go.mod 入库)
+mini-services/*/*
+!mini-services/*/
+!mini-services/*/main.go
+!mini-services/*/go.mod

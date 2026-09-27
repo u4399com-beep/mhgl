@@ -1144,3 +1144,234 @@ Work Log:
 Stage Summary:
 - 六条交付: ①任务编辑闭环(3 真虫修+UI 实测)+报错全链可见(lastError 行内/level 过滤/失败路径全覆盖) ②35 规则逐规则 livecheck 实测: 19 全通+1 部分+15 条件性(每条有根因/修法/所需资源), 4 规则现场修复+引擎 tocLink 真虫修复 ③a/b/c/e/d 四路抓虫增强全合入 ④DB 自动快照机制三触发落地+首份入 git 保险 ⑤文档/脚本精简 ⑥推送 origin/main
 - 移交 R76: git token 轮换持续提醒; bqg713 内容端点(bqg616.cc 拦截)可试 contentProxyUrl; JS 渲染站(book4 类)如需突破需评估纯 Go 侧 headless 方案; 平台快照回滚常态下 backups/ 入 git 策略需逐轮观察仓库体积; interfere→pseudo 稀释调优仍留档
+
+---
+Task ID: R76-a
+Agent: R76-a
+Task: ①-1 代理收割管线实网体检(临时探针实跑一轮收割+校验, 探完即删)
+
+Work Log:
+- 探针件 internal/crawl/proxy/zz_probe_r76a_test.go(临时, 独立内存 SQLite 零碰生产 DB): TestZZProbeHarvestLive 全源收割+unchecked 校验 300 条; TestZZProbeHarvestLiveCN 二轮收割+CN 国别子集专项校验
+- HARVEST 实测: 17/17 源全部成功(thespeedx×3/monosans×3/proxyscrape×3/proxifly 26686 条/mmpx12/roosterkid×2/geonode×2/proxyspace×2), 解析 39026 条, 新增入池 39026, 耗时 2.9s —— 收割面健康
+- CHECK 实测: unchecked 300 条(32 并发) → 活 25 / 死 275(8.3% 存活率, 与免费池 2~15% 经验区间吻合), 耗时 66s; 健康分通过(alive=1 AND healthScore>0, 即 store.AliveProxyAddrs 准入口径)=25; 校验后国别全为 ip-api 实测值(KR/GB/VN/US/ID/MY…)
+- CN 专项: 全池 39030 条中源标 CN 仅 14 条(0.036%), 实测校验 14/14 全死 → **可用 CN 免费代理≈0**。x33yq proxyCountries="CN" 若严格过滤, 动态池常态为空 → 回落直连(缺省保守语义成立); 需在过滤空结果时 warn 留痕供操作员知情
+- 附带发现(待修, 归环节④⑤): rule.FetchConfig.ProxyCountries 解析+消毒(rule/types.go:79,340)后全仓零消费点 = 死键; AliveProxyAddrs 不带国别(仅 protocol://host:port), 国别过滤须在拉取侧落地
+
+Stage Summary:
+- 收割→校验→健康分→存活五环节实测全链通: 17 源/39k 条/8.3% 存活/健康分门通过 25 条; CN 免费代理可用量实测≈0(14 标 0 活), proxyCountries 过滤设计以「严格过滤+空池回落直连+warn」定案; 死键 proxyCountries 修复进入下一环节
+---
+Task ID: R76-b
+Agent: R76-b
+Task: fanqianxs.com 突破攻坚（R75 已删 scrapling 死键，engine:auto 重测）
+
+Work Log:
+- 规则现状核对: engine=auto + tlsFingerprint=chrome + autoCookie + waitMs 已全配齐(R75 修后形态), 规则侧无可再加旋钮
+- curl 实探: GET https://www.fanqianxs.com/ → HTTP 403 4547B, <title>Attention Required! | Cloudflare</title> + "you have been blocked" 文案 = CF IP 信誉硬封(block 1020 族), 非 JS 挑战页("Just a moment" 才是挑战) —— TLS 指纹/头伪装对此类无解
+- livecheck 探针(任务 ckwwa5fpwlaee33134u0dtauu): FAIL "HTTP 403 (https://www.fanqianxs.com/)" —— Go 引擎 utls chrome 指纹亦被封, 与 curl 判定互证
+- 探针任务已停(FAIL 路径 livecheck 自动 stop, 待清)
+
+Stage Summary:
+- fanqianxs.com: 条件性 needsCleanIP/needsUnlockBridge —— CF IP 信誉硬封, 沙箱 IP 段被拉黑, 规则旋钮已到顶(tlsFingerprint=chrome 无效实证); 解锁需住宅/干净 IP 或内容解锁桥; 留档不硬啃
+---
+Task ID: R76-b
+Agent: R76-b
+Task: x33yq.org 突破攻坚（R75 已删 needsProxy，proxyCountries:CN 重测）
+
+Work Log:
+- curl 实探(2 次, 节流): https://www.x33yq.org/ TLS 握手后连接被掐 —— curl 报 "TLSv1.3 (OUT), TLS alert, decode error / unexpected eof while reading", http1.1 与 h2 同样 000; 与 R75 EOF 判定一致, 传输层被掐非规则问题
+- 代理池现状: admin GET /api/admin/proxy-pool 空(list=[]); 本轮触发 POST /api/admin/proxy-pool/harvest 成功收割 39029 条入库(17 源), POST check?mode=unchecked&limit=3000&concurrency=150 校验批次已起(慢校验, 免费代理典型存活率 2~15%)
+- 代码核对(只读): ProxyCountries 键在 Go 侧仅 rule/types.go 声明+sanitize, fetch 层无消费者 —— 国别过滤为死键(无害); pickProxy(fetch.go)仅按全局池加权随机选取, 池空/全冷却回退直连
+- livecheck 探针(任务 ckwwa5fpilaee3319xlx8rdoy, range 模式): FAIL "列表页 P1 抓取失败: EOF" —— 直连路径复现 EOF, 池无可用代理
+- 终判: 条件性·needsAliveProxy —— 站点对沙箱 IP 段 TLS 掐断, 任何可用代理(不必 CN)即可试通; 依赖 R76-a 代理池校验产出, 届时经 livecheck 复跑即可; proxyCountries 键可留(Go 忽略)或后续清
+
+Stage Summary:
+- x33yq.org: 条件性 needsAliveProxy(池已种 39k 待校验; EOF 根因=IP 段被掐; 无规则可修)
+---
+Task ID: R76-b
+Agent: R76-b
+Task: m.cuoceng.com 突破攻坚（R75「拦截页判定」复核）
+
+Work Log:
+- curl 实探(移动 UA): GET https://m.cuoceng.com/book/finish/1.html → HTTP 200 24697B 真实列表页(12 个 div.bookbox, UUID 书号链接), 无 WAF 挑战; 书籍页 /book/d08c5875-….html → 200 14043B, 规则全字段选择器逐一命中(h1.booktitle=我在精神病院学斩神/.booktag a.red=三九音域/.booktag a.blue=都市/a.bookchapter=番外/p.bookintro/chapterlist dd 目录链接在位)
+- 根因(领地外虫, fetch/blockcheck.go): 真实页面内嵌 Cloudflare precursor 探测脚本 "src='/cdn-cgi/challenge-platform/scripts/precursor/main.js'", blockcheck 的 jsdBenign 豁免只认 "challenge-platform/scripts/jsd" 前缀, precursor 变体落进 strongBlockMarkers "challenge-platform" 硬判拦 → 200 真内容页被误判为挑战页(等价 403 计失败), 与 R75「拦截页判定」日志吻合
+- 修法建议(交 R76-a/主控): jsdBenign 豁免扩展 —— "challenge-platform/scripts/precursor" 与 jsd 同口径(长页+正常标题时良性), 或强词表命中前先过「n≥1200+hasNormalTitle」正常内容页快通道
+- 规则侧: 零修改(选择器/UA/模板全对, 移动 UA curl 全链路 200), 纯 fetch 层误拦
+
+Stage Summary:
+- m.cuoceng.com: fail-closed(规则完好, fetch 层 precursor 误拦) —— handoff 至 blockcheck.go 属主(R76-a/主控); 修后该规则预期直接 PASS, 无需再动规则
+---
+Task ID: R76-b
+Agent: R76-b
+Task: wanbenshenzhan.com 突破攻坚（R75 HTTP 403 复核）
+
+Work Log:
+- curl 实探(3 次, 节流): 列表页/all/0_lastupdate_0_0_1.html → 307 → /WAF/VERIFY/CAPTCHA?info=…&from=…; 首页同样 307 → 验证码; http 明文同样 307 跳验证码(全站无差别); 跟随后落地 "Verify Yourself" 页 = GoEdge WAF 图形验证码(GOEDGE_WAF_CAPTCHA_ID/GOEDGE_WAF_CAPTCHA_CODE 表单)
+- 判定: 全站级验证码门(GoEdge WAF), 非路径级/非指纹级 —— tlsFingerprint/UA/头伪装不可能绕过; 图形验证码识别超出纯 Go 引擎与本项目合规边界(不做 OCR 破解)
+- 规则侧: 零修改(旋钮无意义), 引擎拿到 307→验证码页会按挑战壳判拦, 行为正确 fail-closed
+
+Stage Summary:
+- wanbenshenzhan.com: fail-closed·needsCaptcha(GoEdge WAF 全站验证码门, curl 三形态实证; 需人工解验证码或解锁桥人工预热 cookie 才可能采, 本轮不做)
+
+---
+Task ID: R76-a
+Agent: R76-a
+Task: ①-2/4/5 代理管线修复: proxyCountries 死键活性化 + 直连失败降级链补齐 + 注入链整合回归
+
+Work Log:
+- [真虫① 死键] rule.FetchConfig.ProxyCountries 解析+消毒(rule/types.go:79,340)后全仓零消费点(rg 实证仅 2 处声明) —— x33yq 等「需国内 IP」规则声明国别后动态池仍按全量健康分拉取, 非 CN 代理对该站恒 EOF/403 白烧重试链。修复(全在领地内, rule 零触碰): ①fetch 新增可选能力接口 CountryFilteredProxySource{AliveProxyAddrsForCountries(limit, countries)}; ②task.pullDynamicProxies 消费: 规则声明国别+源支持能力接口 → 过滤拉取; 过滤后空池不回退全量(非目标国代理无效且污染健康分)维持直连+warn-once; 源不支持接口 → 回退全量+warn-once(配置不静默失效); ③crawl 包(countryAwareProxySource, proxyfeedback.go)经 store.QueryMaps 只读适配补齐国别查询(alive=1 AND healthScore>0 AND country IN(...) 健康分降序, 与 AliveProxyAddrs 同一存活门), engine.NewManager 装配点改注入适配器 —— store 侧零改动
+- [缺口② 降级链] rg pickProxy 调用点+失败分支实证: 修前「直连 EOF/dial 失败→自动切代理」不存在 —— 池空/全冷却时 pickProxy 恒 nil, 重试链每 attempt 仍直连, 动态池哪怕 30min 内有新货也要等 ticker 补挂(且若首拉空池任务全程裸奔)。修复: fetch.Client 新增 ProxyPoolExhausted 钩子, doOnce 直连网络层失败(client.Do 错误臂 pu==nil / 中途断流 readErr 臂 pu==nil)时节流触发(CAS 节流 proxyPoolRepullThrottle=10s), task 装配钩子=pullDynamicProxies(即时重拉注入, 重试链下一 attempt 经 pickProxy 消费)。缺省保守边界: 仅 dial/EOF/超时类(状态码错误必经 client.Do 成功, 天然不触发); 403/429 WAF 面不降级(TestR76aWafFaceNoPoolRepull 钉死); 内部通道(token/contentProxy, directOnly/loopbackExempt)不触发
+- [整合回归 ①-3] TestR76aHarvestAddrThroughPickProxyAndDial: httptest 转发代理形态(绝对 URI 请求直接应答, 不真连外网), 「收割产出形态地址串(http://host:port)→SetDynamicProxies→pickProxy 选中→实拨经代理(handler 命中+markProxySuccess 记账)」全链闭合; newTask 装配钉子 TestR76aNewTaskWiresExhaustedHook + engine 装配运行时断言 TestR76aNewManagerWiresCountryAwareSource
+- 回归清单: fetch 包 r76a_test.go 5 测试(整合拨号/直连失败触发+节流/403 不触发/内部通道不触发/能力接口缝) + task 包 r76a_task_test.go 6 测试(国别解析表/过滤臂国别透传+空池不回退/回退臂 warn-once/失败重拉注入/newTask 钩子装配) + crawl 包 r76a_crawl_test.go 2 测试(适配器查询语义: 健康分降序/socks5h 归一/存活门/国别消毒/NewManager 装配双接口); task.Manager 增 ProxySource() 观测缝(装配断言消费)
+- 生产语义零变化面: 未声明 proxyCountries 的任务走原 AliveProxyAddrs 全量臂(适配器透传); 池非空时请求本就经 pickProxy 走代理(既有语义), 钩子只在「池空/全冷却+直连失败」增量触发
+
+Stage Summary:
+- 代理管线两缺口修复落地: proxyCountries 死键端到端活性化(解析→过滤拉取→空池保守直连+warn) + 直连网络层失败降级链补齐(节流重拉→注入→重试切代理); httptest 转发代理整合回归+13 项单测钉死; store/rule 零改动
+
+---
+Task ID: R76-main
+Agent: main-controller
+Task: R76 开局取证+wave1 甄别采认(a/b 断连产出)+biquge 定性+blockcheck precursor 真虫修复+换装
+
+Work Log:
+- 开局取证: git 1ab95b7(R75)干净; 服务/看门狗在位; R75 判定表复核——hodei/shoujixs/xbqg777/xyetianlian 4 条陈旧 FAIL(R75 中途已修实测过), 实际待突破=14 条真实规则+模拟源站夹具豁免
+- wave1 甄别采认: a=代理收割实网体检(17/17 源 39k 条入池 8.3% 存活 CN 免费代理≈0)+proxyCountries 死键端到端活性化(CountryFilteredProxySource)+直连失败降级链(ProxyPoolExhausted 钩子节流重拉)+13 回归全绿; b=4 判定(fanqianxs CF IP 信誉硬封 1020 fail-closed/x33yq needsAliveProxy·池已种 39k/cuoceng handoff fetch 层误拦/wanben GoEdge WAF 全站验证码门 fail-closed)+biquge.tw tlsFingerprint=chrome 双落(断连前未及验证)
+- 主控补验: biquge.tw 探针 FAIL(仍 403)+curl 定性=CF「Just a moment」JS 挑战页(非 IP 封禁, 纯 HTTP 引擎不可解, 同 book4 类 fail-closed); builtin_rules.json 格式修复(b 误改单行, 恢复 indent=2 仅保 biquge 语义变更 3+/2-)
+- [真虫] blockcheck.jsdBenign 仅认 challenge-platform/scripts/jsd 前缀, CF precursor 变体(scripts/precursor/main.js, cuoceng 实页内嵌)落强标记 "challenge-platform" 硬判拦 → 200 真内容页误判挑战页(等价 403 计失败)整站不可采; 修为 cfProbeBenign 双变体(jsd|precursor)×(n≥1200+hasNormalTitle), 标题黑名单防挑战壳穿闸; 回归 r76main_test.go 4 测试(cuoceng 实页形态/jsd 语义保持/短壳仍拦/盾页标题仍拦)
+- 清理: zz_probe_r76a_test.go 删除(a 断连前未及清), biquge FAIL 探针任务 DELETE
+- 换装: SIGTERM 优雅停→看门狗 dev-go.sh 自动重建(.build/mhgl 11:03 > 全部 R76 源码)→R76 代码上线(代理降级链+precursor 豁免生效); 3 主任务 done 态无需恢复
+- 门禁: gofmt 归一 2 文件零/vet 零/build OK/fetch 33.6s+task 31.2s+proxy 12.2s+crawl 全包绿
+
+Stage Summary:
+- wave1 断连产出全甄别采认(a=代理管线两缺口修复, b=4 规则判定); cuoceng 唯一障碍(precursor 误拦)修复+4 回归钉死; R76 代码换装上线; 剩余攻坚面=10 规则(R76-b2 接力)
+---
+Task ID: R76-b2
+Agent: R76-b2
+Task: m.cuoceng.com 复测（precursor 豁免上线后 livecheck 探针）
+
+Work Log:
+- livecheck 探针(任务 ckwwbeci7ovvu331f2yidl7uq, range 模式 listUrl=/book/finish/{page}.html): **PASS** — status=done, books=1, content=20/2033(≥3 达标); 列表页/书籍页/目录 2033 章发现/正文采集全链路走通, R76-main 的 blockcheck precursor 豁免实证生效
+- 后半程观察: 前 20 章连续成功后章节连续 HTTP 400(warn「章节失败(5/20 连败)」, 批次 13~17 成功 0), 同一批失败章节 URL 间隔 1s 后 curl 复核 200/17KB 真实正文 —— 非规则/URL 问题, 是站点对突发节奏的 IP 级节流(400 形态, 非 429)
+- 调优(双落): fetch.waitMs 500→1200 + fetch.globalConcurrency 6→3(hostGateLimit=2 保持), 拉开节奏规避 400 节流; PUT /api/admin/rules/ckww4xrutt4wh332q2r8gm0gq + builtin_rules.json(indent=2, json.load 验证过)
+
+Stage Summary:
+- m.cuoceng.com: **PASS**(precursor 误拦修复后全链路通, books=1·content=20/2033; 另做节奏调优双落防 400 节流, 全量采集建议低并发慢跑)
+---
+Task ID: R76-c
+Agent: R76-c
+Task: ①interfere→pseudo 替换率稀释调优(R74 移交留档项) — 探针实证+不变式钉死
+
+Work Log:
+- [探针实证] 临时件 zz_probe_r76c_test.go(探完已删): 298 个词典词全文档各恰一次布点(选中词/伙伴词双方向互斥+排除噪声句库词, 替换计数零串扰), 100 段×6 词 ASCII 填充隔离, 300 轮 nonce。A(pseudo 单独) 平均替换 46.1/替换率 0.155; B(interfere+pseudo) 平均替换 46.1/替换率 0.155 —— 真实内容替换率稀释幅度 0.0%, 且逐 nonce 替换数完全相等(pseudo RNG 与 interfere RNG 独立派生, total 匹配集相同, 超几何抽样决策逐位一致)。
+- [机制定性] R74 担忧的两方向在现行实现均不成立: ①interfere 插入的噪声 span 是单个 tokMarkup token(applyInsertions), pseudoTokens 只扫 tokText → 噪声文本对 pseudo 完全不可见, 零白替换/零再污染; ②句界切分点在句读标点之后, 词典键全为纯 CJK 词(无标点) → 切分零裂词, 真实匹配集不变; ③pseudo 的 total/k 口径只含 tokText = 任务选项③「替换率统计口径对 interfere 文本豁免」实现上已成立; 选项①顺序调整为零收益动契约、选项②插入点避开候选词对 markup 噪声无意义, 均不取。
+- [强度语义附注(非虫)] 噪声 span 携带的词典词不参与替换(25 span 页样本实测 33 处), 「剥标签全文口径」的页面级替换率因此低于配置面 —— 属测量口径差: 噪声句是每请求随机新文本, 对其做同义替换是纯白替换零收益, 刻意不参与。
+- [回归转正] internal/stealth/r76c_test.go 3 测试: TestR76c_NoDilutionByInterfere(200 轮逐 nonce 两形态替换数完全相等+替换率落配置面邻域) / TestR76c_InterfereSplitsLossless(多句/无句读/行内标签/未闭合 <p> 四形态切分前后 tokText 命中数恒等) / TestR76c_NoiseSpansUntouchedByPipeline(interfere 单独阶段 span 字节 == 全管线 pseudo+transcode+obfuscate 输出 span 字节, 未来改插 tokText 即红); stealth 全包测试绿。
+
+Stage Summary:
+- R74 移交的 interfere→pseudo 稀释项收口: 探针实证现行实现零稀释(0.0%), 两担忧方向均被 markup 插入形态结构性排除, 3 项不变式回归钉死防重构回退; 顺序调整/避开插入点两修法经实证判为无意义不取
+---
+Task ID: R76-c
+Agent: R76-c
+Task: ②c 领地逐行抓虫(api/web/store/auth/smart/config/bootstrap/t2s) — 全量审读
+
+Work Log:
+- [审读面] api 全 15 handler 文件逐行(router 60+ admin 路由全部 requireAdmin 包装实证/路径参数 safeFsToken·coverFileRe·slug 边界/readBodyMap 413·400 双路/pageClamp·lastPage·skip 万级钳位/信封形状一致); web 全 9 文件(模板转义面: JsonLD=template.JS+json.Marshal \uXXXX 逃逸论证/readHTML→contentToParagraphs+sanitize 双层/themeTpls RWMutex+dup-guard 并发/静态面全字面路径+ServeContent/safeHref 反斜杠口子/validHost 253 钳); store 全 14 文件(SQL 零拼接注入面: 动态片段全部白名单来源(orderBy/sort 列/restoreTables/statsKeyRe/PRAGMA table_info), 恢复与定向清理单事务, FK 级联链核对 Chapter/BookTag/DownloadJob=CASCADE); auth 全文(HMAC+等长短路+constant-time+exp+{exp,nonce}双键+nonce hex+HttpOnly/SameSite=Lax/Secure 跟随形态+限流 FIFO+清扫); crawl/smart 只读审读(归一化循环有界/rune 截断安全); config(生产 fail-closed)/bootstrap(幂等 DDL+R75-c BEGIN IMMEDIATE 在位)/t2s(R74/R75 已扩容, 无明显虫零触碰)。
+- [结论] 宁缺毋滥: 未发现可申报新真虫 —— R55→R76 十轮抓虫后 c 领地防线完备, 全部重点面(路由边界/权限覆盖/JSON 错误路/分页/模板缓存并发/路径穿越/SQL 注入/事务边界/会话过期)均有既有防线或既有回归钉死, 无重复申报历史已修点。
+- [观察留档(非虫, 强度调优向)] interfere 噪声句库 65+25 条全站共享且每页多条 —— 跨页重复隐藏句是站内指纹面(搜索引擎互比对站内页面可见), 未来 stealth 强度轮可评估扩库/去重采样; 本轮不属「替换率稀释」范畴未动。
+- [gate 命令勘误→handoff] 任务书 gate 里 ./internal/smart/... 不存在(lstat 实证, 无此包) —— smart 实际为 internal/crawl/smart(crawl 领地); 本轮以 ./internal/crawl/smart/... 等价跑 vet+test 全绿, 请主控修 gate 命令。
+- 门禁: gofmt 零 / vet 零(九包) / go build ./... OK / api+web+stealth+store+crawl/smart+auth+config+bootstrap+t2s 九包 -count=1 全绿; admin.js 零改动 → layout.html 缓存键 v=r75-e 维持有效(改才换键规则, 无需换)。
+
+Stage Summary:
+- c 领地全量逐行审读收口: 零新真虫(全部重点面既有防线+既有回归覆盖实证), 1 条 stealth 强度观察留档, 1 条 gate 命令路径勘误移交主控; 任务①(稀释调优)与任务②(抓虫)双双收口, 九包门禁全绿
+
+---
+Task ID: R76-main
+Agent: main-controller
+Task: [真虫·语义级] 动态代理池劫持直连流量 —— R57-2a「池非空→全量走代理」既有语义被 R76 收割激活, 直连健康站点全面劣化
+
+Work Log:
+- [确诊] fq.taijiwang.top 探针失败形态「代理通道失败: Bad Request」vs curl 直连 200/88KB 完好 → 读码实证 doOnce:1826 每 request 只要池非空就 pickProxy 走代理(直连仅池空/全冷却时兜底) —— R57-2a 设计意图「池有代理、采集不用缺口」, 但池常年为空故语义从未暴露; R76-b 实网收割 39k 条入池+check 数百活后, 全部规则流量被劫持进 8% 存活率的免费代理, 直连健康的 19 条规则与主任务全部面临劣化面(威胁「稳定长期获取」根本目标)
+- [修法·fetch 侧语义分层] proxyFirst(target, attempt) 策略门: ①显式代理意图(静态 cfg.ProxyURL / 规则声明 proxyCountries, declaresProxyCountries 同口径轻解析)恒代理优先(R57-2a 原始诉求保持) ②无显式意图直连优先 —— 动态池降为韧性兜底: 重试链 attempt>0 或 per-host 直连失败冷却窗(directFailUntil, directFailCooldown=10min)内才走代理; ③noteDirectDialFailed 扩 host 参数记账冷却窗(两个网络层失败臂: client.Do 错误/中途断流), 与 R76-a 池刷新钩子同点触发; ④回环豁免/内部通道(directOnly/loopbackExempt)语义不变
+- [回归] r76main_test.go TestR76mainProxyFirstPolicyTable(6 面板: 空池直连/动态注入不构成显式意图(修前劫持形态钉子)/静态 ProxyURL 显式优先/proxyCountries 合法码显式优先+非法码不构成/冷却窗窗内兜底+host 隔离+过期回归/回环豁免) + r76a_test.go 整合测试适配(拨号层置目标 host 冷却窗后经代理往返, 与生产兜底链同构); fetch 33.5s+task 31.1s 全绿
+- 换装: 看门狗链自动重建(新语义上线: 直连优先+代理兜底+显式意图优先三态)
+
+Stage Summary:
+- 语义级真虫修复: 免费动态池从「主路由劫持者」收敛为「韧性兜底层」, 显式意图三态分层(显式优先/直连优先+重试兜底/直连失败冷却兜底), fq 探针失败形态根因消除, 19 条直连健康规则的稳定性保障恢复
+---
+Task ID: R76-b3
+Agent: R76-b3
+Task: trxsw.com 攻坚（R75 EOF 复核 + 变体实验）
+
+Work Log:
+- curl 复核(节流): https h1.1 与 h2 各 1 次 —— TCP/TLS 握手成功(证书链验证 OK, Let's Encrypt, IP 43.224.29.80), 请求发出后在**响应数据阶段被掐**(h1.1: "TLS alert decode error+unexpected eof"; h2: stream PROTOCOL_ERROR err1); 完整 Chrome 头集/移动 UA 同灭; **http 明文 80 端口同样 TCP 建连后 1.2s 掐断**(排除 SNI 检测, IP 级应用层封锁实锤); 裸域无解析, m.trxsw.com 同 IP
+- 变体1(双落 PUT /api/admin/rules/ckww4xruut4wh3329rfs6ipm8): fetch.tlsFingerprint=chrome → 探针任务 ckwwdbfyvo3zd3319sm2jskca FAIL "代理通道失败: 代理 CONNECT 响应读取失败: unexpected EOF" —— 直连 utls chrome 首 attempt 仍 EOF(R76-main 直连优先语义下降级代理, 免费代理亦 EOF), chrome 指纹无效实证; FetchConfig 全键清单核对(types.go:47-79): 无 httpVersion 钉扎类键, h1 钉扎为 R75-a 引擎内建(TLSNextProto 空表)无规则旋钮
+- 变体2/3 判定不实验: 移动 UA/referer 在 curl 完整头集已覆盖同形态(请求头变更不影响封锁行为), IP 级封锁下规则侧旋钮无效
+- 探针任务已 DELETE; 规则保留 tlsFingerprint=chrome(无害, 未来干净代理下提升穿透率)
+- 沙箱 IP 43.224.29.80→本机直连全形态掐断, 与 x33yq 同根因
+
+Stage Summary:
+- trxsw.com: 条件性 needsAliveProxy —— IP 级应用层封锁(TLS+明文双通道全灭, chrome 指纹/头形态均无效, 免费代理未穿透); 需干净 IP 或可用代理, 规则侧零可修
+
+---
+Task ID: R76-b3
+Agent: main-controller(b3 接力)
+Task: book4.cc(AU文学) base64 软壳突破 — decodeShell 引擎旋钮+规则全重写
+
+Work Log:
+- [真源勘察] R75 定性「Vue SPA 需浏览器」实为误判: 首页 89KB 响应=单 <script> 壳, html_b="<b64>" 内嵌 52KB 真实 SSR HTML(document.writeln 渲染); 书籍页同壳; 源站 auwxw.com CF 521 直访不可达(壳站=唯一通道)
+- [结构勘察] 书籍页「章节列表」不在页面内 —— 章节 URL 文件名为双层 b64: 层1=auwxw/{bookId}/{层2}.json, 层2=b64(源站章节 URL); 目录端点 /show_jsload_book_info/auwxw/{bookId}/book.json 返回 dstr="<b64>" 三层编码(b64→urlencode→JSON: book_name/author/type_name/intro/url_cover/chapter_list[{file_name,name,len}]) —— 书籍元数据+2025 章目录一体
+- [路由规律] 章节 URL /AU文学/{任意分类}/{任意bookId}/{file_name} 200 出对章(分类段/bookId 段均不校验, file_name 是唯一路由键) → toc item URL const 无需变量拼接; 分类列表页 ./2 相对分页 → {page} 模板直用
+- [引擎增强] fetch.decodeShell 旋钮(rule/types.go FetchConfig+fetch.go doOnce 响应管线): shellB64Re 体检 html_b="/dstr=" 双形态 → b64 解码(HTML 直接采纳 '<' 起始; JSON 臂 PathUnescape 后 '{'/'[' 采纳), 判定保守防任意 b64 常量误伤; 回归 r76b3_shell_test.go 4 测试(HTML 壳/URL 编码 JSON 壳/直出 JSON 壳/保守反例 3 面)
+- [规则重写] book4: engine=browser→http+decodeShell=true; list=分类页 css 卡片(h3 a/p.author/p[style]); book+toc 共用 book.json JSON 载荷(name/author/category/intro/cover+chapter_list.*→file_name); content=div.entry-content; DB PUT+仓库 JSON 双落
+- [探针受挫] 首探 FAIL=传输层(直连超时→代理兜底亦超时), curl 复核 503 142B —— 连发 ~10 探测触发站点临时限流, 非规则缺陷; 待冷却+换装(decodeShell 上线)后复测
+- 顺带定性: trxsw/77shuku/xinjianpan 三探针经代理池仍全灭(代理通道 EOF/refused) — 免费池 IP 面同样被拒, 终态 needsAliveProxy/needsNewDomain
+
+Stage Summary:
+- book4 从 fail-closed SPA 误判翻案为软壳 SSR 全链可达(decodeShell 旋钮+规则重写双落完成), 探针待冷却复测; 三 dial 族规则代理池亦不可达(诚实条件性)
+
+---
+Task ID: R76-b3
+Agent: main-controller(b3 续)
+Task: bqg713 解锁桥+七猫 Go 桥复刻+zxcs/七猫定性 — 条件性规则连破两站
+
+Work Log:
+- [bqg713·PASS] R76-b2 断连前已完整逆向 token 桥(mini-services/bqg-unlock, jsjiami v7 去混淆: token=base64(AES-128-CBC(JSON.stringify({id,chapterid}))), key/iv=MD5('book@token.html') hex 前/后 16 字节, 内容域 apibi/apiqu/apige 白名单): 修一处环境性视觉假象(lastHitost] 实为 Read 显示吞 [h, go vet 过=文件本好, 勿盲修)后 go build+拉起 :3010 healthz ok; 实弹 unlock?url=apige.cc/api/chapter?id=2530&chapterid=1 → {"ok":true,"content":"大夏国，天蜀郡..."} 真正文到手; livecheck 全链: book 2531 toc=1105 c=27/1105 ≥3 **PASS**(25s 27 章; 前探 2530=万相之王已在库走增量 0 新章合规跳过, 换 2531 实测内容臂)
+- [七猫·PASS] 规则依赖的签名代理 mini-services/qimao-proxy 在 R69 TS 清退中被删(git 历史 4854abe 可考, bun 版); 依历史版逐行 Go 复刻(stdlib 零依赖: MD5 双签名 params.sign/headers.sign + AES-128-CBC 正文解密 key='242ccb8230d709e1' IV 随包前 16B + PK 魔头 EPUB 诚实 ok=false + 6 端点 /search /rank /detail /toc /content /health), 自检回环 PASS; 首版 2 虫自查: normBooks 取层错(j["data"]→data["books"], /rank /search health 三臂同修)+sync 漏 import; api-bc/api-ks 双域真网全通; livecheck: toc=5285 c=38/5285 ≥3 **PASS**(签名验签+AES 解密全链 Go 化实证)
+- [zxcs·fail-closed] www.zxcs.click 实为 Vue SSR(YzmCMS, data-v 属性但服务端直出全量 HTML, 非纯 SPA): 书籍页 /{cat}/{id}.html 存在, 但「立即下载」→ zxcs.live/download/{id} 纯 TXT 文件流 —— 站点无章节页, 引擎 toc+content 章节模型不可表达(需专用 TXT 导入管线, 超本轮范围); 诚实留档 fail-closed·架构不匹配
+- [book4·实施完冷却受阻] decodeShell 旋钮+规则重写双落已完成(见前条), 复测遇站点临时限流 503(勘察期 ~10 连发触发, 直连+代理双臂 503/超时 92s); 待长冷却后终验
+- 探针任务清理: FAIL 全 DELETE, PASS 停 pause 保留(bqg713 ckwwfbbw610s6331lofh3ezpa / 七猫 ckwwfj1bo10s633122y78l24t)
+
+Stage Summary:
+- 条件性再破两站: bqg713(token 桥 b2 逆向产出+主控补验全链 PASS)+七猫(qimao-proxy Go 复刻真网全链 PASS); zxcs 架构不匹配诚实留档; 14 条战役终态 5 PASS+1 PASS 待冷却(book4)+8 诚实条件性/fail-closed
+---
+Task ID: R76-d
+Agent: R76-d
+Task: R76 文档同步收口
+
+Work Log:
+- 开局: tail worklog 220 行(R75/R76 全部条目)+git 1ab95b7 基线+工作树状态核对; 逐项代码取证后落笔(禁臆测): fetch.go(proxyFirst/directFailCooldown=10min/ProxyPoolExhausted 10s CAS 节流)、rule/types.go(DecodeShell/ProxyCountries)、blockcheck.go(cfProbeBenign jsd|precursor×n≥1200+正常标题)、task/proxyfeed.go(CountryFilteredProxySource 过滤拉取+空池保守直连+warn-once)、mini-services 两件源码(端口/端点/127.0.0.1 绑定/stdlib 零依赖)、builtin_rules.json+DB Rule 表(bqg713 contentProxyUrl→3010、qimao 六段→3013、book4 decodeShell=true、yueyouxs 库内重复行、xjp=新键盘)逐一对上
+- docs/rule-limits.md 全量重写: §1=R76 现行口径(数据源与判定口径 status=done+contentDone≥3 / livecheck 方法论: admin API 建真实探针任务+节流纪律[book4 503 连发限流/cuoceng 400 节流调优/FAIL DELETE·PASS pause]+双落纪律+换装复测; 35 规则逐条终态表 4 列[规则/终态/根因与突破手段/所需资源]; 会计口径注[全通 23=R75 基线 19+R76 新破 4, 键位去重含 xbqg777/xyetianlian 采认后表内 24, 差异=yueyouxs 重复行]; R76 引擎侧新杠杆 7 条[代理语义分层/proxyCountries 活性化/收割体检 17源39k 8.3% CN≈0/decodeShell/precursor 豁免/Go mini-services 两件/interfere→pseudo 稀释 0% 闭环]); §2~§4=R74 极限校准方法论全量保留并加历史留档横幅(TS 校准链已退役)
+- README.md: 反反爬体系 bullet 增补 R76 代理语义分层(显式意图优先/直连优先+池韧性兜底/失败节流刷新)+proxyCountries 端到端+decodeShell 旋钮+precursor 豁免一句; 站级扩展点 bullet 改口(R76 两件 Go 版回归); 新增「伴生 mini-services(R76, 可选组件)」bullet 一条; 「外置代理小服务(已退役)」节重写为「伴生 mini-services」(现役两件+R69 历史注), 消除「不再需要任何伴生进程」自相矛盾; 目录结构补 mini-services/ 行
+- DEPLOY.md: 新增 §⑦「内容解锁桥与七猫签名桥(可选 mini-services, R76)」——服务表(端口 3010/3013/用途/启用条件=仅启用对应规则时)、构建与启动命令(cd mini-services/<名> && go build -o <名> . + setsid nohup)、healthcheck(curl :3010/healthz→ok; :3013/health→selfTestOk)、systemd 常驻提示、可选组件缺省不影响主服务声明; 原「常见问题三条」⑦→⑧ 顺延(全文档无外部 §⑦ 引用, .env.example 引 §⑤ 未受影响)
+- .env.example: 核实零改动——rg os.Getenv/envOr/LookupEnv 全量盘点 16 变量(PORT/DB_PATH/ADMIN_PASSWORD/SESSION_SECRET/GO_ENV/COOKIE_SECURE/MEM_LIMIT_MB/COVER_DIR/MHGL_AUTO_SEED/GO_CALLBACK_SECRET/MHGL_TLSFP_ROTATE/PROXY_HARVEST_INTERVAL/BACKUP_*3/MHGL_STRESS_FULL)与 .env.example 逐一对应, R76 零新 env 实证
+- 一致性核查: 端点/端口/命令与代码实态逐一对齐(/unlock?url=+/healthz@3010、/health@3013 qimao 六段全部指向 127.0.0.1:3013 实证、contentProxyUrl {url} 占位符契约 fetch.go FetchContentRef); markdown 围栏配对偶数校验 5 文件全过(README 6/DEPLOY 16/rule-limits 0); INSTALL-GUIDE.md §6.4 历史注最小修正 1 行(R69「无需任何伴生进程」与 R76 两件回归直接矛盾→改注 R76 按需回归两件并指向 DEPLOY §⑦)
+- 领地纪律: 只动 docs/(rule-limits/INSTALL-GUIDE 1 行)/README.md/DEPLOY.md/.env.example(零改动)/worklog 追加; internal/、scripts/、.zscripts/、mini-services/ 零触碰
+
+Stage Summary:
+- R76 文档同步收口 4 类目标全交付: rule-limits.md 重写(R76 现行 livecheck 矩阵 35 规则逐条终态+方法论, R74 校准方法论历史留档)、README.md R76 面增补+退役章节去矛盾、DEPLOY.md §⑦ mini-services 部署小节、.env.example 核实零新 env; 端点/端口/命令/围栏一致性核查全过; 移交: builtin_rules.json 内 qimao/deqixs/xjp/qidian 规则 description 仍写退役端口桥旧启动方式(bun run start/3014/3015/3017)属 internal/ 领地本轮不可触, 建议主控后续轮修正
+
+---
+Task ID: R76-main
+Agent: main-controller
+Task: R76 四条收口(代理语义级真虫+14 规则战役终态+文档/E2E/推送)
+
+Work Log:
+- 门禁: gofmt 零(internal+cmd+mini-services)/vet 零/build OK/20 包 test 全绿(fetch 33.5s+task 30.9s)
+- E2E(agent-browser 经 :81): 首页 125 链接零页面错误; 书籍页 万古神帝(4236 章/简介/最新章节全渲染); 阅读页 第一章+is-pagebg 卡片在位+87 段落(R67-fix 保持); sitemap.xml→sitemapindex-ok(application/xml); 375px scrollW=375 零溢出; admin 登录→任务页 28 编辑/日志按钮+task-log-level 过滤器在位(R75 交付保持)
+- 探针清场: 11 条 R76/R75 探针任务 DELETE, 库面回归 3 主任务(done)
+- mini-services 双件入库(.gitignore 排除构建产物): bqg-unlock(:3010, b2 逆向)+qimao-proxy(:3013, Go 复刻), 源码+go.mod 追踪
+- DB 快照轮转换防: backups/db-20260927-124931.db.gz(52MB, 含 R76 探针回填书)force-add 替换 R75 份(轮转删旧属预期行为)
+- book4 终态: decodeShell 旋钮+规则重写+双落+单测全绿实施完成; 实弹终验因站点长时 503 IP 冷却(勘察期连发触发, >1.5h 未解)暂缓——规则结构已全链实证(list 解码/book.json 三层解码 2025 章/章节页解码+正文区), 解封后即可采; rule-limits.md 矩阵如实标注
+- 移交 R77: git token 轮换持续提醒(ghp_SYO... 暴露多轮); book4 解封后终验; 起点镜像/77shuku/xinjianpan 死域可在后续轮用 web-search 换域; qimao/bqg713/book4 规则 description 内旧启动方式文案(R76-d 移交, internal 领地)待修; 免费代理池质量天花板(EOF 族 x33yq/trxsw 终态依赖付费住宅代理或解锁桥扩展)
+
+Stage Summary:
+- R76 四条交付: ①代理语义分层真虫修复(免费池劫持直连→显式意图优先/直连优先+韧性兜底三态)+proxyCountries 活性化+precursor 误拦修复 ②35 规则战役: 新破 4 站(cuoceng/fq.taijiwang.top/bqg713 token 桥/七猫 Go 签名桥)+book4 实施完成待解封+8 条诚实条件性/fail-closed(全带根因与所需资源), 23/35 全通 ③c 领地 interfere→pseudo 稀释 0% 闭环+零新虫, 精简面 zz_probe/探针任务/陈旧快照清理 ④文档 rule-limits 重写+README/DEPLOY mini-services 部署节; 全量门禁+E2E 双绿

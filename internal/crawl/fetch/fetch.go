@@ -34,6 +34,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -108,11 +109,26 @@ const (
 // fetch 只报事实, 增量记账在 crawl 包回写泵与 store 侧执行)
 const proxyFeedbackFailAfter = 3
 
+// proxyPoolRepullThrottle 直连网络层失败触发池刷新的最小间隔([R76-a]): 池空/全冷却
+// 时的直连失败会逐请求触发钩子, 不节流则 mass-failure 场景(DB 池也拉不到货)每请求
+// 一次 DB 拉取成风暴; 10s 足以覆盖重试链(退避 ≤8s)内下一次 attempt 的消费窗口
+const proxyPoolRepullThrottle = 10 * time.Second
+
 // ProxyAddrSource 动态代理源接口(R57-2a DB 代理池接线缝): fetch 包不 import store,
 // engine/bridge 装配点传入 *store.DB(实现 AliveProxyAddrs)即完成注入。
 // 返回 "protocol://host:port" 健康分降序; 空切片=池空(消费方不得据此清空现有池)
 type ProxyAddrSource interface {
 	AliveProxyAddrs(limit int) ([]string, error)
+}
+
+// CountryFilteredProxySource 可选能力接口([R76-a] proxyCountries 活性化): 动态代理源
+// 支持按国别(ISO 3166-1 alpha-2, 大写)过滤拉取。修前规则键 fetch.proxyCountries 在
+// 解析(rule.Sanitize)后全仓零消费点 = 死键 —— x33yq 等「需国内 IP」规则声明了国别,
+// 动态池却按全量健康分拉取, 非 CN 代理对该站无效(EOF/403)且白烧重试链。引擎装配
+// 点以适配器实现(crawl 包 countryAwareProxySource 经 store.QueryMaps 只读补齐国别
+// 查询); 源未实现本接口时 task 侧回退全量拉取并 warn 一次(配置不静默失效)
+type CountryFilteredProxySource interface {
+	AliveProxyAddrsForCountries(limit int, countries []string) ([]string, error)
 }
 
 // UA 池([R59-2c-batch2] 新鲜度刷新: Chrome 140~143/Edge 143/Safari 17.4~18.4/
@@ -537,6 +553,18 @@ type Client struct {
 	// set-once 语义: 必须在首个请求前设置(无锁读取)
 	ProxyFeedback func(addr string, ok bool)
 
+	// ProxyPoolExhausted 直连网络层失败触发的池刷新钩子(可选, [R76-a] 失败降级):
+	// 池空/全冷却回退直连后, 直连拨号/EOF/超时类失败时经节流调用 —— 装配方(task
+	// pullDynamicProxies)即时重拉 DB 池注入, 使重试链的下一 attempt 经 pickProxy
+	// 切到代理拨号(「直连失败 → 代理兜底」降级链补齐)。仅网络层失败触发;
+	// 403/429/5xx 等 WAF/限流面不触发(Do 成功才有状态码), 与 R73/R74 重试语义
+	// 对齐: WAF 面不降级, 防把目标站拦截记账进代理健康分。内部通道(token 预取/
+	// contentProxy, 恒直连)不触发。set-once 语义同 ProxyFeedback
+	ProxyPoolExhausted func()
+
+	// lastPoolPull 上次池刷新触发时刻(UnixMilli; CAS 节流, 见 noteDirectDialFailed)
+	lastPoolPull atomic.Int64
+
 	jar     *cookiejar.Jar // 直连+代理双路径接线(契约 §4 autoCookie 恒开)
 	hc      *http.Client   // 无代理共享传输(连接池+拨号级 SSRF 复检)
 	hcLocal *http.Client   // loopback 豁免通道(token 预取/contentProxy 内部直连; 拨号级复检放行回环)
@@ -552,10 +580,13 @@ type Client struct {
 	proxyIdx         atomic.Uint64 // 代理池轮换游标("roundrobin" 形态用)
 	proxies          []*url.URL    // 解析后的代理池
 	proxyTans        map[string]*http.Transport
-	proxyFailedUntil map[string]time.Time  // per-proxy 失败冷却(key=代理串)
-	proxyFailCount   map[string]int        // per-proxy 连败计数(指数冷却底数)
-	proxySuccCount   map[string]int64      // [R58-2a] per-proxy 成功计数(加权随机权重; 失败减半衰减)
-	lastProxyWarn    time.Time             // 全冷却 warn 限频
+	proxyFailedUntil map[string]time.Time // per-proxy 失败冷却(key=代理串)
+	proxyFailCount   map[string]int       // per-proxy 连败计数(指数冷却底数)
+	proxySuccCount   map[string]int64     // [R58-2a] per-proxy 成功计数(加权随机权重; 失败减半衰减)
+	lastProxyWarn    time.Time            // 全冷却 warn 限频
+	// [R76-main] 兜底语义: 无显式代理意图时动态池只做韧性兕底(直连优先), 不做主路由
+	explicitProxy    bool                  // 显式代理意图(静态 cfg.ProxyURL / 声明 proxyCountries): 池非空即代理优先
+	directFailUntil  map[string]time.Time  // per-host 直连网络层失败冷却窗(窗内该 host 首 attempt 也走代理兕底)
 	mirrorSticky     map[string]string     // 镜像组成功域 sticky(key=注册域 eTLD+1, R51-4 对齐 TS registrableDomainOf: 同注册域多子域共享 sticky; 值=上次成功 host)
 	jarSeeded        map[string]bool       // 静态 Cookie 已注入 host 集合(每 host 一次)
 	tokenCache       map[string]tokenEntry // token 预取缓存
@@ -596,6 +627,8 @@ func New(cfg rule.FetchConfig) *Client {
 		mirrorSticky:     map[string]string{},
 		jarSeeded:        map[string]bool{},
 		tokenCache:       map[string]tokenEntry{},
+		explicitProxy:    cfg.ProxyURL != "" || declaresProxyCountries(cfg.ProxyCountries),
+		directFailUntil:  map[string]time.Time{},
 	}
 	jar, err := cookiejar.New(&cookiejar.Options{PublicSuffixList: publicsuffix.List})
 	if err != nil {
@@ -1030,6 +1063,78 @@ func (c *Client) pruneProxyStateLocked() {
 	}
 }
 
+// directFailCooldown 直连网络层失败后该 host 的代理优先冷却窗([R76-main]): 窗内
+// 该 host 的首 attempt 也走代理兕底(避免每个请求都先付一次直连失败时延); 窗口过期
+// 自动回归直连优先(直连恢复健康即回归主路由)
+const directFailCooldown = 10 * time.Minute
+
+// declaresProxyCountries 规则是否声明了国别过滤(fetch 侧轻解析, 与
+// task.parseProxyCountries 同口径: 逗号/分号/空白分隔, 仅收 2 字母 ISO alpha-2)
+// —— 声明即显式代理意图(需特定出口国别的站点, 池有货时代理优先)
+func declaresProxyCountries(s string) bool {
+	for _, f := range strings.FieldsFunc(s, func(r rune) bool {
+		return r == ',' || r == ';' || r == ' ' || r == '\t' || r == '\n' || r == '\r'
+	}) {
+		cc := strings.ToUpper(strings.TrimSpace(f))
+		if len(cc) == 2 && cc[0] >= 'A' && cc[0] <= 'Z' && cc[1] >= 'A' && cc[1] <= 'Z' {
+			return true
+		}
+	}
+	return false
+}
+
+// proxyFirst 本次请求是否代理优先([R76-main] 动态池兕底语义):
+// ①显式意图(静态 cfg.ProxyURL/声明 proxyCountries)恒代理优先(R57-2a「池有代理、
+//
+//	采集不用」缺口的原始诉求, 既有语义保持);
+//
+// ②无显式意图时直连优先 —— 免费动态池做韧性兕底而非主路由: 重试链(attempt>0,
+//
+//	首胜不折)或该 host 处于直连失败冷却窗时才经代理。修前「池非空→全量走代理」
+//	在 R76 代理池实网收割入库(39k 条, 8% 存活)后被激活, 直连健康的站点被免费
+//	代理全面劫持劣化(fq.taijiwang.top 实证: 直连 200 完好, 引擎经代理 Bad Request)
+func (c *Client) proxyFirst(target *url.URL, attempt int) bool {
+	if c.explicitProxy {
+		return true
+	}
+	if attempt > 0 {
+		return true
+	}
+	if target != nil {
+		c.mu.Lock()
+		until, ok := c.directFailUntil[target.Hostname()]
+		c.mu.Unlock()
+		if ok && time.Now().Before(until) {
+			return true
+		}
+	}
+	return false
+}
+
+// noteDirectDialFailed 直连网络层失败(dial/EOF/超时类): ①per-host 冷却窗记账
+// ([R76-main] 窗内该 host 首 attempt 走代理兕底) ②节流触发池刷新([R76-a]):
+// CAS 节流窗口 proxyPoolRepullThrottle; 钩子同步调用(装配方只做一次 DB 拉取+池合并,
+// 毫秒级, 使重试链下一 attempt 能消费新注入的代理)
+func (c *Client) noteDirectDialFailed(host string) {
+	if host != "" {
+		c.mu.Lock()
+		c.directFailUntil[host] = time.Now().Add(directFailCooldown)
+		c.mu.Unlock()
+	}
+	if c.ProxyPoolExhausted == nil {
+		return
+	}
+	now := time.Now().UnixMilli()
+	last := c.lastPoolPull.Load()
+	if last != 0 && now-last < proxyPoolRepullThrottle.Milliseconds() {
+		return
+	}
+	if !c.lastPoolPull.CompareAndSwap(last, now) {
+		return // 并发请求已有先行者触发, 本请求跳过
+	}
+	c.ProxyPoolExhausted()
+}
+
 // markProxyFailed 代理失败冷却: 30s×2^n 指数, 钳 10min; [R58-2a] 成功计数减半衰减
 // (近期失败者权重回落但不归零, 冷却结束再入池时以减半权重重新竞争)
 func (c *Client) markProxyFailed(pu *url.URL) {
@@ -1439,7 +1544,7 @@ func (c *Client) rawFetch(ctx context.Context, rawURL, refererURL string, direct
 			if err := ctx.Err(); err != nil {
 				return rawResult{}, err
 			}
-			res, err := c.doOnce(ctx, cand, refererURL, extraHeaders, directOnly, gate, loopbackExempt, binary)
+			res, err := c.doOnce(ctx, cand, refererURL, extraHeaders, directOnly, gate, loopbackExempt, binary, a)
 			if err == nil {
 				gate.noteSuccess()
 				if len(group) > 1 {
@@ -1656,7 +1761,48 @@ func isPlainDigits(s string) bool {
 // gate: 归属的 host 闸(限流冷却窗写入; token 直连等无闸调用传 nil);
 // loopbackExempt: 强制走 hcLocal 回环豁免直连(跳过代理池);
 // binary: 二进制子资源形态(<img> 指纹组: image Accept + Dest=image/Mode=no-cors/无 User)
-func (c *Client) doOnce(ctx context.Context, rawURL, refererURL string, extraHeaders map[string]string, directOnly bool, gate *hostGate, loopbackExempt, binary bool) (rawResult, error) {
+// shellB64Re 软壳变量提取: html_b="<b64>"(HTML 壳) / dstr="<b64>"(JSON 壳)。
+// b64 串下限 100 字符(壳载荷恒为大块; 防普通短串误伤)
+var shellB64Re = regexp.MustCompile(`(?:html_b|dstr)[[:space:]]*=[[:space:]]*"([A-Za-z0-9+/]{100,}={0,3})"`)
+
+// decodeShellBody [R76-b3] base64 软壳站响应还原(book4.cc/AU文学 实证两形态):
+// ①HTML 壳: 页面仅 <script>html_b="<b64>";document.writeln(atob 解码链)</script>
+//
+//	—— 真实 SSR HTML 内嵌 base64; JS 侧 decodeURIComponent(escape(atob(x))) 即
+//	UTF-8 字节还原, Go 侧 b64 解码后 string 字节即等价。
+//
+// ②JSON 壳: dstr="<b64>" → b64 解码产物为 URL 编码 JSON(decodeURIComponent 口径:
+//
+//	仅解 %XX, '+' 字面保留, Go url.PathUnescape 同语义)。
+//
+// 采纳判定保守: 解码产物首字节必须 '<'(HTML) 或 URL 解码后 '{'/'['(JSON), 否则
+// 原样返回(防任意 base64 常量误伤; 书站正文页/目录载荷恒以二者起始)。
+func decodeShellBody(body []byte) ([]byte, bool) {
+	if len(body) < 128 {
+		return body, false
+	}
+	m := shellB64Re.FindSubmatch(body)
+	if m == nil {
+		return body, false
+	}
+	raw := make([]byte, base64.StdEncoding.DecodedLen(len(m[1])))
+	n, err := base64.StdEncoding.Decode(raw, m[1])
+	if err != nil || n == 0 {
+		return body, false
+	}
+	dec := raw[:n]
+	switch {
+	case dec[0] == '<' || dec[0] == '{' || dec[0] == '[':
+		return dec, true
+	default:
+		if u, uerr := url.PathUnescape(string(dec)); uerr == nil && len(u) > 0 && (u[0] == '{' || u[0] == '[') {
+			return []byte(u), true
+		}
+	}
+	return body, false
+}
+
+func (c *Client) doOnce(ctx context.Context, rawURL, refererURL string, extraHeaders map[string]string, directOnly bool, gate *hostGate, loopbackExempt, binary bool, attempt int) (rawResult, error) {
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return rawResult{}, fmt.Errorf("URL 解析失败: %v", err)
@@ -1778,7 +1924,7 @@ func (c *Client) doOnce(ctx context.Context, rawURL, refererURL string, extraHea
 	if loopbackExempt {
 		// 内部通道(token 预取/contentProxy): 回环豁免直连, 不经代理
 		client = c.hcLocal
-	} else if !directOnly {
+	} else if !directOnly && c.proxyFirst(u, attempt) {
 		if pu = c.pickProxy(u); pu != nil {
 			client = &http.Client{Transport: c.transportFor(pu, u.Scheme == "https"), Timeout: timeout, Jar: c.jar, CheckRedirect: c.hc.CheckRedirect}
 		}
@@ -1796,6 +1942,14 @@ func (c *Client) doOnce(ctx context.Context, rawURL, refererURL string, extraHea
 			// [R53-2a](代理误责) 打标代理通道失败: rawFetch 据此豁免目标 host
 			// 连败计数(故障归属代理自身, 见 proxyChannelError 注)
 			return rawResult{}, &proxyChannelError{err}
+		}
+		// [R76-a](失败降级) 直连网络层失败(dial/EOF/超时类)且本次未走代理
+		// (池空/全冷却回退直连): 节流触发池刷新钩子 —— 重拉 DB 池注入后, 重试链
+		// 下一 attempt 的 pickProxy 即可切到代理拨号。403/429/5xx 状态面不经此处
+		// (client.Do 成功才有状态码), WAF 面不降级; 内部通道(token/contentProxy)
+		// 恒直连, 不触发
+		if !loopbackExempt && !directOnly && u != nil {
+			c.noteDirectDialFailed(u.Hostname())
 		}
 		return rawResult{}, err // 网络层/超时 → 触发重试与镜像切换
 	}
@@ -1824,7 +1978,19 @@ func (c *Client) doOnce(ctx context.Context, rawURL, refererURL string, extraHea
 	body, readErr := readBodyDecompressed(resp)
 	if readErr != nil {
 		// 部分读也当失败(R51-2-b #2: len(body)>0 但中途断流 → 半截正文不得入库)
+		// [R76-a] 直连路径的中途断流(EOF 类)同属网络层失败: 走同一池刷新降级钩子
+		if pu == nil && !loopbackExempt && !directOnly && u != nil {
+			c.noteDirectDialFailed(u.Hostname())
+		}
 		return rawResult{}, readErr
+	}
+	// [R76-b3] base64 软壳站响应还原(opt-in fetch.decodeShell): 还原后的真实载荷
+	// 统一进入后续全链(blockcheck 出口判定/解析层) —— 壳层本身不含挑战特征,
+	// 解码前的 b64 块也不该被当页面体检
+	if c.cfg.DecodeShell {
+		if dec, ok := decodeShellBody(body); ok {
+			body = dec
+		}
 	}
 	// [R68-a] CF 官方挑战信令头: Cf-Mitigated: challenge(大小写不敏感, 头值域
 	// challenge|connectivity 等; 挑战恒 challenge)—— body 特征之前的最强信号
@@ -2064,7 +2230,7 @@ func (c *Client) fetchTokenDirect(ctx context.Context, tu string) string {
 		fmt.Printf("[fetcher] token 预取 SSRF 拒绝: %v (tokenUrl=%s)\n", err, util.Truncate(tu, 120))
 		return ""
 	}
-	res, err := c.doOnce(ctx, tu, "", nil, true, nil, true, false)
+	res, err := c.doOnce(ctx, tu, "", nil, true, nil, true, false, 0)
 	if err != nil {
 		fmt.Printf("[fetcher] token 预取失败: %v (tokenUrl=%s)\n", err, util.Truncate(tu, 120))
 		return ""

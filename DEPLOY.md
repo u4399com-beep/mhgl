@@ -124,7 +124,40 @@ systemctl start mhgl                                       # ④ 起服务(自�
 - 自配反代：Caddy `reverse_proxy 127.0.0.1:3000`（默认透传 `X-Forwarded-Proto`，Secure Cookie 全自动）；Nginx 需补 `proxy_set_header X-Forwarded-Proto $scheme;`。
 - https 部署无须显式 `COOKIE_SECURE=1`（透传即自动叠加）；http 直连不要开它（浏览器拒收 Secure Cookie 会断后台登录）。
 
-## ⑦ 常见问题三条
+## ⑦ 内容解锁桥与七猫签名桥（可选 mini-services，R76）
+
+主服务（`:3000` 单二进制）**不含也无需**这两个伴生进程；两者均为**可选组件**——仅当启用对应采集规则时才需启动，缺省不启动不影响主服务与其它规则（对应规则会 fail-closed/正文段降级）。均为单文件 Go、**stdlib 零依赖**、仅绑 `127.0.0.1`（不外露，无需反代/防火墙配置）。
+
+| 服务 | 端口 | 用途 | 启用条件（缺省不需要） |
+| --- | --- | --- | --- |
+| `mini-services/bqg-unlock` | `3010` | bqg713 家族正文 token 桥（AES-128-CBC+MD5 派生 token，host 白名单+同 host ≥600ms 节流）；端点 `GET /unlock?url=<原章节URL>` | 启用「笔趣阁 bqg713」规则时（规则 `contentProxyUrl` 指向 `http://127.0.0.1:3010/unlock?url={url}`） |
+| `mini-services/qimao-proxy` | `3013` | 七猫官方 API 签名+AES 解密桥（MD5 双签名+正文 AES-128-CBC 解密）；端点 `/search` `/rank` `/detail` `/toc` `/content` | 启用「七猫官方API」规则时（规则六段全部指向 `http://127.0.0.1:3013/...`） |
+
+**构建与启动**（Go 工具链就绪后，每个服务两行；幂等可重跑）：
+
+```bash
+# bqg-unlock(:3010)
+cd mini-services/bqg-unlock && go build -o bqg-unlock .
+( setsid nohup ./bqg-unlock > /tmp/bqg-unlock.log 2>&1 < /dev/null & )
+
+# qimao-proxy(:3013)
+cd mini-services/qimao-proxy && go build -o qimao-proxy .
+( setsid nohup ./qimao-proxy > /tmp/qimao-proxy.log 2>&1 < /dev/null & )
+```
+
+> systemd 常驻可仿 §② 的 `mhgl.service` 再写两个 unit（`ExecStart=/opt/mhgl/mini-services/<服务>/<二进制>`，`Restart=on-failure`）；主服务升级/重启与二者互不影响（独立二进制）。
+
+**healthcheck**：
+
+```bash
+curl http://127.0.0.1:3010/healthz   # → ok
+curl http://127.0.0.1:3013/health   # → {"ok":true,"service":"qimao-proxy","selfTestOk":true,...}
+```
+
+- `qimao-proxy` 的 `selfTestOk=true` 为启动时 AES-128-CBC 回环自检，`apiReachable` 为上游七猫 API 可达性探针（60s 缓存）；`bqg-unlock` 无自检端点，`/unlock?url=` 实弹验 token 桥（内容域白名单 apibi.cc / apiqu.cc / apige.cc 等）。
+- 对应规则未启用时**无需启动**；停掉它们不影响主服务进程，仅对应规则采集失败（诚实留痕）。
+
+## ⑧ 常见问题三条
 
 | 症状 | 处理 |
 | --- | --- |
