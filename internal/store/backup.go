@@ -393,7 +393,8 @@ func (m *BackupManager) packAndPlace(staging string) (string, error) {
 }
 
 // applyRetention 保留策略: 快照形态文件按名(=时间)降序保留最新 keep 份,
-// 其余删除; 顺带回收 24h 以上的崩溃遗留 staging/.part。调用方持有 m.mu。
+// 其余删除 —— 唯一例外是 heavy-pin(下)。顺带回收 24h 以上的崩溃遗留
+// staging/.part。调用方持有 m.mu。
 func (m *BackupManager) applyRetention() []string {
 	entries, err := os.ReadDir(m.dir)
 	if err != nil {
@@ -418,15 +419,45 @@ func (m *BackupManager) applyRetention() []string {
 		}
 	}
 	sort.Sort(sort.Reverse(sort.StringSlice(snaps))) // 新→旧(名字即时间序)
+	// heavy-pin(R77): 候选删除集中体积最大者若 ≥ 保留集最小件体积 ×4, 豁免删除。
+	// 背景: 沙箱快照回滚清库后, 停机钩子在空库上打出 ~40KB 小快照, 把 52MB
+	// 全量收口快照轮转删除 —— 保险机制在最需要它的场景自毁恢复点。体积是
+	// 数据量的稳健代理(gzip 后仍差 3 个数量级), ×4 阈值对正常周期快照
+	// (体积相近)零扰动; 每次至多豁免 1 份防目录膨胀, 库体积恢复后被自然挤出。
+	pinned := ""
+	if excess := len(snaps) - m.keep; excess > 0 {
+		minKept := int64(-1)
+		for i := 0; i < m.keep; i++ {
+			if sz := fileSizeOr(filepath.Join(m.dir, snaps[i]), 0); minKept < 0 || sz < minKept {
+				minKept = sz
+			}
+		}
+		var pinSz int64
+		for i := m.keep; i < len(snaps); i++ {
+			if sz := fileSizeOr(filepath.Join(m.dir, snaps[i]), 0); sz > pinSz {
+				pinSz, pinned = sz, snaps[i]
+			}
+		}
+		if pinSz < minKept*4 {
+			pinned = ""
+		}
+	}
+	kept := snaps
 	for i := m.keep; i < len(snaps); i++ {
+		if snaps[i] == pinned {
+			continue
+		}
 		if rerr := os.Remove(filepath.Join(m.dir, snaps[i])); rerr != nil {
 			log.Printf("[backup] retention remove %s: %v", snaps[i], rerr)
 		}
 	}
-	if len(snaps) > m.keep {
-		snaps = snaps[:m.keep]
+	if excess := len(snaps) - m.keep; excess > 0 {
+		kept = append([]string{}, snaps[:m.keep]...)
+		if pinned != "" {
+			kept = append(kept, pinned) // 时序上 pinned 属最旧段, 追加尾部保序
+		}
 	}
-	return snaps
+	return kept
 }
 
 func (m *BackupManager) fail(reason string, err error) (BackupResult, error) {

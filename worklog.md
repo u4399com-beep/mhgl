@@ -1375,3 +1375,49 @@ Work Log:
 
 Stage Summary:
 - R76 四条交付: ①代理语义分层真虫修复(免费池劫持直连→显式意图优先/直连优先+韧性兜底三态)+proxyCountries 活性化+precursor 误拦修复 ②35 规则战役: 新破 4 站(cuoceng/fq.taijiwang.top/bqg713 token 桥/七猫 Go 签名桥)+book4 实施完成待解封+8 条诚实条件性/fail-closed(全带根因与所需资源), 23/35 全通 ③c 领地 interfere→pseudo 稀释 0% 闭环+零新虫, 精简面 zz_probe/探针任务/陈旧快照清理 ④文档 rule-limits 重写+README/DEPLOY mini-services 部署节; 全量门禁+E2E 双绿
+
+---
+Task ID: R77-main
+Agent: main-controller
+Task: 快照回滚第 3 次清数据全量恢复 + R76-main 移交项兑现(规则文案修正/book4 终验/qidian 换域调查)
+
+Work Log:
+- [开局确诊] git HEAD=c32588f(R76 主提交)=origin/main 严格对齐(0 ahead/0 behind)——R76 四条已在先前会话全量交付推送; 但 db/ 文件时间戳全新(Sep 27 14:09)、books=0、任务代际 ckwwhgwh pending×3 —— 平台快照回滚第 3 次清沙箱数据实锤; 服务进程与 :3000/:81 健康未受影响。
+- [数据恢复(停服换库路径)] R75 落地的 DB 快照保险首次实战兑现: backups/db-20260927-124931.db.gz(52MB, 12:49 R76 收口打点, 磁盘+git 双保险)→gunzip 解压→python sqlite3 校验(integrity ok; Book 31/Chapter 38468/Task 9/Rule 36/FreeProxy 38982; 表名 PascalCase 非小写)→kill 1023 停服→mv 原子覆盖 db/custom.db+清 WAL/SHM→逃逸写法 setsid nohup dev-go.sh 拉起(pid 5456, :3000 200)→admin API 复核 books=31+任务 9 条(快照 12:49 打点早于 R76 清场动作, 库里带 6 条探针任务)。
+- [清场对齐] DELETE 6 探针任务(完整 24 位 ID, 首次用 14 位前缀 404 踩坑)→tasks 回归 3 主任务 done(yueyouxs/xyetianlian/xbqg777), 与 R76-main 收场终态一致。
+- [伴生桥复活] 快照回滚杀掉两 mini-services(3010/3013 均无响应)→go build 重建+setsid 拉起: bqg-unlock healthz=ok, qimao-proxy selfTestOk=true——依赖桥的 bqg713/七猫规则链路恢复可用。
+- [移交项①规则文案修正(五规则八处)] R76-d 移交的退役桥旧启动方式文案全部修正+双落(builtin_rules.json 精准子串替换断言命中+DB Rule 表 UPDATE): bqg713 旧桥名 bqg713-proxy→bqg-unlock(R76 Go 版 :3010); qimao `bun run start`→`go build -o qimao-proxy . && ./qimao-proxy`; deqixs 退役依赖注改为「R77 注: contentProxyUrl→3014 已退役, 正文段自动降级直连(R75 实测直连全通)」删启动命令; qidian 桥退役注+凭证段改写; xjp 退役+IP 封锁双条件终态注。验证: JSON 合法/35 规则/DB 旧引用(bqg713-proxy·bun run start·qidian-proxy 环境变量)清零。
+- [移交项②book4 终验=站点死亡改判] R76 挂起的「PASS·待冷却终验」关闭: 复测 503 已演变为服务器下线——TLS 握手返回自签证书(CN=example.com, O=Global Security, 2019-11 过期, Go 官方示例假证书), IP 140.235.37.223, DNS 正常解析——原服务器下线/域名易主指向裸 Go 默认服务。非规则缺陷; decodeShell 旋钮+规则重写成果保留(原站复活或换同壳新域零代码改动即采)。rule-limits.md 矩阵 2 处更新(会计行+book4 行 ⛔ 站点死亡)+builtin_rules.json+DB description 加 [R77 终验] 注。
+- [移交项③qidian 换域调查受阻] z-ai web_search CLI 持续 429 Too Many Requests(两次退避重试均限流)——调查未执行, 留档移交; qidian 维持条件性(needsNewMirror)。
+- [门禁] 进行中(见后续条目)。
+
+Stage Summary:
+- 快照回滚第 3 次清数据事故 45 分钟内全量恢复: R75 DB 快照保险机制首次实战生效(52MB 快照→31 书 38468 章零丢失), 探针清场+双桥复活对齐 R76 收场终态; R76-main 全部 3 移交项兑现(文案五规则八处双落/book4 终验站点死亡改判/qidian 调查限流留档)——「待终验」挂起项清零, 35 规则终态全部落定无悬案。
+
+---
+Task ID: R77-main
+Agent: main-controller
+Task: R77 收口(门禁+E2E+推送)
+
+Work Log:
+- 门禁: gofmt 零(internal+cmd+mini-services) / vet 零 / build OK / 19 包 test -count=1 零 FAIL(本轮仅 JSON/文档/worklog 变更, Go 代码零触碰, 门禁为回归确认)。
+- E2E(agent-browser 经 :81): 首页 title+57 书籍链接+16 分类导航+零页面错误(数据恢复实证); 书籍页 /book/31 九星霸体诀 title+作者在位; 阅读页 第一章「田园惊变」+3618 字符正文渲染; admin 登录→任务页 3 主任务(神马/仙侠/新笔趣阁)可见; 375px scrollWidth=375 零横向溢出; footer sticky(mt-auto)在位; sitemap.xml sitemapindex 正常。
+- qidian 换域调查: web_search CLI 三次尝试(含两次退避)均 429 限流——维持留档移交, qidian 条件性(needsNewMirror)不变。
+- 推送: 见提交信息(fetch 反向校验)。
+
+Stage Summary:
+- R77 收口: 门禁+E2E 双绿, 恢复态全链实证(31 书 38468 章可读/3 主任务在位/双桥 3010·3013 复活), 推送完成。
+
+---
+Task ID: R77-main
+Agent: main-controller
+Task: [真虫·语义级] DB 快照轮转自毁恢复点 —— applyRetention 纯时间序被小快照挤爆 + heavy-pin 修复
+
+Work Log:
+- [实证] 恢复后服务停机钩子在空库上打出 40KB 快照(db-20260927-141456), 轮转(BACKUP_KEEP=3 纯字典序时间序)把 git+磁盘双保险的 52MB R76 收口快照(db-20260927-124931)从工作树删除(git status D 实证) —— 保险机制在「库被清」最需要它的场景自毁唯一恢复点; 幸恢复数据已先落库+git blob 尚存。
+- [修法·heavy-pin] internal/store/backup.go applyRetention: 候选删除集中体积最大者 ≥ 保留集最小件体积 ×4 时豁免删除一份(gzip 后体积是数据量稳健代理, ×4 阈值对体积相近的正常周期快照零扰动; 每次至多豁免 1 份防目录膨胀; 新大件填满保留集后旧 pin 件自然消化); Kept 返回含 pin 件(尾部保序)。
+- [回归] internal/store/backup_r77_test.go 2 测试 3+1 场景(直接手写快照形态文件, 只看文件名+体积不验内容): TestR77_RetentionHeavyPin(pin 生效 4 件存活/新小件入列仍 pin/新大件填满保留集后自然消化 3 件) + TestR77_RetentionNoPinWhenSimilar(4 等体积件恰留 3 件, 旧行为不回归); store 全包 -count=1 绿。
+- [换装+保险重填] go build ./cmd/server → 停服换 .build/mhgl → 逃逸写法拉起(:3000 200); admin API POST /api/admin/backup/snapshot 手动补打全量快照 db-20260927-143352.db.gz(52142139B=52MB)+启动自动件 143326 同体积 —— 保险窗重填两份全量, 40KB 空库件自然出局; builtin_rules.json 为 go:embed(internal/api/admin_rules.go:29), 文案修正随换装一并入二进制。
+
+Stage Summary:
+- 语义级真虫修复: 快照轮转从「纯时间序」升级为「时间序+heavy-pin 体积豁免」, 恢复点自毁形态被回归钉死; 保险窗重填(2×52MB 全量快照), 40KB 空库件出局; 新二进制上线(轮转修复+规则文案 embed 同步)

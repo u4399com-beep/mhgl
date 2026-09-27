@@ -35,7 +35,7 @@
 
 ### 1.3 35 规则逐条终态表（R76 终态）
 
-**全通 23 条**（R75 基线 19 + R76 新破 4：cuoceng / fanqie / bqg713 / qimao）＋ book4 待冷却终验 1 ＋ fail-closed 4 ＋ 条件性 5 ＋ 夹具 1（会计口径见 §1.4 注）。
+**全通 23 条**（R75 基线 19 + R76 新破 4：cuoceng / fanqie / bqg713 / qimao）＋ fail-closed 4 ＋ 条件性 5 ＋ 站点死亡 1（book4，R77 终验）＋ 夹具 1（会计口径见 §1.4 注）。
 
 | 规则 | 终态 | 根因与突破手段 | 所需资源 / 条件 |
 |---|---|---|---|
@@ -63,7 +63,7 @@
 | `fanqie` 番茄聚合API（fq.taijiwang.top） | ✅ PASS（R76 新破） | 真虫定性：R57-2a「池非空→全量走代理」旧语义被 R76 收割激活，直连健康流量被劫持进 8% 存活免费池（探针「代理通道失败: Bad Request」vs curl 直连 200/88KB）→ R76-main 代理语义分层（直连优先+池兜底）根因消除 | 无 |
 | `bqg713` 笔趣阁 bqg713.cc | ✅ PASS（R76 新破） | list/book/toc 明文 API + `tlsFingerprint=chrome` 突 WAF（R75）；正文端点强制 token（明文 query 恒 403）→ `mini-services/bqg-unlock` token 桥（:3010，AES-128-CBC+MD5 派生）+ 规则 `contentProxyUrl=http://127.0.0.1:3010/unlock?url={url}` 对接；R75 另修 tocLink bookURL 传参真虫 | 伴生服务 bqg-unlock 需启动（DEPLOY.md §⑦） |
 | `qimao` 七猫官方API | ✅ PASS（R76 新破） | 上游全端点强制逐请求验签+正文 AES-128-CBC 加密，声明式规则不可表达 → `mini-services/qimao-proxy`（:3013，MD5 双签名+AES 解密，stdlib 零依赖 Go 复刻）+ 规则六段指向代理（`allowLoopback:true`）；出版书（EPUB）诚实 ok=false | 伴生服务 qimao-proxy 需启动（DEPLOY.md §⑦） |
-| `book4` AU文学 book4.cc | ⏳ PASS·待冷却终验 | R75「Vue SPA 需浏览器」实为误判：单 `<script>` 壳内嵌 b64 真实 SSR HTML → R76-b3 新增 `fetch.decodeShell` 旋钮（`html_b=`/`dstr=` 双壳形态还原，判定保守防误伤）+ 规则重写（engine=browser→http；book+toc 共用 book.json 三层编码载荷；章节 file_name 唯一路由键），DB+仓库双落完成 | 探针遇勘察期连发触发站点临时限流（503），待长冷却后复测即为终验 |
+| `book4` AU文学 book4.cc | ⛔ 站点死亡（R77 终验） | R75「Vue SPA 需浏览器」实为误判：单 `<script>` 壳内嵌 b64 真实 SSR HTML → R76-b3 新增 `fetch.decodeShell` 旋钮（`html_b=`/`dstr=` 双壳形态还原，判定保守防误伤）+ 规则重写（engine=browser→http；book+toc 共用 book.json 三层编码载荷；章节 file_name 唯一路由键），DB+仓库双落完成。R77 复测：503 已演变为服务器下线——域名现指向裸 Go 默认服务（TLS 自签 `CN=example.com` 2019 过期证书，IP 140.235.37.223） | 原站复活或换同壳新域名即采（decodeShell+规则已就绪，零代码改动） |
 | `fanqianxs` 番茄小说网 | ⛔ fail-closed | CF IP 信誉硬封（block 1020 族，非 JS 挑战页）；`tlsFingerprint=chrome` 无效实证，规则旋钮已到顶 | 住宅/干净 IP 或内容解锁桥 |
 | `biqugetw` 笔趣阁 www.biquge.tw | ⛔ fail-closed | CF「Just a moment」JS 挑战页（非 IP 封禁），纯 HTTP 引擎不可解（同 book4 旧类，但本站无壳可解） | 需真实浏览器渲染方案（超纯 Go 边界） |
 | `wanben` 完本神站 | ⛔ fail-closed | GoEdge WAF 全站图形验证码门（http/https、全路径 307→`/WAF/VERIFY/CAPTCHA` 三形态实证）；图形验证码识别超合规边界（不做 OCR 破解），引擎按挑战壳判拦行为正确 | 人工解验证码/解锁桥人工预热 cookie |

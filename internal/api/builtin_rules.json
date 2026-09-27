@@ -944,7 +944,7 @@
   {
     "key": "book4",
     "name": "AU文学 (book4.cc)",
-    "description": "AU文学(book4.cc) base64 软壳 SSR 站[R76 突破]: 源站 auwxw.com CF 521 直访不可达, 壳站 html_b/dstr 双壳为唯一通道且壳层是唯一反爬手段 —— fetch.decodeShell=true 引擎侧还原真实载荷后纯 HTTP 全链采集(list 分类页/book+toc 共用 show_jsload_book_info book.json 三层编码载荷/章节 file_name 唯一路由键)。R75 前 engine=browser fail-closed 误判 SPA, 实为软壳 SSR。",
+    "description": "AU文学(book4.cc) base64 软壳 SSR 站[R76 突破]: 源站 auwxw.com CF 521 直访不可达, 壳站 html_b/dstr 双壳为唯一通道且壳层是唯一反爬手段 —— fetch.decodeShell=true 引擎侧还原真实载荷后纯 HTTP 全链采集(list 分类页/book+toc 共用 show_jsload_book_info book.json 三层编码载荷/章节 file_name 唯一路由键)。R75 前 engine=browser fail-closed 误判 SPA, 实为软壳 SSR。[R77 终验] 站点已死亡: 原服务器下线, 域名现指向裸 Go 默认服务(TLS 自签 CN=example.com 2019 过期证书, IP 140.235.37.223)——非规则缺陷; 规则与 decodeShell 成果保留待复活/换域。",
     "enabled": true,
     "source": "scripts/seed-rule-book4.ts",
     "config": {
@@ -1086,7 +1086,7 @@
   {
     "key": "bqg713",
     "name": "笔趣阁bqg713(www.bqg713.cc)·纯JSON API站采集",
-    "description": "www.bqg713.cc 纯JSON API站(SPA壳+hash路由无SSR; 已301迁域 www.bqg413.cc, 引擎跟随重定向)。列表 /api/index 并集路径(hotlist,sort1~6)/书籍 /api/book/目录 /api/booklist(纯章节名数组, chapterid=下标+1)。[R21-b] 诱饵正文根治: 章节镜像 apibi.cc 已死(恒403)/apiqu.cc 按章节粒度被投毒(成人诱饵文本, 水印 biquio点cc+srsp.cc), 旧 tokenUrl+txt 链路命中被毒镜像; 真实正文 = www.bqg413.cc / apige.cc 的明文 txt 字段(无 RC4, /api/hm 为纯遥测信标)。现正文走 mini-services/bqg713-proxy:3010 /unlock 端点(deqixs degrade-native 契约): fetch.contentProxyUrl 为 SSRF loopback 豁免键, 探测自指→404→引擎降级直连 toc 合成的 /unlock URL → 主机池(www.bqg413.cc→apige.cc+家族动态学习)逐台取章, 诱饵水印校验(长度下限+水印签名)剔除毒镜像后返回 {ok,content}。",
+    "description": "www.bqg713.cc 纯JSON API站(SPA壳+hash路由无SSR; 已301迁域 www.bqg413.cc, 引擎跟随重定向)。列表 /api/index 并集路径(hotlist,sort1~6)/书籍 /api/book/目录 /api/booklist(纯章节名数组, chapterid=下标+1)。[R21-b] 诱饵正文根治: 章节镜像 apibi.cc 已死(恒403)/apiqu.cc 按章节粒度被投毒(成人诱饵文本, 水印 biquio点cc+srsp.cc), 旧 tokenUrl+txt 链路命中被毒镜像; 真实正文 = www.bqg413.cc / apige.cc 的明文 txt 字段(无 RC4, /api/hm 为纯遥测信标)。现正文走 mini-services/bqg-unlock(R76 Go 版 token 桥, :3010) /unlock 端点(deqixs degrade-native 契约): fetch.contentProxyUrl 为 SSRF loopback 豁免键, 探测自指→404→引擎降级直连 toc 合成的 /unlock URL → 主机池(www.bqg413.cc→apige.cc+家族动态学习)逐台取章, 诱饵水印校验(长度下限+水印签名)剔除毒镜像后返回 {ok,content}。",
     "enabled": true,
     "source": "scripts/seed-rule-bqg713.ts",
     "config": "{\"list\": {\"enabled\": true, \"urlTemplate\": \"https://www.bqg713.cc/api/index?sort=all\", \"itemSelector\": {\"type\": \"json\", \"expression\": \"hotlist,sort1,sort2,sort3,sort4,sort5,sort6\"}, \"fields\": {\"id\": {\"type\": \"json\", \"expression\": \"id\"}, \"title\": {\"type\": \"json\", \"expression\": \"title\"}, \"author\": {\"type\": \"json\", \"expression\": \"author\"}, \"intro\": {\"type\": \"json\", \"expression\": \"intro\"}, \"bookUrl\": {\"type\": \"const\", \"expression\": \"https://www.bqg713.cc/api/book?id={id}\"}}, \"pagination\": {\"enabled\": false, \"maxPages\": 1}}, \"book\": {\"enabled\": true, \"fields\": {\"name\": {\"type\": \"json\", \"expression\": \"title\"}, \"author\": {\"type\": \"json\", \"expression\": \"author\"}, \"category\": {\"type\": \"json\", \"expression\": \"sortname\"}, \"intro\": {\"type\": \"json\", \"expression\": \"intro\"}, \"status\": {\"type\": \"json\", \"expression\": \"full\"}, \"latestChapter\": {\"type\": \"json\", \"expression\": \"lastchapter\"}}}, \"toc\": {\"enabled\": true, \"tocLink\": {\"type\": \"const\", \"expression\": \"https://www.bqg713.cc/api/booklist?id={q.id}\"}, \"itemSelector\": {\"type\": \"json\", \"expression\": \"list\"}, \"fields\": {\"title\": {\"type\": \"json\", \"expression\": \".\"}, \"url\": {\"type\": \"const\", \"expression\": \"https://apige.cc/api/chapter?id={q.id}&chapterid={index}\"}}, \"pagination\": {\"enabled\": false, \"maxPages\": 1}}, \"content\": {\"enabled\": true, \"fields\": {\"title\": {\"type\": \"json\", \"expression\": \"chaptername\"}, \"content\": {\"type\": \"css\", \"expression\": \"body\"}}, \"pagination\": {\"enabled\": false, \"maxPages\": 1}}, \"fetch\": {\"engine\": \"http\", \"uaMode\": \"rotate\", \"autoCookie\": true, \"referer\": true, \"timeout\": 20000, \"retries\": 2, \"waitMs\": 500, \"browserFallbackStatus\": [403, 412, 429, 503], \"contentProxyUrl\": \"http://127.0.0.1:3010/unlock?url={url}\", \"tlsFingerprint\": \"chrome\"}, \"clean\": {\"removeSelectors\": [\"script\", \"style\", \"iframe\", \"ins\", \"noscript\"], \"adPatterns\": [\"(www\\\\.)?bqg7[0-9]{1,2}\\\\.(cc|com)[^\\\\s<>]*\", \"(www\\\\.)?[a-z0-9-]+\\\\.(com|net|cc|org|info|top|xyz|vip|site)(\\\\/[^\\\\s<>]*)?\", \"biquio[^\\\\s<>]*\", \"srsp\\\\.cc[^\\\\s<>]*\", \"请收藏本站.*?手机版\", \"一秒记住.*?免费读\", \"本站所有小说为转载作品.*?$\"], \"whitelist\": [\"p\", \"br\", \"b\", \"strong\", \"em\", \"i\", \"u\", \"h1\", \"h2\", \"h3\"], \"normalize\": true, \"plainText\": true}}"
@@ -1626,7 +1626,7 @@
   {
     "key": "deqixs",
     "name": "得奇小说网 (deqixs.cc)·直连+签名代理正文",
-    "description": "得奇小说网(deqixs.cc)杰奇系 GBK 站: list/book/toc 三段直连 + content 段走外置签名代理。正文层双墙: 章节页 SSR 空(懒加载渲染) + 真实内容走 chapter.js.php 三参数(token/timestamp/nonce)→ajax2.php GBK JSON; ajax2 三重校验(XRW/Referer 头, token 与签发 referrer 绑定, timestamp 限时) → 每章动态三参数超出声明式引擎表达力(rr-a 真网实测)。 ⚠ 依赖本机转换代理 mini-services/deqixs-proxy(端口 3014, 三参数签发+GBK 解码+HTML→纯文本): toc url 字段以 replaceFrom ^ 前置 http://127.0.0.1:3014/content?u= 指向代理, 代理只接受 deqixs /books/{aid}/{cid}.html 章节形态。 toc 在书页单 dl.chapterlist 两段(最新12倒序+全量正序), dd.visible-xs\"查看全部章节\"死锚以 :not() 排除, 文档序乱序由引擎 reorderToc 去重+章号排序自愈。 代理启动: cd mini-services/deqixs-proxy && bun run start; /health 自检 selfTestOk/upstreamReachable。",
+    "description": "得奇小说网(deqixs.cc)杰奇系 GBK 站: list/book/toc 三段直连 + content 段走外置签名代理。正文层双墙: 章节页 SSR 空(懒加载渲染) + 真实内容走 chapter.js.php 三参数(token/timestamp/nonce)→ajax2.php GBK JSON; ajax2 三重校验(XRW/Referer 头, token 与签发 referrer 绑定, timestamp 限时) → 每章动态三参数超出声明式引擎表达力(rr-a 真网实测)。 [R77 注] 遗留 contentProxyUrl→127.0.0.1:3014 已随 deqixs-proxy 桥 R69 退役, 正文段取代理失败自动降级直连(R75 实测直连全通, 不影响采集); 如需恢复代理模式按 mini-services/qimao-proxy 模式重建 Go 桥。 toc 在书页单 dl.chapterlist 两段(最新12倒序+全量正序), dd.visible-xs\"查看全部章节\"死锚以 :not() 排除, 文档序乱序由引擎 reorderToc 去重+章号排序自愈。",
     "enabled": true,
     "source": "scripts/seed-rule-deqixs.ts",
     "config": {
@@ -3429,7 +3429,7 @@
   {
     "key": "qidian",
     "name": "起点中文(镜像API full.hnxianxin.cn)·Legado书源转换",
-    "description": "起点中文经镜像 API full.hnxianxin.cn/qd(Legado 书源「小雨的世界·起点中文」转换)。发现=ranking.php 榜单(男生站 site_id=11 人气最高; 女生/出版改 site_id=12/4, 榜单/分类/状态/字数/付费/标签筛选参数见 ranking.php?action=config),书籍=detail.php, 目录=catalog.php(C 载荷 b64 签名), 正文经外置代理 mini-services/qidian-proxy:3017(目录索引→解码→签名 content.php)。\n⚠ 正文需起点小程序凭证: 设 mini-services/qidian-proxy 环境变量 QD_YWKEY/QD_YWGUID 后重启代理(书源自订凭证机制同源; 未配置时三段发现/目录照常, 正文为空且 /health.credentialsConfigured=false 可诊)。\n⚠ 2026-09-14 R21 复测: 镜像 full.hnxianxin.cn TLS 证书已过期(TLS alert 557)+绕过校验后端点 404 —— 镜像目标失效, 四段暂 SKIP; 待书源换新镜像后在管理端更新 urlTemplate 后复验。\ntoc url 直指代理 + fetch.contentProxyUrl=…?url={url} 为 SSRF loopback 豁免键(degrade-native 契约, 缺失则章节抓取被 SSRF 全拒); 卷行以 Vo 标记在规则侧清空 URL 过滤。",
+    "description": "起点中文经镜像 API full.hnxianxin.cn/qd(Legado 书源「小雨的世界·起点中文」转换)。发现=ranking.php 榜单(男生站 site_id=11 人气最高; 女生/出版改 site_id=12/4, 榜单/分类/状态/字数/付费/标签筛选参数见 ranking.php?action=config),书籍=detail.php, 目录=catalog.php(C 载荷 b64 签名), 正文经外置代理 mini-services/qidian-proxy:3017(目录索引→解码→签名 content.php; ⚠ 该桥已随 R69 Go 化退役, 突破新镜像后需按 mini-services/qimao-proxy 模式重建 Go 桥)。\n⚠ 正文需起点小程序凭证: 重建桥时设环境变量 QD_YWKEY/QD_YWGUID(书源自订凭证机制同源; 未配置时三段发现/目录照常, 正文为空)。\n⚠ 2026-09-14 R21 复测: 镜像 full.hnxianxin.cn TLS 证书已过期(TLS alert 557)+绕过校验后端点 404 —— 镜像目标失效, 四段暂 SKIP; 待书源换新镜像后在管理端更新 urlTemplate 后复验。\ntoc url 直指代理 + fetch.contentProxyUrl=…?url={url} 为 SSRF loopback 豁免键(degrade-native 契约, 缺失则章节抓取被 SSRF 全拒); 卷行以 Vo 标记在规则侧清空 URL 过滤。",
     "enabled": true,
     "source": "scripts/seed-rule-qidian.ts",
     "config": {
@@ -3591,7 +3591,7 @@
   {
     "key": "qimao",
     "name": "七猫官方API (wtzw.com)·Legado7698·签名代理",
-    "description": "七猫官方API(api-bc/api-ks.wtzw.com)四层JSON采集: rank发现页/detail/toc/content。结构依据 Legado 书源 yckceo 7698.json「⭐七猫[官方]v3.1✨」反译并真网实测。⚠ 依赖本机签名代理 mini-services/qimao-proxy(端口3013, MD5双签名+正文AES-128-CBC解密, key=242ccb8230d709e1): 上游全端点强制逐请求验签, 声明式规则无法表达 → 六段指向代理(引擎 json/const 型)。list=leader-board大热榜男频50本(上游忽略page分页禁用, /search 通道留代理); 出版书(source非空)正文为EPUB如实报错。代理启动: cd mini-services/qimao-proxy && bun run start; /health 自检 selfTestOk/apiReachable。[R62-f] book.fields.wordCount 引擎已接线(声明字数=初始值落库, 正文聚合值完成后覆写, 聚合 0 时保留声明值)。",
+    "description": "七猫官方API(api-bc/api-ks.wtzw.com)四层JSON采集: rank发现页/detail/toc/content。结构依据 Legado 书源 yckceo 7698.json「⭐七猫[官方]v3.1✨」反译并真网实测。⚠ 依赖本机签名代理 mini-services/qimao-proxy(端口3013, MD5双签名+正文AES-128-CBC解密, key=242ccb8230d709e1): 上游全端点强制逐请求验签, 声明式规则无法表达 → 六段指向代理(引擎 json/const 型)。list=leader-board大热榜男频50本(上游忽略page分页禁用, /search 通道留代理); 出版书(source非空)正文为EPUB如实报错。代理启动: cd mini-services/qimao-proxy && go build -o qimao-proxy . && ./qimao-proxy; /health 自检 selfTestOk/apiReachable。[R62-f] book.fields.wordCount 引擎已接线(声明字数=初始值落库, 正文聚合值完成后覆写, 聚合 0 时保留声明值)。",
     "enabled": true,
     "source": "scripts/seed-rule-qimao.ts",
     "config": {
@@ -5222,7 +5222,7 @@
   {
     "key": "xjp",
     "name": "新键盘小说网 (xinjianpan.com)·直连+var c解密代理正文",
-    "description": "新键盘小说网(xinjianpan.com) biquge2023 仿站: list/book/toc 三段直连 + content 段走外置解密代理。正文层双层: #chaptercontent SSR 前半 + var c(base64, 每章恒定) 加密后半由 get20260103.js 客户端解密注入; 解密算法已破(s=atob(c); n=parseInt(s[8:11]); payload=s[11+n:len-n]; '-'→PHA+, '_'→8L3A+ 标记膨胀; atob→UTF-8), 超出声明式引擎表达力 → mini-services/xjp-proxy(端口 3015)承载(章节页抓取+双层合并+HTML→纯文本)。 toc url 字段以 attr=onclick + replaceFrom 前置代理前缀(站点章节锚为 javascript:;+onclick 形态, 引擎 javascript: 过滤器要求必须先提取); 代理只接受 xinjianpan /txt/{code}/{page}.html 形态(防开放代理)。类名带部署哈希尾缀, 选择器一律 [class^=] 前缀匹配。 代理启动: cd mini-services/xjp-proxy && bun run start; /health 自检 selfTestOk/upstreamReachable。",
+    "description": "新键盘小说网(xinjianpan.com) biquge2023 仿站: list/book/toc 三段直连 + content 段走外置解密代理。正文层双层: #chaptercontent SSR 前半 + var c(base64, 每章恒定) 加密后半由 get20260103.js 客户端解密注入; 解密算法已破(s=atob(c); n=parseInt(s[8:11]); payload=s[11+n:len-n]; '-'→PHA+, '_'→8L3A+ 标记膨胀; atob→UTF-8), 超出声明式引擎表达力 → mini-services/xjp-proxy(端口 3015)承载(章节页抓取+双层合并+HTML→纯文本)。 toc url 字段以 attr=onclick + replaceFrom 前置代理前缀(站点章节锚为 javascript:;+onclick 形态, 引擎 javascript: 过滤器要求必须先提取); 代理只接受 xinjianpan /txt/{code}/{page}.html 形态(防开放代理)。类名带部署哈希尾缀, 选择器一律 [class^=] 前缀匹配。 [R77 注] xjp-proxy 桥已随 R69 Go 化退役, 且站点 IP 层封锁(EOF 族, R76 免费代理池亦灭)终态条件性: 可用代理/新域名 + 按 mini-services/qimao-proxy 模式重建 Go 解密桥。",
     "enabled": true,
     "source": "scripts/seed-rule-xjp.ts",
     "config": {
