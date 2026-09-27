@@ -16,7 +16,9 @@ func TestR73_DictIntegrity(t *testing.T) {
 	}
 	for k, v := range charMap {
 		switch v {
-		case '同', '低', '→', '不':
+		// R74: '同' 移出占位黑名单 —— OpenCC 权威表含 衕→同(胡同) 合法映射,
+		// R73 时代手工解析 bug 的占位对(撤同/晚同/盛同)已由生成物消灭。
+		case '低', '→', '不':
 			t.Errorf("占位/可疑映射: %q → %q", string(k), string(v))
 		}
 		if v < 0x2e00 {

@@ -9,8 +9,12 @@
 //   - 多对一恒安全: 萬/與/們/頭… 均为纯繁体 key; value 不作为 key(单遍扫描无二次转换)
 //   - 词组保护: 「乾→干」类单字映射在专名词组内被词组臂拦截(乾隆/乾坤/狼藉);
 //     词级映射(著→着 等词组上下文形态/两岸词汇差异)由词组臂表达
-//   - 字典内嵌 Go 源码(const), 无外部资源; 常用字覆盖 ~1800 对, 原则「宁缺勿错」
-//     (把握不足的字一律不收, 收错的代价远大于漏收)
+//   - 字典内嵌 Go 源码(const), 无外部资源; R74 起单字臂为 OpenCC TSCharacters
+//     全量第一候选 3221 对(dict_tschars_gen.go, 恒等对剔除)+手工补充集兜底,
+//     词组臂为 OpenCC TSPhrases 全量 476 条(恒等保护词组保留)+手工词组; 原则
+//     「宁缺勿错」(把握不足的字一律不收, 收错的代价远大于漏收); 歧义字裁决:
+//     藉/瞭/覆/么 标准表第一候选即恒等(词级由词组臂表达), 乾→干 有 TSPhrases
+//     乾隆/乾坤/乾元/乾卦/乾陵 等保护词组, 与手工决策一致
 package t2s
 
 import (
@@ -89,7 +93,10 @@ const charPairs = "" +
 	"釣钓,諜谍,疊叠,訂订,凍冻,棟栋,鬥斗,獨独,賭赌,鍍镀,鍛锻,噸吨,頓顿,奪夺," +
 	"墮堕,訛讹,額额,餌饵,罰罚,閥阀,礬矾,範范,販贩,紡纺,廢废,紛纷,墳坟,奮奋," +
 	"糞粪,豐丰,瘋疯,縫缝,諷讽,膚肤,訃讣,賦赋,稈秆,綱纲,崗岗,擱搁,鞏巩,貢贡," +
-	"構构,夠够,蠱蛊,慣惯,貫贯,歸归,規规,劃划,懷怀,歡欢,環环,緩缓,喚唤,瘓瘫," +
+	"構构,夠够,蠱蛊,慣惯,貫贯,歸归,規规,劃划,懷怀,歡欢,環环,緩缓,喚唤," +
+	// —— R74 修正: 原手工对「瘓瘫」错映射改为「瘓痪」(瘫=癱之简体; 「癱瘓」
+	// →「瘫痪」才规范, OpenCC 瘓→痪 权威同口径; 旧对会把癱瘓转成「瘫瘫」) ——
+	"癱瘫,瘓痪," +
 	"輝辉,迴回,毀毁,匯汇,穢秽,譏讥,積积,飢饥,輯辑,劑剂,繼继,夾夹,頰颊,殲歼," +
 	"箋笺,濺溅,漿浆,醬酱,膠胶,嬌娇,絞绞,較较,階阶,節节,屆届,謹谨,錦锦,莖茎," +
 	"競竞,徑径,勁劲,懼惧,捲卷,絕绝,凱凯,顆颗,殼壳,懇恳,摳抠,褲裤,塊块,虧亏," +
@@ -111,7 +118,9 @@ const charPairs = "" +
 	// —— 补充常用(第二遍查漏) ——
 	"碼码,獎奖,壩坝,衝冲,沖冲,脈脉,甕瓮,繭茧,燉炖,飩饨,囈呓,紇纥,檉柽,蟶蛏," +
 	"楨桢,禎祯,皸皲,殮殓,瀲潋,斂敛,繯缳,鸛鹳,欞棂,覷觑,嚙啮,闌阑,觴觞," +
-	"隔睫,顴颧," +
+	// —— R74 修正: 原手工对「隔睫」为错映射已删(隔 为简繁同形字, OpenCC 表
+	// 无 隔; 映射到睫使简体「间隔」被误转「间睫」, 破坏简体恒等硬不变式) ——
+	"顴颧," +
 	"篤笃,糧粮,緒绪,繞绕,罵骂,聰聪,腸肠,衛卫,補补,覺觉,觸触,訓训,訴诉," +
 	"詩诗,認认,論论,識识,護护,議议,講讲,讚赞,謊谎,謙谦,譯译,豐丰,財财," +
 	"賓宾,賽赛,輛辆,輕轻,農农,辦办,連连,遲迟,鐘钟,關关,頭头,餓饿,騰腾," +
@@ -155,18 +164,39 @@ var (
 )
 
 func build() {
-	charMap = make(map[rune]rune, 2048)
-	for _, pair := range strings.Split(charPairs, ",") {
+	charMap = make(map[rune]rune, 4096)
+	applyCharPairs(charPairs)
+	applyCharPairs(openccCharPairs) // OpenCC 权威后写覆盖(手工集只兜 OpenCC 缺失的异体/两岸形态)
+	phraseMap = make(map[string]string, 512)
+	phraseByLen = make(map[int]map[string]struct{}, maxPhraseLen)
+	applyPhrasePairs(phrasePairs)
+	applyPhrasePairs(openccPhrasePairs) // 同上; TSPhrases 恒等保护词组在位
+	hasCJKKey = make(map[rune]struct{}, len(charMap)+64)
+	for k := range charMap {
+		hasCJKKey[k] = struct{}{}
+	}
+	for p := range phraseMap {
+		r, _ := utf8.DecodeRuneInString(p)
+		hasCJKKey[r] = struct{}{}
+	}
+}
+
+// applyCharPairs 解析「繁简,」紧凑对(严格两字符 CJK; byte 长度不校验, CJK 为
+// 3-4 字节, rune 口径为权威)。后写覆盖先写。
+func applyCharPairs(spec string) {
+	for _, pair := range strings.Split(spec, ",") {
 		pair = strings.TrimSpace(pair)
 		r := []rune(pair)
-		// 严格两字符 CJK 对(byte 长度不校验, CJK 为 3-4 字节; rune 口径为权威)
 		if len(r) == 2 && r[0] > 0x2e00 && r[1] > 0x2e00 && r[0] != r[1] {
 			charMap[r[0]] = r[1]
 		}
 	}
-	phraseMap = make(map[string]string, 64)
-	phraseByLen = make(map[int]map[string]struct{}, maxPhraseLen)
-	for _, pair := range strings.Split(phrasePairs, ",") {
+}
+
+// applyPhrasePairs 解析「繁|简,」词组对; 超过 maxPhraseLen 不进按长索引
+// (扫描臂够不着), 仍入 phraseMap 保持语义一致。
+func applyPhrasePairs(spec string) {
+	for _, pair := range strings.Split(spec, ",") {
 		pair = strings.TrimSpace(pair)
 		kv := strings.SplitN(pair, "|", 2)
 		if len(kv) != 2 || kv[0] == "" || kv[1] == "" {
@@ -181,14 +211,6 @@ func build() {
 			phraseByLen[n] = make(map[string]struct{})
 		}
 		phraseByLen[n][kv[0]] = struct{}{}
-	}
-	hasCJKKey = make(map[rune]struct{}, len(charMap)+64)
-	for k := range charMap {
-		hasCJKKey[k] = struct{}{}
-	}
-	for p := range phraseMap {
-		r, _ := utf8.DecodeRuneInString(p)
-		hasCJKKey[r] = struct{}{}
 	}
 }
 
@@ -220,9 +242,6 @@ func Simplify(s string) string {
 		matched := ""
 		if _, isPhraseStart := phraseStarts(c); isPhraseStart {
 			for n := maxPhraseLen; n >= 2; n-- {
-				if i+utf8.UTFMax*n > len(s)+utf8.UTFMax && i+n*4 > len(s) {
-					// 粗界: 词长 n 字节上界按 3·n 估, 不够则跳过更短循环继续
-				}
 				if _, ok := phraseByLen[n]; !ok {
 					continue
 				}

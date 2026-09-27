@@ -1,6 +1,8 @@
 # 采集规则极限校准 · 方法论与实测矩阵
 
-> 数据来源：ab 轮校准实战（Task ab-a standard 档全量 3 规则 + Task ab-a2 lenient/strict 档单规则矩阵），模拟源站 `scripts/ratelimit-site.ts`（127.0.0.1:3040）。校准入口：管理后台规则区「校准」（单规则）/「全量校准」（calibrate-all，对全部 enabled 规则串行执行）。
+> ⚠️ **历史文档注（R74-d）**：本文所述校准链（管理后台「校准/全量校准」入口、`/api/admin/rules/{id}/calibrate*` 接口、模拟源站 `scripts/ratelimit-site.ts`）属 **TS 时代能力，未随 R69 纯 Go 化迁移**——Go 单体的规则 API 仅余 `calibration:<ruleId>` Setting 行的删除清理（internal/api/admin_rules.go:201/257），无任何 calibrate 路由与后台入口。本文仅作校准方法论与实测数据的历史留档；现行线程/间隔参数以任务级 fetchConfig 手工配置（教程 §6.3）。
+
+> 数据来源：ab 轮校准实战（Task ab-a standard 档全量 3 规则 + Task ab-a2 lenient/strict 档单规则矩阵），模拟源站 `scripts/ratelimit-site.ts`（127.0.0.1:3040，已随 TS 链退役）。校准入口：管理后台规则区「校准」（单规则）/「全量校准」（calibrate-all，对全部 enabled 规则串行执行）。
 
 ## 一、方法论：三阶段探测协议
 

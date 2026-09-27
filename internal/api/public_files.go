@@ -312,6 +312,7 @@ func (d Deps) publicSitemap(w http.ResponseWriter, r *http.Request) {
 	sitemapCacheMu.Unlock()
 
 	var xml string
+	cacheSkip := false // [R74-c] 未知 type 产生的垃圾空片不入缓存
 	switch {
 	case typeParam != "":
 		// [R73-3] 分片子片: ?type=static|books|chapters → urlset(默认入口 sitemapindex
@@ -356,8 +357,12 @@ func (d Deps) publicSitemap(w http.ResponseWriter, r *http.Request) {
 				entries = append(entries, sitemapURLEntry(appendSiteQ(base+loc, siteQ), store.ToInt(row["updatedAt"]), freq, prio))
 			}
 		default:
-			// 未知 type → 空集(合法空 urlset, 不 500 不缓存垃圾)
+			// 未知 type → 空集(合法空 urlset, 非 500)。[R74-c] 修前注释称
+			// 「不缓存垃圾」但实际照常入缓存 —— 攻击者可用 ≤12 字节垃圾 type
+			// 变体(键仅限字母数字形态不限)撑满 sitemapCacheMax 把合法子片逐出;
+			// 修后垃圾键直出不落缓存。合法空段(books/chapters 越界页)照常缓存。
 			entries = nil
+			cacheSkip = true
 		}
 		var sb strings.Builder
 		sb.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n")
@@ -441,19 +446,21 @@ func (d Deps) publicSitemap(w http.ResponseWriter, r *http.Request) {
 		xml = sb.String()
 	}
 
-	sitemapCacheMu.Lock()
-	if len(sitemapCache) >= sitemapCacheMax {
-		var oldestKey string
-		var oldest int64 = 1 << 62
-		for k, v := range sitemapCache {
-			if v.ts < oldest {
-				oldest, oldestKey = v.ts, k
+	if !cacheSkip {
+		sitemapCacheMu.Lock()
+		if len(sitemapCache) >= sitemapCacheMax {
+			var oldestKey string
+			var oldest int64 = 1 << 62
+			for k, v := range sitemapCache {
+				if v.ts < oldest {
+					oldest, oldestKey = v.ts, k
+				}
 			}
+			delete(sitemapCache, oldestKey)
 		}
-		delete(sitemapCache, oldestKey)
+		sitemapCache[cacheKey] = sitemapCacheEntry{ts: now, xml: xml}
+		sitemapCacheMu.Unlock()
 	}
-	sitemapCache[cacheKey] = sitemapCacheEntry{ts: now, xml: xml}
-	sitemapCacheMu.Unlock()
 
 	writeSitemapXML(w, xml)
 }

@@ -103,6 +103,10 @@ func ParseList(htmlStr, baseURL string, pageRule *PageRule, urlFields []string) 
 				rec[key] = extractField(htmlStr, doc, nil, r, nil)
 			}
 		}
+		// [R74-b] urlFields 绝对化对齐 JSON/容器分支(修前无容器分支不跑,
+		// ParseBook 被迫在出口二次 absolutize 兑底 → JSON 书籍页 cover 被
+		// 处理两遍: 白名单实体多解一层(&amp;amp;copy;→&copy;)与单次语义分叉)
+		absolutizeFields(rec, urlFields, baseURL)
 		if len(rec) > 0 {
 			out.Items = append(out.Items, rec)
 		}
@@ -236,7 +240,11 @@ func ParseBook(htmlStr, baseURL string, pageRule *PageRule) ParsedBook {
 		pb.Intro = f["intro"]
 	}
 	if f["cover"] != "" {
-		pb.Cover = absolutize(f["cover"], baseURL)
+		// [R74-b] ParseList 三分支已统一 absolutizeFields 单次处理(无容器分支
+		// 补齐), 此处不再二次 absolutize —— 修前 JSON 书籍页 cover 双重处理,
+		// 白名单实体多解一层与 TS/浏览器单次解码分叉(探针实证
+		// "&amp;amp;copy;=2" → "&copy;=2", 应为 "&amp;copy;=2")
+		pb.Cover = f["cover"]
 	}
 	if s := cleanTextFieldMinimal(f["status"], 0); s != "" {
 		pb.Status = s

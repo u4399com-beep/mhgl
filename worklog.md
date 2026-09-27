@@ -778,3 +778,242 @@ Work Log:
 Stage Summary:
 - 五条交付: ①预览恢复+纯 Go 维持+watchdog 逃逸化 ②繁转简全链路(t2s 包+三落库点+开关+admin 卡, 实战 13279 章验证) ③10 真虫修复+sitemap 审计 3 缺陷修复+清洗 3 缺口补刀(全带回归) ④sitemap 三段式分片 index 标准形态 ⑤精简(草稿探针转正/零残留)
 - 移交 R74: git token 轮换持续提醒(ghp_SYO... 暴露); t2s 字典可继续扩充(OpenCC TSCharacters 全量); 纯 www 无 scheme 标题形态(R71 移交维持保守); rawFetch 锁序已修(globalSlot)但需实战观察
+---
+Task ID: R74-d
+Agent: R74-d
+Task: scripts/ 四件死脚本甄别(逐件 rg 交叉引用取证)
+
+Work Log:
+- 甄别口径: 零引用+无文档提及+无 cron/平台调用才可删; 逐件取证(rg 排除 worklog/docs/archive/skills 噪声面):
+- scripts/dev-go.sh —— 活: package.json "dev" 别名指向 / .zscripts/dev.sh:95 `bash scripts/dev-go.sh &` / scripts/recover.sh [3/6] 拉起 / docs×10+ 处引用
+- scripts/dev-watchdog.sh —— 活: scripts/recover.sh [5/6] pgrep+拉起 / .zscripts/dev-watchdog.sh R71 改 exec 委托 / README:33 / INSTALL-GUIDE §5
+- scripts/recover.sh —— 活: README/DEPLOY/INSTALL-GUIDE §7/FAQ 多处用户口径文档引用(自愈入口)
+- scripts/install-go.sh —— 活: scripts/dev-go.sh ② 步自愈调用 / scripts/recover.sh [1/6] / .zscripts/build.sh:34 / DEPLOY/INSTALL-GUIDE §1.3
+- 结论: scripts/ 四件全部存活调用链清晰, 零死脚本, 零删除; 三命脉件(dev-go/dev-watchdog/recover)只读未动一行
+
+Stage Summary:
+- scripts/ 死脚本甄别闭环: 4/4 存活(平台钩子+互相调用+文档引用三面取证), 无候选删除项
+---
+Task ID: R74-d
+Agent: R74-d
+Task: README.md 功能特性节文档校真(5 处与现状不符描述修正)
+
+Work Log:
+- [错①反反爬链] 原「多引擎反反爬降级链: …中继桥(3011)→Scrapling 桥(3012)→Obscura chromium 渲染」—— 三个外置档全属 R69 退役 mini-services; rg '3011|3012|obscura|scrapling|relay' internal/crawl 仅 rule/types.go:484 把 scrapling-* 明确判 unsupported(rule_test.go:314 钉死); 修后按 fetch.go 文件头(1~25 行)实况重写: native HTTP→出口代理轮换两级 + utls/UA 池/退避/Retry-After/HostGate/WAF 判定/镜像切换
+- [错②签名代理] 原「以外置 mini-service 承载(见下表)」—— mini-services R69 整体退役(README 自身 75 行亦如此声明, 前后矛盾); tokenUrl/tokenPattern(internal/crawl/rule/types.go:64-65)+contentProxyUrl(types.go:68, fetch.go:1251 FetchContentRef 包裹降级直连)均为引擎内置钩子; 修后改「站级签名/解密扩展点」实况口径
+- [错③校准] 原「规则极限校准(对模拟源站实测安全并发与速率)」—— calibrate API 未迁移 Go(internal/api/admin_rules.go:13 头注"calibrate 系列未迁移"; api/router.go 零 calibrate 路由; admin.js/后台模板零校准 UI); 整句删除
+- [错④仪表盘卡片] 原「统计看板(仪表盘卡片可开关显示)」—— admin_dash.go 计数聚合+7 日入库曲线, admin.js renderDashStats 硬编码卡片零开关; 修后「计数聚合 + 7 日入库曲线 + 健康面板」
+- [错⑤512主题] 原「8 配色×8 风格×8 布局=512 套组合主题+9 套精选(含笔趣阁经典)」—— Next.js 时代遗留; internal/web/themes.go 恒 11 套克隆主题(动态读 tpl/themes 目录, 无任何组合参数化机制); 修后「11 套内置克隆主题」
+- [错⑥任务模式] 原「单书/批量/实时采集」—— admin_tasks.go:95-148 仅 single/range/bookIds 三模式+autoRefresh 定时续采(bridge.go:243), 「实时采集」概念不存在; 修后「单书/书号批量/列表范围三种模式 + 完成后定时续采 autoRefresh」
+- [补真] 功能特性补 R73 两条实况: sitemap 三段式 sitemapindex(前台 bullet)+采集繁转简 crawlT2S(新 bullet, internal/t2s+admin 设置卡)
+- 变更文件: README.md(功能特性节 6 处)
+
+Stage Summary:
+- README 功能特性节 6 处 Next.js/TS 时代失真描述修正+R73 两条能力补录, 全部结论以 Go 代码行级实证为锚
+---
+Task ID: R74-d
+Agent: R74-d
+Task: docs 文档校真(rule-limits 历史注 / INSTALL-GUIDE R73 补录 / DEPLOY+.env.example GO_ENV 口径)
+
+Work Log:
+- docs/rule-limits.md: 顶部加「历史文档注(R74-d)」—— 校准链(后台「校准/全量校准」入口 + /api/admin/rules/{id}/calibrate* + scripts/ratelimit-site.ts 模拟源站)属 TS 时代未迁移能力; 证据: internal/api/admin_rules.go:13 头注"calibrate 系列未迁移" + api/router.go 零 calibrate 路由 + 后台模板/admin.js 零校准 UI + scripts/ratelimit-site.ts 文件不存在; Go 侧仅余 calibration:<ruleId> Setting 清理(admin_rules.go:201/257); 数据来源行同步补"已随 TS 链退役"
+- docs/INSTALL-GUIDE.md: 版本行补 R74 校真增补; §6.6 标题扩为「内容伪装 / 反搜索 + 繁简转换 + 分卷显示(R70/R73)」+ 正文补「繁简转换」独立设置卡; 设置表补 crawlT2S 行(默认开, 60s TTL 生效, 词组保护, 简体零变化 —— 与 internal/t2s+admin.js:1591 繁简转换卡实况对齐)
+- DEPLOY.md ③环境变量表 GO_ENV 行补 R73-a 实况(大小写不敏感+prod 别名, internal/config/config.go:49-50 实证)
+- .env.example GO_ENV 注释同步补别名口径
+- 复核通过项(不改): 14 表数量(schema.go 恰 14 张 CREATE TABLE IF NOT EXISTS)/35 条内置规则/16 分类/6 伪静态预设(pseudostatic.go numeric|alnum|compact|directory|restful|query)/违禁词 mask|remove 双模式/512KB 大页跳过(R71-c maxDocBytes)——README/DEPLOY/GUIDE 相关描述与代码一致
+- 变更文件: docs/rule-limits.md / docs/INSTALL-GUIDE.md / DEPLOY.md / .env.example
+
+Stage Summary:
+- 校准功能定性为 TS 时代未迁移(README 错③同源, rule-limits.md 历史注闭环); INSTALL-GUIDE/DEPLOY/.env.example 补齐 R73 能力与 GO_ENV 别名口径, 文档-代码对齐全绿
+---
+Task ID: R74-d
+Agent: R74-d
+Task: .gitignore 死条目甄别清理(Next.js/TS 时代残留 5 条)+过时注释修正
+
+Work Log:
+- 删除死条目与证据(全部零引用+零历史+磁盘零遗留): .next/(Next.js 构建目录, rg '\.next' 全库非历史命中仅 rule/types.go pagination.nextLink 无关; git 无 .next 路径文件)/data/(TS 时代 data/cookies.json 持久化目录——docs/archive/worklog-2026-09.md:3113 实证其属退役 TS 引擎; git log --all -- 'data/' 零提交; 目录不存在)/tsconfig.tsbuildinfo(TS 增量构建产物, 仓库无 tsconfig)/watch-probe*.tmp(R49 watch 探针产物, 磁盘零遗留)/dev-server.pid(旧 next 时代 dev 守护 pid 文件, 现役 dev-watchdog.sh 不写任何 pid 文件, 磁盘零遗留)
+- 注释修正: [R49-10] 原注「排除出 turbopack 文件监视, 防路由重编译churn」—— turbopack/Next.js 链 R69 已退役, 改为保留条目+注明原注历史归属
+- 保留(有据): node_modules//__pycache__//*.pyc(防御性, skills/ 平台工具链实证存在同形产物)/upload/(运行时上传暂存目录, docs 目录树引用)/dev.log(recover.sh 写入目标)/*.db-journal|wal|shm(worklog R49 高频产物仍有效)/backups//(db-backup 目标)/.zscripts/*(平台运行时产物在位)
+- 验证: git status 无新增噪声(untracked 仅既有 3 张 covers)
+- 变更文件: .gitignore
+
+Stage Summary:
+- .gitignore 5 条死条目清除(.next/data/tsconfig.tsbuildinfo/watch-probe*.tmp/dev-server.pid)+turbopack 过时注释修正, 全部附零引用/零历史/零磁盘遗留三重证据
+---
+Task ID: R74-d
+Agent: R74-d
+Task: cmd/ 死代码甄别(全目录仅 cmd/server/main.go)
+
+Work Log:
+- 结构盘点: cmd/ 唯一文件 cmd/server/main.go(248 行); 逐函数 rg 调用方取证: main(入口)/runBootstrap(:44 bootstrap 子命令分支调用)/autoSeed(:122 MHGL_AUTO_SEED!=0 goroutine 调用)/recoverOnBoot(:73 启动恢复调用)/logRequest(:114 Handler 装配)/cacheStatic(:109 静态资源装配)/itoa64(:102 healthz 两处)/bootAt(:102 uptime) —— 全部有活调用方, 零死函数
+- 注释面: 无注释掉的代码块; R55/R69/R69-a 历史注均描述现行行为(bootstrap 子命令/原生自举/空库播种皆在位), 无「提及已不存在概念」的失真注释
+- 质量门: gofmt -l cmd/ 零输出 / go vet ./cmd/... 零输出 / go build -o /tmp/r74d-build/mhgl ./cmd/server OK(26084495B)
+- 领地观察(不动): internal/t2s/t2s.go 当前 gofmt 未归一 + 2 个 untracked 字典文件 —— 属并行 agent 领土(本轮另有 agent 扩 t2s 字典), 其进行中状态不判不改
+- 变更文件: 无(cmd/ 零改动, 纯甄别)
+
+Stage Summary:
+- cmd/ 死代码甄别闭环: 唯一文件全函数存活调用链清晰, 零死代码零失真注释, gofmt/vet/build 三门全绿, 无可删项
+---
+Task ID: R74-c
+Agent: R74-c
+Task: [真虫①] transcode 管线改写 <title>(RCDATA) 内容 — R72-c pseudo title 虫的跨管线残留(zwsp 解码漂移/entity 字节漂移)
+
+Work Log:
+- [真虫] transcodeTokens(transcode.go) 无 noInsert 前驱守卫 — 四管线中唯一改写 title 的管线: ①zwsp 形态把 U+200B 插进 title 内容(探针实证 `<title>美\u200b丽总裁\u200b的贴身\u200b高手`), 浏览器/爬虫解码后的标题串含零宽字符 → 书名关键词在 SERP 失配 + request 种子下每次请求解码标题漂移, 与 R72-c「title=TDK 引擎产出的 SEO 元数据, request 种子下每次请求不同即虫」同一判定; ②entity 形态把 title 内 CJK 实体化(`美&#20029;&#24635;&#35009;…`), 解码等价可见外观零漂移, 但 title 原始字节每请求漂移, 与 obfTextNoise(R70/R71)/pseudo(R72-c) 已建立的「title 内容逐字节不动」跨管线不变式相悖, 且元数据关键词本就经 meta 属性/h1 明文暴露, 对 title 实体化无伪装收益。现实触发面: 任一站点开启 stealth.transcode(zwsp/entity 均中), 全站 <title> 即进入漂移态。
+- 修法: transcodeTokens 补 `idx > 0 && toks[idx-1].noInsert` 前驱守卫(与 obfTextNoise/pseudo 同款三行), title(RCDATA) 内容豁免、正文照常转码; RNG 消费序随跳过自然前移, 其余 token 输出确定性不变。
+- 回归: internal/stealth/r74c_test.go 3 测试 — TestR74c_TitleUntouchedByTranscode(两形态×3 nonce title 逐字节不动, 修前 FAIL: zwsp 探针 U+200B 实证/entity 探针实体化实证) + TestR74c_TitleUntouchedByFullPipeline(全管线组合 title 不动) + TestR74c_TranscodeStillTransformsBody(8 轮 nonce 正文恒有改写 — 豁免不误伤转码主功能); 修后 stealth 包全绿。
+
+Stage Summary:
+- stealth 四管线「title 内容逐字节不动」不变式补齐最后缺口(transcode), zwsp 解码级 TDK 漂移关闭
+---
+Task ID: R74-b
+Agent: R74-b
+Task: [增强] t2s 字典扩 OpenCC 全量(TSCharacters 3221 对+TSPhrases 476 条)+手工字典两错对修正(隔睫/瘓瘫)
+
+Work Log:
+- [增强] R73 移交项落地: curl 拉 OpenCC master data/dictionary(TSCharacters.txt 4148 实体/TSPhrases.txt 480 实体, 2026-09-27, 原始文件存 internal/t2s/testdata/ 佐证溯源+生成器 gen_opencc_dict.py 一并入库); 一次性 python 生成 dict_tschars_gen.go(3221 单字对)/dict_tsphrases_gen.go(476 词组条)内嵌 const。口径: ①多候选取第一候选(=OpenCC 默认转换行为, 997 条多值) ②单字表剔除恒等对 927 条(行为零差异+保简体零分配快速路径) ③词组表恒等对全保留(=保护词组, 词组臂命中原样输出拦截单字臂误转, 128 条) ④词长>maxPhraseLen(6) 过滤 4 条(大目乾連冥間救母變文/書中自有千鍾粟/衹見樹木不見森林/酒逢知己千鍾少, 敦煌学名著名句引文正文出现概率≈0)
+- [歧义字假设验证(任务要求)] 藉→藉/瞭→瞭/覆→覆/么→么 标准表第一候选即恒等(词级由词组臂表达: 藉口|借口/瞭解|了解/答覆|答复/瞭望|瞭望保护) —— 任务假设「本就剔除或恒等」成立; 唯 乾 第一候选为 干, 由 TSPhrases 乾隆/乾坤/乾元/乾卦/乾陵/乾嘉/乾宅/乾安县 等 14+ 恒等保护词组兜住, 与 R73 手工决策(乾→干+词组保护)完全一致 → 保留并记录; 另 鍾→钟(鍾繇|锺繇 词级保字形)/昇→升(畢昇|毕昇 保)/瀋→沈/麵→面(第二候选 麺 丢弃)/徵→征(魏徵|魏徵 保) 按权威保留, 裁决清单固化于 TestR74b_AmbiguityVerdict
+- [真虫①] 手工字典错对「隔睫」(t2s.go charPairs): 隔 为简繁同形字(OpenCC 表无 隔), 映射到 睫 后简体「间隔/隔壁」被误转「间睫/壁睫」, 直接破坏「简体恒等」硬不变式(修前探针: Simplify("间隔着一条河")→"间睫着一条河"); 修后 OpenCC 合并+错对删除
+- [真虫②] 手工字典错对「瘓瘫」: 瘓 的规范简体是 痪(瘫=癱之简体), 旧对使繁体「癱瘓」转出「瘫瘫」(癱 原不在手工表→半转残串); 修后补 癱瘫+瘓痪(与 OpenCC 瘓→痪 同口径), Simplify("癱瘓")=="瘫痪" 钉死
+- [架构保持] build() 重构为 applyCharPairs/applyPhrasePairs 两解析器, 手工集先填+OpenCC 后写覆盖(权威优先, 手工 7 对 OpenCC 缺失的异体/两岸形态兜底: 妳/砲/鶏/燄/敍/艶/瞇); Simplify 词组臂死代码空 if 块(R73 未完成的粗界残迹)清除, 零行为变化
+- [回归] dict_opencc_test.go 7 测试: OpenCCDictScale(数量级+charMap 无恒等对)/DictMatchesTestdata(生成物↔testdata 全量 map 对账+OpenCC 权威不被手工覆盖+手工兜底 7 对在位)/FullTableConvertProbe(全表 3221 对 Simplify(繁)==简 miss=0+927 恒等字原样, t.Logf 实证)/AmbiguityVerdict(裁决清单钉死)/PhraseProtectionOpenCC(保护 12 词+词级转换 13 例含癱瘓→瘫痪)/SimplifiedIdentityExtended(简体恒等 6 组重点覆盖 隔/瘫/著/覆)/InvalidUTF8FidelityOpenCC(非法字节保真); t2s_test.go R73 五测试全绿(占位黑名单 '同' 移除——OpenCC 权威表含 衕→同(胡同) 合法映射)
+- [门禁] gofmt 零/go vet 零/internal/t2s 12 测试全绿; 转换出口三落库点(bridge 书名/Chapters/Contents)零触碰
+
+Stage Summary:
+- t2s 单字臂 ~960→3221 对(OpenCC 全量第一候选), 词组臂 45→476+45 条(恒等保护 128 条自动覆盖歧义面), 顺手揪出并修正手工字典 2 错对(隔睫 简体误转/瘓瘫 半转残串); 全表 miss=0+简体恒等+词组保护+字节保真四件套回归钉死
+---
+Task ID: R74-d
+Agent: R74-d
+Task: 部署教程 /tmp 副本逐命令演练 + scripts 工具链干跑验证 + docs 死链修复(docs/archive/docker)
+
+Work Log:
+- [演练场] git archive HEAD → /tmp/r74d-deploy(排除 db/.env/covers 等运行态; 生产 :3000(PID 1019) 全程零触碰零重启): ①install-go.sh 实跑 → "1.26.0 已就绪" exit 0(幂等路径实证) ②go build -o .build/mhgl ./cmd/server OK ③`DB_PATH=db/drill.db ./.build/mhgl bootstrap` → "rules +35/upd0(err=0) categories +16 site=true tasks +3" exit 0(与 INSTALL-GUIDE §3.3 预期输出逐字一致) ④PORT=3311 启动 → /healthz {"ok":true,...} + / 200 + robots.txt 含 Sitemap 行(R73) + /sitemap.xml 301→三段式 sitemapindex(空库仅 static 段, 空段不列=R73 实况) ⑤PORT=3312 `bash scripts/dev-go.sh` 端到端 → 增量构建跳过+exec+healthz OK(README「dev-go.sh=自愈+增量构建+exec」实证) ⑥dev-watchdog.sh 22s 干跑(:3000 存活态) → /tmp/watchdog.log 零写入(死亡触发路径不误触发实证) ⑦RECOVER_DRYRUN=1 recover.sh → 六步全 dryrun 契约兑现(不装/不建/不启/不引导), 报告面实读生产数据面(35 规则/5 书/16 分类) exit 0
+- [演练清场] 演练件(PID 11590/11692/11764, ss 实证监听 3311/3312)逐 PID 精确 kill(生产 1019 未触碰, 事后 curl :3000=200 复证); /tmp/r74d-* 全删
+- [死链修复] README:46/133 + DEPLOY:7 + INSTALL-GUIDE:101 四处「归档 docs/archive/docker/」—— 实查 docs/archive/ 仅存 worklog-2026-09.md, docker 归档目录不存在(与 README:124 自身「docs/archive/docker 等 434 件已随 R69 清退出库」直接矛盾); 修后统一口径「R69 清退出库, git 历史可考」; README:133 数据备份节同步改「docs/archive/ 现存 worklog 历史归档」
+- [门禁] bash -n 15/15 全绿(scripts 4 + .zscripts 11 只读体检); markdown 围栏 README 6/DEPLOY 10/GUIDE 54 全偶数; INSTALL-GUIDE 引用 4 张 images/*.png 磁盘实存; gofmt cmd/ 零 + go vet ./cmd/... 零
+- 变更文件: README.md / DEPLOY.md / docs/INSTALL-GUIDE.md(死链 4 处)
+
+Stage Summary:
+- 部署教程三件(README/DEPLOY/INSTALL-GUIDE)全部命令在 /tmp 副本逐条可执行实证(bootstrap 输出逐字对齐文档), 四处 docs/archive/docker 死链修正, 演练进程精确清场生产零扰动
+---
+Task ID: R74-d
+Agent: R74-d
+Task: R74-d 收口(运维脚本/命令/文档领地清理精简全量完成)
+
+Work Log:
+- 领地终态: scripts/ 4 件零删除零修改(三命脉件 dev-go/dev-watchdog/recover 只读纪律遵守, 无需动刀——逃逸写法语义原样); cmd/ 零修改(无死代码可清); 文档 6 件修正(README/DEPLOY/INSTALL-GUIDE/rule-limits/.env.example/.gitignore); worklog 6 条增量留痕
+- 删除清单: 零脚本删除(scripts/ 全存活); .gitignore 5 条死条目(.next/data/tsconfig.tsbuildinfo/watch-probe*.tmp/dev-server.pid, 三重证据: 零引用/零 git 历史/磁盘零遗留)
+- 文档修正合计 15 处: README 7(反反爬链/签名代理/任务模式/仪表盘/512主题→11套/二进制~25MB/docker 死链×2/备份节 archive 口径)+DEPLOY 2(GO_ENV 别名/docker 死链)+INSTALL-GUIDE 4(版本行/§6.6+crawlT2S/二进制~25MB/docker 死链)+rule-limits 1(校准 TS 时代历史注)+.env.example 1(GO_ENV 别名)
+- 验证终态: bash -n 15/15 全绿 / gofmt(cmd) 零 / go vet(cmd) 零 / go build(/tmp) OK / 围栏配对全偶 / 图片引用全实存 / /tmp 副本部署演练全链过(install-go 幂等→build→bootstrap 逐字对齐→:3311 healthz/robots/sitemapindex→dev-go.sh e2e→watchdog 空转 22s 零误触发→recover.sh dryrun 六步契约)
+- 运行态观察(移交主控): ①开局 pgrep 无 dev-watchdog 进程, 本轮全程未代启(演练残留已精确清场, 现状仍无看门狗)——是否补位由主控裁定(recover.sh [5/6] 即口径) ②internal/ 并行 agent 进行中面零触碰: internal/t2s(t2s.go 改+2 untracked 字典件)/internal/crawl/fetch(fetch.go 改+zz_probe_r74a_test.go 未清)/internal/stealth(transcode.go 改+r74c_test.go)——均别家领地只报不动
+- 变更文件: README.md / DEPLOY.md / docs/INSTALL-GUIDE.md / docs/rule-limits.md / .gitignore / .env.example / worklog.md(共 7 件, 全在授权领地)
+
+Stage Summary:
+- R74-d 全量交付: 零死脚本(cmd/scripts 甄别 8 件全存活)零命脉改动, 文档 15 处失真/死链校真(512主题/校准/中继桥三处 Next.js 时代大失真+docker 归档死链), .gitignore 5 死条目清除, 部署教程 /tmp 演练全链实证与文档逐字对齐, 生产 :3000 全程零扰动
+---
+Task ID: R74-a
+Agent: R74-a
+Task: [虫①] cfg.headers 显式 Referer × Sec-Fetch-Site 派生基不一致 — 「跨源 Referer + same-origin」「带 Referer + none」两类不可能指纹
+
+Work Log:
+- [真虫] fetch.go doOnce: fingerprintHeaders 的 Sec-Fetch-Site 基准恒取缺省臂派生的 effReferer —— cfg.headers 显式配置 Referer 时该值经「附加规则头」原样上线(契约「cfg.headers 可覆盖单项」, 不做跨源改写), Sec-Fetch-Site 却仍按旧基准计算, 产生两类不可能指纹: ①cfg.Referer 缺省开 + 自定义跨源 Referer → 线上「Referer=跨源全 URL + Sec-Fetch-Site: same-origin」; ②cfg.Referer=false(无缺省臂) + 自定义 Referer → 「带 Referer + Sec-Fetch-Site: none」。真实浏览器 Sec-Fetch-Site 按实际 initiator 计算: 带跨源 Referer 的导航恒 cross-site, none 恒无 Referer —— 服务端按 UA×头组交叉比对即识破(探针实证两形态, 修前 same-origin/none + 跨源 Referer 同现)
+- 修法: doOnce 在 fpHeaders 计算前取「线上实发 Referer」为基准(fpReferer = headersValue(cfg.Headers,"Referer") 非空时取该值, 否则沿用 effReferer) — 与 [R71-a]「cfg.headers 覆写 UA 后指纹头组以线上 UA 为基」同族口径收敛(基准取线上实发值)。实发 Referer 原样上线故不做 s-o-w-c-o 改写(改写后派生反而再度失真); 非覆写路径 fpReferer==effReferer 零变化
+- 回归: r74a_test.go TestR74aCustomRefererSecFetchSiteConsistency — 形态①断言 wire Sec-Fetch-Site=cross-site(修前 same-origin)+自定义 Referer 原样上线; 形态②同款(修前 none); 零变化回归: 无自定义头缺省路径仍 same-origin。探针(TestZZProbeCustomRefererSecFetchSite)修前复现 two shapes 后删除, 断言转正
+- fetch 包全量 33.5s 绿
+
+Stage Summary:
+- 虫①修复+回归落地: 指纹基准收敛到「线上实发 Referer」, cfg.headers 覆写路径的不可能指纹面(R71-a UA 臂的同族残余)封口
+---
+---
+Task ID: R74-a
+Agent: R74-a
+Task: [虫②] blockcheck isWafJumpChallenge iframe 臂 captcha 泛词误拦业务验证码组件 — 长内容页+正常标题整页判拦丢章
+
+Work Log:
+- [真虫] blockcheck.go isWafJumpChallenge: iframe 臂复用 jumpWafTargetRe 全词表, 泛词 "captcha" 对 iframe src 不满足本判定自身「关键词零正文碰撞」标准 —— 业务验证码组件以 <iframe src=captcha…> 嵌在真实章节页(评论区/登录框): 腾讯 TCaptcha(t.captcha.qq.com/cap_union_prehandle、captcha.gtimg.com, 国内站点评论验证码主流形态)与 reCAPTCHA(google.com/recaptcha/api2/anchor)的 iframe src 均含 "captcha" 词形, 修前长页+正常标题整页判拦 → 编排层等价 403 计失败链 → 重试耗尽丢章(与 [R72-a] /jslib/ 误拦同族, 探针实证 TCaptcha/reCAPTCHA 两形态长页均误拦)。meta-refresh 臂保留全词表: 业务页不存在「meta 跳向 captcha 路径」形态, 挑战壳二跳(0;url=/waf/captcha…)需要该臂
+- 修法: 新增 jumpIframeTargetRe = (waf|challenge|__jsl|jsl[/?=]|safedog|yunsuo|safeline|yunjiasu) 专供 iframe 臂(挑战组件无 WAF 技术指纹词形, 零碰撞); meta 臂沿用 jumpWafTargetRe 全词表。R70-a 五正例(challenge iframe 形态在内)/R72-a jsl 边界正例全保持
+- 回归: r74a_test.go TestR74aIframeBusinessCaptchaNotBlocked — 误伤反例 4 形态(TCaptcha/captcha.gtimg.com/reCAPTCHA/业务站 /captcha 路径, 修前全拦) + 正例保持 8 形态(meta 臂 captcha/challenge 全命中 + iframe 臂 waf/challenge/jsl/安全狗全命中); TestR70aWafJumpChallenge/TestR72aJslBoundaryJumpTarget 全量回归零变化
+- fetch 包全量 33.5s 绿
+
+Stage Summary:
+- 虫②修复+回归落地: iframe 臂收敛至 WAF 技术指纹词, 国内站点评论验证码组件嵌入章节页的整页误拦丢章面封口
+---
+---
+Task ID: R74-a
+Agent: R74-a
+Task: [增强①] 确定性 5xx(501/505/508) 快速失败 — [R73-a] 确定性 4xx 快速失败族扩容
+
+Work Log:
+- [增强] fetch.go rawFetch: 501 Not Implemented(服务端不支持该功能形态)/505 HTTP Version Not Supported(HTTP 版本协商失败, 与请求固定形态绑定)/508 Loop Detected(重定向环, 重放同请求只会再次入环)并入快速失败白名单 — 三者均为「同候选重试+换镜像零胜率」的确定性服务端语义; 修前 Retries=3 时 505 单 URL 烧 4 次必败请求+全链退避 3.77s(探针实测), 全书级任务(服务端栈不支持某形态)即万次必败重放。镜像不切换依据: 镜像域为同构克隆(同栈同软件), 软件能力类失败在镜像上同型复现。502/503/504/522/524(瞬态过载/超时)与 403/429(WAF/限流)/408(超时)/412/425(cookie·挑战面)保持既有重试语义零变化
+- 修法: deterministicClientError 更名扩容为 deterministicNoRetryStatus(名称与 5xx 语义对齐, 注释保留 [R73-a] 原名可考古); 白名单 {400,401,405,410,414,431,451} + {501,505,508}; 调用点 rawFetch httpStatusError 分支与 404 同款快速失败(镜像不切换/sticky 不清)
+- 回归: r74a_test.go TestR74aDeterministic5xxFastFail(505 + Retries=3 + 镜像域: 恰 1 次主 host 请求/0 次镜像/httpStatusError{505}/快速失败; 修前复现 FAIL: 耗时 3.77s 4 次尝试) + TestR74aDeterministic5xxStatusTable(快速失败族 10 码正例; 瞬态/挑战面 26 码反例含 R73-a 4xx 族零回归) + TestR74aTransient5xxStillRetried(502 + Retries=1 恰 2 次尝试 — 瞬态面不误伤边界钉子)
+- fetch 包全量 33.5s 绿
+
+Stage Summary:
+- 增强①落地: 重试语义细分第三批(4xx 族[R73-a]→确定性 5xx 族[R74-a]), 瞬态面边界钉死
+---
+---
+Task ID: R74-b
+Agent: R74-b
+Task: [真虫①] rule.absolutize/docBase URL 内控制字符(tab/LF/CR)穿透 —— 浏览器 WHATWG 口径缺口, 命中链接 Go http 层必败丢链
+
+Work Log:
+- [真虫] HTML 属性值内 tab/LF/CR 合法存在(HTML5 tokenizer 属性值状态除 & 与引号外原样保留, href="http://x.com\n/1.html" 解析后属性值含 LF); 浏览器 WHATWG URL 解析在 parse 前删除三者后正常访问, Go url/http 传输层遇控制字符报 "invalid control character" 必败。修前 absolutize(rule/parse.go:1108) 剥不可见字符(零宽族)但不剥 \t\n\r: 绝对形态原样穿透(探针实证 absolutize("http://x.com\n/c/1.html")="http://x.com\n/c/1.html"); 相对形态 url.Parse 报错走 resolveRef 失败臂输出半残原文。pages.go 5 处出口(章节链接/封面/书字段 rec[uf])+pickNextHref 翻页全走该漏斗 → 命中链接全部烧失败计数/重试链/主机连败
+- [修法] parse.go 新增 urlCtlRe([\t\n\r]), absolutize 入口先于 TrimSpace 剥离(与既有不可见字符剥离同层); docBase 的 base[href] 同款剥离(修前脏基址使页面全部相对链接失去基址)。对齐 WHATWG URL 标准「remove all ASCII tab or newline」
+- [回归] rule/r74b_test.go: TestR74bAbsolutizeURLControlChars(绝对 \n/\t/\r 三形态+相对 \n/\r 形态, 修前探针 FAIL 证据=穿透原串/修后全剥)+正常 URL 零影响回归; TestR74bDocBaseControlChars(含 LF 的 base href 基址净化+无 base 回归)
+
+Stage Summary:
+- URL 出口统一漏斗堵住控制字符缺口(浏览器行为对齐), 相对/绝对/基址三臂全覆盖
+---
+Task ID: R74-c
+Agent: R74-c
+Task: sitemap 二轮审计(R73 三段式升级后) — 协议形态硬校验回归 + [真虫②] 未知 type 垃圾空片入缓存(注释-行为相悖的缓存挤占面)
+
+Work Log:
+- [审计通过项] URL 转义完备性(preset 白名单枚举/siteQ urlQueryEscape/pseo slug urlPathEscape 全覆盖 & 空格 引号 CJK 斜杠, index 层 loc 整体 xmlEscape); 50000 URL/50MB 上限实际强制(每片恒 ≤5000, ?page=1 旧形态最多 5000+static503+pseo2000=7503 仍远低于协议上限); lastmod 恒 W3C datetime(UnixMilli UTC "2006-01-02T15:04:05Z") 且空值省略; sitemapindex 含 xmlns 协议形态; 空库/单书/单章/越界页边界; ?index 旧形态 books+chapters 连续无缝分页推演(page1 remaining 与 page2 chapterSkip 恰接续); books/chapters 分片 site 参数透传(writeSitemap sep 判定+子片重查 siteQOf)。?index 旧形态 lastmod=now() 为 R73「旧形态保持兼容」既定决策未动。
+- [增强] r74c_sitemap_test.go 2 测试: TestR74c_SitemapXMLWellFormedAndLastmodStrict(encoding/xml 全量解析默认 index+全部子片 — well-formed/无裸特殊字节/lastmod 严格正则 ^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/pseo 攻击性 slug(CJK 空格 & 引号 斜杠 ?=)loc 全百分号编码) + TestR74c_SitemapBoundaries(单书单章/越界页空 urlset 200/超长页码钳 1000/updatedAt=0 行 lastmod 省略)。
+- [真虫②] publicSitemap 未知 type 分支: 注释称「不缓存垃圾」但实际照常 sitemapCache[key]=... — 攻击者可 endless 请求 ?type=<垃圾>(键 ≤12 字节任意形态)以 50 槽 cache 为池做 eviction 挤占, 把合法 static/books/chapters 子片缓存逐出(缓存命中率归零, 每请求全量重查 DB); 合法越界页空片(books/chapters 越界)仍应缓存(真实边界态)。修法: cacheSkip 标志, 未知 type 直出不落缓存; 修法后 r74c 边界测试加缓存断言(sitemapCache 键直查)。
+- [TTL 缓存增强评估] sitemap 已有 5min 包级缓存(sitemapCacheMax=50), 万级书目构建耗时已被缓存摊平, 无需再加层。
+
+Stage Summary:
+- sitemap 二轮审计全项通过并固化为 2 个硬校验回归; 顺手修掉未知 type 缓存挤占面(注释-行为相悖真虫)
+---
+Task ID: R74-c
+Agent: R74-c
+Task: [观察留档(未修, 设计层)] auth clientIP XFF 首段语义在「可附加 XFF 的可信反代」形态下可被轮换绕过限流
+
+Work Log:
+- [现象] api/auth.go clientIP: 对端为回环/私网时采信 x-forwarded-for 首段(R56-2b 定案, TestClientIPXFFTrust 钉死)。若上游反代是「追加」XFF 形态(客户端自带 XFF: 9.9.9.9, 反代追加真实 IP 成 "9.9.9.9, <real>"), 取首段= 客户端可控段 → 登录限流(5 次/60s/IP)与反馈频控(5 条/h/IP)可经 XFF 轮换绕过。若上游反代「覆写」XFF 则无此面。
+- [为何未修] 改取末段(rightmost-within-trusted)在单跳覆写/追加两形态下均 ≥ 首段安全性, 但多跳链(客户端→CDN→LB→本机, XFF="client,cdn,lb")场景末段=内网跳板 → 全体客户端共享一个限流桶(限流退化为全局, 自伤可用性); 且平台反代覆写-vs-追加行为未实证(:3000 红线禁 POST 观测, 无法通过 live login 429 轮换探测确认)。属部署形态依赖的设计取舍, 需主控实证反代行为后定夺(实证法: 经 :81 代理以轮换 XFF 连发 6 次 POST /api/auth/login, 若第 6 次 429 则反代覆写无此面; 若全 200/401 则追加形态坐实, 建议改末段或引入 trusted-proxy 白名单)。
+
+Stage Summary:
+- 留档一条部署形态依赖的限流绕过面(未修): 需主控一次 POST 探针实证反代 XFF 行为后改末段/可信代白名单
+---
+Task ID: R74-b
+Agent: R74-b
+Task: [真虫②] rule.ParseList 无容器分支缺 absolutizeFields + ParseBook 出口二次 absolutize —— JSON 书籍页 cover 双重处理白名单实体多解一层, 三分支处理次数不对称
+
+Work Log:
+- [真虫] ParseList 三分支对 urlFields 的 absolutizeFields 不对称: JSON 分支(83 行)/容器分支(137 行)处理, 无容器分支(书籍页 HTML 形态)不处理 —— ParseBook(pages.go:239) 被迫在出口对 cover 再跑一次 absolutize 兑底无容器分支, 结果 JSON 书籍页 cover 被处理两遍: ①白名单实体多解一层(探针实证 源 "&amp;amp;copy;=2" → 产出 "&copy;=2", TS/浏览器单次解码语义应为 "&amp;copy;=2"; &amp;amp;reg; 形态两轮后已逼近 © 致损坏) ②双重 url.Parse/自引用过滤浪费。无容器分支自己则恰好依赖出口兜底才正确
+- [修法] pages.go 无容器分支补 absolutizeFields(rec, urlFields, baseURL)(与 JSON/容器分支对齐); ParseBook 出口改直赋 pb.Cover = f["cover"] —— 三分支统一「恰一次 absolutize」。调用面核查: task/pipeline.go:386 与 engine.go:491 传 urlFields=nil 补丁空转零影响; engine.go:437/task/queue.go:144 为容器型不受影响; ParseBook 三形态(JSON/无容器 HTML/容器)全部单次
+- [回归] rule/r74b_test.go TestR74bParseBookSingleAbsolutize: JSON 书籍页双转义形态单次解码断言(修前探针 FAIL 证据: got "&copy;=2")+无容器 HTML 书籍页相对 cover 绝对化断言(保住原兜底语义不丢); rule 包全量测试绿
+
+Stage Summary:
+- 书籍页 cover 三分支统一单次 absolutize, 实体解码层数与 TS/浏览器对齐, 结构性消除双重处理
+---
+Task ID: R74-main
+Agent: main-controller
+Task: R74 四条收口(四路 agent 甄别合入+门禁全绿+实战/E2E 验证+推送)
+
+Work Log:
+- 开局取证: git 对齐 b8f54eb(R73 已推送); 预览挂根因=平台快照回滚清空沙箱(books=0/DB 249KB 重播种/任务 ID 全新), 服务经平台 init 链拉起(两 dev-go.sh 并发构建竞争一胜一退, 未留残害); 三采集任务重启回填
+- 四路 agent 部署(a/b 超时断连但 worklog 增量+工作树产出全留存, 甄别采认): a=3 项(Sec-Fetch-Site 指纹基收敛到线上实发 Referer/blockcheck iframe 臂 captcha 泛词误拦业务验证码整页丢章/确定性 5xx 501·505·508 快速失败), b=4 项(t2s 扩 OpenCC 全量 TSCharacters 3221 对+TSPhrases 476 条+歧义字裁决清单固化+手工字典 2 错对修正 隔睫破简体恒等/瘓瘫半转残串+rule absolutize URL 控制字符穿透+ParseBook cover 双重 absolutize 不对称), c=2 项(transcode 管线改写 title RCDATA 漏豁免/sitemap 未知 type 垃圾空片挤占缓存)+审计硬校验回归, d=文档校真 15 处(降级链/mini-service 外置/主题 512 套等 TS 时代失真)+.gitignore 5 死条目+/tmp 部署演练全链过
+- 主控补刀: gofmt 3 文件归一(b 断连后未及); XFF 观察项实证闭环(Caddyfile header_up X-Forwarded-For {remote_host}=覆写语义, 追加型反代担忧在本部署不可达, 无需改码)
+- 门禁: gofmt 零/vet 零/build OK/20 包 test 全绿(fetch 33.5s/task 10.7s)
+- 换装: 优雅停→dev-go.sh 逃逸法拉起(R74 代码)→boot recovery paused→control start 恢复两任务+watchdog 补位(19792)
+- 实战验证: 回填 6 书 11496 章(R74 代码链路), 6 书书名/作者/简介 t2s 全简体 bad=0/6, 章节标题 0/50; 任务推进 xbqg777 2499/2499 done, 余两任务 R74 代码推进中
+- E2E(agent-browser 经 :81): 首页 68 链接零错误; 书籍页 万古神帝 简体书名+toc; 阅读页 is-pagebg=true 在卡片元素(R67-fix 在位, 首查打错 body 虚惊)87 段落; 375px scrollW=375 零溢出; 工具栏换底色交互→localStorage 持久化→类切换端到端; sitemap.xml→301→三段式 sitemapindex(books×1+chapters×3 分片/lastmod 真实/&amp; 转义); robots.txt Sitemap 行在位
+
+Stage Summary:
+- 四条交付: ①采集+反反爬 5 真虫/增强全带回归(Sec-Fetch-Site 指纹基/captcha 误拦/5xx 快速失败/URL 控制字符/cover 双转义) ②t2s OpenCC 全量扩容(960→3221 单字+476 词组+2 错对修正, 歧义字裁决固化) ③sitemap 二轮审计硬校验+缓存挤占修复 ④精简(文档 15 处校真+gitignore 清理); XFF 观察项实证闭环; 20 包测试全绿+实战 11496 章验证
+- 移交 R75: git token 轮换持续提醒(ghp_SYO... 暴露多轮); bootstrap 空库播种竞争(Rule.name 无 UNIQUE, 加索引有存量脏数据启动风险, 单进程部署低危留档); interfere→pseudo 替换率稀释(stealth 强度调优项); 平台快照回滚清数据已成常态, 考虑 DB 备份入 git 或定期导出策略

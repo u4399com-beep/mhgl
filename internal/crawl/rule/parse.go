@@ -1090,6 +1090,14 @@ func extractField(htmlStr string, doc *goquery.Document, scope *goquery.Selectio
 // invisibleCharsRe 零宽/双向控制字符(对齐 cleaner INVISIBLE_CHARS_RE)
 var invisibleCharsRe = regexp.MustCompile(`[\x{00ad}\x{180e}\x{200b}-\x{200f}\x{202a}-\x{202e}\x{2060}-\x{2064}\x{2066}-\x{2069}\x{feff}]`)
 
+// urlCtlRe [R74-b] URL 内控制字符剥离(WHATWG URL 解析口径): HTML 属性值内
+// tab/LF/CR 合法存在(href="http://x.com\n/1.html" 解析后属性值保留 LF), 浏览器
+// URL 解析在 parse 前删除三者后正常请求; Go url/http 传输层遇控制字符报
+// "invalid control character" 必败 —— 修前 absolutize 对绝对形态原样穿透
+// (相对形态 url.Parse 报错走 resolveRef 失败臂同样半残), 命中链接全部烧失败
+// 计数/重试链。修后与浏览器对齐: 三字符在解析前删除。
+var urlCtlRe = regexp.MustCompile(`[\t\n\r]`)
+
 // httpSchemeRe http(s) 前缀判定(包级预编译 — 原 absolutize/docBase/resolveWithBase
 // 热路径循环内 MustCompile, 每链接一次编译; R51-2-b P3)
 var httpSchemeRe = regexp.MustCompile(`(?i)^https?://`)
@@ -1109,7 +1117,8 @@ func absolutize(rawURL, baseURL string) string {
 	if rawURL == "" {
 		return ""
 	}
-	u := strings.TrimSpace(invisibleCharsRe.ReplaceAllString(rawURL, ""))
+	// [R74-b] tab/LF/CR 先于 trim 剥离(WHATWG URL 口径), 再剥不可见字符
+	u := strings.TrimSpace(urlCtlRe.ReplaceAllString(invisibleCharsRe.ReplaceAllString(rawURL, ""), ""))
 	decoded := ""
 	if u != "" {
 		decoded = strings.TrimSpace(clean.UnescapeEntitiesOnce(u))
@@ -1160,11 +1169,13 @@ func resolveRef(base, ref string) string {
 // ---------------- 页面基址(<base href>) ----------------
 
 // docBase 页面有效文档基址: 首个 base[href] 生效位; 相对 base href 按文档 URL 解析
+// [R74-b] href 属性值内 tab/LF/CR 先剥(WHATWG 口径, 同 absolutize; 修前脏 base 使
+// 后续 resolveRef 的 url.Parse 必败, 页面全部相对链接失去基址)
 func docBase(doc *goquery.Document, docURL string) string {
 	if docURL == "" || doc == nil {
 		return docURL
 	}
-	href := strings.TrimSpace(doc.Find("base[href]").First().AttrOr("href", ""))
+	href := strings.TrimSpace(urlCtlRe.ReplaceAllString(doc.Find("base[href]").First().AttrOr("href", ""), ""))
 	if href != "" {
 		if httpSchemeRe.MatchString(href) {
 			return href

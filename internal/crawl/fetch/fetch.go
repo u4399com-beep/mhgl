@@ -1446,9 +1446,10 @@ func (c *Client) rawFetch(ctx context.Context, rawURL, refererURL string, direct
 			lastErr = err
 			var httpErr *httpStatusError
 			if errors.As(err, &httpErr) {
-				if httpErr.code == 404 || httpErr.code < 400 || deterministicClientError(httpErr.code) {
-					// 404/3xx 终态/确定性 4xx: 换镜像无意义且重试零胜率, 直接返回
-					// 错误(TS 镜像 404 不切换口径; [R73-a] 确定性 4xx 快速失败)
+				if httpErr.code == 404 || httpErr.code < 400 || deterministicNoRetryStatus(httpErr.code) {
+					// 404/3xx 终态/确定性 4xx·5xx: 换镜像无意义且重试零胜率, 直接返回
+					// 错误(TS 镜像 404 不切换口径; [R73-a] 确定性 4xx 快速失败;
+					// [R74-a] 501/505/508 确定性 5xx 同款)
 					return rawResult{}, err
 				}
 				// [R53-2a](400 壳不喂降额链) 其余非 403/429 的 4xx: 同候选退避重试已按下方
@@ -1530,15 +1531,21 @@ type httpStatusError struct{ code int }
 
 func (e *httpStatusError) Error() string { return fmt.Sprintf("HTTP %d", e.code) }
 
-// deterministicClientError 确定性客户端错误([R73-a] 重试语义收敛): 与 cookie/token/
-// 挑战状态无关、由请求形态或资源自身决定的 4xx —— 同候选重试零胜率(退避不改变请求),
-// 修前烧满 1+Retries 次尝试与 400ms×2^a 退避链(Retries=5 即单 URL ~12.4s 纯等待+
-// 5 个必败请求打向源站, 恰是反反爬最忌讳的确定性失败重放); 修后与 404 同款快速失败
-// (镜像不切换, sticky 不清)。403/429(WAF/限流)/408(超时)/412/425(cookie·挑战面,
-// Set-Cookie 已入 jar 重试可过关)等状态保持既有重试语义零变化
-func deterministicClientError(code int) bool {
+// deterministicNoRetryStatus 确定性快速失败状态([R73-a] deterministicClientError 更名扩容):
+// 与 cookie/token/挑战状态无关、由请求形态或资源自身/服务端软件能力决定的状态 —— 同候选
+// 重试零胜率(退避不改变请求), 修前烧满 1+Retries 次尝试与 400ms×2^a 退避链(Retries=5 即
+// 单 URL ~12.4s 纯等待+5 个必败请求打向源站, 恰是反反爬最忌讳的确定性失败重放); 命中即
+// 与 404 同款快速失败(镜像不切换, sticky 不清)。镜像不切换依据: 镜像域为同构克隆(同栈
+// 同软件), 请求形态/软件能力类失败在镜像上同型复现。
+// 4xx 族: 400/401/405/410/414/431/451([R73-a])。
+// 5xx 族([R74-a] 增强): 501 Not Implemented(服务端不支持该功能形态)、505 Version Not
+// Supported(HTTP 版本协商失败, 与请求固定形态绑定)、508 Loop Detected(重定向环, 重放
+// 同请求只会再次入环) —— 三者均为「重试/换镜像零胜率」的确定性服务端语义; 502/503/504/
+// 522/524(瞬态过载/超时)与 403/429(WAF/限流面)/408(超时)/412/425(cookie·挑战面,
+// Set-Cookie 已入 jar 重试可过关)保持既有重试语义零变化
+func deterministicNoRetryStatus(code int) bool {
 	switch code {
-	case 400, 401, 405, 410, 414, 431, 451:
+	case 400, 401, 405, 410, 414, 431, 451, 501, 505, 508:
 		return true
 	}
 	return false
@@ -1693,8 +1700,21 @@ func (c *Client) doOnce(ctx context.Context, rawURL, refererURL string, extraHea
 			}
 		}
 	}
+	// [R74-a] 指纹基 Referer = 线上实际发送的 Referer: cfg.headers 显式配置 Referer 时
+	// 该值经下方「附加规则头」原样上线(契约「cfg.headers 可覆盖单项」, 不做跨源改写),
+	// 但 fpHeaders 的 Sec-Fetch-Site 此前仍按缺省臂派生的 effReferer(同源自源/无 Referer)
+	// 计算 —— 出现两类不可能指纹: ①缺省同源 Referer 臂 + 自定义跨源 Referer →
+	// 「跨源 Referer + Sec-Fetch-Site: same-origin」; ②cfg.Referer=false 无缺省臂 +
+	// 自定义 Referer → 「带 Referer + Sec-Fetch-Site: none」。真实浏览器按实际 initiator
+	// 计算 Sec-Fetch-Site, 携带跨源 Referer 的导航恒为 cross-site, none 恒无 Referer。
+	// 与 [R71-a]「cfg.headers 覆写 UA 后指纹头组以线上 UA 为基」同族口径收敛: 基准取
+	// 线上实发值。非覆写路径 fpReferer==effReferer 零变化
+	fpReferer := effReferer
+	if v, ok := headersValue(c.cfg.Headers, "Referer"); ok && strings.TrimSpace(v) != "" {
+		fpReferer = strings.TrimSpace(v)
+	}
 	// 指纹头组(sec-ch-ua*/Sec-Fetch-* 按 UA 家族; 先于规则头 — cfg.headers 可覆盖单项)
-	fpHeaders := fingerprintHeaders(ua, effReferer, rawURL)
+	fpHeaders := fingerprintHeaders(ua, fpReferer, rawURL)
 	// [R69-a] 二进制子资源形态覆写: 真实浏览器 <img> 请求 Sec-Fetch-Dest=image/
 	// Mode=no-cors 且从不携带 Sec-Fetch-User(该头仅用户激活的导航请求上线)
 	if binary {

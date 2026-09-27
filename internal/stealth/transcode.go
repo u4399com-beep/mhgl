@@ -18,6 +18,14 @@ import (
 )
 
 // transcodeTokens 对全部文本节点执行转码(就地改写 data)。
+// [R74-c 真虫修复] <title>(RCDATA) 内容豁免(与 obfTextNoise/pseudo 同款 noInsert
+// 前驱守卫): title 是 TDK 引擎产出的 SEO 元数据。修前 transcode 是四管线中唯一
+// 改写 title 的: zwsp 形态把 U+200B 插进 title(浏览器/爬虫解码后的标题串含零宽
+// 字符 —— 书名关键词失配, 且 request 种子下每次请求解码标题漂移, R72-c pseudo
+// title 虫同类残留, 探针实证); entity 形态虽解码等价(可见外观零漂移), 但 title
+// 原始字节每请求漂移, 与「title 内容逐字节不动」跨管线不变式相悖, 且元数据关键
+// 词本就经 meta 属性/h1 明文暴露, 实体化对 title 无伪装收益。修后 title 豁免,
+// 正文照常转码。
 func transcodeTokens(toks []token, cfg Config, r *rand.Rand) []token {
 	zwsp := cfg.TranscodeMode == "zwsp"
 	for idx := range toks {
@@ -26,6 +34,9 @@ func transcodeTokens(toks []token, cfg Config, r *rand.Rand) []token {
 		}
 		if toks[idx].data == "" {
 			continue
+		}
+		if idx > 0 && toks[idx-1].noInsert {
+			continue // title(RCDATA) 内容逐字节不动
 		}
 		if zwsp {
 			toks[idx].data = zwspText(toks[idx].data, r)

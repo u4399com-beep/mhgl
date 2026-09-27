@@ -24,12 +24,13 @@
 ## 功能特性
 
 - **采集引擎**（`internal/crawl/`）：规则四段（列表/详情/目录/正文）解析、CSS/正则/JSON 字段提取、`{page}`/`{offset:N}` 占位符翻页、编码识别（GBK 等）、正文清洗（广告模式/去壳页）、分卷排序、并发限速 + HostGate、**规则级出口代理池**（http/socks5h 逗号分隔多条轮换≤10，仅国内 IP 可达站点如 77shuku.info 必配）、封面本地化（webp）。
-- **多引擎反反爬降级链**：native HTTP（curl 链）→ 代理池轮换 → 中继桥（3011）→ Scrapling 桥（3012，static/stealthy/playwright）→ Obscura 本地 chromium 反检测渲染，按站点防护级别自动降级。
-- **站级签名/解密代理**：对 token/签名/AES 类站点以外置 mini-service 承载（见下表），引擎 `tokenUrl` 钩子对接。
-- **管理端**：站点规则 CRUD + 在线测试、**内置规则库一键导入**（**35 条**实测站点规则，幂等覆盖可恢复出厂）、任务（单书/批量/实时采集/定时增量 autoRefresh）、书籍/章节管理（批量删除等不可恢复操作带输入确认门槛）、TXT 下载、站群与 SEO（伪静态 6 预设、站点级「自动生成 TDK」一键铺底）、统计看板（仪表盘卡片可开关显示）、**违禁词过滤**（对采集入库内容做屏蔽词/敏感词过滤，mask/remove 双模式）、**规则极限校准**（对模拟源站实测安全并发与速率，一键写回推荐参数）。
-- **前台**：多主题站群（**8 配色 × 8 风格 × 8 布局 = 512 套组合主题 + 9 套精选**，含笔趣阁经典、霹雳书屋仿站、久久小说 aijjxs 复刻；非法主题 ID 自动回退默认主题）、阅读页、搜索、sitemap、**6 预设伪静态 URL**（纯数字/字母数字/目录式/无后缀/紧凑双段/动态查询，宽容解析永不断链）、**全链自动 TDK**（标题/描述/关键词 + canonical + JSON-LD 逐页生成，伪静态直达页 SSR 直出）。
+- **反反爬体系**（`internal/crawl/fetch`）：native HTTP（curl 链）→ 出口代理轮换（规则级 http/socks5h 池 + 免费代理池按健康分消费）两级降级；UA 池 + 头组仿真、可选 utls ClientHello TLS 指纹轮换、Cookie/Referer 浏览器语义、指数退避 + `Retry-After` 尊重、HostGate 同站并发闸、WAF/挑战页判定（宝塔/安全狗/雷池/加速乐/CF/DataDome/Incapsula 等）与镜像域故障切换。
+- **站级签名/解密扩展点**：引擎内置 `tokenUrl`/`tokenPattern`（token 预取注入）与 `contentProxyUrl`（正文段经外部端点包裹抓取，失败降级直连）钩子，自备端点即可对接签名/解锁类服务——原 8 个外置 mini-service 已随 R69 退役（见下文）。
+- **管理端**：站点规则 CRUD + 在线测试、**内置规则库一键导入**（**35 条**实测站点规则，幂等覆盖可恢复出厂）、任务（单书/书号批量/列表范围三种模式 + 完成后定时续采 autoRefresh）、书籍/章节管理（批量删除等不可恢复操作带输入确认门槛）、TXT 下载、站群与 SEO（伪静态 6 预设、站点级「自动生成 TDK」一键铺底）、统计看板（计数聚合 + 7 日入库曲线 + 健康面板）、**违禁词过滤**（对采集入库内容做屏蔽词/敏感词过滤，mask/remove 双模式）。
+- **前台**：多主题站群（**11 套内置克隆主题**，含笔趣阁系/霹雳书屋/久久小说 aijjxs 复刻等，非法主题 ID 自动回退默认主题）、阅读页、搜索、sitemap（R73 三段式 `sitemapindex`：static/books/chapters 自动分片 + 行级真实 lastmod）、**6 预设伪静态 URL**（纯数字/字母数字/目录式/无后缀/紧凑双段/动态查询，宽容解析永不断链）、**全链自动 TDK**（标题/描述/关键词 + canonical + JSON-LD 逐页生成，伪静态直达页 SSR 直出）。
 - **内容伪装 / 反搜索**（R70，四开关**默认全关**）：页面结构混淆（每页唯一、外观不变）/ 关键词句子实体转码（entity/zwsp 双模式）/ 隐藏干扰句（hidden/offscreen，密度可调）/ 句子伪原创（request/daily/stable 三档种子）——后台「系统设置 → 内容伪装 / 反搜索」设置卡逐项开关。⚠️ 隐藏文字/伪原创可能被搜索引擎判作弊，默认关闭、风险自负。
 - **目录分卷分组显示**（R70，`book.volume.show`，默认关）：书籍目录按卷分组渲染（卷名 + 卷内章节两级结构）；关闭时目录平铺展示，与既往完全一致。
+- **采集繁转简**（R73，`crawlT2S`，默认开）：入库前对书名/作者/简介/分类/章节标题/卷名/正文做零依赖繁→简转换（词组最长优先 + 单字映射，词组保护防误转，简体文本零变化）；智能分类/完结初判/同名合并全消费简体化文本；后台「系统设置」语义卡可开关。
 - **任务可靠性**：任务状态机（pending/running/paused/stopped/done/error）、暂停续采、服务重启自动回收 running → paused 不丢进度、增量重采跳过已采、dev 模式 OOM 自愈守护（`scripts/dev-watchdog.sh`）。
 
 ## 技术栈
@@ -42,7 +43,7 @@
 | 模板/UI | html/template（**go:embed 内嵌二进制**）+ 手写 CSS/原生 JS（前台 11 主题 + 深色管理台） |
 | 静态资源 | `web/static` 磁盘直服（改 CSS/JS 即时生效, 无需重建） |
 | 采集引擎 | `internal/crawl`（goquery 解析 + 反反爬体系全量保真） |
-| 部署 | 裸机 systemd 直跑单二进制（Docker 链已退役，归档 `docs/archive/docker/`） |
+| 部署 | 裸机 systemd 直跑单二进制（Docker 链已退役，R69 清退出库，git 历史可考） |
 
 ## 快速开始
 
@@ -51,7 +52,7 @@
 ```bash
 git clone https://github.com/u4399com-beep/mhgl.git && cd mhgl    # 仓库地址以 `git remote -v` 为准
 bash scripts/install-go.sh && export PATH=$HOME/go-sdk/go/bin:$PATH   # ① 装 Go 工具链(幂等)
-go build -o .build/mhgl ./cmd/server                              # ② 构建单二进制(~23MB)
+go build -o .build/mhgl ./cmd/server                              # ② 构建单二进制(~25MB)
 ./.build/mhgl                                                     # ③ 运行 → :3000(前台+后台+API+采集一体)
 ```
 
@@ -129,7 +130,7 @@ Go 质量门全量：`gofmt -l internal/ && go vet ./... && go test -count=1 ./i
 
 - **`db/custom.db`（主数据，不入版本库）**：SQLite 处于 WAL 模式——在线备份用 `sqlite3 db/custom.db ".backup '备份文件.db'"`（一致性快照），或**停服后**直接拷贝文件；或后台「数据备份」页一键导出/导入 JSON（书籍超 **200 本**自动降级为仅元数据导出，大库用文件级备份）。整库丢失时重跑服务即自动重建空表 + 空库播种——**书籍/章节数据不可再生，务必例行备份**。
 - **`web/covers/`（封面）**：已被平台 checkpoint **自动提交进 git**——沙箱重置后封面随仓库整体恢复，无需单独备份；自建部署迁移时随目录拷贝。
-- **`worklog.md` / `agent-ctx/` / `docs/`（协作档案，git 追踪）**：跨 agent 协作总线、任务上下文与文档档案，git 内自带历史；退役部署链存于 `docs/archive/`。
+- **`worklog.md` / `agent-ctx/` / `docs/`（协作档案，git 追踪）**：跨 agent 协作总线、任务上下文与文档档案，git 内自带历史（`docs/archive/` 现存 worklog 历史归档；退役部署链不再有目录归档，考古走 git 历史）。
 
 ## 免责声明
 

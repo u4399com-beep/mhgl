@@ -116,6 +116,15 @@ var (
 	// 加速乐挑战资源真实形态 /jsl/?h=…): 裸 "jsl" 子串误伤业务路径 /jslib/*
 	// (iframe src="/jslib/jquery.min.js" 的长内容页被整页判拦丢章)
 	jumpWafTargetRe = regexp.MustCompile(`(?i)(waf|challenge|captcha|__jsl|jsl[/?=]|safedog|yunsuo|safeline|yunjiasu)`)
+	// [R74-a] iframe 臂收敛(误伤面修复): 泛词 captcha 从 iframe 臂摘除 —— 业务验证码
+	// 组件以 <iframe src=captcha…> 嵌在真实章节页(评论区/登录框): 腾讯 TCaptcha
+	// (t.captcha.qq.com/captcha.gtimg.com, 国内站点评论验证码主流形态)与 reCAPTCHA
+	// (google.com/recaptcha)的 iframe src 均含 "captcha" 词形, 修前长内容页+正常标题
+	// 被整页判拦丢章(与 [R72-a] /jslib/ 误拦同族)。iframe 臂只保留 WAF 技术指纹词
+	// (waf/challenge/__jsl/jsl 边界/国产 WAF 产品标识 —— 挑战组件无此类词形);
+	// meta-refresh 重定向臂保留全词表: 业务页不存在「meta 跳向 captcha 路径」的形态,
+	// 挑战壳二跳(0;url=/waf/captcha…)需要 captcha 臂覆盖
+	jumpIframeTargetRe = regexp.MustCompile(`(?i)(waf|challenge|__jsl|jsl[/?=]|safedog|yunsuo|safeline|yunjiasu)`)
 )
 
 // isPlainJSONBody 合法 JSON 响应体整体豁免(TS isPlainJsonBody 同口径): JSON API 站的
@@ -212,7 +221,7 @@ func isWafJumpChallenge(lower string) bool {
 		}
 	}
 	for _, tag := range iframeTagRe.FindAllString(head, 16) {
-		if jumpWafTargetRe.MatchString(tag) {
+		if jumpIframeTargetRe.MatchString(tag) {
 			return true
 		}
 	}

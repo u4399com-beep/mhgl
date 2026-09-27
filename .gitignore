@@ -1,15 +1,12 @@
 *.db
 .env
 node_modules/
-.next/
-data/
 upload/
 dev.log
 tool-results/
 tmp/
 __pycache__/
 *.pyc
-tsconfig.tsbuildinfo
 
 # 沙箱工作截图/临时产物不入库 [R10-f]
 .zscripts/*.png
@@ -19,13 +16,11 @@ tsconfig.tsbuildinfo
 .zscripts/dev.pid
 backups/
 
-# [R49-10] 运行时高频写入产物(排除出 turbopack 文件监视, 防路由重编译churn推高 dev RSS)
+# 运行时高频写入产物(不入库; [R49-10] 原注为排除出 Next.js/turbopack 文件监视, 该链 R69 已退役)
 *.db-journal
 *.db-wal
 *.db-shm
 worklog.md
 agent-ctx/
-watch-probe*.tmp
 *.tmp.log
-dev-server.pid
 .build/

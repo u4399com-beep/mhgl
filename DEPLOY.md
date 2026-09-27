@@ -4,7 +4,7 @@
 >
 > ℹ️ **R69 退役注**：原 TS/Prisma 引导链（`bunx prisma db push` 建表 + TS 空库引导脚本）已全量退役——
 > 建库建表现在由服务启动时**原生自举**（幂等 DDL + 空库自动播种），引导由 `./.build/mhgl bootstrap` 子命令承担。
-> Docker 部署链亦早已退役（R66-d，归档 `docs/archive/docker/`）。现行唯一部署形态 = **Go 单体二进制裸机直跑**。
+> Docker 部署链亦早已退役（R66-d 退役、R69 清退出库，git 历史可考）。现行唯一部署形态 = **Go 单体二进制裸机直跑**。
 
 ## ① 三条命令（生产推荐，裸机）
 
@@ -70,7 +70,7 @@ systemctl enable --now mhgl
 | `DB_PATH` | `db/custom.db` | SQLite 库文件（相对项目根，可绝对路径）；启动幂等建表，缺文件自动创建 |
 | `ADMIN_PASSWORD` | dev 缺省 `audit-fix-2025` | **生产必改**；`GO_ENV=production` 且未设置时登录恒失败（fail-closed） |
 | `SESSION_SECRET` | dev 缺省编译期常量 | 生产设独立随机长串（`openssl rand -hex 32`）；生产留空 fail-closed |
-| `GO_ENV` | （空） | 设 `production` 启用生产口径（密码/密钥 fail-closed 等） |
+| `GO_ENV` | （空） | 设 `production` 启用生产口径（密码/密钥 fail-closed 等）；大小写不敏感，`prod` 等价（R73 起收编别名，防大小写笔误被当 dev） |
 | `COOKIE_SECURE` | `0` | 生产 https 才设 `1`（登录/注销 Set-Cookie 附加 `Secure`）；反代终结 TLS 时透传 `X-Forwarded-Proto: https` 也会自动叠加（http 预览误开会断后台登录） |
 | `MEM_LIMIT_MB` | `600` | Go 内存软顶（GOMEMLIMIT 同源，MB） |
 | `COVER_DIR` | `web/covers` | 封面落盘目录 |
