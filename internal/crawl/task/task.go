@@ -126,6 +126,9 @@ type Task struct {
 	currentBook            string
 	lastError              string
 	stats                  Stats
+	// [R75-e] 本书空正文章计数(crawlContentBatches 起点清零; 首条+每 20 条限频
+	// warn + 书收尾汇总, 修前逐章 warn 在千章任务刷屏淹没关键错误)
+	emptyContentCount int
 
 	// ---- 生命周期 ----
 	running   bool
@@ -506,7 +509,19 @@ func (t *Task) asyncStatus(status, note string) {
 
 // ---------------- 熔断计数(契约 §5) ----------------
 
+// chapterFailLevel 章节失败日志分级([R75-e] 报错可见性: 纯函数供单测):
+// 首败/早期连败 warn(信息型); 连败过半(≥熔断阈值/2)升级 error —— 千章任务里
+// 淹没在 warn 尾流中的致命错误在默认日志视图可直接看到, 与弃书熔断 error 同色级
+func chapterFailLevel(streak int) string {
+	if ChapterFailCircuit >= 4 && streak >= ChapterFailCircuit/2 {
+		return "error"
+	}
+	return "warn"
+}
+
 // chapterFailed 章节真实失败(网络层): 连败链 +1
+// [R75-e] 日志分级: streak≤3 或每 5 条限频(防刷屏)不变; 达熔断阈值半程起升级 error
+// 并改用「连败过半」文案(10/20、15/20 …), 熔断弃书仍由 bookFailed error 收口
 func (t *Task) chapterFailed(u string, err error) {
 	t.mu.Lock()
 	t.stats.Errors++
@@ -514,7 +529,11 @@ func (t *Task) chapterFailed(u string, err error) {
 	streak := t.chapterFailStreak
 	t.mu.Unlock()
 	if streak <= 3 || streak%5 == 0 { // 限频防刷屏(首 3 条+每 5 条)
-		t.logf("warn", "章节失败(%d/%d 连败): %s: %v", streak, ChapterFailCircuit, util.TruncateLog(u, 120), err)
+		if chapterFailLevel(streak) == "error" {
+			t.logf("error", "章节连败过半(%d/%d, 达 %d 弃书): %s: %v", streak, ChapterFailCircuit, ChapterFailCircuit, util.TruncateLog(u, 120), err)
+		} else {
+			t.logf("warn", "章节失败(%d/%d 连败): %s: %v", streak, ChapterFailCircuit, util.TruncateLog(u, 120), err)
+		}
 	}
 }
 

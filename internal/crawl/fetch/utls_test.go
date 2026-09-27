@@ -280,8 +280,10 @@ func TestTransportSelection(t *testing.T) {
 	offCfg.TLSFingerprint = ""
 	c2 := New(offCfg)
 	defer c2.Close()
-	if tr := c2.hc.Transport.(*http.Transport); tr.DialTLSContext != nil || tr.TLSNextProto != nil {
-		t.Fatalf("缺省关直连传输应保持既有口径(无 DialTLSContext/空表)")
+	// [R75-a] h1 钉扎新契约: TLSNextProto 空表两态恒在(修前缺省关依赖工具链保守
+	// 分支为 nil); DialTLSContext 仍仅 chrome 开时挂载
+	if tr := c2.hc.Transport.(*http.Transport); tr.DialTLSContext != nil || tr.TLSNextProto == nil {
+		t.Fatalf("缺省关直连传输应无 DialTLSContext 且保持 h1 钉扎(空表)")
 	}
 	tr2 := c2.transportFor(pu, true)
 	if tr2.Proxy == nil || tr2.DialTLSContext != nil {

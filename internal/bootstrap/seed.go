@@ -15,6 +15,7 @@
 package bootstrap
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -86,8 +87,27 @@ var seedCategories = []string{
 
 // Seed 幂等引导运行态数据(规则/分类/默认站点/三大部头任务)。
 // 调用方需保证 schema 已存在(EnsureSchema / store.Open 自检之后)。
+//
+// [R75-c] 并发安全: 全程包在单条 BEGIN IMMEDIATE 事务里(独立连接上
+// 原始语句, 非 database/sql 默认 DEFERRED 事务) —— R74-c 留档的
+// 「双进程同时首启重复播种」根因是 check-then-insert 的 TOCTOU
+// (两进程都 SELECT 空再各自 INSERT, Rule.name 无 UNIQUE 拦不住);
+// IMMEDIATE 使写锁在事务起点即被获取, 后到进程阻塞在 busy_timeout
+// (DSN 10s)上直到前者提交, 再读必命中。刻意不走「加 UNIQUE 索引」
+// 路线: 存量脏数据(历史重复行)会让建索引在启动时失败, 属高风险迁移。
+// 整库播种原子化顺带获得: 中途失败无半截种子。
 func Seed(db *store.DB) (SeedReport, error) {
 	var rep SeedReport
+	tx, err := beginImmediate(db)
+	if err != nil {
+		return rep, err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
 
 	// ---- 1. 内置规则全量导入(按 name 幂等 upsert, 保留既有 ruleId) ----
 	now := store.NowMS()
@@ -98,17 +118,17 @@ func Seed(db *store.DB) (SeedReport, error) {
 			enabled = 0
 		}
 		var id string
-		err := db.QueryRow(`SELECT id FROM "Rule" WHERE name=?`, name).Scan(&id)
+		err := tx.QueryRow(`SELECT id FROM "Rule" WHERE name=?`, name).Scan(&id)
 		switch {
 		case err == nil:
-			if _, uerr := db.Exec(`UPDATE "Rule" SET description=?, config=?, enabled=?, updatedAt=? WHERE id=?`,
+			if _, uerr := tx.Exec(`UPDATE "Rule" SET description=?, config=?, enabled=?, updatedAt=? WHERE id=?`,
 				truncate(br.Description, 500), br.Config, enabled, now, id); uerr != nil {
 				rep.RuleErrors = append(rep.RuleErrors, fmt.Sprintf("%s: update: %v", br.Key, uerr))
 				continue
 			}
 			rep.RulesUpdated++
 		case isNoRows(err):
-			if _, ierr := db.Exec(`INSERT INTO "Rule" (id,name,description,config,enabled,createdAt,updatedAt) VALUES (?,?,?,?,?,?,?)`,
+			if _, ierr := tx.Exec(`INSERT INTO "Rule" (id,name,description,config,enabled,createdAt,updatedAt) VALUES (?,?,?,?,?,?,?)`,
 				db.NewID(), name, truncate(br.Description, 500), br.Config, enabled, now, now); ierr != nil {
 				rep.RuleErrors = append(rep.RuleErrors, fmt.Sprintf("%s: insert: %v", br.Key, ierr))
 				continue
@@ -122,14 +142,14 @@ func Seed(db *store.DB) (SeedReport, error) {
 	// ---- 2. 分类幂等固化(15 主分类 4 字名 + FallbackCategory) ----
 	for i, name := range seedCategories {
 		var id string
-		err := db.QueryRow(`SELECT id FROM "Category" WHERE name=?`, name).Scan(&id)
+		err := tx.QueryRow(`SELECT id FROM "Category" WHERE name=?`, name).Scan(&id)
 		if err == nil {
 			continue
 		}
 		if !isNoRows(err) {
 			return rep, fmt.Errorf("bootstrap: category %s: %w", name, err)
 		}
-		if _, ierr := db.Exec(`INSERT INTO "Category" (id,name,sortOrder,createdAt) VALUES (?,?,?,?)`,
+		if _, ierr := tx.Exec(`INSERT INTO "Category" (id,name,sortOrder,createdAt) VALUES (?,?,?,?)`,
 			db.NewID(), name, i, now); ierr != nil {
 			return rep, fmt.Errorf("bootstrap: category %s insert: %w", name, ierr)
 		}
@@ -138,11 +158,11 @@ func Seed(db *store.DB) (SeedReport, error) {
 
 	// ---- 3. 默认站点(仅 Site 表为空时) ----
 	var siteN int
-	if err := db.QueryRow(`SELECT count(*) FROM "Site"`).Scan(&siteN); err != nil {
+	if err := tx.QueryRow(`SELECT count(*) FROM "Site"`).Scan(&siteN); err != nil {
 		return rep, fmt.Errorf("bootstrap: site count: %w", err)
 	}
 	if siteN == 0 {
-		if _, ierr := db.Exec(`INSERT INTO "Site" (id,name,domain,themeId,isDefault,status,inLinkWheel,createdAt,updatedAt)
+		if _, ierr := tx.Exec(`INSERT INTO "Site" (id,name,domain,themeId,isDefault,status,inLinkWheel,createdAt,updatedAt)
                         VALUES (?,?,?,?,1,1,1,?,?)`,
 			db.NewID(), "小说聚合站", "localhost:3000", "aijjxs", now, now); ierr != nil {
 			return rep, fmt.Errorf("bootstrap: site insert: %w", ierr)
@@ -153,13 +173,13 @@ func Seed(db *store.DB) (SeedReport, error) {
 	// ---- 4. 三大部头任务(按 name 幂等; ruleId 按 name 包含匹配) ----
 	for _, def := range majorTasks {
 		var taskN int
-		if err := db.QueryRow(`SELECT count(*) FROM "Task" WHERE name=?`, def.name).Scan(&taskN); err != nil {
+		if err := tx.QueryRow(`SELECT count(*) FROM "Task" WHERE name=?`, def.name).Scan(&taskN); err != nil {
 			return rep, fmt.Errorf("bootstrap: task %s: %w", def.name, err)
 		}
 		if taskN > 0 {
 			continue
 		}
-		ruleID, err := findRuleID(db, def.ruleMatch)
+		ruleID, err := findRuleID(tx, def.ruleMatch)
 		if err != nil {
 			return rep, err
 		}
@@ -168,14 +188,14 @@ func Seed(db *store.DB) (SeedReport, error) {
 		}
 		var ierr error
 		if def.mode == "bookIds" {
-			_, ierr = db.Exec(`INSERT INTO "Task"
+			_, ierr = tx.Exec(`INSERT INTO "Task"
                                 (id,name,ruleId,mode,bookUrl,bookIds,engine,recrawlMode,storageMode,
                                  threadMin,threadMax,intervalMin,intervalMax,status,progress,stats,createdAt,updatedAt)
                                 VALUES (?,?,?,?,?,?, 'go','incremental','db', ?,?,?,?, 'pending','{}','{}',?,?)`,
 				db.NewID(), def.name, ruleID, def.mode, def.bookURL, def.bookIDs,
 				def.threadMin, def.threadMax, def.intervalMin, def.intervalMax, now, now)
 		} else {
-			_, ierr = db.Exec(`INSERT INTO "Task"
+			_, ierr = tx.Exec(`INSERT INTO "Task"
                                 (id,name,ruleId,mode,listUrl,listStart,listEnd,engine,recrawlMode,storageMode,
                                  threadMin,threadMax,intervalMin,intervalMax,status,progress,stats,createdAt,updatedAt)
                                 VALUES (?,?,?,?,?,?,?, 'go','incremental','db', ?,?,?,?, 'pending','{}','{}',?,?)`,
@@ -188,13 +208,63 @@ func Seed(db *store.DB) (SeedReport, error) {
 		rep.TasksCreated = append(rep.TasksCreated, def.name)
 		log.Printf("[bootstrap] task created: %s (%s)", def.name, def.note)
 	}
+
+	if err := tx.Commit(); err != nil {
+		return rep, fmt.Errorf("bootstrap: commit: %w", err)
+	}
+	committed = true
 	return rep, nil
+}
+
+// seedTx BEGIN IMMEDIATE 事务包装(单连接原始语句; 事务外查询一律不可用)。
+type seedTx struct {
+	conn *sql.Conn
+}
+
+// beginImmediate 在独立连接上开启 IMMEDIATE 事务: 写锁事务起点即获取,
+// 多进程播种在此串行化(后者最多等 busy_timeout 10s; 播种毫秒级)。
+// 注意 MaxOpenConns(1) 下占住的是唯一池连接, 事务期间其他查询排队 ——
+// 播种仅毫秒级, 可接受。
+func beginImmediate(db *store.DB) (*seedTx, error) {
+	ctx := context.Background()
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("bootstrap: conn: %w", err)
+	}
+	if _, err := conn.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("bootstrap: begin immediate: %w", err)
+	}
+	return &seedTx{conn: conn}, nil
+}
+
+func (t *seedTx) QueryRow(query string, args ...any) *sql.Row {
+	return t.conn.QueryRowContext(context.Background(), query, args...)
+}
+
+func (t *seedTx) Exec(query string, args ...any) (sql.Result, error) {
+	return t.conn.ExecContext(context.Background(), query, args...)
+}
+
+func (t *seedTx) Commit() error {
+	_, err := t.conn.ExecContext(context.Background(), `COMMIT`)
+	errClose := t.conn.Close()
+	if err != nil {
+		return err
+	}
+	return errClose
+}
+
+func (t *seedTx) Rollback() error {
+	_, err := t.conn.ExecContext(context.Background(), `ROLLBACK`)
+	_ = t.conn.Close()
+	return err
 }
 
 // findRuleID 按 name 小写包含匹配找规则(与 TS 原件 ruleList.find(r.name.toLowerCase()
 // .includes(ruleMatch)) 同口径; 多命中取首个, 与 TS find 语义一致)。
-func findRuleID(db *store.DB, match string) (string, error) {
-	rows, err := db.Query(`SELECT id, name FROM "Rule"`)
+func findRuleID(tx *seedTx, match string) (string, error) {
+	rows, err := tx.conn.QueryContext(context.Background(), `SELECT id, name FROM "Rule"`)
 	if err != nil {
 		return "", fmt.Errorf("bootstrap: list rules: %w", err)
 	}

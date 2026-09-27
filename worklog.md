@@ -1017,3 +1017,130 @@ Work Log:
 Stage Summary:
 - 四条交付: ①采集+反反爬 5 真虫/增强全带回归(Sec-Fetch-Site 指纹基/captcha 误拦/5xx 快速失败/URL 控制字符/cover 双转义) ②t2s OpenCC 全量扩容(960→3221 单字+476 词组+2 错对修正, 歧义字裁决固化) ③sitemap 二轮审计硬校验+缓存挤占修复 ④精简(文档 15 处校真+gitignore 清理); XFF 观察项实证闭环; 20 包测试全绿+实战 11496 章验证
 - 移交 R75: git token 轮换持续提醒(ghp_SYO... 暴露多轮); bootstrap 空库播种竞争(Rule.name 无 UNIQUE, 加索引有存量脏数据启动风险, 单进程部署低危留档); interfere→pseudo 替换率稀释(stealth 强度调优项); 平台快照回滚清数据已成常态, 考虑 DB 备份入 git 或定期导出策略
+---
+Task ID: R75-d
+Agent: R75-d
+Task: scripts/ 体检(bash -n 15/15 + 交叉引用核查) + cmd/ 死代码复甄 + 根目录杂项盘点
+
+Work Log:
+- scripts/ 4 件 + .zscripts/ 11 件 bash -n 全绿(15/15); 三命脉件(dev-go/dev-watchdog/recover)只读纪律遵守零触碰
+- 交叉引用核查: .zscripts→scripts/ 全部目标实存(build.sh/start.sh→dev-go.sh·install-go.sh, dev.sh→dev-go.sh·recover.sh, dev-watchdog.sh→委托 scripts/dev-watchdog.sh, db-backup-loop.sh→同目录 db-backup.sh); scripts/→.zscripts/ 零引用(单向依赖, 无环); 甄别用 (?<!\.z)scripts/ 边界排除 .zscripts/start.sh 自引用假阳性; 零死脚本
+- .zscripts 五件退役 no-op(mini-services×3/database-runtime-build/python-runtime-build)仓库内零调用方——保留依据不变: 防平台旧调用链「文件不存在」占位(R71 定案, .zscripts/README.md 逐件处置表在位), 非死代码
+- cmd/ 复甄: cmd/server/main.go 8 函数(main/runBootstrap/autoSeed/recoverOnBoot/logRequest/cacheStatic/itoa64/bootAt)rg 调用方计数全 ≥2 全存活, 零死代码; gofmt(cmd/) 零 + go vet ./cmd/... 零
+- 根目录盘点: package.json(零依赖别名壳, 红线原样)/go.mod·go.sum/.env(禁触)/Caddyfile(禁触)/download/README.md(34B TXT 产物目录占位)/upload/·tool-results/·agent-ctx/·.build/(gitignore 运行态)/worklog.md(追踪件)——无新增可删项
+- 领地观察(只报不动): internal/api/admin_tasks.go 已被并行 agent 修改(R75-e 进行中), internal/crawl/rule/zz_probe_r75b_test.go untracked 出现(R75-b 探针)
+
+Stage Summary:
+- 运维脚本面 15/15 语法绿+交叉引用闭环+零死脚本, cmd/ 零死代码复甄通过, 根目录无新增可清项
+---
+Task ID: R75-d
+Agent: R75-d
+Task: R75 新功能文档占位框架(备份恢复节×2 + README 任务日志/编辑) + 配置变量三面核对 + .gitignore 无效条目清理
+
+Work Log:
+- 配置变量核对(预 R75 面): Go 侧 env 全量盘点(config.go PORT/DB_PATH/ADMIN_PASSWORD/SESSION_SECRET/GO_ENV/COOKIE_SECURE/MEM_LIMIT_MB/COVER_DIR + main.go MHGL_AUTO_SEED + utls.go MHGL_TLSFP_ROTATE + periodic.go PROXY_HARVEST_INTERVAL + callback.go GO_CALLBACK_SECRET + 测试面 MHGL_STRESS_FULL)与 .env.example/DEPLOY.md §③/INSTALL-GUIDE §2.3 三面一致, 零缺漏零死变量
+- DEPLOY.md: §③ 表补 BACKUP_INTERVAL_HOURS 行(R75 新增); §⑤ 新增「自动快照与恢复(R75)」小节: backups/ 目录 + WAL 感知快照 + admin 手动快照(端点名留 R75-c 收口回填锚<!-- R75-c 收口回填 -->) + 恢复四步命令块(stop→gunzip→覆盖 db/custom.db(附 rm -wal/-shm 防旧事务回放)→start)
+- docs/INSTALL-GUIDE.md: 版本行补 R75 增补; §2.3 核心变量速览补 BACKUP_INTERVAL_HOURS; §4.7 加固清单例行备份行补自动快照口径; §8 新增 §8.1「自动快照与恢复(R75)」(同 DEPLOY 口径+回滚丢新章提示)
+- README.md: 管理端 bullet 补「R75 起行内『日志』按钮在线查看任务运行日志并可按级别过滤, 任务参数支持在线编辑」(R75-e 交付对齐待收口核名); 数据备份节补自动快照一句(BACKUP_INTERVAL_HOURS→backups/ + 后台手动快照)
+- .env.example: 新增「数据备份(R75 自动快照)」段(BACKUP_INTERVAL_HOURS 注释样例, 注明变量名/缺省以 R75-c 最终交付为准)
+- .gitignore: 删 3 条——worklog.md/agent-ctx/(git ls-files 实证两者为追踪件, .gitignore 对已追踪文件无效, 条目误导性>功能性; 删后 git status 零变化实证)+*.tmp.log(零 git 历史(git log --all 空)/零磁盘/零代码引用三重证据); tmp/ 保留(防御性条目, R74-d node_modules 同类先例)
+- 门禁: 4 件 markdown 围栏配对全偶数(README 6/DEPLOY 12/GUIDE 56)
+- 待收口项(rg 锚点 'R75-c'): ①手动快照端点名(DEPLOY/INSTALL-GUIDE 两处)②BACKUP_INTERVAL_HOURS 缺省值与更名风险(.env.example 注释)③README R75-e 日志按钮/编辑入口措辞核对
+
+Stage Summary:
+- R75 文档占位框架四件落位(DEPLOY/INSTALL-GUIDE/README/.env.example), 备份恢复节+配置变量三面核对+gitignore 2 追踪件无效条目+1 零证据条目清理, 收口锚点已留
+---
+Task ID: R75-c
+Agent: R75-c
+Task: [核心交付] DB 自动快照机制(VACUUM INTO 在线一致性快照→gzip→backups/ 保留 K 份) — 防沙箱重置清数据
+
+Work Log:
+- [增强] 背景: 平台沙箱周期性重置清空 db/(R74/R75 两轮实证 books 11496 章归零)。新件 internal/store/backup.go(~440 行): SQLite ≥3.27 `VACUUM INTO`(modernc sqlite 3.53.4 探针实证, 含 WAL 未 checkpoint 数据, 目标已存在报错→staging 唯一命名)在线一致性快照, 禁 cp 主库文件(WAL 撕裂面)。首选独立只读连接(vacuumViaRO, WAL 读写并发不与业务写者串行), ro 失败自动降级连接池(MaxOpenConns(1) 语义下等价一致)。gzip 压缩 → 进程唯一 .part(pid+纳秒) → 原子 rename(保留扫描永不见半成品) → 保留策略。
+- 设计取舍: ①快照目录缺省启发 —— db 位于名为 db/ 的目录(标准部署)→ 同级 backups/(db/ 被清时快照存活, 刻意不落 db/ 内); 其他布局(测试临时目录)→ 就地包含绝不外溢上级。②store.Open 直接读 BACKUP_INTERVAL_HOURS/BACKUP_KEEP/BACKUP_DIR 实现零接线(cmd/server 属 R75-d 领地不可动; config.Config 镜像同名字段+config_test 断言口径, 未来可显式装配); testing.Testing() 门: 测试进程未显式设 env 时零自动备份(全库测试零磁盘副作用), t.Setenv 后自动路径可回归。③触发三路共用 *DB 级 Manager 单例(atomic.Pointer 懒建), mu 全程互斥: ①周期循环(BACKUP_INTERVAL_HOURS 缺省 6h, 0=禁用) ②优雅停机(*DB).Close() 钩子先停循环再 shutdown 快照(finalOnce 幂等) ③手动 POST /api/admin/backup/snapshot(api/admin_ops.go, 与既有 GET /api/admin/backup JSON 逻辑导出互补)。失败只 log+记 LastSnapshot() 不致命。
+- [真虫(自测揪出)] 同秒碰撞后缀形态初版 "-N.db.gz": '-'<'.' 使碰撞件字典序被误排为比同秒基础名更旧 → 保留策略把刚写完的快照当最旧立即删除(日志实证 0 bytes); 修为 logrotate 惯例尾缀 ".N"(db-...HHMMSS.db.gz.2), 字典序恒=时间序。跨 Manager(模拟双进程)并发: 初版共享 <final>.part 互写致 rename 失败(并发测试实证) → .part 名嵌 pid+纳秒; rename 原子性下最坏也只是完整件相互覆盖, 无撕裂。
+- 回归: internal/store/backup_test.go 8 测试 — SnapshotRoundtrip(gzip 头/流/尾校验+gunzip 后 sqlite ro 可开+3书151章在+WAL 内未 checkpoint 标记章在+无 staging/.part 残留+Manager 状态) / VacuumIntoReadOnlyConn(mode=ro 连接路径) / RetentionKeepK(注入时间源严格时序, keep=2 四次快照恰留最新 2 份+不误删他种文件) / ConcurrentSnapshotsNoTear(单 Manager 6 协程+第二 *DB 句柄跨"进程"共 7 并发快照, 全部产物 gzip 完整+可开+数据在) / AutoBackupLifecycle 4 子测试(显式 env 启循环+Close 停机快照/0=禁用零落盘/无 env 测试门不启动/interval=0 手动端点仍可用) / PeriodicLoopFires(40ms 注入间隔 ≥2 次周期触发) / DirResolution 5 案 / EnvParsing(缺省 6·显式 0 禁用·非法禁用·keep 钳位)
+- 门禁: gofmt 零 / go build+vet ./internal/store ./internal/config ./internal/api 零 / store+config 包全测试绿(count=2 复跑)
+- 恢复命令(供文档转交 R75-d/主控): 停服后 `gunzip -c backups/db-YYYYMMDD-HHMMSS.db.gz > db/custom.db && rm -f db/custom.db-wal db/custom.db-shm` 再启动(旧 WAL 与恢复件不配套必须清); 校验可先 gunzip -t。
+
+Stage Summary:
+- DB 自动快照机制全量落地: VACUUM INTO 只读连接在线快照+gzip+原子落盘+保留 K 份, 周期/停机/手动三触发零接线自动生效(测试进程零副作用), 自测揪出碰撞后缀字典序虫与跨进程 .part 互写虫并修复, 8 项回归全绿
+---
+Task ID: R75-d
+Agent: R75-d
+Task: R75-d 收口(R75-c/e 最终行为回填文档 + 代理源计数校真 + 终门禁)
+
+Work Log:
+- R75-c 交付对齐(worklog R75-c 条目 + internal/store/backup.go 代码行级核对): DEPLOY §③ 表 BACKUP_INTERVAL_HOURS 定稿(缺省 6; 0/非法=禁用)+补 BACKUP_KEEP(3)/BACKUP_DIR(<db 同级>/backups) 两行; DEPLOY §⑤/GUIDE §8.1 快照文件名定稿 backups/db-YYYYMMDD-HHMMSS.db.gz + VACUUM INTO 只读连接口径 + 恢复命令与 R75-c 交付逐字对齐(gunzip -t 可选校验→gunzip -c 覆盖→rm -wal/-shm→起服); 手动快照端点定稿 POST /api/admin/backup/snapshot(README/DEPLOY/GUIDE/router/admin_ops 五处一致); 全部「R75-c 收口回填」占位锚点清零
+- .env.example 数据备份段定稿: 三变量注释样例(6/3/空)+手动快照端点+恢复一行流
+- README 数据备份句定稿: 缺省 6h 一备/保留 3 份/手动快照端点名
+- README/GUIDE 任务日志措辞按 R75-e 落码核对(tasks.html task-log-level select/admin.js ?level= 过滤 + PUT /api/admin/tasks/{id} partial 合并运行中模式字段禁改): 「行内『日志』/『编辑』按钮——运行日志在线查看(R75 起可按 level 过滤)与任务参数在线编辑」(注: 日志按钮 HEAD 已存在, level 过滤为 R75-e 新增, 措辞已区分)
+- [查漏校真+1] docs/INSTALL-GUIDE §6.4「收割(12 个公开源)」失真 → internal/crawl/proxy PROXY_SOURCES 实数 17 源(thespeedx×3/monosans×3/proxyscrape×3/proxifly/mmpx12/roosterkid×2/geonode×2/proxyspace×2), 修为 17 并补源家族与任务级动态注入口径(每 ~30min 健康分降序 Top64, proxyfeed.go proxyPullLimit=64 实证); 同句 6h/30min/Top64 三项均核对无误
+- .gitignore 终态: 删 worklog.md/agent-ctx/(git ls-files 实证追踪件, 对已追踪文件 ignore 无效; 删后 git status 零变化)+*.tmp.log(零历史/零磁盘/零引用); tmp/ 保留(防御性同类, R74-d 先例)
+- docs 引用面全量核查: README/DEPLOY/GUIDE 引用的 scripts/*.sh 9 处与 .zscripts/* 7 处目标全实存; 唯一 MISS=rule-limits.md 的 scripts/ratelimit-site.ts 属历史注刻意保留(TS 链退役口径)
+- 终门禁: bash -n scripts 4+.zscripts 11 = 15/15 绿; 围栏配对 README 6/DEPLOY 12/GUIDE 56 全偶; 领地 diff 终态 5 件 +64/-10; 三命脉脚本零触碰零修改; 生产 :3000 全程零扰动
+- 并行观察(只报不动): R75-b 探针件 zz_probe_r75b_test.go×2(rule/bridge)未清; admin_tasks.go 整文件重排(tab→space 风格, R75-e 进行中); internal/api/builtin_rules.json/fetch.go/pages.go/bridge_content.go 有并行改动
+
+Stage Summary:
+- R75-d 全量交付: R75 备份/日志/编辑三新能力文档闭环(端点名/缺省值/恢复命令与代码逐字对齐)+代理源 12→17 校真+gitignore 3 无效条目清理+scripts 15/15 bash -n+cmd 零死代码复甄, 收口锚点清零, 命脉零触碰
+---
+Task ID: R75-e
+Agent: R75-e
+Task: 任务编辑闭环(A) — PUT roundtrip 逐字段实测 + 暂停态模式字段静默失效封口 + 前端编辑态补缺
+
+Work Log:
+- [实测] live API 编辑 roundtrip(测试任务 bookIds 模式, POST→PUT×11→GET→DELETE 全程 :3000): pending 态 name/intervalMin·Max/bookStart·bookEnd/bookIds/mode(+bookUrl)/fetchConfig/threadMin·Max/recrawlMode/storageMode/smartCategory·Complete/autoRefresh·refreshIntervalMin/engine 全部 200 落库验证; mode→single 缺 bookUrl 400「单本模式必须填写书籍页URL」联动校验正确; PUT 为 partial 合并(仅 body 出现字段), 无丢字段/空串误清面
+- [真虫①] admin.js taskFormHTML 书籍页 URL 字段 label/placeholder 误写 {id}(admin.js:355 旧), API/引擎占位符实为 {bookId}(bookIDPlaceholder, admin_tasks.go:39; 内置规则模板全 {bookId}) — 照 UI 提示填 {id} 建 bookIds 任务必被 400「需含 {bookId} 占位符」拒, 且编辑对话框同源 → 「任务保存不了/没法编辑」直感来源之一; 修为 {bookId} 双处
+- [真虫②] 编辑表单缺 bookStart/bookEnd 二字段(range 模式书籍序号切片, queue.go sliceByBookStartEnd 消费): API/引擎全支持、UI 无入口, 用户想跳过已采书籍只能重建任务; taskFormHTML 补「书籍序号起/止(0=不限)」+ taskFormBody 补 bookStart/bookEnd 提交
+- [真虫③] paused 任务改模式字段=静默失效: 修前 PUT 仅拦 running(d.Tasks.Status running), paused(内存在册)放行落 DB —— 但 engine.Start resume 臂沿用 Start 时快照的内存 payload(engine.go buildPayload 仅新 Start 读取), 用户「已保存」而本次续采静默沿用旧参数; 修为 pausedInMem=exists&&!running&&DB status=paused 一并禁改, 报错文案区分「任务运行中/任务暂停中, 无法修改模式参数, 请先停止任务后再编辑保存并重新启动」; 引擎不在册(DB paused 但进程重启)不拦 —— resume 回落 Start 重读 DB, 修改可生效
+- [增强] 在册(running/paused)任务改非模式字段(interval/thread/name 等)照旧 200 但本轮不生效 → 响应附 restartHint=true, 前端 toast「任务已保存(当前运行沿用原参数, 重新启动后生效)」, 消除「保存即生效」假象
+- 回归: internal/api/r75e_task_test.go TestR75e_TaskEditMatrix 4 子测试(httptest 直调 handler+fake TaskController): pending 全字段 roundtrip 落库断言/bookIds 改 400 运行中文案+name·interval 200+restartHint/paused 在册改 bookUrl 400 暂停文案+intervalMax 200+restartHint/paused 引擎不在册改 bookIds 200 无 hint; live 证据: POST 200 id=ckww5bcc2hngp3311xwa7n2a7, PUT bookStart/bookEnd={"bookStart":2,"bookEnd":5}→回读 2/5, DELETE 200 后 GET 404(清理证据)
+- 变更: internal/api/admin_tasks.go / web/static/js/admin.js / internal/web/tpl/admin/layout.html·login.html(admin.js 缓存键 v=r55-3c3→v=r75-e, 静态件 max-age=3600 必须换键否则用户最长 1h 拿旧 js)
+
+Stage Summary:
+- 编辑闭环实测 11 字段全可改; 揪出并修复 3 真虫(UI {id} 占位符陷阱/bookStart·bookEnd 表单缺字段/paused 改模式字段静默失效)+restartHint「重启后生效」提示, 4 子测试回归钉死
+---
+Task ID: R75-e
+Agent: R75-e
+Task: 报错可见性(B) — 失败路径日志全覆盖 + 任务列表 lastError 行内直读 + 日志级别过滤 UI
+
+Work Log:
+- [排查逐项结论] ①书籍解析 0 章: 修前静默走「增量无新章: 0 章全量已存, 本毕」info(task.go pipeline:339 旧) —— 目录选择器不匹配/站点结构变化被伪装成「已采完」零异常痕迹, 修后单列 warn「目录解析得 0 章(疑似目录选择器不匹配/站点结构变化)」且不再发误导 info; ②空正文: crawlChapter 原逐章 warn 刷屏, 修后首条+每 20 条限频+书收尾汇总 warn「空正文章节累计 X 章(…请核查规则 content 选择器/清洗配置)」(清洗侧短正文归 R75-b 领地未动); ③构建/规则校验失败: engine.Start buildPayload 失败已写 TaskLog error+control 400 toast, 无缺口(engine 领地未动); ④pending 卡住: 队列构建失败/启动失败均有 error 日志, lastError 行内化后可见(下条); ⑤章节失败日志已含 URL 截断 120+HTTP 状态(httpStatusError「HTTP 404」)+WAF 判定(ErrBlocked 全文案), 代理使用情况在 fetch 层(R75-a 领地)未动
+- [增强① lastError 列表行内直读] Task 表无 lastError 列、引擎内存态随任务出注册表即失, 修前任务列表 error 行只有一个红色徽章看不到原因; admin_tasks.go 新增 lastErrorOf(TaskLog (taskId,id) 索引前缀回扫取最近一条 error/warn, 截 300 字), adminTasksList/adminTaskDetail 对 status∈{error,paused} 行附 lastError; admin.js renderTasks 状态列下方红字摘要(⚠+截 80 字+title 全文)
+- [增强② 章节失败分级] chapterFailed 修前恒 warn(千章任务里熔断前夜淹没在批次流水尾流), 修后 chapterFailLevel(streak) 纯分级: streak≥ChapterFailCircuit/2(10/20) 升级 error「章节连败过半(10/20, 达 20 弃书)」, 限频面(streak≤3||每 5 条)不变, 熔断弃书仍由 bookFailed error 收口
+- [增强③ 日志查看器] tasks.html 日志卡加 task-log-level 下拉(全部/仅错误/仅警告/仅成功/仅信息), admin.js pullLogs 走服务端 ?level= 参数(修前客户端 slice(-200) 在千章任务里几乎全是 info 批次流水, error 被挤出窗口; 服务端过滤每级独立 LIMIT 200); error 行红色高亮系既有 .adm-logline.is-error 无需新增 CSS; initTasks 绑 change→pullLogs
+- 回归: internal/crawl/task/r75e_task_test.go 4 测试 — TestR75e_ChapterFailLevel(1..9 warn/10..20 error 边界) / TestR75e_ChapterFailLogEscalation(E2E 12 章全 404: stats.Errors=12, warn「章节失败(1/20 连败)…HTTP 404」+error「章节连败过半(10/20」真实落日志回调, 「章节失败(」warn 恰 4 条=限频 1·2·3·5) / TestR75e_EmptyContentThrottleAndSummary(3 章空正文经永不匹配 regex content 规则构造 —— css 型有 findLargestText 低质兜底捞不出空; 首条「本书累计 1」+汇总「空正文章节累计 3 章」+「章节正文为空」恰 1 条+contentDone=0) / TestR75e_TocZeroChaptersWarned(warn「目录解析得 0 章」在位+「增量无新章」负断言); api 包 TestR75e_TaskLastErrorSurfaces(error 行取最近 error 日志「书籍失败(20/20」/paused 行取最近 warn「contents 回调失败」/running 行无 lastError/详情同口径)
+- 变更: internal/crawl/task/task.go·pipeline.go / internal/api/admin_tasks.go / web/static/js/admin.js / internal/web/tpl/admin/sections/tasks.html
+
+Stage Summary:
+- 失败路径全量可读: 0 章单列 warn/空正文限频+书级汇总/章节连败半程升 error/任务列表行内 lastError 红字摘要/日志查看器级别过滤, 8 项回归(api 2+task 4+纯函数)全绿
+---
+Task ID: R75-c
+Agent: R75-c
+Task: [遗留清偿 B1] bootstrap 空库播种竞争幂等化(R74-c 留档) — BEGIN IMMEDIATE 单事务序列化多进程播种
+
+Work Log:
+- [真虫] 根因(bootstrap/seed.go Seed): 四段种子(35 规则/16 分类/默认站点/3 任务)全是 check-then-insert, 两进程同时首启都 SELECT 空 → 各自 INSERT → 重复行; Rule.name 无 UNIQUE 拦不住(Category.name 有 UNIQUE 但双插会一胜一败, Site/Task 按 count 判定同 TOCTOU)。修前探针实证: 双连接池并发旧逻辑 3/3 轮产出重复(35→36~38 条, dupNameGroups 1~3)。
+- 修法: Seed 全程包进单条 BEGIN IMMEDIATE 事务(独立 *sql.Conn 原始语句, 非 database/sql 默认 DEFERRED): 写锁事务起点即获, 后到进程阻塞在 DSN busy_timeout(10s)上至前者提交后重读必命中 —— TOCTOU 窗口归零; 整库播种原子化顺带获得中途失败无半截种子。设计取舍: 刻意不加 UNIQUE 索引(存量脏重复行会让启动建索引失败, 高风险迁移, 遵任务约束); 不清历史重复行(删行有 Task.ruleId FK 引用断裂风险, foreign_keys=1), 仅杜绝新增。副作用注记: MaxOpenConns(1) 下事务占唯一池连接, 其他查询排队毫秒级(播种体量)可接受。
+- 回归: bootstrap_test.go TestR75c_SeedConcurrentNoDuplicates — 双连接池(模拟双进程)并发 Seed: 四表 count 恒等内置量 + GROUP BY name HAVING>1 零重复组 + 第三次串行播种幂等; 既有 TestSeedIdempotent/TaskRuleLinkage/IsEmpty 全保持绿(报告语义不变: created/updated 口径同前)。
+- 门禁: gofmt 零 / go vet internal/bootstrap 零 / bootstrap 包测试全绿
+
+Stage Summary:
+- R74-c 移交的播种竞争清偿: BEGIN IMMEDIATE 单事务幂等化(双进程零重复), 修前探针 3/3 复现重复、修后回归钉死, 不动 UNIQUE 索引存量风险面
+---
+Task ID: R75-main
+Agent: main-controller
+Task: R75 六条收口(任务编辑/日志闭环验收+35 规则全量 livecheck 突破+4 规则修复+引擎 tocLink 真虫+备份机制落地验收+推送)
+
+Work Log:
+- 开局: 平台快照重置再现(git 分叉=平台把 R74 后新到 4 covers amend 进本地提交 85a4110 vs 远端 e1cea59 → reset --hard e1cea59 + checkout 4 covers + 新提交 2916181 fast-forward 推送对齐, 无 force push); DB 清零再现(books=0) → 三任务重启回填
+- 五路 agent 甄别合入(a/b/c/e 断连但产出全留存): e=编辑闭环实测 11 字段+3 真虫(UI {id} 占位符陷阱/bookStart·bookEnd 表单缺字段/paused 改模式字段静默失效)+restartHint+报错可见性全覆盖(0 章单列 warn/空正文限频汇总/连败半程升 error/lastError 行内直读/日志 level 过滤); c=DB 自动快照(VACUUM INTO 只读连接→gzip→原子落盘→保留 K 份, 周期 6h/优雅停机/手动 POST /api/admin/backup/snapshot 三触发)+播种竞争 BEGIN IMMEDIATE 幂等化+2 自测虫(同秒碰撞字典序/跨进程 .part 互写); a=cookiejar 接 PublicSuffixList 封同后缀 Cookie 爬坡+h1 钉扎消协议漂移+泛词降档防正文碰撞+httpStatusError 带 URL; b=clean 部分解码容错对齐 TS+atoiSafe 溢出防护+latestChapter 清洗对齐+缺章兜底补 t2s+fanqianxs scrapling 移除; d=文档 15+1 处校真+gitignore 3 条清理+部署演练
+- 主控补刀: gofmt 5 文件归一; **真虫: task pipeline extractRuleField 传 baseURL=""** —— tocLink const 模板 {q.*} 变量(urlVars)恒空, 纯 JSON API 站(bqg713)渲染残 URL "?id=" 打源站必 403 丢书, 测试端点(testResolveToc 传 bookURL)通过而任务失败两路语义分叉; 修后同传 bookURL+回归 r75main_test.go(booklist 对错误 id 403 钉子, 修前必 FAIL/修后 3/3 章闭环)
+- **35 规则 livecheck(admin API 驱动真实任务逐规则实测)**: 19 全通(80ge/aijjxs×2/dafeng/daweixs/deqixs/iidcr/jpxs123 繁体站/kanunu8/molixs GBK/piaotia GBK/pilishuwu CF 防护/shudugu/wuxiaworld/yueyouxs×2/yybsw+hodei+shoujixs); bqg713 部分(tlsFingerprint=chrome 突破 WAF 后 list/book/toc 全通 1836 章发现, content 端点经重定向 bqg616.cc 403 需内容代理); 15 条件性: 需国内/住宅 IP(77shuku 自述/x33yq EOF/biquge.tw 403/cuoceng 挑战页/wanben 403/trxsw EOF/xinjianpan dial/起点镜像 dial/番茄聚合软壳), 需 JS 渲染(book4 SPA 保留 engine=browser fail-closed), 需本地 Legado 桥(七猫 127.0.0.1:3013 设计依赖), 需模型重写(zxcs TXT 下载站 Vue 新前端)
+- **4 规则修复(DB+仓库双落)**: shoujixs toc.itemSelector #lbks→#list(站点重构, 修后 412 章×5 页解析+hodei 对移动 UA 返回空响应实锤→fetch.headers 钉桌面 UA, 修后 103/159 流动); bqg713 +tlsFingerprint=chrome(rules/test count=58 实证); book4 engine 回退 browser(SPA 纯 Go 不可为, 诚实 fail-closed); x33yq needsProxy 移除(TS 遗留标志, Go 校验拒绝)
+- 验收: 编辑 UI roundtrip 实测(agent-browser 经 :81: 编辑对话框→intervalMax 2000→1600→确定→API 回读 1600)+任务行编辑/日志按钮+task-log-level 过滤器在位; 备份三触发实证(手动 08:35/停机 09:44/手动 09:52)
+- 门禁: gofmt 零/vet 零/build OK/20 包 test 全绿(fetch 33.5s/task 31.5s); 探针临时件已清(zz_probe×2 删除, livecheck 驱动留 /home/z/livecheck.py 未入库); 44 探针任务清理, 库存回归 3 主任务
+- DB 备份入库: backups/db-20260927-095218.db.gz(46MB, 含回填数据)force-add 入 git 作沙箱重置保险(gitignore backups/ 保持, 逐轮 force-add 最新一份; 体积/频次权衡留档: 丢数据重采 ~40min vs 仓库每轮 +46MB)
+
+Stage Summary:
+- 六条交付: ①任务编辑闭环(3 真虫修+UI 实测)+报错全链可见(lastError 行内/level 过滤/失败路径全覆盖) ②35 规则逐规则 livecheck 实测: 19 全通+1 部分+15 条件性(每条有根因/修法/所需资源), 4 规则现场修复+引擎 tocLink 真虫修复 ③a/b/c/e/d 四路抓虫增强全合入 ④DB 自动快照机制三触发落地+首份入 git 保险 ⑤文档/脚本精简 ⑥推送 origin/main
+- 移交 R76: git token 轮换持续提醒; bqg713 内容端点(bqg616.cc 拦截)可试 contentProxyUrl; JS 渲染站(book4 类)如需突破需评估纯 Go 侧 headless 方案; 平台快照回滚常态下 backups/ 入 git 策略需逐轮观察仓库体积; interfere→pseudo 稀释调优仍留档

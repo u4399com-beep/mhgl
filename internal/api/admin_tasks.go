@@ -357,6 +357,21 @@ func isValidTaskColumn(col string) bool {
 
 // ---------------- handlers ----------------
 
+// taskLastErrorLevels 参与 lastError 摘要的日志级别(错误优先取最近一条 error/warn)。
+var taskLastErrorLevels = `"error","warn"`
+
+// lastErrorOf 任务最近一次失败摘要(TaskLog 按 id 倒序取最近一条 error/warn; id 时间有序)。
+// Task 表无 lastError 列, 引擎内存态 lastError 随任务出注册表即失 —— 列表面以日志面
+// 兜底(R75-e 报错可见性: 任务列表行内直接看到「为什么错」)。
+// 仅 (taskId,id) 索引前缀回扫, 调用方须按状态白名单(error/paused)限流调用
+func (d Deps) lastErrorOf(taskID string) string {
+	row, ok, _ := d.DB.QueryMap(`SELECT message FROM "TaskLog" WHERE taskId=? AND level IN (`+taskLastErrorLevels+`) ORDER BY id DESC LIMIT 1`, taskID)
+	if !ok {
+		return ""
+	}
+	return strOf(row["message"], 300)
+}
+
 // (d Deps) adminTasksList GET /api/admin/tasks
 func (d Deps) adminTasksList(w http.ResponseWriter, r *http.Request) {
 	status := strings.TrimSpace(strOf(r.URL.Query().Get("status"), 20))
@@ -376,6 +391,12 @@ func (d Deps) adminTasksList(w http.ResponseWriter, r *http.Request) {
 		// TS include rule:{id,name}; 前台列表列自带 ruleId→规则表映射兜底
 		// (admin.js ruleNameOf), 故不回带 ruleName/rule 对象, 详情端点才带完整 rule
 		delete(row, "ruleName")
+		// [R75-e] error/paused 行附最近失败摘要(前端行内展示 + title 全文)
+		if st := strOf(row["status"], 10); st == "error" || st == "paused" {
+			if le := d.lastErrorOf(strOf(row["id"], 64)); le != "" {
+				row["lastError"] = le
+			}
+		}
 		slimRowMap(row)
 	}
 	apiOK(w, rows)
@@ -463,6 +484,12 @@ func (d Deps) adminTaskDetail(w http.ResponseWriter, r *http.Request) {
 	} else {
 		row["rule"] = nil
 	}
+	// [R75-e] 失败摘要与列表口径一致(error/paused 行附最近 error/warn 日志)
+	if st := strOf(row["status"], 10); st == "error" || st == "paused" {
+		if le := d.lastErrorOf(id); le != "" {
+			row["lastError"] = le
+		}
+	}
 	slimRowMap(row)
 	_, running, _ := d.Tasks.Status(id)
 	row["live"] = running
@@ -505,11 +532,21 @@ func (d Deps) adminTaskUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// R3-41: 运行中禁改模式字段(mode/bookUrl/listUrl/bookIds/bookIdFrom/bookIdTo)
-	_, running, _ := d.Tasks.Status(id)
-	if running {
+	// [R75-e] 暂停态一并禁改: 内存中 paused 任务 resume 走原 payload(断点续采语义,
+	// 见 engine.Start resume 臂), 修前 DB 落了新模式参数但本次续采静默沿用旧值 ——
+	// 用户「已保存」假象。仅 DB=paused 且引擎在册时拦(引擎不在册=进程已重启,
+	// resume 回落 Start 重读 DB, 修改可生效, 不拦); 引擎在册但终态残留(done/error/
+	// stopped)同样回落 Start, 不拦
+	exists, running, _ := d.Tasks.Status(id)
+	pausedInMem := exists && !running && strOf(exist["status"], 10) == "paused"
+	if running || pausedInMem {
+		why := "任务运行中"
+		if pausedInMem {
+			why = "任务暂停中"
+		}
 		for _, k := range []string{"mode", "bookUrl", "listUrl", "bookIds", "bookIdFrom", "bookIdTo"} {
 			if v, has := patch[k]; has && strOf(v, 0) != strOf(exist[k], 0) {
-				apiErr(w, http.StatusBadRequest, "任务运行中, 无法修改模式参数, 请先停止任务")
+				apiErr(w, http.StatusBadRequest, why+", 无法修改模式参数, 请先停止任务后再编辑保存并重新启动")
 				return
 			}
 		}
@@ -556,6 +593,12 @@ func (d Deps) adminTaskUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	row, _, _ := d.DB.QueryMap(`SELECT * FROM "Task" WHERE id=?`, id)
+	// [R75-e] 引擎侧在册(running/paused)时, 任务参数在 Start 时已快照进内存 payload
+	// (engine.buildPayload 仅启动时读取), 本次修改对当前这轮运行不生效 —— 响应带
+	// restartHint 供前端提示「重新启动后生效」, 消除「已保存即生效」假象
+	if (running || pausedInMem) && row != nil {
+		row["restartHint"] = true
+	}
 	apiOK(w, row)
 }
 

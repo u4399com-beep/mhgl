@@ -22,6 +22,14 @@
   <div class="adm-card-head">
     <h2 id="task-log-title">任务日志</h2>
     <div class="adm-toolbar">
+      <!-- [R75-e] 日志级别过滤: 服务端 level 参数; 默认全部, 错误行红色高亮(既有 is-error 样式) -->
+      <select class="adm-input is-select" id="task-log-level" aria-label="日志级别过滤">
+        <option value="">全部级别</option>
+        <option value="error">仅错误</option>
+        <option value="warn">仅警告</option>
+        <option value="success">仅成功</option>
+        <option value="info">仅信息</option>
+      </select>
       <label class="adm-label is-check"><input type="checkbox" id="task-log-auto"> 自动刷新</label>
       <button class="adm-btn is-tiny" id="task-log-close" type="button">关闭</button>
     </div>

@@ -334,8 +334,15 @@
     if (!rows || !rows.length) { el.innerHTML = '<div class="adm-empty">暂无任务, 点击右上角「＋ 新建任务」。</div>'; return; }
     el.innerHTML = '<table class="adm-table"><thead><tr><th>任务</th><th>模式</th><th>状态</th><th>进度</th><th>更新</th><th>操作</th></tr></thead><tbody>' +
       rows.map(function (t) {
+        /* [R75-e] 失败摘要行内展示(error/paused 行, 后端 lastErrorOf 附带): 截断 80 字 + title 全文,
+           状态列不再只是一个含混的红色徽章 */
+        var le = '';
+        if ((t.status === 'error' || t.status === 'paused') && t.lastError) {
+          var s = String(t.lastError);
+          le = '<div title="' + esc(s) + '" style="color:var(--red);font-size:12px;max-width:260px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">⚠ ' + esc(s.length > 80 ? s.slice(0, 80) + '…' : s) + '</div>';
+        }
         return '<tr><td>' + esc(t.name || t.id) + '<div class="adm-muted">规则 ' + esc(ruleNameOf(t)) + (t.engine === 'go' ? ' · Go' : ' · TS') + '</div></td>' +
-          '<td class="adm-muted">' + esc(t.mode || '-') + '</td><td>' + badge(t.status) + '</td><td>' + progressCell(t) + '</td>' +
+          '<td class="adm-muted">' + esc(t.mode || '-') + '</td><td>' + badge(t.status) + le + '</td><td>' + progressCell(t) + '</td>' +
           '<td class="adm-muted">' + fmtTime(t.updatedAt) + '</td><td><div class="adm-actions">' + taskActions(t) + '</div></td></tr>';
       }).join('') + '</tbody></table>';
   }
@@ -352,11 +359,17 @@
     return fld('任务名称', '<input class="adm-input" id="tf-name" value="' + esc(t.name || '') + '" required>') +
       fld('采集规则', sel('tf-rule', rules.map(function (r) { return [r.id, r.name + (r.enabled ? '' : ' (停用)')]; }), t.ruleId)) +
       fld('采集模式', sel('tf-mode', modeOpts, t.mode || 'range')) +
-      fld('书籍页 URL(single/bookIds; bookIds 需含 {id} 占位符)', '<input class="adm-input" id="tf-bookurl" value="' + esc(t.bookUrl || '') + '" placeholder="https://…/book/{id}.html">') +
+      fld('书籍页 URL(single/bookIds; bookIds 需含 {bookId} 占位符)', '<input class="adm-input" id="tf-bookurl" value="' + esc(t.bookUrl || '') + '" placeholder="https://…/book/{bookId}.html">') + /* [R75-e] 修前误写 {id} —— API/引擎占位符实为 {bookId}, 照 UI 提示填 {id} 必被 400 拒 */
       fld('列表页 URL(range; 支持 {page}/{offset:N} 占位)', '<input class="adm-input" id="tf-listurl" value="' + esc(t.listUrl || '') + '" placeholder="https://…/list/{page}.html">') +
       '<div class="adm-form-grid">' +
       fld('列表起始页', '<input class="adm-input" id="tf-liststart" type="number" min="0" value="' + esc(t.listStart || 0) + '">') +
       fld('列表结束页', '<input class="adm-input" id="tf-listend" type="number" min="0" value="' + esc(t.listEnd || 0) + '">') +
+      '</div>' +
+      /* [R75-e] 补齐编辑态缺失字段: bookStart/bookEnd(范围模式书籍序号切片, 0=不限) ——
+         API/引擎全支持, 修前表单无此二字段, 用户只能改库或重建任务 */
+      '<div class="adm-form-grid">' +
+      fld('书籍序号起(范围模式; 0=不限)', '<input class="adm-input" id="tf-bookstart" type="number" min="0" value="' + esc(t.bookStart || 0) + '">') +
+      fld('书籍序号止(0=不限)', '<input class="adm-input" id="tf-bookend" type="number" min="0" value="' + esc(t.bookEnd || 0) + '">') +
       '</div>' +
       fld('书号列表(bookIds 模式, 每行一个或逗号分隔; 与范围二选一)', '<textarea class="adm-input" id="tf-bookids" placeholder="1001&#10;1002">' + esc(t.bookIds || '') + '</textarea>') +
       '<div class="adm-form-grid">' +
@@ -392,6 +405,8 @@
       bookIds: $('tf-bookids').value.trim(),
       bookIdFrom: $('tf-bookfrom').value.trim(),
       bookIdTo: $('tf-bookto').value.trim(),
+      bookStart: Number($('tf-bookstart').value) || 0, /* [R75-e] */
+      bookEnd: Number($('tf-bookend').value) || 0, /* [R75-e] */
       recrawlMode: $('tf-recrawl').value,
       storageMode: $('tf-storage').value,
       threadMin: Number($('tf-thmin').value) || 1,
@@ -410,7 +425,14 @@
       openDialog(t ? '编辑任务' : '新建任务', taskFormHTML(rules, t), function (form, close) {
         var body = taskFormBody(t);
         var p = t ? PUT('/api/admin/tasks/' + encodeURIComponent(t.id), body) : POST('/api/admin/tasks', body);
-        return p.then(function () { close(); toast(t ? '任务已保存' : '任务已创建'); loadTasks(); });
+        return p.then(function (row) {
+          close();
+          /* [R75-e] restartHint: 任务运行中/暂停中保存 —— 引擎在启动时快照参数, 当前这轮
+             不生效, 重新启动后生效(后端 adminTaskUpdate 附带) */
+          if (row && row.restartHint) toast('任务已保存(当前运行沿用原参数, 重新启动后生效)');
+          else toast(t ? '任务已保存' : '任务已创建');
+          loadTasks();
+        });
       });
     }).catch(function (e) { toast('规则列表加载失败: ' + errText(e), true); });
   }
@@ -426,7 +448,10 @@
   }
   function pullLogs() {
     if (!logTaskId) return;
-    GET('/api/admin/tasks/' + encodeURIComponent(logTaskId) + '/logs').then(function (logs) {
+    /* [R75-e] 级别过滤: 走服务端 level 参数(每级独立 LIMIT 200, 修前尾部 200 条在
+       千章任务里几乎全是 info 批次流水, 错误被挤出窗口) */
+    var lv = $('task-log-level') ? $('task-log-level').value : '';
+    GET('/api/admin/tasks/' + encodeURIComponent(logTaskId) + '/logs' + (lv ? '?level=' + encodeURIComponent(lv) : '')).then(function (logs) {
       var el = $('task-log-view');
       var tail = (logs || []).slice(-200);
       el.innerHTML = tail.length ? tail.map(function (l) {
@@ -441,6 +466,9 @@
     $('task-refresh').addEventListener('click', loadTasks);
     $('task-filter-status').addEventListener('change', loadTasks);
     $('task-new').addEventListener('click', function () { openTaskDialog(null); });
+    /* [R75-e] 日志级别过滤切换 → 立即重拉 */
+    var lvlSel = $('task-log-level');
+    if (lvlSel) lvlSel.addEventListener('change', pullLogs);
     $('task-log-close').addEventListener('click', function () {
       $('task-log-card').style.display = 'none'; logTaskId = '';
       clearInterval(logTimer); clearInterval(taskTimer);

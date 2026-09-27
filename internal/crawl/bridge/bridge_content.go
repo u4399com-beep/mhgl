@@ -171,7 +171,15 @@ func (b *Bridge) Chapters(_ context.Context, p callback.ChaptersPayload) (callba
 	}
 
 	// 末章回写(finishBookOk 同款: latestChapter=目录末章标题, 码点截断 100)
-	_ = b.db.CrawlUpdateBookLatestChapter(bookID, sorter.SliceCodePoints(tocItems[len(tocItems)-1].Title, 100))
+	// [R75-b] 取 plan.items 的 CleanChapterTitle 后形态(与章行标题同源): 修前用原始
+	// TOC 标题 —— 章节行标题经清洗(planChapterSync), 而 Book.latestChapter 直接回写
+	// 原始串, "第1章 风起_www.x.com首发" 类垃圾尾在书籍页「最新章节」残留; 清洗后为空
+	// (病态壳标题)回落原串, 不回退既有行为
+	lastTitle := plan.items[len(tocItems)-1].Title
+	if lastTitle == "" {
+		lastTitle = tocItems[len(tocItems)-1].Title
+	}
+	_ = b.db.CrawlUpdateBookLatestChapter(bookID, sorter.SliceCodePoints(lastTitle, 100))
 
 	// 增量决策(契约 §2 chapters 行): full=全部 url; incremental=新章 url + 未采旧章 url
 	// (runner「已存在但未 fetched 的旧章节也进正文队列」语义对齐); 空 → Go 跳过该书正文阶段
@@ -380,7 +388,10 @@ func (b *Bridge) createChapterWithContent(bookID, rawTitle, url, cleaned string,
 	if err != nil {
 		return err
 	}
-	title := clean.CleanChapterTitle(asStr(rawTitle, 300), "")
+	// [R75-b] 补 t2s: Chapters 回调路径标题经 t2s 就地转换后清洗(R73-1), contents
+	// 缺章兜底建行路径修前只清洗不转换 —— 繁体站缺章兜底章标题保持繁体入库, 与
+	// 目录路径同一标题两处形态分叉。口径对齐 Chapters 管线: 先 t2s 后 clean
+	title := clean.CleanChapterTitle(b.t2sText(asStr(rawTitle, 300)), "")
 	if title == "" {
 		title = "未命名章节"
 	}

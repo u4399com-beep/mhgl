@@ -24,6 +24,11 @@ import (
 
 // strongBlockMarkers 结构化挑战标记(命中即判拦, 不适用"长页面+正常标题"豁免)。
 // 从 TS STRONG_BLOCK_MARKERS 逐条照搬 —— 词表语义权威在 TS 侧, 增删词条须两侧同步
+// [R75-a] 泛词降档: "正在进行安全验证"/"安全驗證" 从强标记迁至弱标记 —— 四字
+// 泛词与虚构正文碰撞面实存(修前长页+正常标题强命中整页判拦 → 等价 403 计
+// 失败链 → 丢章+连败链推进, 与 [R74-a] iframe 臂 captcha 泛词误拦同族);
+// 盾页检测不丢: 短语级词条 "正在進行安全驗證" 与服务声明词条 "本网站使用
+// 安全服务" 保留强标记, 降档词在短壳(无正常标题豁免)上仍经弱臂判拦
 var strongBlockMarkers = []string{
 	"just a moment", "cf-browser-verification", "cf-chl", "challenge-platform",
 	"cf_chl_", "checking your browser", "attention required",
@@ -32,9 +37,10 @@ var strongBlockMarkers = []string{
 	"cf-chl-bypass",
 	"please verify you are a human",
 	"enable javascript and cookies",
-	"正在进行安全验证", "本网站使用安全服务",
+	"本网站使用安全服务",
 	// 繁体变体(ixdzs 系"請稍等，正在進行安全驗證..."盾页)与"正在验证浏览器"标题站
-	"正在進行安全驗證", "正在驗證瀏覽器", "正在验证浏览器", "安全驗證",
+	// ([R75-a] 同族四字泛词 "安全驗證"/"正在进行安全验证" 降档至弱标记, 见上注)
+	"正在進行安全驗證", "正在驗證瀏覽器", "正在验证浏览器",
 	// Cloudflare 2023+ 新版 Turnstile 非交互盾页文案 / 加速乐挑战 Cookie 名 / 宝塔 WAF
 	"verifying you are human", "__jsl_clearance", "btwaf",
 	// [R68-a] CF 挑战/Turnstile 脚本域(challenges.cloudflare.com): Turnstile 组件与
@@ -87,6 +93,12 @@ var weakBlockMarkers = []string{
 	"访问过于频繁", "请开启浏览器javascript", "启用javascript",
 	// [R69-a] 限频文案同族变体(短壳拦截页高频用语; 长页+正常标题豁免不误伤)
 	"请求过于频繁", "操作过于频繁", "访问频率过高",
+	// [R75-a] 泛词降档接收(原强标记, 见 strongBlockMarkers 注): 短壳判拦保留,
+	// 长页+正常标题豁免(强标记时无豁免 — 虚构正文碰撞整页误拦)
+	"正在进行安全验证", "安全驗證",
+	// [R75-a] 补漏: "请完成验证" 短壳高频用语(验证页文案变体, 既有 "人机验证"/
+	// "安全验证" 均不命中该形态); 长页+正常标题豁免不误伤正文提及
+	"请完成验证",
 	// [R70-a] 国产 WAF 中文产品名(弱标记: 正文/页脚提及不误伤 — 中文产品名存在
 	// 正文碰撞可能, 如武侠文本「云锁」「雷池」「安全狗」均可入文, 仅无正常标题
 	// 豁免时扫前 4000 字符判拦; 技术指纹已由强标记覆盖)

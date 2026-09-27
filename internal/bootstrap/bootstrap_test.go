@@ -10,6 +10,7 @@ package bootstrap
 
 import (
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"mhgl/internal/api"
@@ -127,7 +128,7 @@ func TestSeedTaskRuleLinkage(t *testing.T) {
 		t.Fatal(err)
 	}
 	rows, err := db.QueryMaps(`SELECT t.name AS tname, r.name AS rname, t.engine, t.status
-		FROM "Task" t JOIN "Rule" r ON r.id = t.ruleId`)
+                FROM "Task" t JOIN "Rule" r ON r.id = t.ruleId`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,5 +157,65 @@ func TestIsEmpty(t *testing.T) {
 	empty, err = IsEmpty(db)
 	if err != nil || empty {
 		t.Fatalf("seeded db IsEmpty=%v err=%v, want false", empty, err)
+	}
+}
+
+// [R75-c] 双进程同时首启播种竞争回归: 两个独立连接池(模拟两个进程)对同一
+// 库文件并发 Seed。修前 check-then-insert TOCTOU: 两边都 SELECT 空 → 各自
+// INSERT → 规则/分类/任务/站点重复(Rule.name 无 UNIQUE 拦不住); 修后
+// BEGIN IMMEDIATE 使后者串行在前者提交后重读, 零重复。
+func TestR75c_SeedConcurrentNoDuplicates(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "race.db")
+	if err := EnsureSchema(path); err != nil {
+		t.Fatal(err)
+	}
+	db1, err := store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db1.Close() })
+	db2, err := store.Open(path) // 第二个池 = 第二个"进程"
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db2.Close() })
+
+	var wg sync.WaitGroup
+	errs := make([]error, 2)
+	wg.Add(2)
+	go func() { defer wg.Done(); _, errs[0] = Seed(db1) }()
+	go func() { defer wg.Done(); _, errs[1] = Seed(db2) }()
+	wg.Wait()
+	for i, e := range errs {
+		if e != nil {
+			t.Fatalf("Seed#%d: %v", i+1, e)
+		}
+	}
+
+	// 数量恒等 + 按名零重复(四类种子逐项验)
+	want := map[string]int{"Rule": len(api.BuiltinRules()), "Category": len(seedCategories),
+		"Task": len(majorTasks), "Site": 1}
+	for tbl, n := range want {
+		var got int
+		if err := db1.QueryRow(`SELECT count(*) FROM "` + tbl + `"`).Scan(&got); err != nil || got != n {
+			t.Fatalf("%s count=%d err=%v, want %d", tbl, got, err, n)
+		}
+		var dup int
+		if err := db1.QueryRow(`SELECT count(*) FROM (SELECT name FROM "` + tbl + `" GROUP BY name HAVING count(*)>1)`).Scan(&dup); err != nil {
+			t.Fatal(err)
+		}
+		if dup != 0 {
+			t.Fatalf("%s has %d duplicated name(s)", tbl, dup)
+		}
+	}
+	// 第三次(串行)播种仍幂等
+	if _, err := Seed(db1); err != nil {
+		t.Fatalf("Seed#3: %v", err)
+	}
+	for tbl, n := range want {
+		var got int
+		if err := db1.QueryRow(`SELECT count(*) FROM "` + tbl + `"`).Scan(&got); err != nil || got != n {
+			t.Fatalf("after reseed %s count=%d err=%v, want %d", tbl, got, err, n)
+		}
 	}
 }

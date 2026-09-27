@@ -752,6 +752,31 @@ func (d Deps) adminBackup(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(b)
 }
 
+// ---------------- backup snapshot(R75-c: 主库落盘快照, 防沙箱重置清数据) ----------------
+
+// (d Deps) adminBackupSnapshot POST /api/admin/backup/snapshot — 触发一次主库
+// 物理快照落盘(backups/db-YYYYMMDD-HHMMSS.db.gz)。与 GET /api/admin/backup
+// (全表 JSON 导出, 逻辑备份)互补: 本端点走 SQLite VACUUM INTO 在线一致性
+// 快照 + gzip 压缩 + 保留策略(BACKUP_KEEP, 缺省 3), 是沙箱重置后恢复数据
+// 的主要手段。快照失败返回 5xx 但不影响服务(周期/停机自动快照见
+// internal/store/backup.go, 由 store.Open 自动托管, 零接线)。
+func (d Deps) adminBackupSnapshot(w http.ResponseWriter, r *http.Request) {
+	res, err := d.DB.BackupManager().Snapshot("manual")
+	if err != nil {
+		apiErr(w, http.StatusInternalServerError, "快照失败: "+err.Error())
+		return
+	}
+	apiOK(w, map[string]any{
+		"ok":         true,
+		"file":       res.File,
+		"sizeBytes":  res.SizeBytes,
+		"durationMs": res.DurationMS,
+		"kept":       res.Kept,
+		"status":     d.DB.BackupManager().LastSnapshot(),
+		"restore":    "gunzip -c <file> > db/custom.db 并删除 db/custom.db-wal/-shm(先停服)",
+	})
+}
+
 // ---------------- backup restore(R56-2b 补全, R55 遗留①) ----------------
 
 // restoreMaxBody 备份包体积上限(512MB: 现库 137MB/1.3万章 全量导出约 60~100MB, 留余量)。

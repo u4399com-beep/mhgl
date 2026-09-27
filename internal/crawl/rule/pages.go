@@ -894,10 +894,17 @@ func ExpandListURL(rawTemplate string, page int) string {
 	return strings.ReplaceAll(tpl, "{page}", fmt.Sprintf("%d", page))
 }
 
+// atoiSafe 纯数字解析([R75-b] 溢出防护: 修前 n*10 无预判, 畸形模板 {offset:超长数字}
+// 在 int64 上回绕(实测 "99999999999999999999" 渲染出 "list--2914184810805067778.html"
+// 垃圾 URL 参与抓取), 回绕负值虽被调用侧 n<1 钳 1 兜住, 正回绕值仍可产出错位翻页址;
+// 修后乘 10 前预判越界即回 def(1), 与 parseBookIDNum/parseHex 同族 fail-closed 口径)
 func atoiSafe(s string, def int) int {
 	n := 0
 	for _, c := range s {
 		if c < '0' || c > '9' {
+			return def
+		}
+		if n > (1<<62)/10 {
 			return def
 		}
 		n = n*10 + int(c-'0')

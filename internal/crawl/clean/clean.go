@@ -15,6 +15,7 @@ package clean
 
 import (
 	"encoding/json"
+	"errors"
 	"regexp"
 	"strings"
 	"sync"
@@ -345,6 +346,11 @@ var (
 // FromRuleRaw 规则 config JSON → 清洗配置(对齐 parseRuleConfig + sanitizeCleanConfig):
 // clean 段缺失/非对象 → 整段缺省; 各字段缺失 → 字段缺省(safeStrArr 钳制 + 白名单小写化
 // + adPatterns 逐条 sanitizeAdPattern 吞标签消毒)。
+// [R75-b] 部分解码容错: 修前 err != nil 一票否决 —— clean 段内任一字段/数组元素类型错
+// (手编规则漏引号/数字混入字符串数组)致 UnmarshalTypeError, 已解码的其余字段全部丢弃,
+// 整个自定义 clean 配置静默退缺省; TS 权威 safeStrArr 语义是逐项过滤(仅字符串项保留)。
+// 修后 UnmarshalTypeError(类型错)消费已解码部分(错项由 safeStrArr 过滤/零值回缺省),
+// 语法错(SyntaxError/EOF, TS JSON.parse 同样整段抛)仍整段缺省。
 func FromRuleRaw(raw []byte) Config {
 	def := defaultConfig()
 	if len(raw) == 0 {
@@ -359,7 +365,14 @@ func FromRuleRaw(raw []byte) Config {
 			PlainText       *bool    `json:"plainText"`
 		} `json:"clean"`
 	}
-	if err := jsonUnmarshal(raw, &root); err != nil || root.Clean == nil {
+	if err := jsonUnmarshal(raw, &root); err != nil {
+		var te *json.UnmarshalTypeError
+		if root.Clean == nil || !errors.As(err, &te) {
+			return def // 语法错/结构级错(TS JSON.parse 同样全盘抛)或缺 clean 段
+		}
+		// 类型错: 已解码部分继续消费(与 TS safeStrArr 逐项过滤同语义)
+	}
+	if root.Clean == nil {
 		return def
 	}
 	c := root.Clean

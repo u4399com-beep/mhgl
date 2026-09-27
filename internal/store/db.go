@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -24,7 +25,8 @@ import (
 
 type DB struct {
 	*sql.DB
-	path string
+	path   string
+	backup atomic.Pointer[BackupManager] // [R75-c] 快照管理器单例(lazy; 见 backup.go)
 }
 
 // Open 打开既有 SQLite 文件(零迁移: 表结构与数据由 Prisma 历史轮次建好)。
@@ -52,6 +54,15 @@ func Open(path string) (*DB, error) {
 	return d, nil
 }
 
+// Close [R75-c] 停机钩子: 若快照被自动托管(周期循环在跑), 先停循环并做
+// 最后一次 shutdown 快照(落 backups/), 再关库。幂等, 多次 Close 安全。
+func (d *DB) Close() error {
+	if m := d.backup.Load(); m != nil {
+		m.StopFinalize()
+	}
+	return d.DB.Close()
+}
+
 func (d *DB) pingAndSeed() error {
 	if err := d.Ping(); err != nil {
 		return fmt.Errorf("store: ping: %w", err)
@@ -67,6 +78,9 @@ func (d *DB) pingAndSeed() error {
 	d.ensureFeedbackTable()  // R60-2b: Feedback 表自举(已存在则空转, 幂等)
 	d.ensureSmartTdkColumn() // [R65-b] Site.smartTdk 列自举(站点智能 TDK 配置; 存在则空转, 幂等)
 	log.Printf("[store] opened %s (mode=wal, maxConns=1)", d.path)
+	// [R75-c] 自动快照(防沙箱重置清数据): 测试进程缺省不启动(零副作用),
+	// 生产缺省每 6h 一快照(BACKUP_INTERVAL_HOURS=0 可禁用)。
+	d.maybeStartAutoBackup()
 	return nil
 }
 

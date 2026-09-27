@@ -53,6 +53,7 @@ import (
 
 	"github.com/andybalholm/brotli"
 	"github.com/klauspost/compress/zstd"
+	"golang.org/x/net/publicsuffix"
 
 	"mhgl/internal/crawl/rule"
 	"mhgl/internal/crawl/util"
@@ -596,12 +597,19 @@ func New(cfg rule.FetchConfig) *Client {
 		jarSeeded:        map[string]bool{},
 		tokenCache:       map[string]tokenEntry{},
 	}
-	jar, err := cookiejar.New(nil)
+	jar, err := cookiejar.New(&cookiejar.Options{PublicSuffixList: publicsuffix.List})
 	if err != nil {
 		jar, _ = cookiejar.New(&cookiejar.Options{})
 	}
 	c.jar = jar
 	// CookieJar 恒开(契约 §4: autoCookie; 静态 Cookie 按目标 host 懒注入 jar, 见 seedJar)
+	// [R75-a] PublicSuffixList 接线(修前 cookiejar.New(nil)): 无 PSL 时 jar 以「末两段」
+	// 近似注册域分区且不做公共后缀拒收 —— 多段公共后缀族(co.uk/com.cn/com.au…)被并成
+	// 同一分区, 任一响应可经 Set-Cookie Domain=co.uk 把 Cookie 爬坡到该后缀下全部无关域
+	// (探针实证: a.co.uk 下发的 Domain=co.uk Cookie 出现在 b.co.uk 请求), 重定向链/
+	// 镜像域/CDN 任一跳即可污染同任务全量目标的会话面 — 浏览器按 RFC 6265 §5.3 #5
+	// + PSL 拒收, 修复后语义对齐; 注册域级 Domain Cookie(镜像子域共享/挑战 Cookie
+	// 重放依赖)不受影响。publicsuffix 为既有直接依赖 golang.org/x/net 的子包, 零新模块
 	// 直连传输带拨号级 SSRF 复检(dial 后 RemoteAddr 复用 isDeniedIP — DNS rebinding
 	// TOCTOU 防护: ssrfCheck 的 DNS 校验与实际拨号之间窗口); TLS 指纹仿真开启时
 	// https 目标经 newDirectTransport 的 DialTLSContext(utls)接管
@@ -754,19 +762,24 @@ func (c *Client) BlockedCount() int64 { return c.blockedCount.Load() }
 // RateLimitedCount 429/503 收到计数(可观测)
 func (c *Client) RateLimitedCount() int64 { return c.rateLimitedCount.Load() }
 
-// newDirectTransport 直连传输: 既有口径(DialContext=SSRF 复检拨号, 定制后无内建 h2);
+// newDirectTransport 直连传输: 既有口径(DialContext=SSRF 复检拨号) + [R75-a] h1 钉扎;
 // fetch.tlsFingerprint=chrome 时 https 目标改走 DialTLSContext(TCP 拨号+SSRF 复检
-// 后 utls 握手, 见 utls.go), 空表 TLSNextProto 锁死 h1 与既有口径一致
+// 后 utls 握手, 见 utls.go)
 func (c *Client) newDirectTransport(allowLoopback bool) *http.Transport {
 	tr := &http.Transport{
 		MaxIdleConnsPerHost: 8,
 		MaxConnsPerHost:     0,
 		IdleConnTimeout:     60 * time.Second,
 		DialContext:         c.safeDialContext(allowLoopback),
+		// [R75-a] h1 钉扎(TLSNextProto 空表 = net/http 文档化的 h2 停用开关):
+		// 修前依赖「自定义拨号器不自动启用内建 h2」的工具链保守分支(go1.26
+		// Transport.protocols(), Issue 14275 — 旧版工具链该分支不含 DialContext,
+		// 行为随 Go 版本漂移); 显式空表消除版本漂移, 与 utls 路径「ALPN 只声明
+		// http/1.1, 协商出非 h1 即刻失败」(utls.go)同一决策口径
+		TLSNextProto: map[string]func(string, *tls.Conn) http.RoundTripper{},
 	}
 	if tlsFingerprintEnabled(c.cfg.TLSFingerprint) {
 		tr.DialTLSContext = c.safeTLSDialContext(allowLoopback)
-		tr.TLSNextProto = map[string]func(string, *tls.Conn) http.RoundTripper{}
 	}
 	return tr
 }
@@ -1097,12 +1110,17 @@ func (c *Client) transportFor(pu *url.URL, httpsTarget bool) *http.Transport {
 		MaxConnsPerHost:     8,
 		MaxIdleConnsPerHost: 8, // [R59-2c-batch2] 缺省 2 < MaxConnsPerHost=8: 批内 8 线程下每请求冷启拨号+代理隧道重握手, 连接churn放大时延与指纹异常; 与直连传输(hc)同口径对齐
 		IdleConnTimeout:     60 * time.Second,
+		// [R75-a] h1 钉扎: 修前非 tlsfp 臂为裸 Transport(无定制拨号器/无 TLSClientConfig)
+		// → 内建 h2 自动启用(go1.26 Transport.protocols() 缺省臂), 经 CONNECT 隧道与源站
+		// 协商 h2 — Go 默认 h2 SETTINGS/HPACK/伪头序与浏览器不可弥合且与直连/utls 路径
+		// 的 h1 口径自相矛盾(同一会话随代理/直连路径漂移协议形态本身即异常信号);
+		// TLSNextProto 空表 = net/http 文档化的 h2 停用开关, 与 newDirectTransport 对齐
+		TLSNextProto: map[string]func(string, *tls.Conn) http.RoundTripper{},
 	}
 	if useTLSFP {
 		tr.Proxy = nil
 		tr.DialTLSContext = c.proxyTLSDialContext(pu)
 		tr.DialContext = c.safeDialContext(c.cfg.AllowLoopback)
-		tr.TLSNextProto = map[string]func(string, *tls.Conn) http.RoundTripper{}
 	} else {
 		tr.Proxy = http.ProxyURL(pu)
 	}
@@ -1526,10 +1544,20 @@ type rawResult struct {
 
 func (r rawResult) bodyText() string { return string(r.body) }
 
-// httpStatusError HTTP 状态错误(403/404/429/5xx 触发重试/换镜像/失败计数)
-type httpStatusError struct{ code int }
+// httpStatusError HTTP 状态错误(403/404/429/5xx 触发重试/换镜像/失败计数)。
+// [R75-a] url 携带最终 URL(重定向链落点): 错误串含状态码+URL 片段, 任务日志/
+// lastError 消费面可直接定位失败候选(修前纯 "HTTP 403" 在多镜像/多候选链上无法区分)
+type httpStatusError struct {
+	code int
+	url  string
+}
 
-func (e *httpStatusError) Error() string { return fmt.Sprintf("HTTP %d", e.code) }
+func (e *httpStatusError) Error() string {
+	if e.url != "" {
+		return fmt.Sprintf("HTTP %d (%s)", e.code, util.Truncate(e.url, 160))
+	}
+	return fmt.Sprintf("HTTP %d", e.code)
+}
 
 // deterministicNoRetryStatus 确定性快速失败状态([R73-a] deterministicClientError 更名扩容):
 // 与 cookie/token/挑战状态无关、由请求形态或资源自身/服务端软件能力决定的状态 —— 同候选
@@ -1804,7 +1832,7 @@ func (c *Client) doOnce(ctx context.Context, rawURL, refererURL string, extraHea
 	res := rawResult{body: body, contentType: resp.Header.Get("Content-Type"), finalURL: resp.Request.URL.String(), status: resp.StatusCode, server: resp.Header.Get("Server"), challengeHdr: challengeHdr}
 	if resp.StatusCode == 404 {
 		// 404 语义对齐 TS !res.ok: 资源不存在即失败, 不交解析层(R51-2-b #8)
-		return res, &httpStatusError{code: 404}
+		return res, &httpStatusError{code: 404, url: res.finalURL}
 	}
 	// [R53-2a](审计 R52-c「400 壳不喂降额链」) 非 2xx 全量失败口径(对齐 TS fetchHttp
 	// `!res.ok` 抛错): 修前仅 404/403/429/5xx 产状态错误, 其余 4xx(400/401/405/412...)
@@ -1813,7 +1841,7 @@ func (c *Client) doOnce(ctx context.Context, rawURL, refererURL string, extraHea
 	// httpStatusError(含无 Location 的 3xx 终态); 403/429/5xx 走既有重试/镜像/限流链,
 	// 其余 4xx 在 rawFetch 侧不换镜像(TS isMirrorSwitchableError 口径)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return res, &httpStatusError{code: resp.StatusCode}
+		return res, &httpStatusError{code: resp.StatusCode, url: res.finalURL}
 	}
 	return res, nil
 }

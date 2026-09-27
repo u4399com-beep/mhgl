@@ -1,6 +1,6 @@
 # mhgl 小说聚合站 · 安装部署图文教程（纯 Go 单体版 · R69 全重写）
 
-> 适用版本：R69 起（纯 Go 单体）· 本版更新：**R69**（面向从零部署者逐细节重写；建库/引导全面 Go 原生化）· **R70 增补**：§6.6 内容伪装 / 反搜索与分卷显示设置 · **R71 增补**：§1.4/§2.2/§2.3/§4.1/§5 沙箱平台引导链 `.zscripts` 纯 Go 化收尾口径 · **R74 校真增补**：§6.6 补录采集繁转简（R73 `crawlT2S`）
+> 适用版本：R69 起（纯 Go 单体）· 本版更新：**R69**（面向从零部署者逐细节重写；建库/引导全面 Go 原生化）· **R70 增补**：§6.6 内容伪装 / 反搜索与分卷显示设置 · **R71 增补**：§1.4/§2.2/§2.3/§4.1/§5 沙箱平台引导链 `.zscripts` 纯 Go 化收尾口径 · **R74 校真增补**：§6.6 补录采集繁转简（R73 `crawlT2S`）· **R75 增补**：§8 数据库自动快照（`backups/` + `BACKUP_INTERVAL_HOURS` + admin 手动快照）
 > 架构一句话：**一个 Go 二进制**（`.build/mhgl`）承载 Web 前台 / 管理后台 / REST API / 采集引擎 / 调度器，监听 `:3000`，数据落 SQLite 单文件 `db/custom.db`。数据库建表与运营数据播种由服务**原生自举**（启动幂等建表 + 空库自动播种），Node.js / Next.js / Prisma / Docker / MySQL / Redis 全部不需要。
 >
 > 全程约 10~20 分钟（大头是首次构建与模块下载，取决于网络）。每步都给出「预期结果」，与预期不符直接跳 **§9 常见问题排查**；**部署完成站点「预览挂掉」时直接跳 §7 一键恢复**。
@@ -161,7 +161,7 @@ ADMIN_PASSWORD=audit-fix-2025     # 生产环境务必改成强密码!(改完重
 > ③ **开发启动链自动注入**：`bash scripts/dev-go.sh`（含平台引导链 `bun run dev` 别名 / `.zscripts/dev.sh` / `.zscripts/start.sh`）会自动 source `.env`（R71 起全链纯 Go 化，不再依赖 bun 的自动加载）。
 > 不注入也能跑：全部变量有缺省值（`PORT=3000`、`DB_PATH=db/custom.db`、dev 密码 `audit-fix-2025`）。
 
-其余项用默认值即可。核心变量速览（权威全表见 [DEPLOY.md](../DEPLOY.md) §③，`.env.example` 逐项注释）：`PORT`(3000) / `DB_PATH`(db/custom.db) / `ADMIN_PASSWORD` / `SESSION_SECRET` / `GO_ENV=production` / `COOKIE_SECURE` / `MEM_LIMIT_MB`(600) / `COVER_DIR`(web/covers) / `MHGL_AUTO_SEED`(=0 关播种)。
+其余项用默认值即可。核心变量速览（权威全表见 [DEPLOY.md](../DEPLOY.md) §③，`.env.example` 逐项注释）：`PORT`(3000) / `DB_PATH`(db/custom.db) / `ADMIN_PASSWORD` / `SESSION_SECRET` / `GO_ENV=production` / `COOKIE_SECURE` / `MEM_LIMIT_MB`(600) / `COVER_DIR`(web/covers) / `MHGL_AUTO_SEED`(=0 关播种) / `BACKUP_INTERVAL_HOURS`(6，R75 自动快照周期小时，见 §8.1)。
 
 ---
 
@@ -342,7 +342,7 @@ systemctl enable --now mhgl && systemctl status mhgl
 | 生产口径 | `GO_ENV=production` |
 | https | 反代 TLS + `X-Forwarded-Proto` 透传（或 `COOKIE_SECURE=1`） |
 | 自动播种取舍 | 默认开；纯手动运维设 `MHGL_AUTO_SEED=0` |
-| 例行备份 | §8（WAL 感知，`sqlite3 .backup` 或停服拷贝） |
+| 例行备份 | §8（WAL 感知，`sqlite3 .backup` 或停服拷贝；R75 起内置自动快照兜底：`BACKUP_INTERVAL_HOURS` 缺省 6h 一备、保留 3 份） |
 
 ---
 
@@ -409,13 +409,13 @@ pgrep -f dev-watchdog.sh    # 预期: 打印一个 pid
 - **间隔** intervalMin/intervalMax（ms）：批间随机休眠——反爬敏感的站从 800~2000 起步
 - **engine**：`go`（唯一引擎）
 
-点「启动」后状态 running，进度实时刷新（书数/章数/失败数）。暂停/停止/恢复用行内控制按钮。
+点「启动」后状态 running，进度实时刷新（书数/章数/失败数）。暂停/停止/恢复用行内控制按钮；行内「日志」按钮在线查看任务运行日志（R75 起支持按 level 过滤），「编辑」按钮在线调节任务参数（partial 合并，运行中任务的模式类字段禁改）。
 
 **验收建议**：先拿一条直连规则起 `range` 任务 `listStart=listEnd=1` 试水，确认出书、出章节、正文干净后再放量。
 
 ### 6.4 代理池（反反爬，可选）
 
-后台 → 代理池：收割（12 个公开源）/ 校验（并发探针）/ 周期化常驻（缺省 6h 收割 + 30min 校验）/ 消费（引擎按健康分取 Top64 免费池）。规则级出口代理在「采集规则 → fetch → 代理」配置（http/socks5h 逗号分隔轮换）。系统设置 → `proxyPool` 可开关自动喂给采集。
+后台 → 代理池：收割（**17 个**公开源：TheSpeedX/monosans/proxyscrape/proxifly/mmpx12/roosterkid/geonode/proxyspace 家族，internal/crawl/proxy `PROXY_SOURCES`）/ 校验（并发探针）/ 周期化常驻（缺省 6h 收割 + 30min 校验）/ 消费（任务级动态注入：每 ~30min 按健康分降序拉 Top64 免费池合并进引擎代理池，只增不减防抖）。规则级出口代理在「采集规则 → fetch → 代理」配置（http/socks5h 逗号分隔轮换）。系统设置 → `proxyPool` 可开关自动喂给采集。
 
 > 历史注（R69）：原 mini-services 外置签名/解密代理（端口 3010~3017）已整体退役，采集引擎直连采集，无需任何伴生进程。
 
@@ -528,6 +528,25 @@ systemctl stop mhgl && cp -a db web/covers /backup/ && systemctl start mhgl
 ```
 
 恢复路径：小事故 → 后台「数据备份」导入；整库丢 → 把备份文件放回 `db/custom.db` 重启（自举只补缺失表不动既有数据）；备份也没有 → 直接重启服务自动重建空骨架 + 播种（§3）。**永远不要在服务运行时用第三方工具直写 `db/custom.db`**（单写者锁设计，见 §9 Q7）。
+
+### 8.1 自动快照与恢复（R75 新增）
+
+R75 起服务内置数据库定时快照，把「例行备份」从手工动作变成默认兜底：
+
+- **`backups/` 目录**：快照落盘处（项目根下、与 `db/` 同级——`db/` 被沙箱/环境重置清空时快照存活；`.gitignore` 已排除不入库）。缺省不存在，首次快照自动创建。
+- **节奏与保留**：环境变量 `BACKUP_INTERVAL_HOURS`（小时，缺省 `6`；`0` 或非法值=禁用）——每 N 小时对 `db/custom.db` 做 SQLite 在线一致性快照（`VACUUM INTO` 只读连接，含 WAL 已提交数据，不阻塞业务写，不停服）→ gzip 压缩为 `backups/db-YYYYMMDD-HHMMSS.db.gz`；按 `BACKUP_KEEP`（缺省 `3`）滚动清理旧份；快照目录可用 `BACKUP_DIR` 覆盖。优雅停机（`Close` 钩子）时也做最后一次快照。
+- **admin 手动快照**：`POST /api/admin/backup/snapshot`（登录态）随时手动触发一次快照，返回快照文件名/大小/耗时与恢复提示；与上方「A. 在线快照」/`GET /api/admin/backup`（JSON 逻辑备份）互补。
+- **恢复四步**（主库坏了/想回滚到快照点）：
+
+```bash
+systemctl stop mhgl                                        # ① 停服务(对应你的常驻形态; nohup 形态则 kill 进程)
+gunzip -t backups/db-20260102-030000.db.gz                 #    可选: 先校验快照完整性
+gunzip -c backups/db-20260102-030000.db.gz > db/custom.db  # ②③ 解压覆盖恢复库
+rm -f db/custom.db-wal db/custom.db-shm                    #    旧 WAL 与恢复文件不配套, 必须清
+systemctl start mhgl                                       # ④ 起服务: 启动自举只补缺失表, 不动恢复出的数据
+```
+
+> 快照只护主数据 `db/custom.db`；封面 `web/covers/` 随 git 走（本章开头表格口径），恢复后无需额外处理。恢复出的库是快照时刻的完整状态——快照之后新采集的章节会丢失，需要重采或接受回滚。
 
 ---
 

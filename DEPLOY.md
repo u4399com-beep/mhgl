@@ -76,6 +76,9 @@ systemctl enable --now mhgl
 | `COVER_DIR` | `web/covers` | 封面落盘目录 |
 | `MHGL_AUTO_SEED` | （开） | 设 `0` 关闭空库自动播种（纯手动运维） |
 | `GO_CALLBACK_SECRET` | `go-cb-2025-mhgl` | 采集回调契约密钥（引擎已并入主二进制，单机无需改） |
+| `BACKUP_INTERVAL_HOURS` | `6`（R75 新增） | 主库自动快照周期（小时）；`0` 或非法值=禁用；快照落 `backups/`（WAL 感知在线一致性快照，不停服），详见 §⑤ |
+| `BACKUP_KEEP` | `3`（R75 新增） | 自动快照保留份数（`<1` 钳为 `1`），滚动清理旧份 |
+| `BACKUP_DIR` | `<db 同级>/backups`（R75 新增） | 快照目录（标准部署即 `./backups`；`db/` 被重置不殃及快照） |
 
 其余可选采集调优项见 `.env.example` 注释；原 Docker/Prisma 专属变量已随链退役。
 
@@ -98,6 +101,22 @@ systemctl stop mhgl && cp -a db web/covers /backup/ && systemctl start mhgl
 ```
 
 也可后台「数据备份」页导出 JSON（书籍超 200 本自动降级为仅元数据导出，大库用文件级备份）。恢复：备份文件放回 `db/custom.db` → 重启（服务只补缺失表，不动既有数据）；整库丢失 → 直接重启服务自动重建空骨架+播种。
+
+### 自动快照与恢复（R75 新增）
+
+- **`backups/` 目录**：快照落盘处（`.gitignore` 已排除，不入库；与 `db/` 同级——`db/` 被沙箱重置清空时快照存活）。R75 起 Go 服务内置定时快照（`store.Open` 自动托管，零接线）：每 `BACKUP_INTERVAL_HOURS`（缺省 6）小时对 `db/custom.db` 做 SQLite 在线一致性快照（`VACUUM INTO` 只读连接，含 WAL 已提交数据，不阻塞业务写）→ gzip 压缩为 `backups/db-YYYYMMDD-HHMMSS.db.gz` → 按 `BACKUP_KEEP`（缺省 3）滚动清理；优雅停机（`Close` 钩子）时也做最后一次快照。
+- **admin 手动快照**：`POST /api/admin/backup/snapshot`（登录态；与 `GET /api/admin/backup` 的 JSON 逻辑备份互补，本端点为物理快照，返回快照文件名/大小/耗时与恢复提示）。
+- **恢复四步**（停服 → gunzip → 覆盖 → 起服）：
+
+```bash
+systemctl stop mhgl                                        # ① 停服务(对应你的常驻形态)
+gunzip -t backups/db-20260102-030000.db.gz                 #    可选: 先校验快照完整性
+gunzip -c backups/db-20260102-030000.db.gz > db/custom.db  # ②③ 解压覆盖恢复库
+rm -f db/custom.db-wal db/custom.db-shm                    #    旧 WAL 与恢复文件不配套, 必须清
+systemctl start mhgl                                       # ④ 起服务(自举只补缺失表, 不动恢复出的数据)
+```
+
+> 快照只护主数据 `db/custom.db`；封面 `web/covers/` 随 git 回来（README「数据备份」节口径），恢复后无需额外处理。恢复出的库是快照时刻的完整状态——快照之后新采集的章节会丢失，需重采或接受回滚。
 
 ## ⑥ 反向代理
 

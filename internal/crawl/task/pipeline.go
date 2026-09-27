@@ -295,7 +295,11 @@ func (t *Task) processBook(bookURL string) bool {
 
 	// ---- 3. 定位目录(toc.tocLink 或书籍页本体) ----
 	tocURL, tocHTML := bookURL, bookHTML
-	if link := t.extractRuleField(bookHTML, t.ruleC.Toc.TocLink); link != "" {
+	// [R75-main] tocLink const 模板的 {q.*} 变量来自书籍页 URL 查询参数 —— 修前
+	// extractRuleField 传 baseURL="" 致 urlVars 恒空, 纯 JSON API 站(bqg713 类
+	// tocLink=https://…?id={q.id})渲染出残 URL "?id=" 打向源站必 403; 测试端点
+	// (testResolveToc)传 bookURL 故测试通过而任务失败, 两路语义分叉。修后同口径。
+	if link := t.extractRuleField(bookHTML, bookURL, t.ruleC.Toc.TocLink); link != "" {
 		if abs := rule.AbsolutizeURL(link, bookURL); abs != "" {
 			tocRes, err := t.fetcher.Fetch(t.ctx, abs, bookURL) // 目录页带书籍页 Referer(契约 §4)
 			if err != nil {
@@ -327,6 +331,13 @@ func (t *Task) processBook(bookURL string) bool {
 	t.tocTotal = len(tocItems)
 	t.mu.Unlock()
 	t.logf("info", "目录解析完成: 《%s》 %d 章(%d 页)", bookName, len(tocItems), pagesUsed)
+	// [R75-e] 目录 0 章单列 warn: 修前走「增量无新章: 0 章全量已存, 本毕」info 文案
+	// —— 0 章真实根因(目录选择器不匹配/站点结构变化/软拦截壳)被伪装成「已采完」,
+	// 书零章上架且日志无任何异常级痕迹
+	if len(tocItems) == 0 {
+		t.logf("warn", "目录解析得 0 章(疑似目录选择器不匹配/站点结构变化), 本书按无新章跳过: 《%s》 %s",
+			bookName, util.TruncateLog(tocURL, 120))
+	}
 
 	// ---- 5. chapters 回调(全书目录; >5000 章分片 seq/final) → needUrls 决策 ----
 	needURLs, err := t.sendChapters(bookURL, dec.BookID, tocItems)
@@ -336,7 +347,10 @@ func (t *Task) processBook(bookURL string) bool {
 	}
 	if len(needURLs) == 0 {
 		// needUrls 空 = 本毕(不计失败, 契约 §5: 增量去重结果无新章)
-		t.logf("info", "增量无新章: 《%s》 %d 章全量已存, 本毕", bookName, len(tocItems))
+		// [R75-e] 目录 0 章已在上方单列 warn, 此处不再发误导性「全量已存」info
+		if len(tocItems) > 0 {
+			t.logf("info", "增量无新章: 《%s》 %d 章全量已存, 本毕", bookName, len(tocItems))
+		}
 		t.bookFinish(true)
 		return false
 	}
@@ -378,12 +392,14 @@ func (t *Task) processBook(bookURL string) bool {
 	return false
 }
 
-// extractRuleField 整页单值提取(无容器借道 ParseList; tocLink 定位用)
-func (t *Task) extractRuleField(htmlStr string, fr *rule.FieldRule) string {
+// extractRuleField 整页单值提取(无容器借道 ParseList; tocLink 定位用)。
+// [R75-main] baseURL 必传: const 模板 {q.*} 变量源自 urlVars(baseURL)(JSON 模式分支
+// phase1Vars), 传空则查询参数型 tocLink(api/booklist?id={q.id})渲染残 URL。
+func (t *Task) extractRuleField(htmlStr, baseURL string, fr *rule.FieldRule) string {
 	if fr == nil {
 		return ""
 	}
-	res := rule.ParseList(htmlStr, "", &rule.PageRule{Fields: map[string]*rule.FieldRule{"f": fr}}, nil)
+	res := rule.ParseList(htmlStr, baseURL, &rule.PageRule{Fields: map[string]*rule.FieldRule{"f": fr}}, nil)
 	if len(res.Items) == 0 {
 		return ""
 	}
@@ -480,6 +496,8 @@ func (t *Task) crawlContentBatches(bookURL, bookID, bookName, tocURL string, nee
 	// 新增章/全量重采章时总量偏低(done 可越 total); ②站点章节变动/空正文重试等使
 	// 重跑 needURLs ≠ 首跑剩余时总量与实际工作量脱钩。详见 accountContentTotal
 	t.accountContentTotal(bookURL, len(needURLs))
+	// [R75-e] 本书空正文计数清零(重入整书重跑时重新记账)
+	t.emptyContentCount = 0
 	t.mu.Unlock()
 	t.sendProgress(true)
 	t.logf("info", "正文队列: 《%s》 %d 章需要采集", bookName, len(needURLs))
@@ -550,11 +568,19 @@ func (t *Task) crawlContentBatches(bookURL, bookID, bookName, tocURL string, nee
 		t.logf("info", "《%s》批次 #%d: %d 线程 × %d 章, 成功 %d(累计 %d/%d)",
 			bookName, batchNo, threads, len(batch), len(results), snap.Progress.ContentDone, snap.Progress.ContentTotal)
 		t.sendProgress(false)
-
 		// ---- 批间间隔(intervalMin..intervalMax 随机 + jitterMs); 末批不睡 ----
 		if len(queue) > 0 {
 			_ = util.SleepCtx(t.ctx, drawInterval(t.rnd, t.info.IntervalMin, t.info.IntervalMax, t.ruleC.Fetch.JitterMs))
 		}
+	}
+	// [R75-e] 书收尾空正文汇总: 逐章 warn 已限频(首条+每 20 条), 收尾给总数一眼定责
+	// (规则清洗面/站点正文壳变化时, 千章任务不再是零散 warn 尾流而是明确汇总)
+	t.mu.Lock()
+	emptyN := t.emptyContentCount
+	t.mu.Unlock()
+	if emptyN > 0 {
+		t.logf("warn", "《%s》空正文章节累计 %d 章(未入库不计完成, 增量重试可恢复; 持续为空请核查规则 content 选择器/清洗配置)",
+			bookName, emptyN)
 	}
 	return true // 全部批次完成
 }
@@ -583,7 +609,14 @@ func (t *Task) crawlChapter(chapterURL, title, tocReferer string) (callback.Chap
 	if strings.TrimSpace(parsed.Content) == "" {
 		// [R52-5 P3] 空正文: 不入 contents 回调/不计 contentDone(bridge.Contents 对空
 		// contentHtml 本就 skip, 计入=虚计), 章节保持未采由增量重试承担
-		t.logf("warn", "章节正文为空(不入库不计完成, 增量重试可恢复): %s", util.TruncateLog(chapterURL, 120))
+		// [R75-e] 限频: 首条 + 每 20 条(书收尾另有汇总), 修前逐章 warn 千章任务刷屏
+		t.mu.Lock()
+		t.emptyContentCount++
+		emptyN := t.emptyContentCount
+		t.mu.Unlock()
+		if emptyN == 1 || emptyN%20 == 0 {
+			t.logf("warn", "章节正文为空(不入库不计完成, 增量重试可恢复; 本书累计 %d): %s", emptyN, util.TruncateLog(chapterURL, 120))
+		}
 	}
 	return callback.ChapterItem{URL: chapterURL, Title: title, ContentHTML: parsed.Content}, true
 }

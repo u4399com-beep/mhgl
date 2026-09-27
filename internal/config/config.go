@@ -22,6 +22,14 @@ type Config struct {
 	IsProd        bool   // GO_ENV=production
 	CookieSecure  bool   // 会话 Cookie 附加 Secure 属性(https 部署; 缺省 false 保 http 沙箱预览可用, 请求经 https 时自动叠加)
 	DataDir       string // 项目根(供相对路径解析)
+
+	// [R75-c] 主库自动快照(防沙箱重置清数据; 引擎在 internal/store/backup.go)。
+	// 注意: 本轮 cmd/server 不可触碰(R75-d 领地), store.Open 亦不依赖本结构
+	// —— store 侧直接读同名环境变量实现零接线自动生效; 本结构为镜像口径
+	// (config_test 断言两边缺省/解析一致), 未来 main.go 可改显式装配。
+	BackupIntervalHours int    // BACKUP_INTERVAL_HOURS 周期小时(缺省 6; 0=禁用)
+	BackupKeep          int    // BACKUP_KEEP 保留份数(缺省 3; <1 钳为 1)
+	BackupDir           string // BACKUP_DIR 快照目录(空 = db 所在目录同级的 backups/)
 }
 
 func envOr(key, def string) string {
@@ -52,6 +60,21 @@ func Load() *Config {
 	if v, err := strconv.Atoi(envOr("MEM_LIMIT_MB", "600")); err == nil && v > 0 && v <= 4096 {
 		memMB = v
 	}
+	// [R75-c] 备份三变量(与 store.backupIntervalHours/backupKeep 同口径):
+	// 周期非法/负值 → 0(禁用, fail-safe: 不做不确定周期的备份); keep <1 钳 1。
+	backupHours := 6
+	if v, err := strconv.Atoi(envOr("BACKUP_INTERVAL_HOURS", "6")); err != nil || v <= 0 {
+		backupHours = 0
+	} else {
+		backupHours = v
+	}
+	backupKeep := 3
+	if v, err := strconv.Atoi(envOr("BACKUP_KEEP", "3")); err == nil {
+		if v < 1 {
+			v = 1
+		}
+		backupKeep = v
+	}
 	c := &Config{
 		Port:          envOr("PORT", "3000"),
 		DBPath:        envOr("DB_PATH", "db/custom.db"),
@@ -62,6 +85,10 @@ func Load() *Config {
 		IsProd:        isProd,
 		CookieSecure:  envBool("COOKIE_SECURE"),
 		DataDir:       ".",
+
+		BackupIntervalHours: backupHours,
+		BackupKeep:          backupKeep,
+		BackupDir:           strings.TrimSpace(os.Getenv("BACKUP_DIR")),
 	}
 	// dev 缺省对齐原 auth.ts 编译期常量; 生产缺失 fail-closed(空密码 → 登录恒 401)
 	if c.AdminPassword == "" {
