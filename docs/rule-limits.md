@@ -36,10 +36,10 @@
 ### 1.3 35 规则逐条终态表（R76 终态；R78 活体复核差异见下方横幅）
 
 > **R78 活体复核（2026-09-28）**：P0 三主任务规则（yueyouxs/xyetianlian/xbqg777）+ P1 R76 新破四站（cuoceng/fanqie/bqg713 桥/qimao 桥）引擎级探针回归 **7/7 全 PASS 未退化**；全通规则抽查发现 **5 站新退化**（均为站点侧状态变化、非规则虫，已双落 `[R78复核]` 注）：
-> `aijjxs-toplist`（toplist 路径 IP DROP，同站主站列表仍可达→PASS 维持）/ `dafengdagengren`（全路径 IP DROP）/ `moli`（IP DROP）/ `daweixs`（WAF 裸 403，`tlsFingerprint=chrome` 实验无效已保留）/ `pilishuwu`（CF JS 挑战升级 403 1436B，HTTP 引擎无 JS 执行力）。
+> `aijjxs-toplist`（toplist 路径 IP DROP，同站主站列表仍可达→PASS 维持）/ `dafengdagengren`（全路径 IP DROP）/ `moli`（IP DROP, R79 复活见矩阵行）/ `daweixs`（WAF 裸 403，`tlsFingerprint=chrome` 实验无效已保留）/ `pilishuwu`（CF JS 挑战升级 403 1436B，HTTP 引擎无 JS 执行力）。
 > **全通口径 23→18，条件性 5→10**。curl 直探假阴性两面已实证：aijjxs/iidcr/yybsw 三站 curl 挂起或 403，引擎完整指纹（TLS+头集+stealth）全链通过（iidcr 125/150 章、yybsw 184/1196 章、aijjxs content 臂启动零失败）——**探针判定必须走引擎级 livecheck，curl 仅作辅助**。
 
-**全通 18 条**（R75 基线 19 + R76 新破 4 − R78 复核退化 5：aijjxs-toplist / dafengdagengren / moli / daweixs / pilishuwu）＋ fail-closed 4 ＋ 条件性 10（R76 期 5 + R78 复核退化 5）＋ 站点死亡 1（book4，R77 终验）＋ 夹具 1（会计口径见 §1.4 注）。
+**全通 19 条**（R75 基线 19 + R76 新破 4 − R78 复核退化 5 + R79 复活 1[moli]）＋ fail-closed 4 ＋ 条件性 9（R76 期 5 + R78 复核退化 5 − R79 复活 1）＋ 站点死亡 1（book4，R77 终验）＋ 夹具 1（会计口径见 §1.4 注）。
 
 | 规则 | 终态 | 根因与突破手段 | 所需资源 / 条件 |
 |---|---|---|---|
@@ -53,7 +53,7 @@
 | `iidcr` 稻草人书屋 | ✅ PASS（R78 复核维持） | 直连（R78 引擎探针 content 125/150 章；curl 403 为假阴性） | 无 |
 | `jpxs123` 精品小说（繁体） | ✅ PASS | 直连 + 入库繁转简（`crawlT2S`） | 无 |
 | `kanunu8` 努努书坊 | ✅ PASS | GBK 编码自动探测 | 无 |
-| `moli` 茉莉小说 | ⚠️ 退化（R78 复核） | 站点对沙箱 IP DROP 挂起（curl+引擎双实证） | 换 IP 后零改动即采 |
+| `moli` 茉莉小说 | ✅ PASS（R79 复活） | R78 期 DROP 已解除：R79 引擎探针 books=2·content 34/74 零错误全链恢复 | 无 |
 | `piaotia` 飘天文学 | ✅ PASS | GBK 直连 | 无 |
 | `pilishuwu` 霹雳书屋 | ⚠️ 退化（R78 复核） | CF JS 挑战升级（403 1436B challenge-platform），HTTP 引擎无 JS 执行力 | 真实浏览器方案/干净 IP |
 | `shoujixs` 手机小说 | ✅ PASS | R75 修复：站点重构 toc `#lbks`→`#list` + 桌面 UA 钉扎 | 无 |

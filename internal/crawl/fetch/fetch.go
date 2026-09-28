@@ -22,6 +22,11 @@
 // 镜像 host 无 pacing 汇聚点 + 镜像 429/503 误把主站闸打入冷却窗 + 「429 换镜像不受
 // 本 host 冷却约束」承诺未兑现); Cf-Mitigated: challenge 响应头判定接线(blockcheck
 // 出口判定取或, CF 官方挑战信令零误伤补判)
+// / [R79-i01] 读体两阶段分账(readResponseBody 网络层/decompressBody 载荷层): 载荷层
+// 错误(corrupt gzip/10MB 超限)不再触发直连池刷新钩子; 经代理的中途断流按 [R53-2a]
+// 打标 proxyChannelError+记代理账(与 Do 臂对称, 修前误记目标 host 连败链); ctx 取消
+// 期间断流免记账([R64-a] 补全) / 重定向链 Sec-Fetch-Site 逐跳重算(修前恒首跳值,
+// 跨源跳 same-origin+异源 Referer 自相矛盾指纹)
 // 语义权威: /home/z/my-project/src/lib/crawl/fetcher.ts(子集移植)
 // ============================================================
 package fetch
@@ -675,6 +680,17 @@ func New(cfg rule.FetchConfig) *Client {
 					}
 				}
 			}
+			// [R79-i01] Sec-Fetch-Site 逐跳重算(与 [R67-a] Referer 逐跳改写同族补全):
+			// 真实浏览器对重定向链每一跳按「上一跳 URL → 新 URL」重算 site 关系(与
+			// Referer 是否被剥除无关), 修前恒携带首跳计算值 —— 跨源跳发出「首跳
+			// same-origin + 改写后 origin Referer + 异源目标」的自相矛盾组合, 服务端
+			// 按头组交叉比对即识破非浏览器流量。仅在首跳已携带该头(家族化头组发出)
+			// 时重算; cfg.headers 覆盖单项契约同 Referer 口径: 只作用于首跳
+			if len(via) > 0 {
+				if prev := via[len(via)-1].URL; prev != nil && req.Header.Get("Sec-Fetch-Site") != "" {
+					req.Header.Set("Sec-Fetch-Site", secFetchSite(prev.String(), req.URL.String()))
+				}
+			}
 			return nil
 		},
 	}
@@ -1028,14 +1044,20 @@ var proxyLoopbackExempt = true
 // 避免健康分降序静态切片头部被集中打爆); "random" 均匀随机; "roundrobin"/"round-robin"
 // 纯轮换(历史缺省形态显式保留)
 func (c *Client) pickProxy(target *url.URL) *url.URL {
-	if len(c.proxies) == 0 || target == nil {
+	if target == nil {
 		return nil
 	}
 	if proxyLoopbackExempt && loopbackHostRe.MatchString(target.Hostname()) {
 		return nil // 回环豁免直连(本地 mock/token 代理经代理转发出不去)
 	}
+	// [R79-i08] len(c.proxies) 快照判断必须锁内: 修前锁外读与 SetDynamicProxies 的
+	// mu 内 append(dynamicProxyLoop ticker/ProxyPoolExhausted 钩子两个写源)构成
+	// 数据竞态(-race 下切片扩容期可观测)。
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if len(c.proxies) == 0 {
+		return nil
+	}
 	now := time.Now()
 	alive := make([]*url.URL, 0, len(c.proxies))
 	for _, p := range c.proxies {
@@ -2024,14 +2046,40 @@ func (c *Client) doOnce(ctx context.Context, rawURL, refererURL string, extraHea
 			}
 		}
 	}
-	body, readErr := readBodyDecompressed(resp)
+	// [R79-i01] 读体两阶段分账: readResponseBody=网络层阶段(resp.Body 读流, 失败形态
+	// EOF/reset/超时), decompressBody=载荷层阶段(内存解压, 失败形态 corrupt/超限)。
+	// 修前 readBodyDecompressed 单错误通道把两族混记:
+	// ①载荷层错误(gzip 解压失败/10MB 超限)也触发 noteDirectDialFailed —— 把健康站点
+	//   打进 10min 代理优先冷却窗+触发池刷新钩子([R76-a]「EOF 类」语义本意即网络层,
+	//   目标站 payload 异常非网络失败证据);
+	// ②经代理的中途断流不打标 proxyChannelError 不记 markProxyFailed —— 同一请求已先
+	//   吃 markProxySuccess(错误计成功), 断流又被 rawFetch 当目标 host 故障喂连败链,
+	//   与 client.Do 臂的 [R53-2a] 误责防御自相矛盾(连接归属代理通道, 断点在代理跳);
+	// ③ctx 取消(任务停止)期间的中途断流与 Do 臂同款 [R64-a] 误责防御缺失
+	raw, readErr := readResponseBody(resp)
 	if readErr != nil {
 		// 部分读也当失败(R51-2-b #2: len(body)>0 但中途断流 → 半截正文不得入库)
-		// [R76-a] 直连路径的中途断流(EOF 类)同属网络层失败: 走同一池刷新降级钩子
-		if pu == nil && !loopbackExempt && !directOnly && u != nil {
-			c.noteDirectDialFailed(u.Hostname())
+		if ctx.Err() != nil {
+			return rawResult{}, readErr // [R64-a] 取消非目标站/代理故障证据
+		}
+		var over *bodyOverLimitError
+		if !errors.As(readErr, &over) { // 超限=载荷策略错误(响应合法送达), 不记账
+			if pu != nil {
+				c.markProxyFailed(pu)
+				// [R53-2a] 中途断流属代理通道失败: 打标+记代理账(与 Do 臂对称)
+				return rawResult{}, &proxyChannelError{readErr}
+			}
+			// [R76-a] 直连网络层失败(EOF 类)走池刷新降级钩子(收窄到网络层阶段)
+			if !loopbackExempt && !directOnly && u != nil {
+				c.noteDirectDialFailed(u.Hostname())
+			}
 		}
 		return rawResult{}, readErr
+	}
+	// 载荷层(解压/超限)错误不经网络层记账: 目标站 payload 异常按既有重试/镜像链消化
+	body, decErr := decompressBody(raw, resp.Header.Get("Content-Encoding"))
+	if decErr != nil {
+		return rawResult{}, decErr
 	}
 	// [R76-b3] base64 软壳站响应还原(opt-in fetch.decodeShell): 还原后的真实载荷
 	// 统一进入后续全链(blockcheck 出口判定/解析层) —— 壳层本身不含挑战特征,
@@ -2082,7 +2130,21 @@ func (e *bodyOverLimitError) Error() string {
 // (空 HTML → looksBlocked("") 挑战壳判定; 3xx/4xx → 状态错误链), 与浏览器「空载荷
 // 渲染为空」一致; ②x-gzip 别名收编(RFC 9110 §8.4.1-2 与 gzip 同义, 部分老源站仍在
 // 使用 —— 修前落 default 臂把压缩字节原样当正文, 解析层得到二进制乱码)
+// [R79-i01] 拆分为 readResponseBody(网络层)+decompressBody(载荷层)两阶段, 本函数保留
+// 为组合壳(既有测试消费): doOnce 热路径改用两阶段形态分账(见 doOnce 内注)
 func readBodyDecompressed(resp *http.Response) ([]byte, error) {
+	raw, err := readResponseBody(resp)
+	if err != nil {
+		return nil, err
+	}
+	return decompressBody(raw, resp.Header.Get("Content-Encoding"))
+}
+
+// readResponseBody 网络层读体阶段: 从 resp.Body 读原始字节(≤10MB 探测超限)。
+// 失败形态: 中途断流(EOF/reset/超时, 返回已读部分供上层丢弃语义)与原始体超限。
+// [R79-i01] 与载荷层分离的依据: 本阶段的错误来自传输通道, 可作直连池刷新/
+// 代理通道记账的输入; 解压错误与传输通道无关
+func readResponseBody(resp *http.Response) ([]byte, error) {
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes+1))
 	if err != nil {
 		return raw, err
@@ -2090,10 +2152,17 @@ func readBodyDecompressed(resp *http.Response) ([]byte, error) {
 	if len(raw) > maxBodyBytes {
 		return nil, &bodyOverLimitError{size: len(raw)}
 	}
+	return raw, nil
+}
+
+// decompressBody 载荷层解压(内存字节 → 解压后字节, ≤10MB, 超限报错不截断)。
+// 失败形态: CE 声明与实际载荷不符(gzip.NewReader invalid header 等)与解压产物超限
+// —— 均为目标站 payload 行为, 与传输通道无关([R79-i01] 分账: 不作网络层记账输入)
+func decompressBody(raw []byte, contentEncoding string) ([]byte, error) {
 	if len(raw) == 0 {
 		return raw, nil
 	}
-	switch strings.ToLower(strings.TrimSpace(resp.Header.Get("Content-Encoding"))) {
+	switch strings.ToLower(strings.TrimSpace(contentEncoding)) {
 	case "gzip", "x-gzip":
 		zr, zerr := gzip.NewReader(bytes.NewReader(raw))
 		if zerr != nil {

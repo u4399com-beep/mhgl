@@ -674,23 +674,39 @@ func removeAdLines(text string, patterns []string) string {
 // 串联的首条清后残余。掩码期用代码判定: token 前向跳过空白(unicode 空白含 U+3000/
 // U+00A0)后首字符为 '>' 或文本起点, 且后向跳过空白后首字符为 '<' 或文本终点 →
 // 该 URL 是孤立行, 连同两侧空白整体回收。正文内 URL(前或后紧贴可见文字)不受影响。
-// 迭代至不动点(删除后邻居边界变化可能使前一个 token 转为孤立)。纯字符扫描无正则
-// 陷阱, 章节体量下开销可忽略。
+// 迭代至不动点(删除后邻居边界变化可能使前一个 token 转为孤立)。
+// [R79-i14] 复杂度硬化: 原实现每轮只回收首个孤立 token 后从头重扫 —— 连续裸 URL 行
+// (页脚链接墙千行级)呈交替回收形态(相邻 token 互相挡住孤立判定), k 个孤立 token 触发
+// k 次全串扫描 O(k·len); 1.5MB rune 帽 × 万级 token = 分钟级单章 CPU 放大。修后每轮
+// 单遍扫描批量回收当轮全部孤立 token 再入下轮 —— 不动点唯一(隔离 token 的孤立走廊
+// 为纯空白区, 删除走廊外 token 恒不解除其孤立判定 ⇒ 可删集随删除单调增长 ⇒ 收敛闭包
+// 与逐个回收语义等价; r79b3_test.go 差分测试钉死), 最坏 O(len·log k)。
 func removeLonelyMaskTokens(s string) string {
 	for {
+		var lonely [][]int
 		loc := maskRestoreRe.FindStringIndex(s)
-		for loc != nil && !lonelyMaskAt(s, loc) {
+		for loc != nil {
+			if lonelyMaskAt(s, loc) {
+				lonely = append(lonely, loc)
+			}
 			next := maskRestoreRe.FindStringIndex(s[loc[1]:])
 			if next == nil {
-				loc = nil
 				break
 			}
 			loc = []int{loc[1] + next[0], loc[1] + next[1]}
 		}
-		if loc == nil {
+		if len(lonely) == 0 {
 			return s
 		}
-		s = s[:loc[0]] + s[loc[1]:]
+		var b strings.Builder
+		b.Grow(len(s))
+		last := 0
+		for _, l := range lonely {
+			b.WriteString(s[last:l[0]])
+			last = l[1]
+		}
+		b.WriteString(s[last:])
+		s = b.String()
 	}
 }
 

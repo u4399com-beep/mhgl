@@ -144,6 +144,18 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "bad url")
 		return
 	}
+	// [R79-i20] scheme/端口白名单: host 白名单按 Hostname() 匹配, 而 target 用 u.Host
+	// (含端口)发请求 —— 修前 apibi.cc:9999 形态可借白名单域名打任意端口(限域内
+	// 采集器控制的 URL, 纵深防御收口); scheme 钉 http/https(其余 scheme 在
+	// client.Do 报错走 502, 提前 400 更诚实)。
+	if u.Scheme != "http" && u.Scheme != "https" {
+		writeErr(w, http.StatusBadRequest, "scheme not allowed")
+		return
+	}
+	if p := u.Port(); p != "" && p != "80" && p != "443" {
+		writeErr(w, http.StatusForbidden, "port not allowed")
+		return
+	}
 	if !hostAllowlist[strings.ToLower(u.Hostname())] {
 		writeErr(w, http.StatusForbidden, "host not allowed")
 		return
@@ -178,26 +190,31 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	req.Header.Set("Referer", "https://www.bqg616.cc/")
 	resp, err := client.Do(req)
 	if err != nil {
-		w.WriteHeader(http.StatusBadGateway)
-		fmt.Fprintf(w, `{"ok":false,"error":"upstream: %s"}`, sanitizeErr(err))
+		// [R79-i20] 全错误路径统一 writeErr: 修前三处 502 手写 fmt.Fprintf+
+		// sanitizeErr —— sanitizeErr 把 `"` 转成 `\'`(JSON 无此转义), 含引号的
+		// 上游错误串产出非法 JSON, 引擎侧 json.Unmarshal 直接拒收(错误语义丢失,
+		// 降级直连分支拿到的是解析失败而非真实原因)。writeErr 走 json.Marshal
+		// 标准转义, 与其余 400/403 路径同构。
+		writeErr(w, http.StatusBadGateway, "upstream: "+err.Error())
 		return
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
-	if err != nil || resp.StatusCode != http.StatusOK {
-		w.WriteHeader(http.StatusBadGateway)
-		fmt.Fprintf(w, `{"ok":false,"error":"upstream status %d"}`, resp.StatusCode)
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, "upstream read: "+err.Error())
+		return
+	}
+	if resp.StatusCode != http.StatusOK {
+		writeErr(w, http.StatusBadGateway, fmt.Sprintf("upstream status %d", resp.StatusCode))
 		return
 	}
 	var up upstreamChapters
 	if err := json.Unmarshal(body, &up); err != nil {
-		w.WriteHeader(http.StatusBadGateway)
-		fmt.Fprintf(w, `{"ok":false,"error":"upstream not json: %s"}`, sanitizeErr(err))
+		writeErr(w, http.StatusBadGateway, "upstream not json: "+err.Error())
 		return
 	}
 	if strings.TrimSpace(up.TXT) == "" {
-		w.WriteHeader(http.StatusBadGateway)
-		fmt.Fprintf(w, `{"ok":false,"error":"upstream empty txt"}`)
+		writeErr(w, http.StatusBadGateway, "upstream empty txt")
 		return
 	}
 	// 引擎消费契约: {"ok":true,"content": "<纯文本>"} → wrapLinesToParagraphs → <p> 段落
@@ -215,13 +232,6 @@ func mustJSON(s string) string {
 func writeErr(w http.ResponseWriter, code int, msg string) {
 	w.WriteHeader(code)
 	fmt.Fprintf(w, `{"ok":false,"error":%s}`, mustJSON(msg))
-}
-
-func sanitizeErr(err error) string {
-	s := err.Error()
-	s = strings.ReplaceAll(s, `\`, `\\`)
-	s = strings.ReplaceAll(s, `"`, `\'`)
-	return s
 }
 
 func main() {

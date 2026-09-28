@@ -175,13 +175,65 @@ func isValidHostPort(host string, port int) bool {
 func deniedProxyHost(host string) bool {
 	ip := net.ParseIP(host)
 	if ip == nil {
-		return false // 域名/非法形态交给 isValidHostPort 与校验器
+		// [R79-i06] ParseIP 严格口径不认、isValidHostPort 却放行的非规范数字形态
+		// (inet_aton 家族)在此补口, 见 deniedNonCanonicalNumericHost
+		return deniedNonCanonicalNumericHost(host)
 	}
 	if v4 := ip.To4(); v4 != nil && v4[0] == 100 && v4[1] >= 64 && v4[1] <= 127 {
 		return true // CGNAT(RFC 6598), net.IP.IsPrivate 不覆盖
 	}
 	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
 		ip.IsLinkLocalMulticast() || ip.IsUnspecified() || ip.IsMulticast()
+}
+
+// deniedNonCanonicalNumericHost 非规范数字形态主机名拒绝([R79-i06] R78-a ingest 残面
+// 补口): net.ParseIP 严格口径不认、isValidHostPort 却按「IPv4 十进制段」或「域名」
+// 放行的数字字面量变体 —— 十进制缺段 "127.1"/"10.1"/"169.254"(inet_aton a.b 形态=
+// a.0.0.b)、八进制 "0177.0.0.1"(=127.0.0.1, ParseIP 十进制读法=177.0.0.1 假公网)、
+// 十六进制 "0x7f.0.0.1"/"0x7f.0.0.0xa"(=127.0.0.1/127.0.0.10)。拨号面两分: 纯 Go
+// 解析器对其走 DNS 查询失败, 条目自然证伪; cgo 解析器(getaddrinfo)却按 inet_aton
+// 语义还原成回环/私网 IP 实拨 —— 校验器 deniedRemoteIP 只封私网(回环放行是 mock
+// 代理依赖), ingest 根治意图在这些形态上存在残面。
+// 判据(与 inet_aton 接受面精确对交): 全部标签均为数值字面量(全数字段或 0x 前缀
+// 十六进制段)即拒 —— 真实域名的 TLD 恒非数值(根区不存在全数字 TLD), 而多级数字
+// 子域真实形态(如 1.2.3.4.cdn.example.com)含非数值标签不受误伤, 零假阳性
+func deniedNonCanonicalNumericHost(host string) bool {
+	seen := 0
+	start := 0
+	for i := 0; i <= len(host); i++ {
+		if i < len(host) && host[i] != '.' {
+			continue
+		}
+		if !numericLiteralLabel(host[start:i]) {
+			return false // 存在非数值标签: 真实域名形态
+		}
+		seen++
+		start = i + 1
+	}
+	return seen > 0
+}
+
+// numericLiteralLabel 标签是否为 inet_aton 数值字面量(全数字段 = 十进制/八进制;
+// 或 0x/0X 前缀十六进制段)
+func numericLiteralLabel(label string) bool {
+	if label == "" {
+		return false
+	}
+	if len(label) > 2 && label[0] == '0' && (label[1] == 'x' || label[1] == 'X') {
+		for i := 2; i < len(label); i++ {
+			c := label[i]
+			if !(c >= '0' && c <= '9') && !(c >= 'a' && c <= 'f') && !(c >= 'A' && c <= 'F') {
+				return false
+			}
+		}
+		return true
+	}
+	for i := 0; i < len(label); i++ {
+		if label[i] < '0' || label[i] > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // deniedRemoteIP 校验拨号复检判定([R78-a] 与 deniedProxyHost 的口径差: 回环放行 ——

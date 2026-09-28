@@ -2871,7 +2871,7 @@
   {
     "key": "moli",
     "name": "茉莉小说(www.molixs.com)·17mbCMS GBK采集",
-    "description": "molixs.com 茉莉小说(17mbCMS 女频站) GBK 直连无防护, 编码由 <meta charset=gbk> 提供给引擎 gb18030 解码。列表=分类真分页页 /{cat}_{page}.html 的 .listcon li(30本/页; 8 类 xiaoyuan/guyan/chuangyue/danmei/xianyan/tianchong/meiwen/qita, 排行榜 /paihang/{type}_{page}.html 12 榜同构) / 书籍页 /{cat}_{id}/ og:novel:* meta 全套+div.articleinfo p.p3 简介 / 目录内嵌书籍页 div.chapterlist ul li a 全量单页 / 正文 #content 单 <p> 内 <br /> 三连分隔, clean.plainText 按行归一为 \\n\\n 段落(零连续空行)。章节页仅上一章/下一章, content 翻页关闭。 | [R78复核] 站点对沙箱 IP DROP 挂起(curl+引擎双实证), 条件性 needsAliveIP/needsNewDomain",
+    "description": "molixs.com 茉莉小说(17mbCMS 女频站) GBK 直连无防护, 编码由 <meta charset=gbk> 提供给引擎 gb18030 解码。列表=分类真分页页 /{cat}_{page}.html 的 .listcon li(30本/页; 8 类 xiaoyuan/guyan/chuangyue/danmei/xianyan/tianchong/meiwen/qita, 排行榜 /paihang/{type}_{page}.html 12 榜同构) / 书籍页 /{cat}_{id}/ og:novel:* meta 全套+div.articleinfo p.p3 简介 / 目录内嵌书籍页 div.chapterlist ul li a 全量单页 / 正文 #content 单 <p> 内 <br /> 三连分隔, clean.plainText 按行归一为 \\n\\n 段落(零连续空行)。章节页仅上一章/下一章, content 翻页关闭。 | [R79复活] R78 DROP 解除: 引擎探针 books=2·content 34/74 零错误全链恢复",
     "enabled": true,
     "source": "scripts/seed-rule-moli.ts",
     "config": {

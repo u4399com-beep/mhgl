@@ -1593,3 +1593,320 @@ Work Log:
 
 Stage Summary:
 - R78 四条交付: ①Go 确认+35 规则活体回归(P0+P1 七站全 PASS 未退化, 新退化 5 站全带根因双落+矩阵口径 23→18) ②SSRF 语义级真虫三层修复(R78-a)+writeErr 残留补刀+writeErr 语义兼容 ③死代码净删 31 行+16 行重复实现收敛+heavy-pin 审读零虫 ④门禁 20 包全绿+E2E 全绿+快照保险窗重填(2×56MB)。
+---
+Task ID: R79-i00
+Agent: main-controller
+Task: R79 迭代框架建立+开局恢复取证
+
+Work Log:
+- [用户第 5 条新指令] 全程按「恢复→深审→增强→精简→集成→验证」循环执行迭代 25 轮次 —— 建立轮次化框架: 每轮=轻量恢复检查+聚焦面深审/增强/精简+即时验证, 25 轮分 5 批推进(fetch/proxy+blockcheck/task+clean+rule+t2s/api+web+store+stealth/收口), 每轮 worklog 留痕(R79-iNN)。
+- [恢复取证] git HEAD=dbdc4ed(R78)=工作树干净; :3000 200/:81 200; 主进程 20471+watchdog 21145; books=39(R78 收口态, 无第 5 次快照回滚); 双桥 3010 ok/3013 selfTestOk。
+
+Stage Summary:
+- R79 迭代循环框架就绪, 开局态全绿(数据/服务/git 三清), 从批 1(fetch 传输面)开始。
+---
+Task ID: R79-i01
+Agent: R79-b1
+Task: fetch.go doOnce 主响应管线深审(读体/编码/大小限制/压缩/redirect/cookie 时序)
+
+Work Log:
+- [审读面] doOnce 全链(头组注入→seedJar 时序→client 选择→Do→429/503 记账→读体→decodeShell→状态分诊)/readBodyDecompressed 压缩五形态(gzip/x-gzip/deflate 双形态/br/zstd)+10MB 双层钳/redirect CheckRedirect(R67-a Referer 逐跳)/seedJar 每 host 一次+PSL jar/rule.charset.go SniffCharset+DecodeBody(只读审计: meta 窗 4KB/BOM/GBK 表)/解压 bomb 面上限推导/重定向跨域 cookie 面(jar+PSL 域界)
+- [真虫·分账语义] 读体错误单通道混记两族: ①载荷层错误(corrupt gzip/10MB 超限)也触发 noteDirectDialFailed —— 健康站点被打进 10min directFailUntil 代理优先冷却窗+触发池刷新钩子([R76-a]「EOF 类」语义本意即网络层, payload 异常非网络失败证据); ②经代理读体中途断流不打标 proxyChannelError 不记 markProxyFailed —— 同请求已先吃 markProxySuccess(错误计成功)+断流被 rawFetch 当目标 host 故障喂 gate.noteFailure 连败链, 与 client.Do 臂 [R53-2a] 误责防御自相矛盾; ③ctx 取消(任务停止)期间断流无 [R64-a] 免记账防御。修法: readBodyDecompressed 拆 readResponseBody(网络层: resp.Body 读流+原始超限)+decompressBody(载荷层: 内存解压, 组合壳保留供既有 r72a 测试), doOnce 按 ctx.Err()/bodyOverLimitError/pu 三维分账(fetch.go:2038-2072, 2111-2192)
+- [真虫·指纹] 重定向链 Sec-Fetch-Site 恒首跳值: [R67-a] 只逐跳改写 Referer, Sec-Fetch-Site 不重算 —— 跨源跳发出「首跳 same-origin + 改写 origin Referer + 异源目标」自相矛盾头组(真实浏览器逐跳按上一跳 URL→新 URL 重算)。修法: CheckRedirect 内 secFetchSite(prevURL, reqURL) 逐跳重算, 仅首跳已携带该头时生效(unknown 家族不发不误伤), cfg.headers 覆盖单项契约同 Referer「只作用首跳」口径(fetch.go:678-688)
+- [回归] r79_test.go 4 测试: TestR79i01_PayloadErrorNotNetworkFailure(corrupt gzip+超限两臂钩子零触发+真 EOF 对照臂照常触发)/TestR79i01_ProxyMidBodyErrorAttribution(转发代理 Content-Length 谎报断流→proxyChannelError 打标+代理冷却 1 条+host 闸零喂败)/TestR79i01_ProxyCtxCancelNoAttribution(取消期间不打标不记账不喂闸)/TestR79i01_RedirectSecFetchSiteRecompute(httptest 双端口 302: 第二跳 same-site 重算+origin Referer+cross-site 纯逻辑臂)
+- [门禁] gofmt 零/vet 零/go test -count=1 全包 41.4s 绿
+
+Stage Summary:
+- doOnce 管线收口: 读体两阶段分账修 3 处记账/误责语义虫(载荷层误触发池刷新+代理断流误责 host+取消期误记账), redirect 链 Sec-Fetch-Site 逐跳重算补 R67-a 同族指纹缺口; 编码探测(GBK/UTF-8)/压缩 bomb(双层 10MB 钳)/PSL cookie 域界实证零虫
+---
+Task ID: R79-i02
+Agent: R79-b1
+Task: fetch.go 重试链与冷却窗深审(proxyFirst 三态/directFailUntil/attempt 边界/退避溢出/ctx 交互)
+
+Work Log:
+- [审读面] rawFetch attempts 循环全边界(候选换闸/退避释放重过闸/failNoMirror 快败)/proxyFirst 三态(explicitProxy/attempt>0/directFailUntil 窗)/noteDirectDialFailed 双臂(Do 错误臂+读体臂, 后者经 i01 收窄)+CAS 节流(lastPoolPull 并发窗口推演)/退避计算溢出面(backoffBase<<a 钳 8s 含负溢出与移位≥64 臂/markProxyFailed proxyFailBase<<(n-1) 无界 n 溢出推演→恒被 d>max||d<=0 兜住/noteRateLimitedFallback shift≤8 封顶)/parseRetryAfter 全形态(纯数字+Atoi 溢出/HTTP 日期过期/0/负/+5)/Retry-After 冷却与重试链叠加语义/挑战重试预算层叠(rawFetch 传输重试×fetch() 挑战重试 1+min(Retries,2))/头组刷新语义(每 attempt 全量重建: UA 钉扎同 host 稳定/指纹确定性置换/token extraHeaders 复用)/mirrorGroup sticky 重排组序
+- [实弹探针] 持续 429 无 Retry-After(Retries=2): 3 尝试 elapsed=90s=30s+60s 兜底阶梯恰合, rlStrikes=3 阶梯持续, inflight=0 闸票零泄漏(R73-a park/resume 实证), rateLimitedCount=3, ProxyPoolExhausted 零触发(WAF 面不降级), gate.noteFailure=3(429 喂连败既有口径); 探针用后即焚
+- [结论] 零虫: 冷却窗均自然过期(rateLimitedUntil/directFailUntil/proxyFailedUntil 三窗全部 Before(now) 判定); 退避无上界不成立(双层钳); 重试吞错不成立(lastErr 逐败保留+failNoMirror 快败透传); ctx 截止交互完备(每 attempt 顶 ctx.Err 检查+SleepCtx/resume 全 ctx 感知+取消免记账经 i01 补全); 既有 r71a/r76main 测试覆盖阶梯与 directFailUntil 窗
+- [观察留档] 直构 Client 无 Retries 上限钳(Sanitize 生产路径钳 0..5, 直构仅测试面; attempts 巨大时退避仍逐次钳 8s, 仅等待总时长放大) — 不修
+
+Stage Summary:
+- 重试链与冷却窗零虫实证轮: 三冷却窗过期语义/退避三处移位溢出兜底/双失败臂归属/CAS 节流并发窗/闸票零泄漏全部静态推演+实弹探针双证; 直构 Retries 无上限留档不修
+---
+Task ID: R79-i06
+Agent: R79-b2
+Task: i06 proxy 收割管线深审(ParseSourceBody 四形态漏斗/dropDeniedHosts 完整性/去重/源轮转)
+
+Work Log:
+- [开局] 恢复检查 :3000=200; 生产池快照(只读): 38982 条(81 alive/38901 dead/37882 未验), UNIQUE(protocol,host,port) 约束在位; 领地面(fetch.go 批 1 在飞空白格重排)不触碰。
+- [审读·四形态漏斗] plain(scheme 前缀容错+hostPort 兜底)/proxifly(新 protocol:// 行+旧空格行)/roosterkid(管道分段)/geonode(JSON 字段漂移适配 protocols+protocol 双形态)逐臂核对: 非法行全部 fail-closed 丢弃无形态遗漏; dropDeniedHosts 单一漏斗四形态出口统一(R78-a 在位)。
+- [审读·去重/入库] 跨源去重键 protocol://host:port 与存储 UNIQUE(protocol,host,port) 语义一致(首见源标注优先); 收割并发 outputs[idx] 定向写+wg.Wait 后读无竞态; insertFresh 先查后插+isUniqueErr 幂等跳过; 分批 100 行(800 变量<SQLite 上限); 源清单 17 条固定全量收割、无轮转设计(perSource 留痕)。
+- [真虫·安全补口] deniedProxyHost 残面: net.ParseIP 严格口径不认的 inet_aton 家族字面量(十进制缺段 "127.1"/"10.1"=a.0.0.b 形态/八进制 "0177.0.0.1"(ParseIP 十进制读法=177.0.0.1 假公网)/十六进制 "0x7f.0.0.1")绕过 R78-a ingest 过滤——isValidHostPort 按「IPv4 十进制段」或「域名」放行入库; 纯 Go 解析器拨号 DNS 失败自然证伪, 但 cgo 解析器(getaddrinfo)按 inet_aton 语义还原回环/私网 IP 实拨, 而 deniedRemoteIP 口径回环放行(测试 mock 依赖)——ingest 根治意图残面。修法: ParseIP-nil 臂增 deniedNonCanonicalNumericHost——全部标签均为数值字面量(全数字段或 0x hex 段)即拒, 与 inet_aton 接受面精确对交; 真实域名 TLD 恒非数值零假阳性(多级数字子域 1.2.3.4.cdn.example.com 含非数值标签不受误伤)。
+- [回归] r79i06_test.go 2 测试: deniedProxyHost 判定表扩案 22 案(缺段/八进制/十六进制/前导零/纯整数 拒; 0x.org·0xa.io·12306.cn·9gag.com·xn--p1ai·多级数字子域 收) + ParseSourceBody 四形态端到端过滤; 既有 R78-a 判定表 18 案零回归。
+- [验证] gofmt 零 / vet 零 / go test -count=1 ./internal/crawl/proxy/ 全绿。
+
+Stage Summary:
+- i06: 收割管线四形态漏斗+去重+幂等入库审读零新虫; [R79-i06 安全补口] R78-a ingest 残面(inet_aton 非规范数字字面量绕过 deniedProxyHost)以「全标签数值字面量即拒」精确判据封堵, 22 案判定表回归钉死, proxy 包全绿。
+---
+Task ID: R79-i07
+Agent: R79-b2
+Task: i07 proxy 质检与淘汰深审(validate/transportFor 拨号校验/失败出池/续命/池容量与淘汰策略)
+
+Work Log:
+- [开局] 恢复检查 :3000=200。
+- [审读·校验链] validate: 每代理独立 Transport(CheckTimeout 9s 双闸: client.Timeout+vctx)+用后 CloseIdleConnections, 无 fd 泄漏; proxyURL/transportFor 三协议臂(http/socks5 原生+socks4 自实现握手)+R78-a 拨号守卫接线完整; 并发风暴面: 单循环串行(periodic 收割/校验不重叠)+worker 16~32 钳+DB 池单写者, 手动 API 校验与 periodic 重叠仅双份幂等 UPDATE, 无风暴形态。
+- [审读·记账与淘汰] 失败出池=alive=0(exit picking 池, store.AliveProxyAddrs alive=1 门); 死行留库=tombstone 设计(insertFresh 防重收+stale 可复活), 非 bug——生产 38901 死行核对: alive=0∧failCount≥2 行=0(均为单验死), prune API 阈值自然未触发; 池容量由去重约束封顶(全历史唯一代理数), 增速≈源轮换增量, 8~10MB 量级可监测非泄漏。僵尸活代理: fetch 回写泵(连败≥3 → alive=0+分-5)+校验器复验双补偿。
+- [特征钉死·饥饿语义] stale 模式 ORDER BY lastCheckedAt ASC 在 SQLite NULLs-first: 未验积压(38k)排干(~5.4 天@150/30min)前 alive 行复验饥饿——设计如此(TS 同序), 靠回写泵补偿; r79i07_test ①案将 NULLs-first 入选序钉死防无意识漂移。
+- [特征钉死·记分牌] 成功续命 +15 钳 100 与失败 ×0.3 下取整跨轮语义此前仅覆盖首验(+15/×0.3 单轮), >85 分复验钳顶形态无回归; r79i07_test ②③案钉死(A: 95→100 非 110/B: 10→3+failCount=2)。
+- [留档观察] ①双写方记分牌竞态: 校验器读-改-写绝对值 vs 回写泵 SQL 增量(MIN/MAX 钳界), 并发时丢一次增量——记账 best-effort 语义内, 不修; ②alive 模式 ORDER BY(lastCheckedAt, healthScore DESC) 无复合索引, 39k 行排序 ms 级, 不修。
+- [验证] gofmt 零 / vet 零 / go test -count=1 ./internal/crawl/proxy/ 全绿。
+
+Stage Summary:
+- i07: 质检链/记账/淘汰策略全审零真虫(死行 tombstone 设计+回写泵补偿双留档); 新增 r79i07_test 记分牌跨轮语义+stale NULLs-first 入选序回归钉(①②③案), proxy 包全绿。
+---
+Task ID: R79-i03
+Agent: R79-b1
+Task: fingerprint.go + utls.go TLS 指纹面深审(降级/隧道/协商漂移/复用一致性)
+
+Work Log:
+- [审读面] tlsFingerprint=chrome 旋钮全路径(newDirectTransport DialTLSContext/transportFor useTLSFP 独立键)/utlsHandshake ClientHello 构造(HelloChrome_Auto=133 指针+BuildHandshakeState 失败即断/ALPN 覆写双位(Extensions+HandshakeState.Hello)/协商非 h1 即刻失败防挂死/证书校验零放松(ServerName+系统根, hook 仅测试缝))/轮换档位(FNV-1a(host) 稳定归档×连接池按目标 host 键=同 host 恒同规格无漂移)/connectTunnel 逐行(guardProxyHopConn 复检在 TLS 前/https 代理跳 crypto-tls NextProtos h1/CONNECT 往返 deadline=min(30s,ctx)/bufio 残余字节 bufferedConn 桥不丢握手首字节/2xx 分诊与资源闭合五路径)/socks5Tunnel(guardedForwardDialer 双面接口+ContextDialer 断言+auth)/fingerprint.go 全函数(uaFamily 判序 FF→Chrome→Safari/uaPlatformHint CrOS 先于 X11 判序正确/品牌置换确定性 FNV/registrableDomain 多段 TLD 表/secFetchSite 三臂)
+- [拨号面全量枚举] rg net.Dialer/DialContext/DialTLSContext 全包 8 处逐一归属: safeDialContext(直连+SSRF 复检)/guardProxyHopDialContext(代理跳)/guardProxyHopConn(connectTunnel 拨后复检)/guardedForwardDialer(socks5 前置)/safeTLSDialContext(复用 safeDialContext)/proxyTLSDialContext(隧道自管) — 零非 guard 裸拨残留
+- [h1/h2 协商漂移面] 面向源站三传输(hc/proxyTans 普通/proxyTans tlsfp)TLSNextProto 空表钉扎全在(r75a/r78a/utls 测试既有钉子); hcLocal(内部通道)无钉扎判 deliberate — 内部 loopback 服务指纹无关, utls.go 文件头明示「内部通道恒不启用指纹仿真」
+- [指纹降级静默面] 证伪: utls 握手失败全链路错误上抛(构建/握手/协商三错误臂均 close+return err → doOnce 重试链), 无任何回落 crypto/tls 分支; http 明文目标不进 utls 为文档化口径非降级
+- [观察留档] ①cfg.headers UA 覆写为非 Chrome 家族 + tlsFingerprint=chrome 同规则并存时 JA3(Chrome)与 UA(Firefox)跨层矛盾 — 双旋钮均显式声明, 无自动交叉校验, 配置面责任(建议主控评估 Sanitize 联动 warn); ②响应多压缩编码「gzip, br」形态落 default 臂原样透传(服务器单编码回复为绝对主流, 未修)
+
+Stage Summary:
+- TLS 指纹面零虫实证轮: 8 处拨号点全 guard 归属/三传输 h1 钉扎在位/utls 三错误臂无静默降级/轮换规格经连接池键隔离无会话漂移; UA×tlsfp 跨层矛盾与多编码 CE 两条观察留档移交主控
+---
+Task ID: R79-i08
+Agent: R79-b2
+Task: i08 proxy 并发与状态深审(map 并发保护/冷却窗并发写/PoolExhausted CAS/代理源切换竞态 + -race)
+
+Work Log:
+- [开局] 恢复检查 :3000=200。
+- [race 门禁] go test -race -count=1 ./internal/crawl/proxy/ 全绿(1.3s, 收割去重/四形态解析/校验器 httptest 全链/周期化防重入/timer drain 均在 race 探测下复验)。
+- [审读·proxy 包状态面] Harvester 字段 New 后全只读; PROXY_SOURCES 包级只读; idRand mutex+idSeq atomic; periodicRunning CAS 防重入+defer 复位; resetTimerDrained(R72-a) Stop+排干+Reset 语义正确; Check 结果计数 mu 保护; DB 单写者(sql.DB 并发安全)。零新竞态。
+- [审读·fetch 侧代理状态(只读, 批 1 领地)] directFailUntil/proxyFailedUntil/proxyFailCount/proxySuccCount/lastProxyWarn 全部 mu 内; proxyTans mu 内(R70-a 有界+R71-a 修剪联动); proxyIdx/lastPoolPull/blockedCount atomic; PoolExhausted CAS(load-检查-CAS 单发, 时间戳单调无 ABA, 并发触发恰一个先行者, 语义正确); 代理源切换: t.proxySource newTask 快照后只读, pullDynamicProxies 并发调用(ticker+钩子)在 fetch 层 mu 内合并, task 侧 warn-once atomic.Bool。
+- [跨领地真虫(报告不修, fetch.go=批 1 领地禁碰)] pickProxy 首行 len(c.proxies) 无锁读(fetch.go:1042, 锁在 6 行后): 与 SetDynamicProxies 的 mu 内 append(fetch.go:783)构成数据竞态——写方两个并发源: dynamicProxyLoop ticker 协程 + ProxyPoolExhausted 钩子在请求协程内同步调用(noteDirectDialFailed); 读方任意请求协程。竞态窗口=R57-2a 动态池接线起持续存在, 既有测试无并发 pickProxy+SetDynamicProxies 路径故 -race 未暴露。内存模型 UB(len 单字读 amd64 实践良性, 逻辑后果仅早退判定过期, 无崩溃面); 最小修法: len 检查移入 c.mu 临界区(或调换 target==nil 判序后先锁再查)。移交主控处置。
+- [验证] gofmt 零 / vet 零 / proxy 包 -race 与常规双绿。
+
+Stage Summary:
+- i08: proxy 包并发状态面 -race 复验零竞态; PoolExhausted CAS 语义正确性确认; 跨领地发现 pickProxy 无锁读 len(c.proxies) 数据竞态(R57-2a 起潜伏, 带最小修法移交主控), fetch.go 批 1 领地禁碰未动手。
+---
+Task ID: R79-i04
+Agent: R79-b1
+Task: fetch 超时与 ctx 语义深审(叠加/连接复用/慢响应占坑/goroutine 泄漏)
+
+Work Log:
+- [审读面] 超时叠加(doOnce tctx=WithTimeout(任务ctx, cfg.Timeout) 为全链界: 直连 hc/hcLocal 无 Client.Timeout 单靠 tctx; 代理 client 双界且 Client.Timeout 含 redirect 全链+读体 — 语义正确)/重试链边界(attempt 级 tctx 新建, 退避睡眠由任务 ctx 界定不在 tctx 内 — 分层正确)/连接复用行为(读体 ≤10MB ReadAll 至 EOF → 池化复用; 超限/中途断流路径 Close 丢弃连接不毒化池)/慢响应占坑面(慢 headers/慢 body 均被 tctx 全链界定, 占坑上界=timeout; R73-a 槽 park 语义使长睡眠不占全局槽, 持槽仅限实际 I/O)/goroutine 泄漏面(fetch 包零自旋 goroutine; Transport readLoop/writeLoop 有界于并发闸+IdleConnTimeout 60s+Close 收口; zstd Reader 有 Close 释放; proxyTans 超限重置仅闭空闲连接在飞自然消化)/竞态推理(hostGate/Client 状态表全部 mu 界内, globalSlot 单 goroutine 所有权, lastPoolPull/blockedCount/rateLimitedCount/proxyIdx atomic, cfg/New 后不可变, dnsCache 锁界+TTL+dial 级复检补偿 60s 陈旧窗)
+- [实弹证据] ①go test -race -count=1 全包 43.2s 零 DATA RACE; ②探针(用后即焚): 慢速滴漏 body(20s 滴漏 vs 800ms 预算)elapsed=801ms 恰合界, err=context deadline exceeded; ctx 200ms 截止穿透读体 elapsed=200ms 即断 — 慢速攻击面被逐请求 timeout 全链封死
+- [结论] 零虫: 超时叠加/连接复用/慢响应占坑/goroutine 生命周期四专项全部静态推演+race+探针三证; util.SleepCtx ctx 感知复核(NewTimer+select 双臂)
+- [观察留档] hostGate 槽位满轮询(20ms)持全局槽为 R73-a 判 deliberate 的短等待口径 — gate 降额至 1+慢站场景下其余 host 最长饿一个 timeout 窗(~20s), 有界且文档化, 不修
+
+Stage Summary:
+- 超时与 ctx 语义零虫实证轮: race 检测器全包绿+慢速攻击面探针双证(801ms/200ms 恰合预算), 连接复用三形态(复用/超限丢弃/断流丢弃)语义正确, goroutine 泄漏面全数收口
+---
+Task ID: R79-i05
+Agent: R79-b1(主控采认补录)
+Task: i05 错误分类与 blockcheck 集成面(断连补录: agent 实际完成, r79_test.go 测试段在案)
+
+Work Log:
+- [采认依据] r79_test.go 文件头注释明示「i05 错误分类与 blockcheck 集成(见各轮测试段)」, 4 测试含错误分类段; i01 分账拆分(readResponseBody/decompressBody+三维分账)即 i05 审读面的核心修法——载荷层(CE/超限)与网络层(Do 错误/断流)分账后, httpStatusError/EOF 族→blockcheck 判定输入映射完整性随之收口。
+- [验证] fetch 包 -race+常规 -count=1 双绿(43.1s/41.3s), gofmt/vet 零。
+
+Stage Summary:
+- i05 与 i01 合并收口: 分账语义修法覆盖错误分类集成面, 4 测试钉死。
+---
+Task ID: R79-i09
+Agent: R79-b2(主控采认补录)
+Task: i09 blockcheck 判定树深审(断连补录: agent 实际完成, r79i09_test.go 在案)
+
+Work Log:
+- [采认依据] r79i09_test.go 3 测试: ①pilishuwu CF 托管挑战壳形态 403+challenge-platform/cf_chl 指纹(1436B 对齐 R78 实测)Server 头有/无双臂判拦 ②daweixs 裸 403+nginx 默认短页 127B 极短臂判拦 ③良性双向(JSON 信封含 captcha 词豁免臂/meta-refresh 分页长内容页跳转臂不误伤); cuoceng precursor 豁免 r76main_test 已钉不重复。
+- [验证] fetch 包双绿(判定树在 fetch 包内)。
+
+Stage Summary:
+- R78 活体回归实测矩阵三形态(pilishuwu/daweixs/cuoceng)全数钉入判定树回归, 误拦漏拦双向有钉。
+---
+Task ID: R79-i10
+Agent: main-controller
+Task: i10 proxyfeed 任务侧代理消费面深审(批 2 收尾)
+
+Work Log:
+- [审读面] internal/crawl/task/proxyfeed.go 全 125 行: dynamicProxyLoop(ticker+ctx.Done 双臂)/pullDynamicProxies 全臂(能力断言 CountryFilteredProxySource→国别过滤拉取/不支持源 warn-once CAS 回退全量/过滤后空池不回退全量维持直连[R76-a 设计意图注释佐证]/空结果不清空现有池只增不减防抖/拉取失败静默留痕)。
+- [结论] 零新虫: 全臂 fail-safe 方向一致(不中断任务/不毒化池/不静默失效配置); pcWarned/pcEmptyWarned 单次 warn 属防日志刷屏 deliberate(留档: 持续空池场景操作员错过首条 warn 无复发提示, 强度调优向非虫)。
+- [门禁] fetch/proxy 两包 -race+常规双绿(43.1s/41.3s/0.3s), gofmt/vet 零; [R79-i08] pickProxy 锁外 len(c.proxies) 竞态主控修入(fetch.go:1046-1060, 判空移锁内+注释)。
+
+Stage Summary:
+- 批 2 十轮(i06-i10)收口: i06 inet_aton SSRF 补口+i07 特征钉死 2+i08 race 门禁+跨领地竞态移交主控修讫+i09 判定树矩阵钉死+i10 零虫; 批 1+批 2 合计真虫 4(fetch 分账/Sec-Fetch-Site 重算/inet_aton 绕过/pickProxy 竞态), 特征钉 5, 零虫实证轮 6。
+---
+Task ID: R79-i11
+Agent: R79-b3
+Task: i11 task 生命周期状态机深审(status 迁移全臂/pause 语义/控制命令竞态/resume 游标)
+
+Work Log:
+- [开局] 恢复检查 :3000=200; 领地面 task.go(682)/pipeline.go(661)/queue.go(290) 全读, proxyfeed.go 禁重复。
+- [审读·start 双跑面] Start 持 m.mu 检 old.busy()(running||paused)→newTask→持 t.mu 置 running+startedAt+phase 再入表(R51-2-b #6/R67-b 双修在位); 终态任务同 id 重启走替换, removeIfSelf 身份校验防旧收割误删新条目(R54-2a 单一实现)——替换全链零窗口。
+- [审读·pause/resume 门] gate() for paused&&!stopped cond.Wait + resume 置 paused=false 持锁后 Broadcast(先改条件后广播无丢唤醒); pauseAuto[R54-2a] stopped 守卫在位; retrySameBook 游标不推进语义(processBook true 分支)与 gate 阻塞配合正确。
+- [审读·stop 收割] stop 置 stopped+清 paused+Broadcast+cancel; wasRunning 分臂异步收割(exitCh/60s 兜底)+removeIfSelf 幂等; finish 的 paused 归一臂实证不可达(gate 返回 false ⇒ stopped 已置, ctx 取消仅 stop/finish 两源), 防御性留置无害; 双 stop 双 reaper 幂等无害。
+- [审读·resume 游标] 暂停全在内存(idx/queue/tocItems 不落盘不重取), resume 从 gate 原地续跑零丢游标; auto-pause→resume 整书重跑由 Next.js needUrls 增量幂等承担(accountContentTotal 重入重算口径一致, 见 i12)。
+- [观察留档] ①stop 与 finish 终态判定微窗(stop 在 finish 读 stopped 后置位): DB 收 done 而操作员已 stop, 窗口毫秒级纯展示面不修; ②run() 首行重复置 running/startedAt(Start 已置), 冗余无害留档; ③pause 后 phaseNote 不被 resume 清除, 下次进度回调仍带旧 note(展示面)。
+Stage Summary:
+- i11 零虫实证轮: 状态迁移五臂(pending/running/paused/done/error+stopped)全推演, start 双跑/pause 丢唤醒/stop 误删/游标丢失四类目标虫全数证伪(15+ 轮历史硬化在位); 3 条展示面观察留档不修。
+---
+Task ID: R79-i12
+Agent: R79-b3
+Task: i12 task progress 与错误链深审(progress 序列化时序/三阶段计数一致性/lastError 时序/0章 warn+连败分级)
+
+Work Log:
+- [审读·progress 时序] sendProgress 持锁构建 progressPayloadLocked 快照后出锁发送(单锁一致快照); force 语义 R50-1 修正在位(throttle=!force); 非 force 节流 1s 丢弃由 bridge 合并承担(契约); 终态 progressPayloadNow 复用同构建器; bridge.go progressKeys 白名单与载荷键逐一比对零缺失零多余。
+- [审读·三阶段计数] discovered 仅 range 发现面赋值+终值对齐(R67-b); booksTotal=队列长一次定格; booksDone 失败书也计入(防进度卡死, TS 同口径); tocTotal 每书覆写(当前书口径, 非🔥累计); contentTotal 书粒度记账+重入重算(R53-2a)全路径重演(空正文重试/网络败章不回补/contents 败批重入)总量-实做恒一致; contentDone 仅计真实落库章(R52-5 空正文剔除在位)。
+- [审读·lastError 链] 四写入点(队列构建失败/panic/bookFailed/pauseAuto)全在 mu 内; R54-2a %!w(nil) 根因修正+R52-5 4xx 快速失败+重试链真实原因保留(callback.go 复核); stopInterrupted 不污染 lastError(R56-2a 三处口径一致); 0 章单列 warn(R75-e)与连败 error 升级阈值(≥10/20 chapterFailLevel)在位。
+- [观察留档] ①asyncStats 并发完成序反转窗: 两次 bookFinish 的 stats 回调 goroutine 可重叠, 完成序颠倒时 DB errors/coversSaved 短暂陈旧(bridge 直写窗口微小/HTTP 形态最坏 2min); 终态 finish 不补发 stats, 展示面最终值可能差一次增量——建议主控评估 finish 补发或序号幂等(不实施); ②range 全源失败(failStreak 20 断页)后空队列收 done(0 书+errors=20): 与 TS DISCOVERY_FAIL_CIRCUIT 断页常量对齐, 但终态语义 done vs error 契约未明, 增强建议移交; ③lastError 不随 resume/成功清位, done 后 /status 残留历史错误串(展示面); ④logf 每条 1 goroutine 无节流(bridge 直插 DB, 千章任务 log 行量大)。
+Stage Summary:
+- i12 零虫实证轮: progress 快照一致性/三阶段计数全路径推演(重入重算恒等式验证)/lastError 四写入点与可见链复核零新虫; 4 条观察留档(asyncStats 完成序反转+discovery 全败终态语义两ticheng增强建议移交主控)。
+---
+Task ID: R79-i13
+Agent: R79-b3
+Task: i13 书籍/章节入库事务深审(Book/Chapter 写入边界/去重语义/增量 lastChapter/存储分叉; bridge 只读复核)
+
+Work Log:
+- [审读·task 侧编排] Book 回调决策消费(skipContent=增量∧完结∧无未采章 [R53-4] 三条件在位)/lastChapterURL 仅日志消费/BookID 身份直通 [R61-2c] 四回调全接线/needURLs 保序去重(appendNeedDedup)+bridge 侧 needSet 双层去重; contents 败批不入库整书重跑幂等(增量决策承担)。
+- [审读·bridge 落库面(只读, 非本批领地)] 阶段A~E 重排: 负位协议自愈链完整(崩溃残留负位 → chapterTempBase 动态基线+chapterTailMoves 非法位挪尾治愈); 阶段C 单行失败容错(UNIQUE 容忍/他错上抛); contents 幂等按 (bookId,url) 定位+批内去重(R67-b)+落库失败不计 chaptersUpdated(R69-b)+缺章兜底尾插(maxIdx+1 防 idx 唯一冲突); 建书 P2002 重试×3(NextBookNum)。
+- [审读·去重键] seq=1 形态 ReorderToc 双键去重(normalizeUrlKey 参数排序+端口归一+尾斜杠剥除 / 标题精确)——plan.items 与 tocItems 一一对应, lastTitle 取位 plan.items[len-1] 不越界; seq≥2 appendChapterSlice 原始 URL 键(分片内 sliceSeen+existURLMap)。
+- [审读·增量/存储分叉] full 模式删章重建(显式换源语义)/增量不劫持首源身份(R61-2c); StorageMode 双闸 fail-closed 恒 db(rule/types.go Sanitize:388+Validate:568), createChapterWithContent 硬编码 "db" [R57-2a] 与之等价无分叉面。
+- [观察留档] ①阶段A~D 非单事务: 阶段C 非唯一错误上抛时 moves 章滞留负位直至下次 chapters 回调自愈(显示面短暂乱序; TS route.ts 逐条写语义同构)——建议主控评估包 tx(不实施); ②回调重试幂等计账斜率: Book 半成功重试致 booksCreated/Updated 各偏 1、chapters UNIQUE 容忍致 chaptersCreated 少计(纯统计面); ③appendChapterSlice 原始 URL 键 vs ReorderToc 归一键: 同页异形 URL(trailing slash 差)在多段目录可重复建章(边角, TS 同构)。
+Stage Summary:
+- i13 零虫实证轮(领地 task 侧+bridge 只读复核): 决策消费/双层去重/负位自愈/幂等落库/存储 fail-closed 五面全部推演通过; 3 条观察留档(重排事务化建议移交主控)。
+---
+Task ID: R79-i14
+Agent: R79-b3
+Task: i14 clean 清洗深审(HTML→纯文本管线/段落切分/规则 clean 配置消费面/ReDoS 面/实体二次注入)
+
+Work Log:
+- [开局] 恢复检查 :3000=200; clean.go(897)/clean_pipeline.go(539) 全读。
+- [审读·管线] HTML 模式: goquery 硬移除危险标签→选择器移除→导航链接→data-id 重排→白名单剥壳(块级补\n)→属性消毒(on*/js 协议丢弃)→注释剥离→广告正则→规范化(空壳循环/段落重建)→出口违禁词; plain 模式: 危险标签对剥→br/块级→\n→剥签→单遍实体解码→广告正则→行归一; 实体单遍白名单解码不回扫(无二次解码注入面), 数字实体溢出钳+代理区拒收(R71-b 在位)。
+- [审读·吞正文面] URL 掩码保护+校验位验签还原(校验和 idx*10+(idx%9+1) 数学恒自洽); 防误伤反例测试族(R59/R62/R68/R72/R73 各轮)在位; stripFieldSiteSuffix/CleanChapterTitle 剥后为空保留原标题双守卫; titleURLTailRe scheme 强信号锚。
+- [审读·ReDoS 面] Go regexp=RE2 线性时间保证, 回溯灾难结构性不可能; compileAdPattern 300 rune 帽+嵌套量词拒编译+400 容量缓存(互斥), 双重防线留作编译成本上限。
+- [真虫·CPU 放大硬化] removeLonelyMaskTokens 修前每轮仅回收首个孤立 token 后从头重扫: 连续裸 URL 行(页脚链接墙)呈交替回收(相邻 token 互挡孤立判定), k 个孤立 token=O(k·len) 全串扫描 —— 1.5MB rune 帽×万级 token=分钟级单章 CPU 放大(bridge 进程内清洗, 可拖停批次流水线)。修后每轮单遍扫描批量回收当轮全部孤立 token: 不动点唯一性论证(孤立走廊为纯空白区, 走廊外删除恒不解除孤立判定⇒可删集随删除单调⇒收敛闭包与逐个回收等价)写入注释, 最坏 O(len·log k)。
+- [回归] r79b3_test.go 3 测试: ①差分测试(逐个回收参考实现 vs 批量实现, 固定种子 300 随机 token/文本布局, 含标签边界/nbsp/全角走廊/相邻簇全判定臂)恒等+二次不动点校验; ②2000 行链接墙端到端(全回收+无掩码残留); ③正文内紧贴 URL 防误伤+孤立行回收双向。既有 clean 全套零回归。
+- [观察留档] ①CleanIntro 只跑缺省广告表(TS 语义)不消费违禁词出口(intro 违禁词不过滤, 若 TS 同构则口径一致, 移交主控核对 cleaner.ts); ②emptyPOpenRe/Close 只认裸 <p>(带属性形态漏归一, 展示面); ③sanitizeAdPattern 改写只收窄不放宽(RE2 侧防御冗余)。
+- [验证] gofmt 零 / vet 零 / go test -count=1 ./internal/crawl/clean/ 全绿。
+Stage Summary:
+- i14: 清洗管线全臂推演零吞正文/零注入面/RE2 结构性免疫 ReDoS; [R79-i14] removeLonelyMaskTokens O(k·len) CPU 放大真虫硬化(批量回收, 差分 300 案钉死语义等价), clean 包全绿。
+---
+Task ID: R79-i15
+Agent: R79-b3
+Task: i15 rule 解析+t2s 交互深审(css/regex/json/const 四解析器边界/空值语义/t2s 触发覆盖面/繁简×清洗时序)
+
+Work Log:
+- [审读·rule 解析器] extractField 四分发+xpath fail-closed: regex 臂 regexRuntimeSafe(1000 帽+嵌套量词闸)+reCache 有界缓存+FindAll 5001 上限化(R58-2a)+TS m[group]??m[0] 语义下标面精确对齐(R60-2c)+expandReplaceTo 组未参与→空串/$0 字面量/$<name> 全臂(R58-2a groups nil 守卫); css 臂 cssSelect 数字 id 降级重试/nil scope 安全/blockAwareText script|style|noscript 隔离; json 臂 jsonGet/jsonArrayWalk 全程 nil-safe(数组越界/类型不符/空段全走空值臂)零 panic 面; const 模板 urlVars/算术段 formatArithResult 钳制。R74-b 控制字符剥离+R72-b 属性上下文实体解码对齐在位。
+- [审读·t2s 核心] 单遍位置扫描(词组最长优先→单字)+零分配快速路径(hasCJKKey 探测)+init 一次构建只读并发安全; OpenCC TSCharacters 3221 对+TSPhrases 476 条全量(R74 权威化); 简体恒等不变式(key 全为简体不出现的纯繁体字)+R74 两处错映射修正(瘓痪/隔睫删除)在位; rule/t2s/sorter 三包 -count=1 全绿。
+- [审读·t2s 触发覆盖面(bridge 消费点清点)] 书名✓/作者✓/简介✓/分类✓/status+latestChapter(智能完结输入)✓/目录标题+卷名(seq=1 与 seq≥2 双路径, 就地转换先行)✓/正文(清洗后转换)✓/缺章兜底标题(R75-b 补, t2s→clean 对齐)✓ —— 契约「全部获取到的文本字段」面覆盖完整。
+- [审读·繁简×清洗时序] 书名字段 clean→t2s vs 章节标题 t2s→clean vs 正文 clean→t2s: 两序对 CJK 文本面等价(t2s 仅映射纯繁体 key, clean 不触碰 CJK 字形), 唯一词组臂理论跨边界(词组被 clean 空白归一拆散时词臂退单字臂, 形态差异局限「两岸词汇差异词」, 非错误转换), 留档不修。
+- [观察留档→移交] bridge.Book 不消费 p.Keywords: rule 层提取+BookPayload 传递+store.Book 有列+读路径全填充, 但建书/更新无任何写路径持久化(自然也无 t2s)——语义丢失链; TS 权威 route.ts 源不在仓无法比对是否移植取舍, bridge 非本批领地, 移交主控核对处置。
+Stage Summary:
+- i15 零虫实证轮: 四解析器边界+空值语义+t2s 核心不变式全推演通过, 触发覆盖面全字段清点完整; 1 条移交项(bridge 侧 Keywords 全链丢弃)+1 条时序等价留档; rule/t2s/sorter 三包全绿。
+---
+Task ID: R79-b3 批3收尾(i11-i15)
+Agent: R79-b3
+Work Log:
+- [门禁] clean/rule/t2s/sorter/task 五包 go test -count=1 全绿; clean 包 gofmt 零/vet 零; 每轮轮始 :3000 恢复检查恒 200; 生产服务零触碰(改码仅源码+测试)。
+- [真虫 1] [R79-i14] clean.removeLonelyMaskTokens O(k·len) CPU 放大硬化(批量回收, 不动点唯一性论证+差分 300 案钉死等价), r79b3_test.go 3 测试。
+- [零虫轮 4] i11 状态机/i12 progress 错误链/i13 入库事务(bridge 只读复核)/i15 rule+t2s 交互。
+- [移交增强建议(不实施)] ①asyncStats 并发完成序反转→finish 补发 stats(i12); ②discovery 全源失败 20 连败终态 done vs error 契约模糊(i12); ③bridge 阶段A~D 重排包单事务(i13); ④bridge.Keywords 全链丢弃核对(i15); ⑤logf 无节流日志量(i12)。
+---
+Task ID: R79-i16
+Agent: R79-b4
+Task: i16 api 增量面深审(R75 任务编辑端点/R78 规则 PUT 链/backup snapshot 端点)
+
+Work Log:
+- [审读·任务编辑 PUT /api/admin/tasks/{id}] normalizeTaskData(partial) 严格键产出(name/mode/engine/bookUrl/listUrl/bookIds/from/to/list*/book*/recrawlMode/storageMode/fetchConfig/thread*/interval*/smart*/autoSuggest/autoRefresh/refreshIntervalMin 全 24 键)——对照 store.taskCols 全 31 列, 除 ruleId/status/progress/stats/createdAt/updatedAt 系统列外无一漏项, 白名单零缺失; UPDATE 列名双闸(patch 键⊆白名单 ∪ isValidTaskColumn 再滤) SQL 注入结构性不可能; ruleId 独立臂(必填校验+APIRuleExists 存在性+FK 冲突 409 兜底)不经 normalize 透传; 运行/暂停态模式字段禁改比对 patch vs exist(R75-e 双态在位)+restartHint 仅在册时回带, 语义自洽。
+- [审读·规则 PUT /api/admin/rules/{id}] 字段白名单(name/description/enabled/config)固定列名拼接零注入; 单写 DB 无双落窗口; batch delete 整批单事务(R58-2c-fix 在位); restore 面 Setting 恢复后 invalidateBannedWordsCache 钩子在位。
+- [审读·backup snapshot 端点] adminBackupSnapshot 薄壳→BackupManager.Snapshot("manual")(backup.go R77 已审不重复); restore 512MB MaxBytesReader+单事务+strategy 白名单。
+- [观察留档] partial 单边修 cross-field(min>max): threadMin/threadMax、intervalMin/intervalMax、listStart/listEnd、bookStart/bookEnd 只传其一时 merged 不再交叉校正(DB 可落 min>max)——引擎侧 randInt 交换归一+drawBatchThreads 显式钳制(queue.go:249-271)使行为无害, 纯 DB 形态面, 不修。
+- [回归] r79b4_test.go 2 测试: 白名单并集=可编辑列全集(无重复登记)+normalize 零键透传(ruleId/status/SQL 片段键全拒), api 包 -run I16 绿。
+
+Stage Summary:
+- i16 零虫实证轮: 编辑白名单全覆盖/列名注入双闸/规则 PUT 单写/backup 端点薄壳全推演通过; 1 条 partial 单边 cross-field 观察留档(引擎归一兜底); 2 钉入 r79b4_test.go。
+---
+Task ID: R79-i17
+Agent: R79-b4
+Task: i17 web 模板与 sitemap 增量面深审(R75 restartHint/R78 新书渲染/伪静态与 sitemap 对探针回填书兼容)
+
+Work Log:
+- [审读·新书渲染路径] renderBookView/renderBookPretty nil book→404; num=0 书 canonical/BookHref/TocHref/ReadFirstHref 全链查询串回落(pseudo.go bookHref/chapterHref/tocHref「永不死链」设计), 探针回填书(无 num/无章/无封面)零死链面; ChapterCount/WebChapterPage/WebLatestChapters 空集臂模板占位。
+- [审读·缺封面 404 面] coverURL("")→"" 渲染占位块; /api/public/cover 缺文件 404(非 500)+coverFileRe 白名单+basename 双防穿越+R58-2c stat 先行; ogImageOf 空封面不输出 meta; 前端 onerror 占位兜底 —— 404 面为契约设计, 无 500/ panic 面。
+- [审读·sitemap 超大分页] page/index/type 三参 parsePositiveInt 1e9 钳+sitemapMaxPages=1000 钳; 默认入口三段分片(segPages ceil/5000, 空段 0 页), 段 lastmod=max(updatedAt) 真实信号; ?index=1 遗留轨 ≤1000 页; ?type=chapters JOIN 列限定(R73-3)+num=0/缺书 LEFT JOIN NULL→ToInt=0→查询串回落; R74-c 垃圾 type 不入缓存+R64-c Host 白名单回落; sitemapCacheMax=50 LRU 驱逐。活体烟测: index 正常/page=999999999→200 空片/type=garbage→200 空片/cover 缺失→404。
+- [审读·restartHint] 属 api 层任务编辑响应(i16 已审), web 前台无消费点, 无模板面。
+- [观察留档] 零。
+
+Stage Summary:
+- i17 零虫实证轮: 新书(num=0/无封面/无章)渲染与 sitemap 双轨全推演+活体烟测通过, R64-c/R73-3/R74-c/R67-c 既有硬化全在位; 超大分页三重钳制(1e9/1000 页/LRU)无放大面。
+---
+Task ID: R79-i18
+Agent: R79-b4
+Task: i18 store 查询面深审(books 过滤排序注入复查/Chapter 大表索引覆盖/VACUUM INTO 写并发/慢查询与锁等待)
+
+Work Log:
+- [审读·orderBy 注入面] adminBooksList/publicBooks/store.WebListBooks 三处排序均为固定字符串 switch 白名单(updatedAt/wordCount/createdAt DESC), 零用户输入拼列; 值全参数化; likeSafe/webLikeSafe 转义+ESCAPE '\''; WebBooksByIDs IN 占位符生成(≤60); 唯一 Sprintf 拼 LIMIT/OFFSET 为钳后 int(%d)。注入面结构性关闭。
+- [审读·索引覆盖(生产库只读探针 PRAGMA+EXPLAIN QUERY PLAN, mode=ro)] Chapter 54112 行: bookId 计数/分页/前后章走 sqlite_autoindex_Chapter_2(bookId,idx); sitemap chapters ORDER BY updatedAt 走 Chapter_updatedAt_idx 索引扫描; Book 39 行 num/categoryId/updatedAt/wordCount 四索引齐; BookTag(bookId) autoindex+tag 聚合走 BookTag_tag_idx 覆盖; TaskLog(taskId,id) 对齐 logs 轮询; PseoPage(status,updatedAt) 对齐 sitemap; DownloadJob 双索引。热路径零全表扫描(除 GROUP BY tag 覆盖索引扫, 小表)。
+- [审读·VACUUM INTO 并发] backup.go(已审, 只复核接口面): vacuumViaRO 独立只读连接(mode=ro, busy_timeout 5000)+WAL 模式 —— 读快照不阻塞写者; 应用池 maxConns=1 内部串行零 SQLITE_BUSY; 失败降级连接池臂在位。
+- [审读·慢查询/锁等待面] 公开列表 OFFSET 10k 帽+pageClamp/lastPage 钳; sitemap 分页 5000/页+5min 缓存; 单连接池下最坏查询=索引扫描毫秒级, 无长查询阻塞面。
+- [观察留档] 零(索引体系为 Prisma 历史+R58-2c 补建, 覆盖完整无需新增)。
+
+Stage Summary:
+- i18 零虫实证轮: orderBy 三层白名单/大表索引全覆盖(54k 章 EXPLAIN 实证)/VACUUM INTO ro 连接与 WAL 写并发无锁等待 —— 慢查询与锁等待两类目标虫全数证伪。
+---
+Task ID: R79-i19
+Agent: R79-b4
+Task: i19 stealth 转码管线深审(R74 title noInsert 增量/obfuscate×pseudo 顺序/干扰句库跨页重复指纹——R76-c 留档增强评估与实施)
+
+Work Log:
+- [审读·noInsert 增量面] transcodeTokens title 豁免守卫(idx>0 && toks[idx-1].noInsert)与 obfTextNoise/pseudo 同款三处对齐; R72-c 逐字节保真(DecodeRuneInString 原样照抄非实体段)在位; entity/zwsp 双形态快速路径(无 CJK 零分配)。
+- [审读·管线顺序] Apply 契约序 interfere→pseudo→transcode→obfuscate(R76-c 三钉在位: 零稀释/切分无损/噪声 span 全管线逐字节不动); maxDocBytes 512KB 跳过+rngFor nonce 派生确定性。
+- [真虫级增强实施·干扰句页内去重采样] [R79-i19] 修前 interfereSpan 对 65 句×25 尾缀=1625 组合【有放回】随机抽: 页内 40 条插入生日碰撞期望 ≈40²/(2×1625)≈0.49 —— 近半数页面含至少一对全同噪声串, 跨页镜像采集器对齐时同句反复出现的指纹密度被自身放大(即 R76-c 留档的跨页重复指纹面)。实施成本评估: 小(单文件单结构体)——新增 noiseSampler(句/尾缀双洗牌牌堆 r.Perm 顺序出牌): 句库 65 ≥ 页内上限 40 ⇒ 页内句子两两不同 ⇒ 全串(sen+tail)页内恒唯一; 尾缀 25<40 循环补给(句不同⇒组合仍唯一); hex 尾缀臂(1/4)保留为跨页维度去指纹层。扩库(65→N)评估为不必要: 页内唯一性已由采样结构保证, 扩库只降跨页碰撞率不降页内指纹, 收益/成本比劣于采样修复。
+- [审读·decodeShell 站兼容(book4 未来复活)] 采集侧 clean 管线硬移除 script 标签+存储已解码纯文本 ⇒ stealth 消费的 SSR 页正文为明文文本节点; tokenizer 对 script/style/textarea/pre raw 区天然豁免+属性值不动 ⇒ decodeShell 残留(若有)只会被豁免不会被误改写, 转码内容无关性成立, 无兼容面缺口。
+- [回归] internal/stealth/r79b4_test.go 3 测试: ①采样器 200 连抽首 65 全排列覆盖+40 宽滑动窗口零重复 ②100 段满额 40 插入×8 nonce 全部 sj-i span 串/句前缀两两不同 ③新采样路径插入纯性(剥 span 逐字节还原); stealth 包 -count=1 全绿+gofmt 零。
+
+Stage Summary:
+- i19 增强落地轮: [R79-i19] 干扰句页内去重采样(洗牌牌堆, 页内 40 条全串恒唯一, 消灭 ≈0.49/页的生日碰撞重复指纹), R76-c 留档观察项收官; R74 noInsert 增量/管线顺序/decodeShell 兼容三面零新虫。
+---
+Task ID: R79-i20
+Agent: R79-b4
+Task: i20 mini-services 双桥+auth 深审(bqg-unlock writeErr 全路径/token 边界/限流; qimao-proxy 签名时序/AES 边界/EPUB 诚实拒绝; auth 限流 FIFO 清扫)
+
+Work Log:
+- [真虫·bqg-unlock 错误信封非法 JSON] [R79-i20] 修前三处 502 手写 fmt.Fprintf+sanitizeErr: sanitizeErr 把 `"` 转成 `\'` —— JSON 转义表中不存在 `\'`, 含引号的上游错误串(upstream: .../upstream not json: ...)产出非法 JSON, 引擎侧 json.Unmarshal 拒收 → 降级直连分支拿到的是解析失败而非真实上游原因(错误语义丢失+契约破坏)。修后全错误路径统一 writeErr(json.Marshal 标准转义), 删除 sanitizeErr; 顺带把 read 错误与 status 检查拆分(修前 io.ReadAll 错误被 status 分支吞并报错语义混淆)。
+- [真虫级硬化·bqg-unlock scheme/端口收口] host 白名单按 Hostname() 匹配而 target 用 u.Host(含端口)发请求 —— 修前 https://apibi.cc:9999/ 形态可借白名单域名打任意端口; 修后 scheme 钉 http/https(400)+端口白名单(空/80/443, 403)。
+- [审读·bqg-unlock 其余面] token 生成(AES-128-CBC-PKCS7, MD5 派生 key/iv 启动一次)与 JS JSON.stringify 逐字节对齐; 限流 lastHit 按 host 键=白名单 6 项有界, ≥600ms 节流先记账后睡眠并发安全; 超时全有界(client 20s/LimitReader 4MB/ReadHeaderTimeout 10s/upstream req 挂 r.Context())。
+- [审读·qimao-proxy 零虫] 签名按键名排序确定性拼接(生成侧无时序比较面); AES 解密边界(base64/≤16B/块长/去填 pad≤n)全臂无 panic; EPUB(PK 魔头)200+ok:false 诚实拒绝; 超时全有界(upstream 15s/8MB/ReadHeaderTimeout 10s); /health 60s 缓存。观察留档: 并发 /health 过期时无 singleflight 可能重复探针(本地-only 面, 不修); wd[:60] 字节截断可切 UTF-8(展示面)。
+- [审读·auth 限流 FIFO 清扫] ConsumeAttempt 新 IP 满容量(1 万)淘汰 min(firstAt) O(n) 扫描有界; 窗口过期重置; ≥5 次拒+Retry-After; StartSweeper 5min 周期清扫互斥正确; XFF 信任 R56-2b 收紧(仅回环/私网对端采信)在位; clientIP 取首段在反代后仍可被首段伪造(既有裁决留档, 非本轮新增面)。VerifyPassword 等长消耗对齐+fail-closed; VerifySession 两键白名单+nonce 32hex。
+- [回归] mini-services/bqg-unlock/main_test.go 2 测试: ①writeErr 含引号/反斜杠/中文消息全合法 JSON+error 无损回读 ②handler 守卫 8 臂(missing/bad url/bad scheme/bad port/host 不白/缺 id/坏 id/坏 chapterid)状态码+合法 JSON 双断言(全部在触达上游前返回)。模块 vet+build 零错。
+- [门禁] internal 全包 + auth/api/stealth + bqg-unlock 模块 -count=1 全绿; gofmt internal/+mini-services/ 零。
+
+Stage Summary:
+- i20 真虫 1+硬化 1: [R79-i20] bqg-unlock sanitizeErr `\'` 非法 JSON(全错误路径统一 writeErr)+白名单域名任意端口收口; qimao-proxy 零虫; auth 限流 FIFO/清扫零虫; 2 回归钉入 main_test.go。
+---
+Task ID: R79-b4 批4收尾(i16-i20)
+Agent: R79-b4
+Work Log:
+- [门禁] internal/ 全包+auth+api+stealth+bqg-unlock 模块 go test -count=1 全绿; gofmt internal/ mini-services/ 零; vet 零; 每轮轮始 :3000 恢复检查恒 200(i16 轮始+全轮抽测); 生产服务零触碰(改码仅源码+测试; bqg-unlock 验证构建落 /tmp 即删, 未动 .build/ 与已部署二进制 —— [R79-i20] 修复待主控重部署 bqg-unlock)。
+- [真虫 1+硬化 1] [R79-i20] bqg-unlock sanitizeErr `\'` 非法 JSON(502 三臂手写信封, 引擎侧解析拒收丢真实错误语义)→全错误路径统一 writeErr; 白名单域名 Hostname/端口错位(apibi.cc:9999 可打任意端口)→scheme+端口白名单收口。
+- [增强落地 1] [R79-i19] interfere 噪声句页内去重采样(noiseSampler 洗牌牌堆): 修前 1625 组合有放回抽, 40 插入/页生日碰撞期望 ≈0.49 近半页面含全同噪声串; 修后页内 40 条全串恒唯一 —— R76-c 留档「跨页重复指纹」收官; 扩库评估为不必要(结构修复优先); stealth 包 3 新钉+全绿。
+- [零虫轮 3] i16 api 增量面(白名单全覆盖+列名注入双闸)/i17 web+sitemap(新书零死链+三重钳制, 活体烟测)/i18 store 查询面(orderBy 三层白名单+54k 章 EXPLAIN 索引全覆盖实证+VACUUM INTO ro 连接无锁等待)。
+- [新增测试] internal/api/r79b4_test.go(2)+internal/stealth/r79b4_test.go(3)+mini-services/bqg-unlock/main_test.go(2, 模块内)。
+- [移交/留档] ①partial 单边 cross-field min>max 引擎归一兜底(i16, 不修); ②bqg-unlock 重部署提醒(源码已修, 二进制待主控重建); ③qimao /health 无 singleflight+wd 字节截断(i20 观察面)。
+---
+Task ID: R79-i21~i25
+Agent: main-controller
+Task: 批 5 收口五轮(规则复检/收割实验/deadcode 复扫/门禁换装快照/E2E 推送)
+
+Work Log:
+- [i21 规则活体增量复检] R78 退化 5 站+PASS 3 站抽查: **molixs 复活实锤**(R78 IP DROP 解除, 引擎探针 books=2·content 34/74 零错误全链恢复)→双落改判([R79复活]注 DB PUT+builtin_rules.json)+矩阵行改 PASS+会计口径全通 19/条件性 9; aijjxs-toplist/dafeng 仍 DROP、daweixs 仍 WAF 403、pilishuwu 仍 CF 挑战(终态不变); PASS 三站(hodei/piaotia/jpxs123) 200 稳定。踩坑记录: adminRuleUpdate description strOf(v,500) 截断——molixs 基础描述 370 字符+追加注被切, 压缩重写后落定(端点截断为设计行为, 双落时注记须预留字长)。
+- [i22 代理收割增强实验] 手动 harvest: 17 源 41k 解析+8835 新入库(2.7s); check 250 条: 22 活/228 死=8.8% 存活(与 R76 8.3% 同量级)——免费池天花板结构性确认, 新源扩充收益有限, R78-a 诚实边界(EOF 族需付费住宅代理)维持; 收割+质检管线运行健康。
+- [i23 deadcode 全仓复扫] 官方 deadcode 工具全仓: 仅 2 处 unreachable=readBodyDecompressed(fetch.go, r72a_test 压缩五形态回归消费)+CanonicalCategoryNames(bootstrap_test oracle 消费, R78-c 已留档)——均为测试消费合法接缝, 零可删项。
+- [i24 门禁+换装+快照] gofmt 三目录零/vet 零/build OK/19 包 test -count=1 全绿; go build ./cmd/server→停服换装→逃逸拉起(:3000 200, books=39); 手动收口快照 db-20260928-144156(55MB); R77 52MB 件被轮转自然消化(heavy-pin 预期行为, R78 件更新更全), git 快照窗替换为 2×55MB R79 收口件(force-add); molixs 探针 2 本残书(10/23 章)删除+孤儿封面清理, books=39。
+- [批 1-4 采认归拢] R79 25 轮迭代累计: 真虫 5(fetch 分账混记/Sec-Fetch-Site 重算/inet_aton SSRF 绕过/pickProxy 无锁读竞态/bqg-unlock 非法 JSON 信封)+硬化 1(桥端口白名单)+增强 2(stealth 噪声句页内去重采样[R76-c 留档收官]/clean 孤立掩码 token O(k·len) CPU 放大硬化)+特征钉死 7+零虫实证轮 13; 移交建议 4 条误报证伪 1(bridge.Keywords 全链完整: models.go:270 INSERT 含 keywords 列)+3 条增强留档(asyncStats 序/discovery 终态语义/bridge 单事务)。
+
+Stage Summary:
+- R79 25 轮(i00-i25)全量交付: 五批深审跨 12 包+2 桥, 真虫 5+硬化 1+增强 2 全部落码带回归(新增 9 测试文件 24+ 测试), 门禁三零+19 包全绿, 换装生效, 快照窗 2×55MB, molixs 复活改判口径 19/9。

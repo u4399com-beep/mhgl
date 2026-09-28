@@ -113,6 +113,7 @@ func interfereTokens(toks []token, cfg Config, r *rand.Rand) []token {
 
 	var ins []insRec
 	inserted := 0
+	sampler := newNoiseSampler(r) // [R79-i19] 页内不重复采样(见 noiseSampler 注)
 	for no, pa := range paras {
 		if inserted >= 40 {
 			break
@@ -120,7 +121,7 @@ func interfereTokens(toks []token, cfg Config, r *rand.Rand) []token {
 		if no%density != phase {
 			continue
 		}
-		html := interfereSpan(cfg.InterfereMode, r)
+		html := interfereSpan(cfg.InterfereMode, sampler)
 		if len(pa.cands) > 0 {
 			c := pa.cands[r.Intn(len(pa.cands))]
 			ins = append(ins, insRec{tokIdx: c.tokIdx, off: c.off, html: html})
@@ -191,15 +192,47 @@ func sentenceCands(data string, tokIdx int, cands []candPos) []candPos {
 	return cands
 }
 
+// noiseSampler 页内不重复噪声采样器(句/尾缀各自洗牌牌堆, 顺序出牌循环补给)。
+// [R79-i19] 修前 interfereSpan 对 65 句×25 尾缀=1625 组合有放回随机抽: 页内
+// 40 条插入的生日碰撞期望 ≈40²/(2×1625)≈0.49 —— 近半数页面含至少一对全同
+// 噪声句, 镜像采集器跨页对齐时「同句反复出现」的指纹密度被自身放大。
+// 修后句库 65 ≥ 页内上限 40: 洗牌牌堆顺序出牌保证页内句子两两不同
+// ⇒ 全串(句+尾缀)页内恒唯一; 尾缀库 25 < 40 循环补给(句子不同 ⇒ 组合仍唯一)。
+// hex 尾缀臂(1/4)保留, 作为跨页维度的额外去指纹层。
+type noiseSampler struct {
+	sent   []int // 句库下标牌堆(r.Perm 全排列)
+	tail   []int // 尾缀库下标牌堆
+	si, ti int
+	r      *rand.Rand
+}
+
+func newNoiseSampler(r *rand.Rand) *noiseSampler {
+	return &noiseSampler{
+		sent: r.Perm(len(noiseSents)),
+		tail: r.Perm(len(noiseTails)),
+		r:    r,
+	}
+}
+
+// next 出一张(句, 尾缀); 牌堆尽则循环(句库在页内上限 40 下不触底)。
+func (s *noiseSampler) next() (string, string) {
+	sent := noiseSents[s.sent[s.si%len(s.sent)]]
+	s.si++
+	tail := noiseTails[s.tail[s.ti%len(s.tail)]]
+	s.ti++
+	return sent, tail
+}
+
 // interfereSpan 生成一条隐藏 span。
-func interfereSpan(mode string, r *rand.Rand) string {
+func interfereSpan(mode string, s *noiseSampler) string {
 	style := "display:none"
 	if mode == "offscreen" {
 		style = "position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden"
 	}
-	txt := noiseSents[r.Intn(len(noiseSents))] + noiseTails[r.Intn(len(noiseTails))]
-	if r.Intn(4) == 0 {
-		txt += " " + hexRand(r, 6)
+	sent, tail := s.next()
+	txt := sent + tail
+	if s.r.Intn(4) == 0 {
+		txt += " " + hexRand(s.r, 6)
 	}
 	return `<span class="sj-i" style="` + style + `">` + escapeHTMLText(txt) + `</span>`
 }
