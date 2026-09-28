@@ -164,11 +164,65 @@ func isValidHostPort(host string, port int) bool {
 	return domainRe.MatchString(strings.ToLower(host))
 }
 
-// ParseSourceBody 源响应体 → 代理列表(TS parseSourceBody 逐语义移植)
+// deniedProxyHost 免费收割条目内网/保留地址拒绝([R78-a] SSRF 面封堵):
+// 公开免费代理清单存在注入内网/元数据地址的形态(thespeedx 系实测含 127.0.0.7:80 /
+// 0.0.0.0:80 占位行, 生产池 39k 条中已发现 6 条; 恶意源可注入 169.254.169.254 类
+// 云元数据地址) —— 收割入库即被校验器/采集引擎当代理实际拨号(CONNECT/绝对 GET 请求
+// 线打向内网服务, 构成 SSRF 面)。IP 字面量命中回环/私网(RFC1918+RFC4193)/链路本地/
+// CGNAT 100.64/10/组播/未指定 一律拒绝; 域名形态不做解析判定(校验器拨号 9s 内自然
+// 证伪, 且公开清单域名条目占比≈0)。与 fetch 包 isDeniedIP 同判定族, 包边界内独立
+// 实现(proxy 包不 import fetch, 依赖单向)
+func deniedProxyHost(host string) bool {
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false // 域名/非法形态交给 isValidHostPort 与校验器
+	}
+	if v4 := ip.To4(); v4 != nil && v4[0] == 100 && v4[1] >= 64 && v4[1] <= 127 {
+		return true // CGNAT(RFC 6598), net.IP.IsPrivate 不覆盖
+	}
+	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast() || ip.IsUnspecified() || ip.IsMulticast()
+}
+
+// deniedRemoteIP 校验拨号复检判定([R78-a] 与 deniedProxyHost 的口径差: 回环放行 ——
+// 测试 mock 代理在 127.0.0.1, 存量已入池条目由校验器自然证伪; 私网/链路本地/CGNAT/
+// 元数据/组播/未指定恒拒, 封恶意域名形态条目解析到内网 IP 的拨号面)
+func deniedRemoteIP(ip net.IP) bool {
+	if v4 := ip.To4(); v4 != nil && v4[0] == 100 && v4[1] >= 64 && v4[1] <= 127 {
+		return true
+	}
+	return ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
+		ip.IsUnspecified() || ip.IsMulticast()
+}
+
+// guardCheckDialContext 校验拨号复检 DialContext([R78-a] 纵深防御): 校验器对池内全部
+// 候选(含 ingest 过滤前已入池的存量行)逐条实际拨号 —— 拨号后复检 RemoteAddr, 命中
+// deniedRemoteIP 即断连拒绝(条目按失败记账, 自然出池)
+func guardCheckDialContext(d *net.Dialer) func(ctx context.Context, network, addr string) (net.Conn, error) {
+	return func(ctx context.Context, network, addr string) (net.Conn, error) {
+		conn, err := d.DialContext(ctx, network, addr)
+		if err != nil {
+			return nil, err
+		}
+		var ip net.IP
+		if tcp, ok := conn.RemoteAddr().(*net.TCPAddr); ok {
+			ip = tcp.IP
+		}
+		if ip != nil && deniedRemoteIP(ip) {
+			conn.Close()
+			return nil, fmt.Errorf("check dial-guard: 代理地址实拨 IP 被拒(%s)", ip)
+		}
+		return conn, nil
+	}
+}
+
+// ParseSourceBody 源响应体 → 代理列表(TS parseSourceBody 逐语义移植)。
+// [R78-a] 出口统一过滤 deniedProxyHost(内网/保留地址条目不入池, 见 deniedProxyHost 注)
 func ParseSourceBody(src Source, body string) []ParsedProxy {
 	out := []ParsedProxy{}
 	if src.Kind == KindGeonode {
-		return parseGeonode(src, body)
+		out = parseGeonode(src, body)
+		return dropDeniedHosts(out)
 	}
 	for _, line := range strings.Split(body, "\n") {
 		raw := strings.TrimSpace(line)
@@ -263,6 +317,19 @@ func ParseSourceBody(src Source, body string) []ParsedProxy {
 			}
 			out = append(out, entry)
 		}
+	}
+	return dropDeniedHosts(out)
+}
+
+// dropDeniedHosts 解析产物内网/保留地址过滤([R78-a]): deniedProxyHost 命中条目
+// 就地剔除(保序; 复用原切片底层数组, 解析产物归本轮独占无别名)
+func dropDeniedHosts(in []ParsedProxy) []ParsedProxy {
+	out := in[:0]
+	for _, p := range in {
+		if deniedProxyHost(p.Host) {
+			continue
+		}
+		out = append(out, p)
 	}
 	return out
 }
@@ -801,6 +868,7 @@ func (h *Harvester) transportFor(protocol string, pu *url.URL, host string, port
 	switch protocol {
 	case "http", "socks5":
 		tr.Proxy = http.ProxyURL(pu)
+		tr.DialContext = guardCheckDialContext(&net.Dialer{Timeout: CheckTimeout})
 		return tr, nil
 	case "socks4":
 		tr.Proxy = nil
@@ -827,6 +895,11 @@ func dialSOCKS4(ctx context.Context, proxyAddr, targetHost string, targetPort in
 	conn, err := d.DialContext(ctx, "tcp", proxyAddr)
 	if err != nil {
 		return nil, err
+	}
+	// [R78-a] 代理跳拨号复检(与其他校验传输同一策略: 私网/元数据恒拒, 回环放行)
+	if tcp, ok := conn.RemoteAddr().(*net.TCPAddr); ok && deniedRemoteIP(tcp.IP) {
+		conn.Close()
+		return nil, fmt.Errorf("check dial-guard: 代理地址实拨 IP 被拒(%s)", tcp.IP)
 	}
 	deadline := time.Now().Add(CheckTimeout)
 	_ = conn.SetDeadline(deadline)

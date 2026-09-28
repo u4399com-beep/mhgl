@@ -33,30 +33,34 @@
 3. **双落纪律**：规则修改必须 `PUT /api/admin/rules/{id}`（运行库）+ `internal/api/builtin_rules.json`（仓库，indent=2，改后 `json` 校验）双落，保证一键导入语义一致。
 4. **修完即换装复测**：fetch/blockcheck 层修复需等看门狗重建二进制上线后再探（探针失败形态要区分「规则缺陷」与「代码未上线/站点临时限流」）。
 
-### 1.3 35 规则逐条终态表（R76 终态）
+### 1.3 35 规则逐条终态表（R76 终态；R78 活体复核差异见下方横幅）
 
-**全通 23 条**（R75 基线 19 + R76 新破 4：cuoceng / fanqie / bqg713 / qimao）＋ fail-closed 4 ＋ 条件性 5 ＋ 站点死亡 1（book4，R77 终验）＋ 夹具 1（会计口径见 §1.4 注）。
+> **R78 活体复核（2026-09-28）**：P0 三主任务规则（yueyouxs/xyetianlian/xbqg777）+ P1 R76 新破四站（cuoceng/fanqie/bqg713 桥/qimao 桥）引擎级探针回归 **7/7 全 PASS 未退化**；全通规则抽查发现 **5 站新退化**（均为站点侧状态变化、非规则虫，已双落 `[R78复核]` 注）：
+> `aijjxs-toplist`（toplist 路径 IP DROP，同站主站列表仍可达→PASS 维持）/ `dafengdagengren`（全路径 IP DROP）/ `moli`（IP DROP）/ `daweixs`（WAF 裸 403，`tlsFingerprint=chrome` 实验无效已保留）/ `pilishuwu`（CF JS 挑战升级 403 1436B，HTTP 引擎无 JS 执行力）。
+> **全通口径 23→18，条件性 5→10**。curl 直探假阴性两面已实证：aijjxs/iidcr/yybsw 三站 curl 挂起或 403，引擎完整指纹（TLS+头集+stealth）全链通过（iidcr 125/150 章、yybsw 184/1196 章、aijjxs content 臂启动零失败）——**探针判定必须走引擎级 livecheck，curl 仅作辅助**。
+
+**全通 18 条**（R75 基线 19 + R76 新破 4 − R78 复核退化 5：aijjxs-toplist / dafengdagengren / moli / daweixs / pilishuwu）＋ fail-closed 4 ＋ 条件性 10（R76 期 5 + R78 复核退化 5）＋ 站点死亡 1（book4，R77 终验）＋ 夹具 1（会计口径见 §1.4 注）。
 
 | 规则 | 终态 | 根因与突破手段 | 所需资源 / 条件 |
 |---|---|---|---|
 | `80ge` 八零电子书 | ✅ PASS | wap 静态站直连（R75 全通） | 无 |
-| `aijjxs` 久久小说 | ✅ PASS | 直连（R75 全通） | 无 |
-| `aijjxs-toplist` 久久·排行榜 | ✅ PASS | 直连（R75 全通） | 无 |
-| `dafengdagengren` 大奉打更人 | ✅ PASS | 直连（R75 全通） | 无 |
-| `daweixs` 大微小说网 | ✅ PASS | 直连（R75 全通） | 无 |
+| `aijjxs` 久久小说 | ✅ PASS（R78 复核维持） | 直连（R75 全通；R78 引擎探针 books=5·content 臂零失败，curl 挂起为假阴性） | 无 |
+| `aijjxs-toplist` 久久·排行榜 | ⚠️ 退化（R78 复核） | toplist 路径对沙箱 IP DROP 挂起（同站主站列表路径仍可达，`aijjxs` 行 PASS 维持） | 换 IP 后零改动即采 |
+| `dafengdagengren` 大奉打更人 | ⚠️ 退化（R78 复核） | 站点对沙箱 IP 全路径 DROP 挂起（curl+引擎双实证） | 换 IP/换域后零改动即采 |
+| `daweixs` 大微小说网 | ⚠️ 退化（R78 复核） | WAF 裸 403（127B 空体）封数据中心 IP；R78 实验 `tlsFingerprint=chrome` 无效（已保留无害） | 干净 IP/住宅代理 |
 | `deqixs` 得奇小说 | ✅ PASS | 直连全通（规则遗留 `contentProxyUrl`→127.0.0.1:3014 为 R69 已退役端口，正文段失败自动降级直连，不影响采集） | 无 |
 | `hodei` 好读小说 | ✅ PASS | R75 修复：移动 UA 返回空响应实锤 → fetch.headers 钉桌面 UA | 无 |
-| `iidcr` 稻草人书屋 | ✅ PASS | 直连（R75 全通） | 无 |
+| `iidcr` 稻草人书屋 | ✅ PASS（R78 复核维持） | 直连（R78 引擎探针 content 125/150 章；curl 403 为假阴性） | 无 |
 | `jpxs123` 精品小说（繁体） | ✅ PASS | 直连 + 入库繁转简（`crawlT2S`） | 无 |
 | `kanunu8` 努努书坊 | ✅ PASS | GBK 编码自动探测 | 无 |
-| `moli` 茉莉小说 | ✅ PASS | GBK（17mbCMS） | 无 |
+| `moli` 茉莉小说 | ⚠️ 退化（R78 复核） | 站点对沙箱 IP DROP 挂起（curl+引擎双实证） | 换 IP 后零改动即采 |
 | `piaotia` 飘天文学 | ✅ PASS | GBK 直连 | 无 |
-| `pilishuwu` 霹雳书屋 | ✅ PASS | CF 防护可过（R75 实测） | 无 |
+| `pilishuwu` 霹雳书屋 | ⚠️ 退化（R78 复核） | CF JS 挑战升级（403 1436B challenge-platform），HTTP 引擎无 JS 执行力 | 真实浏览器方案/干净 IP |
 | `shoujixs` 手机小说 | ✅ PASS | R75 修复：站点重构 toc `#lbks`→`#list` + 桌面 UA 钉扎 | 无 |
 | `shudugu` 速读谷 | ✅ PASS | 直连（R75 全通） | 无 |
 | `wuxiaworld` WuxiaWorld Lite | ✅ PASS | 直连（R75 全通） | 无 |
 | `yueyouxs` 神马小说 | ✅ PASS | 移动站静态 HTML 直连（R75 全通；库内另有一条同配置重复行，见 §1.4） | 无 |
-| `yybsw` 夜伴书屋 | ✅ PASS | 直连（R75 全通） | 无 |
+| `yybsw` 夜伴书屋 | ✅ PASS（R78 复核维持） | 直连（R78 引擎探针 content 184/1196 章；curl 403 为假阴性） | 无 |
 | `xbqg777` 新笔趣阁 | ✅ PASS | bqg 家族静态站直连；R75 中途已修实测通过（R75 终表行为陈旧 FAIL，R76-main 复核采认） | 无 |
 | `xyetianlian` 仙侠天恋 | ✅ PASS | 杰奇 WAP 纯静态 http 站直连；采认口径同上条 | 无 |
 | `cuoceng` 错层小说网 | ✅ PASS（R76 新破） | 唯一障碍是 fetch 层误拦：真实内容页内嵌 CF `challenge-platform/scripts/precursor/main.js` 落强标记硬判拦 → R76-main blockcheck 豁免扩展（`cfProbeBenign`：jsd\|precursor 双变体 × n≥1200+正常标题，标题黑名单防盾壳穿闸）→ R76-b2 livecheck PASS（books=1·content 20/2033） | 低并发慢跑（waitMs 1200 / globalConcurrency 3 已调优防 400 节流） |

@@ -136,44 +136,37 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	raw := strings.TrimSpace(r.URL.Query().Get("url"))
 	if raw == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		fmt.Fprintf(w, `{"ok":false,"error":"missing url param"}`)
+		writeErr(w, http.StatusBadRequest, "missing url param")
 		return
 	}
 	u, err := url.Parse(raw)
 	if err != nil || u.Host == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		fmt.Fprintf(w, `{"ok":false,"error":"bad url"}`)
+		writeErr(w, http.StatusBadRequest, "bad url")
 		return
 	}
 	if !hostAllowlist[strings.ToLower(u.Hostname())] {
-		w.WriteHeader(http.StatusForbidden)
-		fmt.Fprintf(w, `{"ok":false,"error":"host not allowed"}`)
+		writeErr(w, http.StatusForbidden, "host not allowed")
 		return
 	}
 	q := u.Query()
 	idStr, chStr := q.Get("id"), q.Get("chapterid")
 	if idStr == "" || chStr == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		fmt.Fprintf(w, `{"ok":false,"error":"url lacks id/chapterid query"}`)
+		writeErr(w, http.StatusBadRequest, "url lacks id/chapterid query")
 		return
 	}
 	var id, ch int
 	if _, err := fmt.Sscanf(idStr, "%d", &id); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		fmt.Fprintf(w, `{"ok":false,"error":"bad id"}`)
+		writeErr(w, http.StatusBadRequest, "bad id")
 		return
 	}
 	if _, err := fmt.Sscanf(chStr, "%d", &ch); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		fmt.Fprintf(w, `{"ok":false,"error":"bad chapterid"}`)
+		writeErr(w, http.StatusBadRequest, "bad chapterid")
 		return
 	}
 
 	token, err := makeToken(tokenParams{ID: id, ChapterID: ch})
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprintf(w, `{"ok":false,"error":"token gen failed"}`)
+		writeErr(w, http.StatusInternalServerError, "token gen failed")
 		return
 	}
 	target := fmt.Sprintf("%s://%s/api/chapter?token=%s", u.Scheme, u.Host, url.QueryEscape(token))
@@ -217,6 +210,11 @@ func mustJSON(s string) string {
 		return `""`
 	}
 	return string(b)
+}
+
+func writeErr(w http.ResponseWriter, code int, msg string) {
+	w.WriteHeader(code)
+	fmt.Fprintf(w, `{"ok":false,"error":%s}`, mustJSON(msg))
 }
 
 func sanitizeErr(err error) string {

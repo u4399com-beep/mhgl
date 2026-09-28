@@ -817,6 +817,50 @@ func (c *Client) newDirectTransport(allowLoopback bool) *http.Transport {
 	return tr
 }
 
+// guardProxyHopConn 代理跳拨号复检([R78-a] 代理传输 SSRF 面封堵): 代理传输的拨号
+// 目标是代理自身 —— 修前非 tlsfp 代理传输无 DialContext(裸默认拨号器), 免费收割池
+// 条目若含内网/元数据地址(proxy 包 ingest 过滤前生产池实证 6 条: 127.0.0.7/0.0.0.0;
+// 恶意源可注入 169.254.169.254 类), CONNECT/绝对 GET 请求线会实际打向内网服务。
+// 策略: 实拨 IP 命中 isDeniedIP(私网/链路本地/CGNAT/元数据/组播/未指定)即断连拒绝;
+// 回环放行(本地 mock 代理/静态回环代理配置场景, 池条目面由 proxy 包 ingest 过滤承担)。
+// 与 safeDialContext 同判定族, 仅豁免口径不同(代理跳恒放行回环)
+func guardProxyHopConn(conn net.Conn) error {
+	ra := conn.RemoteAddr()
+	var ip net.IP
+	if tcp, ok := ra.(*net.TCPAddr); ok {
+		ip = tcp.IP
+	} else if s := ra.String(); s != "" && strings.Contains(s, ":") {
+		if h, _, serr := net.SplitHostPort(s); serr == nil {
+			ip = net.ParseIP(h)
+		}
+	}
+	if ip == nil {
+		conn.Close()
+		return fmt.Errorf("proxy-hop dial-guard: RemoteAddr 不可解析(%s)", ra)
+	}
+	if isDeniedIP(ip) {
+		conn.Close()
+		return fmt.Errorf("proxy-hop dial-guard: 代理地址实拨 IP 被拒(%s)", ip)
+	}
+	return nil
+}
+
+// guardProxyHopDialContext 代理传输 DialContext(拨号目标=代理自身): 拨号后经
+// guardProxyHopConn 复检实拨 IP(私网/元数据恒拒, 回环放行)
+func guardProxyHopDialContext() func(ctx context.Context, network, addr string) (net.Conn, error) {
+	d := &net.Dialer{Timeout: 15 * time.Second, KeepAlive: 30 * time.Second}
+	return func(ctx context.Context, network, addr string) (net.Conn, error) {
+		conn, err := d.DialContext(ctx, network, addr)
+		if err != nil {
+			return nil, err
+		}
+		if err := guardProxyHopConn(conn); err != nil {
+			return nil, err
+		}
+		return conn, nil
+	}
+}
+
 // safeDialContext 拨号级 SSRF 复检: 拨号完成后校验 RemoteAddr 实连 IP(封 DNS rebinding
 // TOCTOU: 域名校验时解析到公网 IP, 实拨时被 rebinding 到私网的攻击面)。仅作用于直连
 // 传输; 代理传输的目标解析发生在代理侧, 操作员自担其代理配置。
@@ -1228,6 +1272,11 @@ func (c *Client) transportFor(pu *url.URL, httpsTarget bool) *http.Transport {
 		tr.DialContext = c.safeDialContext(c.cfg.AllowLoopback)
 	} else {
 		tr.Proxy = http.ProxyURL(pu)
+		// [R78-a] 代理跳拨号守卫(拨号目标=代理自身): 修前裸默认拨号器无任何复检,
+		// 免费收割池/静态配置条目含内网·元数据地址时 CONNECT/绝对 GET 实打内网服务
+		// (生产池实证 127.0.0.7/0.0.0.0 条目)。回环放行(本地 mock 代理场景,
+		// TestR76aHarvestAddrThroughPickProxyAndDial 即此形态), 私网/元数据恒拒
+		tr.DialContext = guardProxyHopDialContext()
 	}
 	c.proxyTans[key] = tr
 	return tr

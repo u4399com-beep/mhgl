@@ -376,7 +376,7 @@
   {
     "key": "aijjxs-toplist",
     "name": "久久小说网 排行榜 (aijjxs.com toplist)",
-    "description": "aijjxs.com 排行榜/筛选页(toplist)专用规则, 与分类列表规则(div.listbg)同站互补 —— toplist 是紧凑布局无 listbg, 用分类规则取不到数。★0 基翻页: 首个 p_ 段=页码-1(第1页 p_0/第2页 p_1), urlTemplate 用 {offset:1} 表达, 任务页号 1..N 直接可用; 筛选参数: c_(1女生/2男生/3耽美) r_(1最新上传/2下载排行/3收藏排行/4只看推荐) n_年度 s_背景 q_大小, 变体通过任务级列表页 URL 覆盖改参即可(仅 {page}/{offset:N} 被引擎替换)。列表=div.body.grid2 div.book ×10/页(h4 a 书名/zuozhe 作者/meta small:last-of-type 分类/regex 状态锚定\"· 状态 · 大小\"/oldDate 上传日期/封面协议相对自动补全/desc 简介) / 书籍页+目录+正文与分类规则同构(/txt/{bid}.html → a[href^=/read/] → /read/{bid}/ ul.chapter-list 全量单页, 正文 #view_content_txt 每章单页翻页关闭)。UTF-8 直连无挑战。",
+    "description": "aijjxs.com 排行榜/筛选页(toplist)专用规则, 与分类列表规则(div.listbg)同站互补 —— toplist 是紧凑布局无 listbg, 用分类规则取不到数。★0 基翻页: 首个 p_ 段=页码-1(第1页 p_0/第2页 p_1), urlTemplate 用 {offset:1} 表达, 任务页号 1..N 直接可用; 筛选参数: c_(1女生/2男生/3耽美) r_(1最新上传/2下载排行/3收藏排行/4只看推荐) n_年度 s_背景 q_大小, 变体通过任务级列表页 URL 覆盖改参即可(仅 {page}/{offset:N} 被引擎替换)。列表=div.body.grid2 div.book ×10/页(h4 a 书名/zuozhe 作者/meta small:last-of-type 分类/regex 状态锚定\"· 状态 · 大小\"/oldDate 上传日期/封面协议相对自动补全/desc 简介) / 书籍页+目录+正文与分类规则同构(/txt/{bid}.html → a[href^=/read/] → /read/{bid}/ ul.chapter-list 全量单页, 正文 #view_content_txt 每章单页翻页关闭)。UTF-8 直连无挑战。 | [R78复核] toplist 路径对沙箱 IP DROP 挂起(主站列表路径仍可达), 条件性 needsAliveIP",
     "enabled": true,
     "source": "scripts/seed-rule-aijjxs-toplist.ts",
     "config": {
@@ -1292,7 +1292,7 @@
   {
     "key": "dafengdagengren",
     "name": "大奉打更人 (dafengdagengren.com)",
-    "description": "dafengdagengren.com GBK 笔趣阁模板站(与 daweixs.com 同平台同模板)。WAF: nginx 403 双 Set-Cookie 挑战(server_name_session 会话 Cookie 为关键凭证), 引擎 http 层 autoCookie 挑战重试链原生破解(首访种 Cookie 二连过, 无需浏览器)。dd-c 改版适配: 分类路径加 xiaoshuo 后缀, 旧列表源 /paihangbang/ 上游恒 502 已弃用, 列表改用 /xuanhuanxiaoshuo/ 分类页 ul.txt-list-row5 li(30 本/页, /list/1_N.html 第 N≥2 页但首页路径独立无法 {page} 表达)。书籍页 .info h1+作者 regex+.info .desc / 目录 #section-list li a / 正文 #content(纵横转载源带捧场月票灌水块, 已清洗; <br>×3 段间折叠+第N/M页页码/本章未完引流行剥离 R21-f2-3, 章内翻页关闭防并章)。",
+    "description": "dafengdagengren.com GBK 笔趣阁模板站(与 daweixs.com 同平台同模板)。WAF: nginx 403 双 Set-Cookie 挑战(server_name_session 会话 Cookie 为关键凭证), 引擎 http 层 autoCookie 挑战重试链原生破解(首访种 Cookie 二连过, 无需浏览器)。dd-c 改版适配: 分类路径加 xiaoshuo 后缀, 旧列表源 /paihangbang/ 上游恒 502 已弃用, 列表改用 /xuanhuanxiaoshuo/ 分类页 ul.txt-list-row5 li(30 本/页, /list/1_N.html 第 N≥2 页但首页路径独立无法 {page} 表达)。书籍页 .info h1+作者 regex+.info .desc / 目录 #section-list li a / 正文 #content(纵横转载源带捧场月票灌水块, 已清洗; <br>×3 段间折叠+第N/M页页码/本章未完引流行剥离 R21-f2-3, 章内翻页关闭防并章)。 | [R78复核] 站点对沙箱 IP 全路径 DROP 挂起(curl+引擎双实证), 条件性 needsAliveIP/needsNewDomain",
     "enabled": true,
     "source": "scripts/seed-rule-dafengdagengren.ts",
     "config": {
@@ -1457,7 +1457,7 @@
   {
     "key": "daweixs",
     "name": "大微小说网 (daweixs.com)",
-    "description": "daweixs.com GBK 笔趣阁模板站。WAF: nginx 403 双 Set-Cookie 挑战(server_name_session 会话 Cookie 为关键凭证), 引擎 http 层 autoCookie 挑战重试链原生破解(首访种 Cookie 二连过, 无需浏览器)。dd-c 改版适配: 分类路径加 xiaoshuo 后缀, 旧列表源 /paihangbang/ 上游恒 502 已弃用, 列表改用 /xuanhuanxiaoshuo/ 分类页 ul.txt-list-row5 li(30 本/页, /list/1_N.html 第 N≥2 页但首页路径独立无法 {page} 表达)。书籍页 .info h1+作者 regex+.info .desc / 目录 #section-list li a(精确锚定全量正序, 避开首个\"最新章节\"倒序块) / 正文 #content(<br>×3 段间折叠+第N/M页页码/本章未完引流行剥离 R21-f2-4, 章内翻页关闭防并章)。已知瑕疵: 部分旧章正文尾部混入他书摘录(无标记不可剥离), 采集前建议核对首章。",
+    "description": "daweixs.com GBK 笔趣阁模板站。WAF: nginx 403 双 Set-Cookie 挑战(server_name_session 会话 Cookie 为关键凭证), 引擎 http 层 autoCookie 挑战重试链原生破解(首访种 Cookie 二连过, 无需浏览器)。dd-c 改版适配: 分类路径加 xiaoshuo 后缀, 旧列表源 /paihangbang/ 上游恒 502 已弃用, 列表改用 /xuanhuanxiaoshuo/ 分类页 ul.txt-list-row5 li(30 本/页, /list/1_N.html 第 N≥2 页但首页路径独立无法 {page} 表达)。书籍页 .info h1+作者 regex+.info .desc / 目录 #section-list li a(精确锚定全量正序, 避开首个\"最新章节\"倒序块) / 正文 #content(<br>×3 段间折叠+第N/M页页码/本章未完引流行剥离 R21-f2-4, 章内翻页关闭防并章)。已知瑕疵: 部分旧章正文尾部混入他书摘录(无标记不可剥离), 采集前建议核对首章。 | [R78复核] WAF 裸403(127B)封数据中心IP; R78 实验 tlsFingerprint=chrome 无效(已保留无害); 条件性 needsAliveIP",
     "enabled": true,
     "source": "scripts/seed-rule-daweixs.ts",
     "config": {
@@ -1587,7 +1587,8 @@
           412,
           429,
           503
-        ]
+        ],
+        "tlsFingerprint": "chrome"
       },
       "clean": {
         "removeSelectors": [
@@ -2870,7 +2871,7 @@
   {
     "key": "moli",
     "name": "茉莉小说(www.molixs.com)·17mbCMS GBK采集",
-    "description": "molixs.com 茉莉小说(17mbCMS 女频站) GBK 直连无防护, 编码由 <meta charset=gbk> 提供给引擎 gb18030 解码。列表=分类真分页页 /{cat}_{page}.html 的 .listcon li(30本/页; 8 类 xiaoyuan/guyan/chuangyue/danmei/xianyan/tianchong/meiwen/qita, 排行榜 /paihang/{type}_{page}.html 12 榜同构) / 书籍页 /{cat}_{id}/ og:novel:* meta 全套+div.articleinfo p.p3 简介 / 目录内嵌书籍页 div.chapterlist ul li a 全量单页 / 正文 #content 单 <p> 内 <br /> 三连分隔, clean.plainText 按行归一为 \\n\\n 段落(零连续空行)。章节页仅上一章/下一章, content 翻页关闭。",
+    "description": "molixs.com 茉莉小说(17mbCMS 女频站) GBK 直连无防护, 编码由 <meta charset=gbk> 提供给引擎 gb18030 解码。列表=分类真分页页 /{cat}_{page}.html 的 .listcon li(30本/页; 8 类 xiaoyuan/guyan/chuangyue/danmei/xianyan/tianchong/meiwen/qita, 排行榜 /paihang/{type}_{page}.html 12 榜同构) / 书籍页 /{cat}_{id}/ og:novel:* meta 全套+div.articleinfo p.p3 简介 / 目录内嵌书籍页 div.chapterlist ul li a 全量单页 / 正文 #content 单 <p> 内 <br /> 三连分隔, clean.plainText 按行归一为 \\n\\n 段落(零连续空行)。章节页仅上一章/下一章, content 翻页关闭。 | [R78复核] 站点对沙箱 IP DROP 挂起(curl+引擎双实证), 条件性 needsAliveIP/needsNewDomain",
     "enabled": true,
     "source": "scripts/seed-rule-moli.ts",
     "config": {
@@ -3230,7 +3231,7 @@
   {
     "key": "pilishuwu",
     "name": "霹雳书屋(www.pilishuwu.com)·CF防护隐身采集",
-    "description": "[R10-b实测修正] www.pilishuwu.com Cloudflare 防护站(wmcms-web模板, 裸HTTP 403)。engine=auto + browserFallbackStatus[403,412,429,503] 自动升级 Obscura 求解挑战, uaMode=desktop 保持同站UA指纹一致。实测结构: 列表=/0/list/0_0_0_0_0_0_0_{page}.html(旧版 /sort/* 与 /list/{page}.html 分页均无效, P2起0项) li.ret-search-item(h3.ret-works-title a 书名/书链, p.ret-works-author 剥\"作者：\"前缀, p.ret-works-tags a 剥\"分类：\"前缀, p.ret-works-decs 简介, 封面图) / 书籍=/bookId/info.html(h2.works-intro-title strong + a.works-author-name + label.works-intro-status 完结直判 + a.works-ft-new 最新章 + p.works-intro-short 简介<br>转行 + div.works-cover img; 无分类字段由列表段补) / 目录=tocLink a[href*=menu] → /menu/1.html 单页全量 span.works-chapter-item>a 正序 / 正文=/read/{cid}.html div.j_readContent 纯p段落单页。",
+    "description": "[R10-b实测修正] www.pilishuwu.com Cloudflare 防护站(wmcms-web模板, 裸HTTP 403)。engine=auto + browserFallbackStatus[403,412,429,503] 自动升级 Obscura 求解挑战, uaMode=desktop 保持同站UA指纹一致。实测结构: 列表=/0/list/0_0_0_0_0_0_0_{page}.html(旧版 /sort/* 与 /list/{page}.html 分页均无效, P2起0项) li.ret-search-item(h3.ret-works-title a 书名/书链, p.ret-works-author 剥\"作者：\"前缀, p.ret-works-tags a 剥\"分类：\"前缀, p.ret-works-decs 简介, 封面图) / 书籍=/bookId/info.html(h2.works-intro-title strong + a.works-author-name + label.works-intro-status 完结直判 + a.works-ft-new 最新章 + p.works-intro-short 简介<br>转行 + div.works-cover img; 无分类字段由列表段补) / 目录=tocLink a[href*=menu] → /menu/1.html 单页全量 span.works-chapter-item>a 正序 / 正文=/read/{cid}.html div.j_readContent 纯p段落单页。 | [R78复核] CF JS 挑战升级(403 1436B challenge-platform), HTTP 引擎无 JS 执行力, 条件性 needsBrowser/needsAliveProxy",
     "enabled": true,
     "source": "scripts/seed-rule-pilishuwu.ts",
     "config": {

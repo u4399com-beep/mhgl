@@ -30,18 +30,6 @@ func must67(t *testing.T) func(sql.Result, error) {
 	}
 }
 
-func decodeEnv67(t *testing.T, rec *httptest.ResponseRecorder) (int, map[string]any) {
-	t.Helper()
-	var env struct {
-		OK   bool           `json:"ok"`
-		Data map[string]any `json:"data"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
-		t.Fatalf("decode env: %v body=%s", err, rec.Body.String())
-	}
-	return rec.Code, env.Data
-}
-
 // ---------------- ⑤ DELETE /api/admin/settings/{key} ----------------
 
 // deleteViaMux PathValue 需经 mux 路由才能绑定 {key}, 直调 handler 拿不到路径参数。

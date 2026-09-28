@@ -13,7 +13,6 @@ import (
 	"bytes"
 	"embed"
 	"encoding/json"
-	"fmt"
 	"html/template"
 	"io/fs"
 	"log"
@@ -26,6 +25,7 @@ import (
 	"time"
 
 	"mhgl/internal/stealth"
+	"mhgl/internal/store"
 )
 
 //go:embed tpl
@@ -435,23 +435,10 @@ func dateDayOf(v any) string {
 	return d
 }
 
-// ToStrSafe 模板 nil 安全字符串化。
-func ToStrSafe(v any) string {
-	switch x := v.(type) {
-	case nil:
-		return ""
-	case string:
-		return x
-	case []byte:
-		return string(x)
-	case int64:
-		return fmt.Sprintf("%d", x)
-	case int:
-		return fmt.Sprintf("%d", x)
-	default:
-		return fmt.Sprint(x)
-	}
-}
+// ToStrSafe 模板 nil 安全字符串化 —— 与 store.ToStr 同一标量口径, 委托单一实现
+// 防双份类型开关漂移(历史两份逐 case 等价: nil→""/string·[]byte 直取/数值与
+// 其他类型 fmt.Sprint 同输出; R78-c 收敛)。
+func ToStrSafe(v any) string { return store.ToStr(v) }
 
 func num64(v any) int64 {
 	switch x := v.(type) {

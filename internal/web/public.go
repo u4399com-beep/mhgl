@@ -710,27 +710,6 @@ func (d Deps) renderReadByID(w http.ResponseWriter, r *http.Request, sp map[stri
 	d.renderReadPage(w, r, sp, ch, book, prev, next)
 }
 
-// renderReadByNum 伪静态 /read/{bookNum}/{idx}.html。
-func (d Deps) renderReadByNum(w http.ResponseWriter, r *http.Request, bookNum, idx int64) {
-	bookM, bookOK, _ := d.DB.QueryMap(`SELECT b.id, b.num FROM "Book" b WHERE b.num=?`, bookNum)
-	if !bookOK {
-		d.render404(w, r, "书籍不存在")
-		return
-	}
-	bid := ToStrSafe(bookM["id"])
-	chm, chOK, _ := d.DB.WebChapterByNum(bid, idx)
-	if !chOK {
-		d.render404(w, r, "章节不存在或尚未采集")
-		return
-	}
-	ch, book, prev, next, ok2, _ := d.DB.WebChapterRead(ToStrSafe(chm["id"]))
-	if !ok2 {
-		d.render404(w, r, "章节内容缺失")
-		return
-	}
-	d.renderReadPage(w, r, r.URL.Query(), ch, book, prev, next)
-}
-
 func (d Deps) renderReadPage(w http.ResponseWriter, r *http.Request, sp map[string][]string, ch, book, prev, next map[string]any) {
 	site := d.resolveSite(r)
 	sid := siteID(site)

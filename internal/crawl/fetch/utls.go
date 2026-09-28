@@ -206,6 +206,11 @@ func connectTunnel(ctx context.Context, pu *url.URL, addr string) (net.Conn, err
 	if err != nil {
 		return nil, fmt.Errorf("代理连接失败(%s): %w", pu.String(), err)
 	}
+	// [R78-a] 代理跳拨号复检(与 transportFor 普通形态同一策略: 私网/元数据恒拒,
+	// 回环放行 —— tlsfp 隧道形态修前同样裸拨无复检)
+	if gerr := guardProxyHopConn(conn); gerr != nil {
+		return nil, fmt.Errorf("代理连接被拒(%s): %w", pu.String(), gerr)
+	}
 	if pu.Scheme == "https" {
 		tc := tls.Client(conn, &tls.Config{ServerName: phost, NextProtos: []string{"http/1.1"}})
 		if err := tc.HandshakeContext(ctx); err != nil {
@@ -260,6 +265,28 @@ type bufferedConn struct {
 
 func (c *bufferedConn) Read(p []byte) (int, error) { return c.r.Read(p) }
 
+// guardedForwardDialer SOCKS5 隧道前置拨号器([R78-a]): 拨代理本身后经 guardProxyHopConn
+// 复检实拨 IP(私网/元数据恒拒, 回环放行); 实现 proxy.Dialer+ContextDialer 双面,
+// x/net/proxy 优先用 ContextDialer
+type guardedForwardDialer struct {
+	d *net.Dialer
+}
+
+func (g guardedForwardDialer) Dial(network, addr string) (net.Conn, error) {
+	return g.DialContext(context.Background(), network, addr)
+}
+
+func (g guardedForwardDialer) DialContext(ctx context.Context, network, addr string) (net.Conn, error) {
+	conn, err := g.d.DialContext(ctx, network, addr)
+	if err != nil {
+		return nil, err
+	}
+	if gerr := guardProxyHopConn(conn); gerr != nil {
+		return nil, gerr
+	}
+	return conn, nil
+}
+
 // socks5Tunnel SOCKS5 隧道(x/net/proxy, 支持用户名/口令认证; ctx 感知)
 func socks5Tunnel(ctx context.Context, pu *url.URL, addr string) (net.Conn, error) {
 	var auth *proxy.Auth
@@ -267,7 +294,7 @@ func socks5Tunnel(ctx context.Context, pu *url.URL, addr string) (net.Conn, erro
 		pwd, _ := pu.User.Password()
 		auth = &proxy.Auth{User: pu.User.Username(), Password: pwd}
 	}
-	d, err := proxy.SOCKS5("tcp", pu.Host, auth, proxy.Direct)
+	d, err := proxy.SOCKS5("tcp", pu.Host, auth, guardedForwardDialer{d: &net.Dialer{Timeout: 15 * time.Second}})
 	if err != nil {
 		return nil, fmt.Errorf("SOCKS5 拨号器创建失败(%s): %w", pu.String(), err)
 	}
